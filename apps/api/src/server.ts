@@ -2,6 +2,7 @@ import http from 'node:http'
 import { pathToFileURL, URL } from 'node:url'
 import type { DesignEvent } from '@dudesign/contracts'
 import { ApplicationService, type HttpError } from './service.js'
+import { createRequestContext, type RequestContext } from './auth.js'
 
 const defaultPort = Number(process.env.PORT ?? 4000)
 const defaultHost = process.env.HOST ?? '127.0.0.1'
@@ -34,73 +35,129 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? `${defaultHost}:${defaultPort}`}`)
   const method = req.method ?? 'GET'
 
+  if (method === 'OPTIONS') {
+    sendCorsPreflight(res)
+    return
+  }
+  const ctx = createRequestContext(req.headers)
+  res.setHeader('x-request-id', ctx.requestId)
+
   if (method === 'GET' && url.pathname === '/health') {
-    sendJson(res, 200, { ok: true })
+    sendJson(res, 200, { ok: true, requestId: ctx.requestId })
     return
   }
 
   if (method === 'GET' && url.pathname === '/api/dev/bootstrap') {
-    sendJson(res, 200, {
-      user: service.store.devUser,
-      workspace: service.store.devWorkspace,
-    })
+    sendJson(res, 200, service.getBootstrap(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/runtime/health') {
+    sendJson(res, 200, await service.getAdminRuntimeHealth(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/audit-logs') {
+    sendJson(res, 200, service.listAuditLogs(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/jobs') {
+    sendJson(res, 200, service.listAdminJobs(ctx, {
+      status: url.searchParams.get('status'),
+      userId: url.searchParams.get('userId'),
+    }))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/artifacts') {
+    sendJson(res, 200, service.listAdminArtifacts(ctx, {
+      jobId: url.searchParams.get('jobId'),
+      variationId: url.searchParams.get('variationId'),
+      kind: url.searchParams.get('kind'),
+    }))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/support/users') {
+    sendJson(res, 200, service.getAdminUserSupport(ctx, {
+      userId: url.searchParams.get('userId'),
+      email: url.searchParams.get('email'),
+    }))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/costs/summary') {
+    sendJson(res, 200, service.getAdminCostSummary(ctx))
     return
   }
 
   if (method === 'POST' && url.pathname === '/api/sessions') {
-    sendJson(res, 201, await service.createSession(await readJson(req)))
+    sendJson(res, 201, await service.createSession(ctx, await readJson(req)))
     return
   }
 
   if (method === 'GET' && url.pathname === '/api/sessions') {
-    sendJson(res, 200, service.listSessions())
+    sendJson(res, 200, service.listSessions(ctx))
     return
   }
 
   const resumeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/resume$/)
   if (method === 'POST' && resumeMatch) {
-    sendJson(res, 200, await service.resumeSession(decodeURIComponent(resumeMatch[1]!)))
+    sendJson(res, 200, await service.resumeSession(ctx, decodeURIComponent(resumeMatch[1]!)))
     return
   }
 
   if (method === 'POST' && url.pathname === '/api/design-jobs') {
-    sendJson(res, 201, await service.createDesignJob(await readJson(req)))
+    sendJson(res, 201, await service.createDesignJob(ctx, await readJson(req)))
     return
   }
 
   const jobStreamMatch = url.pathname.match(/^\/api\/design-jobs\/([^/]+)\/stream$/)
   if (method === 'GET' && jobStreamMatch) {
-    streamJobEvents(res, service, decodeURIComponent(jobStreamMatch[1]!))
+    streamJobEvents(res, service, ctx, decodeURIComponent(jobStreamMatch[1]!))
+    return
+  }
+
+  const adminJobCancelMatch = url.pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/cancel$/)
+  if (method === 'POST' && adminJobCancelMatch) {
+    sendJson(res, 200, await service.cancelJobAsAdmin(ctx, decodeURIComponent(adminJobCancelMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const adminJobRetryMatch = url.pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/retry$/)
+  if (method === 'POST' && adminJobRetryMatch) {
+    sendJson(res, 200, await service.retryJobAsAdmin(ctx, decodeURIComponent(adminJobRetryMatch[1]!), await readJson(req)))
     return
   }
 
   const variationPreviewMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/preview$/)
   if (method === 'GET' && variationPreviewMatch) {
-    sendHtml(res, 200, service.getVariationPreview(decodeURIComponent(variationPreviewMatch[1]!)))
+    sendHtml(res, 200, service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!)))
     return
   }
 
   const variationRefineMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine$/)
   if (method === 'POST' && variationRefineMatch) {
-    sendJson(res, 200, await service.refineVariation(decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
+    sendJson(res, 200, await service.refineVariation(ctx, decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
     return
   }
 
   const variationAnnotationMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/annotations$/)
   if (method === 'POST' && variationAnnotationMatch) {
-    sendJson(res, 200, await service.annotateVariation(decodeURIComponent(variationAnnotationMatch[1]!), await readJson(req)))
+    sendJson(res, 200, await service.annotateVariation(ctx, decodeURIComponent(variationAnnotationMatch[1]!), await readJson(req)))
     return
   }
 
   const variationExportMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/export$/)
   if (method === 'POST' && variationExportMatch) {
-    sendJson(res, 200, service.exportVariation(decodeURIComponent(variationExportMatch[1]!)))
+    sendJson(res, 200, service.exportVariation(ctx, decodeURIComponent(variationExportMatch[1]!)))
     return
   }
 
   const variationShareMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/share$/)
   if (method === 'POST' && variationShareMatch) {
-    sendJson(res, 200, service.shareVariation(decodeURIComponent(variationShareMatch[1]!), await readJson(req)))
+    sendJson(res, 200, service.shareVariation(ctx, decodeURIComponent(variationShareMatch[1]!), await readJson(req)))
     return
   }
 
@@ -112,13 +169,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationMatch = url.pathname.match(/^\/api\/variations\/([^/]+)$/)
   if (method === 'GET' && variationMatch) {
-    sendJson(res, 200, service.getVariationDetail(decodeURIComponent(variationMatch[1]!)))
+    sendJson(res, 200, service.getVariationDetail(ctx, decodeURIComponent(variationMatch[1]!)))
     return
   }
 
   const jobMatch = url.pathname.match(/^\/api\/design-jobs\/([^/]+)$/)
   if (method === 'GET' && jobMatch) {
-    sendJson(res, 200, service.getDesignJob(decodeURIComponent(jobMatch[1]!)))
+    sendJson(res, 200, service.getDesignJob(ctx, decodeURIComponent(jobMatch[1]!)))
     return
   }
 
@@ -130,12 +187,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   })
 }
 
-function streamJobEvents(res: http.ServerResponse, service: ApplicationService, jobId: string): void {
-  if (!service.store.jobs.has(jobId)) {
+function streamJobEvents(res: http.ServerResponse, service: ApplicationService, ctx: RequestContext, jobId: string): void {
+  try {
+    service.getDesignJob(ctx, jobId)
+  } catch (error) {
     sendJson(res, 404, {
       error: {
-        code: 'JOB_NOT_FOUND',
-        message: `Design job not found: ${jobId}`,
+        code: (error as Partial<HttpError>).code ?? 'JOB_NOT_FOUND',
+        message: error instanceof Error ? error.message : `Design job not found: ${jobId}`,
       },
     })
     return
@@ -187,6 +246,8 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
   })
   res.end(JSON.stringify(payload, null, 2))
 }
@@ -195,9 +256,21 @@ function sendHtml(res: http.ServerResponse, status: number, html: string): void 
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
     'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; img-src data: https:; frame-ancestors 'self'",
   })
   res.end(html)
+}
+
+function sendCorsPreflight(res: http.ServerResponse): void {
+  res.writeHead(204, {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'access-control-max-age': '600',
+  })
+  res.end()
 }
 
 function sendError(res: http.ServerResponse, error: unknown): void {

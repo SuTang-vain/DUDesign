@@ -50,7 +50,7 @@ export default function SharePage(props: { params: Promise<{ token: string }> })
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      <section className="share-preview">
+      <section data-testid="share-preview" className="share-preview">
         {previewUrl ? (
           <iframe title={detail?.variation.title ?? 'Shared preview'} src={previewUrl} sandbox="" />
         ) : (

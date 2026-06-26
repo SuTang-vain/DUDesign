@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch dist/server.js",
     "start": "node dist/server.js",
-    "test": "node --test dist/*.test.js"
+    "test": "tsc -b && node --test dist/*.test.js"
   },
   "dependencies": {
     "@dudesign/contracts": "0.1.0",

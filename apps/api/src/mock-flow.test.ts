@@ -24,9 +24,11 @@ type JobSnapshot = {
 describe('DUDesign mock API flow', () => {
   let server: http.Server
   let baseUrl: string
+  let service: ApplicationService
 
   before(async () => {
-    server = createApiServer(new ApplicationService())
+    service = new ApplicationService()
+    server = createApiServer(service)
     await new Promise<void>(resolve => {
       server.listen(0, '127.0.0.1', resolve)
     })
@@ -44,7 +46,12 @@ describe('DUDesign mock API flow', () => {
   })
 
   it('creates a session, generates variations, refines with annotations, and serves preview HTML', async () => {
-    const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+    const bootstrapResponse = await fetch(`${baseUrl}/api/dev/bootstrap`, {
+      headers: { 'x-request-id': 'req_test_smoke' },
+    })
+    assert.equal(bootstrapResponse.headers.get('x-request-id'), 'req_test_smoke')
+    assert.equal(bootstrapResponse.ok, true)
+    const bootstrap = await bootstrapResponse.json() as { workspace: { id: string } }
     assert.equal(bootstrap.workspace.id, 'ws_dev')
 
     const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
@@ -128,6 +135,145 @@ describe('DUDesign mock API flow', () => {
     const shareDetail = await getJson<SharedVariationResponse>(`/api/shares/${shared.share.token}`)
     assert.equal(shareDetail.variation.id, variationId)
     assert.equal(shareDetail.artifact.version, 3)
+
+    const forbiddenJob = await fetch(`${baseUrl}/api/design-jobs/${createdJob.job.id}`, {
+      headers: { 'x-dudesign-user-id': 'usr_alt' },
+    })
+    assert.equal(forbiddenJob.status, 403)
+    const forbiddenPayload = await forbiddenJob.json() as { error: { code: string } }
+    assert.equal(forbiddenPayload.error.code, 'JOB_FORBIDDEN')
+
+    const altBootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap', {
+      headers: { 'x-dudesign-user-id': 'usr_alt' },
+    })
+    assert.equal(altBootstrap.workspace.id, 'ws_alt')
+
+    const altSessions = await getJson<{ sessions: unknown[] }>('/api/sessions', {
+      headers: { 'x-dudesign-user-id': 'usr_alt' },
+    })
+    assert.equal(altSessions.sessions.length, 0)
+
+    const runtimeHealth = await getJson<{ runtime: { status: string }; contract: { status: string } }>('/api/admin/runtime/health', {
+      headers: { 'x-dudesign-admin-role': 'support' },
+    })
+    assert.equal(runtimeHealth.runtime.status, 'compatible')
+    assert.equal(runtimeHealth.contract.status, 'compatible')
+
+    const adminJobs = await getJson<{ jobs: Array<{ id: string; status: string; completedVariationCount: number }> }>('/api/admin/jobs', {
+      headers: { 'x-dudesign-admin-role': 'support' },
+    })
+    assert.ok(adminJobs.jobs.some(job => job.id === createdJob.job.id && job.completedVariationCount === 3))
+
+    const adminArtifacts = await getJson<{
+      artifacts: Array<{
+        id: string
+        jobId: string | null
+        variationId: string | null
+        kind: string
+        storageKey: string
+        contentHash: string
+        previewUrl: string | null
+        shareCount: number
+      }>
+    }>(`/api/admin/artifacts?jobId=${createdJob.job.id}&kind=html`, {
+      headers: { 'x-dudesign-admin-role': 'support' },
+    })
+    assert.ok(adminArtifacts.artifacts.some(artifact =>
+      artifact.jobId === createdJob.job.id
+      && artifact.variationId === variationId
+      && artifact.kind === 'html'
+      && artifact.storageKey.endsWith('/index.html')
+      && artifact.contentHash.startsWith('hash_')
+      && artifact.previewUrl === `/api/variations/${variationId}/preview`
+      && artifact.shareCount === 1,
+    ))
+
+    const supportLookup = await getJson<{
+      users: Array<{
+        user: { id: string; email: string }
+        sessions: Array<{
+          id: string
+          resumeState: string
+          lastPromptPreview: string | null
+          latestJob: { id: string; status: string } | null
+          failureSummary: { severity: string; message: string; failedVariationCount: number }
+        }>
+      }>
+    }>('/api/admin/support/users?userId=usr_dev', {
+      headers: { 'x-dudesign-admin-role': 'support' },
+    })
+    assert.equal(supportLookup.users[0]?.user.id, 'usr_dev')
+    const supportSession = supportLookup.users[0]?.sessions.find(session => session.id === createdSession.session.id)
+    assert.equal(supportSession?.resumeState, 'runtime_session_available')
+    assert.equal(supportSession?.latestJob?.id, createdJob.job.id)
+    assert.equal(supportSession?.failureSummary.severity, 'ok')
+    assert.match(supportSession?.lastPromptPreview ?? '', /freelancer invoicing app/)
+
+    const queuedJob = service.store.createJob({
+      session: service.store.sessions.get(createdSession.session.id)!,
+      prompt: 'Queued job for admin cancellation',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {},
+    })
+    service.store.createVariations({ job: queuedJob, count: 1 })
+
+    const forbiddenCancel = await fetch(`${baseUrl}/api/admin/jobs/${queuedJob.id}/cancel`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dudesign-admin-role': 'support',
+      },
+      body: JSON.stringify({ reason: 'support cannot cancel' }),
+    })
+    assert.equal(forbiddenCancel.status, 403)
+
+    const cancelled = await postJson<{
+      job: { id: string; status: string }
+      audit: { action: string; targetId: string; reason: string }
+    }>(`/api/admin/jobs/${queuedJob.id}/cancel`, {
+      reason: 'operator test cancellation',
+    }, {
+      headers: { 'x-dudesign-admin-role': 'operator' },
+    })
+    assert.equal(cancelled.job.status, 'cancelled')
+    assert.equal(cancelled.audit.action, 'job.cancel')
+    assert.equal(cancelled.audit.targetId, queuedJob.id)
+
+    const auditLogs = await getJson<{ auditLogs: Array<{ action: string; targetId: string }> }>('/api/admin/audit-logs', {
+      headers: { 'x-dudesign-admin-role': 'operator' },
+    })
+    assert.equal(auditLogs.auditLogs[0]?.action, 'job.cancel')
+    assert.equal(auditLogs.auditLogs[0]?.targetId, queuedJob.id)
+
+    const costSummary = await getJson<{
+      totals: { jobCount: number; usageEventCount: number; inputTokens: number; outputTokens: number; costCents: number }
+      byUser: Array<{ userId: string; usageEventCount: number; costCents: number }>
+    }>('/api/admin/costs/summary', {
+      headers: { 'x-dudesign-admin-role': 'support' },
+    })
+    assert.equal(costSummary.totals.usageEventCount >= 7, true)
+    assert.equal(costSummary.totals.costCents >= 27, true)
+    assert.equal(costSummary.byUser[0]?.userId, 'usr_dev')
+    assert.equal(costSummary.byUser[0]?.usageEventCount >= 7, true)
+
+    const retried = await postJson<{
+      retry: { job: { id: string; variationCount: number } }
+      audit: { action: string; targetId: string; metadata: { retriedJobId: string } }
+    }>(`/api/admin/jobs/${createdJob.job.id}/retry`, {
+      reason: 'operator retry smoke',
+    }, {
+      headers: { 'x-dudesign-admin-role': 'operator' },
+    })
+    assert.notEqual(retried.retry.job.id, createdJob.job.id)
+    assert.equal(retried.retry.job.variationCount, 3)
+    assert.equal(retried.audit.action, 'job.retry')
+    assert.equal(retried.audit.targetId, createdJob.job.id)
+    assert.equal(retried.audit.metadata.retriedJobId, retried.retry.job.id)
+
+    const retrySnapshot = await waitForJob(retried.retry.job.id)
+    assert.equal(retrySnapshot.job.status, 'completed')
+    assert.equal(retrySnapshot.variations.length, 3)
   })
 
   async function waitForJob(jobId: string): Promise<JobSnapshot> {
@@ -140,8 +286,8 @@ describe('DUDesign mock API flow', () => {
     throw new Error(`Timed out waiting for job ${jobId}`)
   }
 
-  async function getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${baseUrl}${path}`)
+  async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${baseUrl}${path}`, init)
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
     return response.json() as Promise<T>
   }
@@ -152,11 +298,14 @@ describe('DUDesign mock API flow', () => {
     return response.text()
   }
 
-  async function postJson<T>(path: string, body: unknown): Promise<T> {
+  async function postJson<T>(path: string, body: unknown, init?: Omit<RequestInit, 'body' | 'method'>): Promise<T> {
+    const headers = init?.headers as Record<string, string> | undefined
     const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        ...headers,
       },
       body: JSON.stringify(body),
     })

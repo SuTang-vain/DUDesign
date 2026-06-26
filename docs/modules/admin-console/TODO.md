@@ -8,9 +8,9 @@
 ## Phase ADM-0：管理端边界与权限
 
 - [x] 确认管理端是否独立 app，或与用户端共用同一前端工程。
-- [ ] 定义 admin roles：support、operator、developer。
-- [ ] 定义 Admin API client。
-- [ ] 定义管理操作审计字段：operator、action、target、reason、before、after、created_at。
+- [x] 定义 admin roles：support、operator、developer。
+- [x] 定义 Admin API client。
+- [x] 定义 M1 管理操作审计字段：operator、action、target、reason、created_at。
 - [ ] 定义敏感信息脱敏规则。
 
 验收：
@@ -20,10 +20,11 @@
 
 ## Phase ADM-1：Job Monitor
 
-- [ ] 展示 design job 列表。
-- [ ] 展示 variation 状态、耗时、token、成本、错误摘要。
+- [x] 展示 design job 列表。
+- [x] 展示 variation 状态、token、成本、错误数量摘要。
 - [ ] 支持按用户、workspace、session、status、时间筛选。
-- [ ] 支持 job cancel。
+- [x] 支持 job cancel。
+- [x] 支持 job retry。
 - [ ] 支持 variation retry。
 
 验收：
@@ -32,10 +33,10 @@
 
 ## Phase ADM-2：Runtime Health
 
-- [ ] 展示 Runtime Gateway 健康状态。
-- [ ] 展示 BabeL-O runtime pool 状态。
-- [ ] 展示 runtime contract version。
-- [ ] 展示 compatible、degraded、unavailable、contract_mismatch 状态。
+- [x] 展示 Runtime Gateway 健康状态。
+- [x] 展示 BabeL-O runtime 基础状态。
+- [x] 展示 runtime contract version。
+- [x] 展示 compatible、degraded、unavailable、contract_mismatch 状态。
 - [ ] 展示最近 drift 事件。
 
 验收：
@@ -44,8 +45,8 @@
 
 ## Phase ADM-3：Artifact Explorer
 
-- [ ] 按 session/job/variation 查看 artifact。
-- [ ] 查看 artifact version、hash、size、storage_key、preview_url。
+- [x] 按 job 查看 artifact。
+- [x] 查看 artifact version、hash、size、storage_key、preview_url。
 - [ ] 支持 rebuild screenshot。
 - [ ] 支持 export repair。
 - [ ] 支持 revoke share。
@@ -56,9 +57,9 @@
 
 ## Phase ADM-4：User Support
 
-- [ ] 支持按用户查询 sessions。
-- [ ] 支持查看 session resume 状态。
-- [ ] 支持查看 job/variation 失败摘要。
+- [x] 支持按用户查询 sessions。
+- [x] 支持查看 session resume 状态。
+- [x] 支持查看 job/variation 失败摘要。
 - [ ] 支持生成用户可理解的问题说明。
 - [ ] 严格控制 HTML 全文查看权限。
 
@@ -68,8 +69,9 @@
 
 ## Phase ADM-5：Cost 与 Memory Governance
 
-- [ ] 展示 token/cost 聚合。
-- [ ] 按用户、workspace、模型、时间范围筛选成本。
+- [x] 展示 token/cost 聚合。
+- [x] 按用户聚合成本。
+- [ ] 按 workspace、模型、时间范围筛选成本。
 - [ ] 展示 memory namespace。
 - [ ] 展示 memory hit 和 candidate 状态。
 - [ ] 支持查看 memory 审批记录。
@@ -81,9 +83,11 @@
 
 ## Phase ADM-6：管理端质量门禁
 
-- [ ] Admin API 权限测试。
-- [ ] 审计日志写入测试。
-- [ ] 管理端页面 smoke test。
+- [x] Admin API 权限测试。
+- [x] 审计日志写入测试。
+- [x] 管理端页面 smoke test。
+- [x] Admin artifact metadata listing 测试。
+- [x] Admin user support summary 测试。
 - [ ] 敏感字段脱敏测试。
 - [ ] runtime contract mismatch 展示测试。
 

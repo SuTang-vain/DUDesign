@@ -22,6 +22,11 @@ export type DesignVariationStatus =
 export type ArtifactKind = 'html' | 'asset' | 'screenshot' | 'export_zip'
 export type ShareVisibility = 'public' | 'private' | 'password'
 export type MemoryNoteStatus = 'pending' | 'approved' | 'rejected'
+export type UsageEventKind =
+  | 'variation.completed'
+  | 'variation.refined'
+  | 'export.created'
+  | 'share.created'
 
 export type User = {
   id: ID
@@ -131,3 +136,18 @@ export type Share = {
   createdAt: ISODateTime
 }
 
+export type UsageEvent = {
+  id: ID
+  kind: UsageEventKind
+  userId: ID
+  workspaceId: ID
+  sessionId: ID | null
+  jobId: ID | null
+  variationId: ID | null
+  artifactId: ID | null
+  inputTokens: number
+  outputTokens: number
+  costCents: number
+  metadata: Record<string, unknown>
+  createdAt: ISODateTime
+}

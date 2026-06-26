@@ -4,6 +4,7 @@ import type {
   DesignSession,
   DesignVariation,
   Share,
+  UsageEvent,
   User,
   Workspace,
 } from '@dudesign/domain'
@@ -28,6 +29,19 @@ export type AnnotationBatch = {
   createdAt: string
 }
 
+export type AuditLog = {
+  id: string
+  requestId: string
+  operatorUserId: string
+  operatorRole: 'support' | 'operator' | 'developer'
+  action: string
+  targetType: string
+  targetId: string
+  reason: string | null
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
 export class InMemoryStore {
   readonly users = new Map<string, User>()
   readonly workspaces = new Map<string, Workspace>()
@@ -38,40 +52,40 @@ export class InMemoryStore {
   readonly artifacts = new Map<string, Artifact>()
   readonly shares = new Map<string, Share>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
+  readonly auditLogs: AuditLog[] = []
+  readonly usageEvents: UsageEvent[] = []
 
   readonly devUser: User
   readonly devWorkspace: Workspace
+  readonly altUser: User
+  readonly altWorkspace: Workspace
 
   constructor() {
     const now = nowIso()
-    this.devUser = {
-      id: 'usr_dev',
+    const primary = this.createSeedUserWorkspace({
+      userId: 'usr_dev',
+      workspaceId: 'ws_dev',
       email: 'dev@dudesign.local',
       name: 'DUDesign Dev',
-      avatarUrl: null,
-      status: 'active',
-      memoryNamespace: 'memory:user:usr_dev',
-      createdAt: now,
-      updatedAt: now,
-    }
-    this.devWorkspace = {
-      id: 'ws_dev',
-      ownerId: this.devUser.id,
-      teamId: null,
-      name: 'Personal Workspace',
-      mode: 'hosted',
-      visibility: 'private',
-      storageKey: 'workspaces/ws_dev',
-      status: 'active',
-      metadata: {},
-      createdAt: now,
-      updatedAt: now,
-    }
-    this.users.set(this.devUser.id, this.devUser)
-    this.workspaces.set(this.devWorkspace.id, this.devWorkspace)
+      workspaceName: 'Personal Workspace',
+      now,
+    })
+    const alternate = this.createSeedUserWorkspace({
+      userId: 'usr_alt',
+      workspaceId: 'ws_alt',
+      email: 'alt@dudesign.local',
+      name: 'DUDesign Alt',
+      workspaceName: 'Alt Workspace',
+      now,
+    })
+    this.devUser = primary.user
+    this.devWorkspace = primary.workspace
+    this.altUser = alternate.user
+    this.altWorkspace = alternate.workspace
   }
 
   createSession(input: {
+    userId: string
     workspaceId: string
     mode: DesignSession['mode']
     title?: string
@@ -81,7 +95,7 @@ export class InMemoryStore {
     const now = nowIso()
     const session: DesignSession = {
       id: createId('ses'),
-      userId: this.devUser.id,
+      userId: input.userId,
       workspaceId: input.workspaceId,
       title: input.title ?? 'Untitled design session',
       mode: input.mode,
@@ -96,6 +110,42 @@ export class InMemoryStore {
     this.sessions.set(session.id, session)
     this.messages.set(session.id, [])
     return session
+  }
+
+  private createSeedUserWorkspace(input: {
+    userId: string
+    workspaceId: string
+    email: string
+    name: string
+    workspaceName: string
+    now: string
+  }): { user: User; workspace: Workspace } {
+    const user: User = {
+      id: input.userId,
+      email: input.email,
+      name: input.name,
+      avatarUrl: null,
+      status: 'active',
+      memoryNamespace: `memory:user:${input.userId}`,
+      createdAt: input.now,
+      updatedAt: input.now,
+    }
+    const workspace: Workspace = {
+      id: input.workspaceId,
+      ownerId: user.id,
+      teamId: null,
+      name: input.workspaceName,
+      mode: 'hosted',
+      visibility: 'private',
+      storageKey: `workspaces/${input.workspaceId}`,
+      status: 'active',
+      metadata: {},
+      createdAt: input.now,
+      updatedAt: input.now,
+    }
+    this.users.set(user.id, user)
+    this.workspaces.set(workspace.id, workspace)
+    return { user, workspace }
   }
 
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage {
@@ -230,6 +280,48 @@ export class InMemoryStore {
       completedAt: status === 'completed' || status === 'failed' || status === 'cancelled' ? now : job.completedAt,
       updatedAt: now,
     })
+  }
+
+  createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog {
+    const entry: AuditLog = {
+      id: createId('aud'),
+      createdAt: nowIso(),
+      ...input,
+    }
+    this.auditLogs.push(entry)
+    return entry
+  }
+
+  listAuditLogs(options: { limit?: number } = {}): AuditLog[] {
+    const limit = options.limit ?? 100
+    return [...this.auditLogs]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+  }
+
+  createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): UsageEvent {
+    const event: UsageEvent = {
+      id: createId('use'),
+      createdAt: nowIso(),
+      ...input,
+    }
+    this.usageEvents.push(event)
+    return event
+  }
+
+  listUsageEvents(options: {
+    userId?: string
+    jobId?: string
+    variationId?: string
+    limit?: number
+  } = {}): UsageEvent[] {
+    const limit = options.limit ?? 1000
+    return [...this.usageEvents]
+      .filter(event => !options.userId || event.userId === options.userId)
+      .filter(event => !options.jobId || event.jobId === options.jobId)
+      .filter(event => !options.variationId || event.variationId === options.variationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
   }
 
   applyVariationEvent(input: {

@@ -95,9 +95,9 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
 
       {error ? <p className="error-text">{error}</p> : null}
 
-      <section className="variation-grid">
+      <section data-testid="variation-grid" className="variation-grid">
         {variations.map(variation => (
-          <article key={variation.id} className="variation-card">
+          <article key={variation.id} data-testid="variation-card" className="variation-card">
             <div className="variation-card-header">
               <span><i className={`status-dot ${variation.status}`} /> {variation.title ?? `Variation ${variation.index}`}</span>
               <span>{variation.status}</span>
@@ -114,7 +114,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
               <span>${(variation.costCents / 100).toFixed(2)}</span>
             </div>
             <div className="variation-actions">
-              <a href={`/variations/${variation.id}`}>Open</a>
+              <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>Open</a>
             </div>
           </article>
         ))}

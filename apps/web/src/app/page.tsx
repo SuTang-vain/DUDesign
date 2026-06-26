@@ -120,11 +120,18 @@ export default function HomePage(): React.JSX.Element {
         </div>
 
         <section className="composer-panel" aria-label="Generate design variations">
-          <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={6} />
+          <textarea
+            data-testid="prompt-input"
+            aria-label="Design prompt"
+            value={prompt}
+            onChange={event => setPrompt(event.target.value)}
+            rows={6}
+          />
           <div className="field-row">
             <label>
               Variations
               <input
+                data-testid="variation-count-input"
                 type="number"
                 min={1}
                 max={6}
@@ -144,14 +151,14 @@ export default function HomePage(): React.JSX.Element {
               </button>
             ))}
           </div>
-          <button className="generate-button" disabled={!canSubmit} onClick={() => void submit()}>
+          <button data-testid="generate-button" className="generate-button" disabled={!canSubmit} onClick={() => void submit()}>
             {status === 'submitting' ? 'Generating...' : `Generate x${variationCount}`}
           </button>
           {error ? <p className="error-text">{error}</p> : null}
         </section>
       </section>
 
-      <section className="session-dock" aria-label="Recent design sessions">
+      <section data-testid="recent-sessions" className="session-dock" aria-label="Recent design sessions">
         <div className="section-heading">
           <span className="eyebrow">Recent sessions</span>
           <strong>{recentSessions.length} saved</strong>

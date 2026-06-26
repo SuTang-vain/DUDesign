@@ -9,14 +9,19 @@
   ],
   "scripts": {
     "dev:api": "npm run typecheck && npm --workspace @dudesign/api run dev",
+    "dev:admin": "npm --workspace @dudesign/admin run dev",
     "dev:web": "npm --workspace @dudesign/web run dev",
+    "start:admin": "npm --workspace @dudesign/admin run start",
     "start:api": "npm run typecheck && npm --workspace @dudesign/api run start",
     "start:web": "npm --workspace @dudesign/web run start",
-    "test": "npm run test:api",
-    "test:api": "npm run typecheck && npm --workspace @dudesign/api run test",
+    "test": "npm run test:api && npm run test:ux",
+    "test:api": "npm --workspace @dudesign/api run test",
+    "test:ux": "npm --workspace @dudesign/web run test:flow",
+    "test:ux:e2e": "npm --workspace @dudesign/web run test:e2e",
     "typecheck": "tsc -b packages/* apps/*"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.0.1",
     "typescript": "^5.9.3"
   },

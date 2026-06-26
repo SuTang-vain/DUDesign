@@ -188,10 +188,10 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           <p>{detail?.job.prompt ?? 'Loading variation context...'}</p>
         </div>
         <div className="editor-command-bar" aria-label="Variation actions">
-          <button onClick={() => void downloadHtml()} disabled={!detail?.variation.currentArtifactId}>
+          <button data-testid="download-html-button" onClick={() => void downloadHtml()} disabled={!detail?.variation.currentArtifactId}>
             HTML
           </button>
-          <button onClick={() => void createShareLink()} disabled={!detail?.variation.currentArtifactId}>
+          <button data-testid="share-button" onClick={() => void createShareLink()} disabled={!detail?.variation.currentArtifactId}>
             Share
           </button>
           <button onClick={() => setNotice('This variation is marked as the selected direction for the current session.')}>
@@ -202,19 +202,20 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
       {error ? <p className="error-text">{error}</p> : null}
       {notice ? (
-        <p className="notice-text">
+        <p data-testid="variation-notice" className="notice-text">
           {notice}
-          {shareUrl ? <> <a href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
+          {shareUrl ? <> <a data-testid="share-link" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
         </p>
       ) : null}
 
       <section className="variation-editor-grid">
         <div className={`device-preview ${device}`}>
           {previewUrl ? (
-            <div className="annotated-preview-wrap">
+            <div data-testid="variation-preview" className="annotated-preview-wrap">
               <iframe title={detail?.variation.title ?? 'Variation preview'} src={previewUrl} sandbox="" />
               <div
                 ref={overlayRef}
+                data-testid="annotation-overlay"
                 className={`annotation-overlay ${annotationMode ? 'active' : ''}`}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
@@ -249,7 +250,12 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             <div className="annotation-panel-header">
               <strong>Annotations</strong>
               <label>
-                <input type="checkbox" checked={annotationMode} onChange={event => setAnnotationMode(event.target.checked)} />
+                <input
+                  data-testid="annotation-draw-toggle"
+                  type="checkbox"
+                  checked={annotationMode}
+                  onChange={event => setAnnotationMode(event.target.checked)}
+                />
                 Draw
               </label>
             </div>
@@ -263,7 +269,11 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             <p>{annotations.length} annotation{annotations.length === 1 ? '' : 's'} staged.</p>
             <div className="annotation-actions">
               <button onClick={() => setAnnotations([])} disabled={annotations.length === 0}>Clear</button>
-              <button onClick={() => void submitAnnotations()} disabled={status === 'refining' || annotations.length === 0 || !detail?.variation.currentArtifactId}>
+              <button
+                data-testid="apply-annotations-button"
+                onClick={() => void submitAnnotations()}
+                disabled={status === 'refining' || annotations.length === 0 || !detail?.variation.currentArtifactId}
+              >
                 Apply marks
               </button>
             </div>
@@ -279,7 +289,9 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
           <section className="artifact-panel">
             <strong>Current artifact</strong>
-            <p>{detail?.currentArtifact ? `v${detail.currentArtifact.version} · ${detail.currentArtifact.id}` : 'No artifact yet'}</p>
+            <p data-testid="current-artifact-version">
+              {detail?.currentArtifact ? `v${detail.currentArtifact.version} · ${detail.currentArtifact.id}` : 'No artifact yet'}
+            </p>
             <strong>Versions</strong>
             {detail?.artifacts.map(artifact => (
               <p key={artifact.id}>v{artifact.version} · {artifact.entryPath ?? 'index.html'}</p>
@@ -296,6 +308,7 @@ function AnnotationView(props: { shape: AnnotationShape; index: number }): React
   if (shape.type === 'rect') {
     return (
       <div
+        data-testid="annotation-rect"
         className="annotation-rect"
         style={{
           left: `${shape.x * 100}%`,

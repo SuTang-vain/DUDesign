@@ -9,6 +9,7 @@
 
 - [x] 建立 M1 用户端 Next.js 应用骨架。
 - [x] 确认 M1 用户端路由结构：`/`、`/jobs/:jobId`。
+- [x] 增加 `/variations/:variationId` 和 `/share/:token` 用户端路由。
 - [x] 定义 M1 用户端应用壳：品牌、workspace、生成入口。
 - [x] 定义统一 API client，只调用 DUDesign User API。
 - [x] 定义统一 `DesignEventClient` 的事件契约基础，只消费 DUDesign 标准事件。
@@ -22,9 +23,9 @@
 ## Phase UX-1：登录后工作台与会话列表
 
 - [ ] 实现登录后工作台页面。
-- [ ] 展示最近会话、最近 design job、最近 artifact。
-- [ ] 支持创建新会话。
-- [ ] 支持恢复历史会话。
+- [x] 展示最近会话。
+- [x] 支持创建新会话。
+- [x] 支持恢复历史会话。
 - [ ] 支持 workspace 选择，MVP 默认个人 hosted workspace。
 
 验收：
@@ -63,12 +64,12 @@
 
 ## Phase UX-4：结果墙
 
-- [ ] 实现多变体结果墙。
-- [ ] 展示真实 preview iframe 或 screenshot。
-- [ ] 支持进入单变体编辑。
+- [x] 实现多变体结果墙。
+- [x] 展示 preview iframe。
+- [x] 支持进入单变体编辑。
 - [ ] 支持锁定当前版本。
-- [ ] 支持导出入口。
-- [ ] 支持分享入口。
+- [x] 支持导出入口。
+- [x] 支持分享入口。
 
 验收：
 
@@ -82,7 +83,9 @@
 - [x] 实现 refine panel。
 - [x] 实现 artifact version menu。
 - [ ] 实现 cost/runtime summary panel。
-- [ ] 实现导出和分享 dialog。
+- [x] 实现 mock HTML 导出。
+- [x] 实现 mock share link 创建。
+- [x] 实现只读分享页。
 
 验收：
 
@@ -105,9 +108,11 @@
 
 ## Phase UX-7：用户端质量门禁
 
-- [ ] 建立页面级 Playwright smoke test。
+- [x] 建立 UX-M1 mock product flow smoke test。
+- [x] 建立页面级 Playwright smoke test。
 - [ ] 建立设计事件 stream mock test。
-- [ ] 建立 annotation serialization test。
+- [x] 建立 annotation browser E2E。
+- [ ] 建立 annotation serialization unit test。
 - [ ] 建立 preview iframe sandbox test。
 - [ ] 建立用户端可访问性基础检查。
 

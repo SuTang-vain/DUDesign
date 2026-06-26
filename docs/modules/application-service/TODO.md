@@ -8,11 +8,13 @@
 ## Phase APP-0：服务骨架与基础设施
 
 - [x] 建立 M1 阶段 Node 原生 HTTP API 服务；后续再确认生产框架是 Fastify 还是 Next.js Route Handlers。
+- [x] 建立 PostgreSQL schema 草案。
 - [ ] 建立 PostgreSQL 连接和迁移机制。
 - [x] 建立对象存储抽象。
 - [ ] 建立 Redis/Queue 抽象。
 - [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
-- [ ] 建立 request id / trace id。
+- [x] 建立 M1 request id 传递；trace id 后续接观测系统。
+- [x] 支持 User API CORS preflight。
 
 验收：
 
@@ -23,9 +25,9 @@
 
 - [x] 定义用户、workspace、session、job、variation、artifact、share 领域模型。
 - [ ] 实现用户表。
-- [ ] 实现 session/auth middleware。
-- [ ] 实现个人 hosted workspace 默认创建。
-- [ ] 实现 workspace owner 校验。
+- [x] 实现 M1 header-based dev user context。
+- [x] 实现个人 hosted workspace 默认创建。
+- [x] 实现 workspace owner 校验。
 - [ ] 预留 `team_id`、workspace member、role。
 
 验收：
@@ -66,8 +68,9 @@
 - [x] 实现 artifact version。
 - [x] 实现 mock preview URL 和 HTML preview endpoint。
 - [ ] 实现 screenshot artifact。
+- [x] 实现 mock HTML export。
 - [ ] 实现 export zip。
-- [ ] 实现 share token。
+- [x] 实现 share token。
 - [ ] 实现 share revoke。
 
 验收：
@@ -90,12 +93,13 @@
 
 ## Phase APP-6：Admin API 与审计
 
-- [ ] 实现 Admin API 权限中间件。
-- [ ] 实现 audit log。
-- [ ] 实现 job cancel/retry。
+- [x] 实现 M1 Admin API 权限中间件。
+- [x] 实现 M1 audit log。
+- [x] 实现 job cancel/retry。
 - [ ] 实现 artifact repair/rebuild preview。
-- [ ] 实现 runtime health 读取代理。
-- [ ] 实现 cost 聚合接口。
+- [x] 实现 runtime health 读取代理。
+- [x] 实现 cost 聚合接口。
+- [x] 将 cost 聚合口径切换到 immutable usage events。
 
 验收：
 
@@ -106,8 +110,8 @@
 
 - [ ] Repository 单元测试。
 - [ ] Service 状态机测试。
-- [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview。
-- [ ] Owner 权限测试。
+- [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
+- [x] Owner 权限测试。
 - [ ] Share token 权限测试。
 - [ ] Queue worker 测试。
 - [ ] Runtime unavailable 降级测试。
@@ -115,3 +119,18 @@
 验收：
 
 - 业务服务层可以独立于真实 BabeL-O 使用 mock Gateway 完成核心流程测试。
+
+## Phase APP-8：持久化迁移准备
+
+- [x] 定义 PostgreSQL 业务表草案。
+- [x] 定义 immutable usage event 领域模型。
+- [x] 在 generation/refine/export/share 写入 usage event。
+- [ ] 抽象 Repository 接口，拆出 InMemoryStore。
+- [ ] 实现 PostgreSQL Repository。
+- [ ] 增加 usage event 幂等键，避免 runtime event replay 重复计费。
+- [ ] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
+
+验收：
+
+- 应用服务不直接依赖内存 Map。
+- 业务服务重启后，session resume、artifact preview、share link 和 cost summary 可恢复。

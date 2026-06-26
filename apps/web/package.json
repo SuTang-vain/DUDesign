@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev --port 3001",
     "build": "next build",
-    "start": "next start --port 3001"
+    "start": "next start --port 3001",
+    "test:e2e": "playwright test",
+    "test:flow": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@dudesign/contracts": "0.1.0",
