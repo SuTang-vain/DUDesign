@@ -1,0 +1,16 @@
+{
+  "name": "@dudesign/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch dist/server.js",
+    "start": "node dist/server.js",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "@dudesign/contracts": "0.1.0",
+    "@dudesign/domain": "0.1.0",
+    "@dudesign/runtime-gateway": "0.1.0"
+  }
+}

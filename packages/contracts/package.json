@@ -1,0 +1,11 @@
+{
+  "name": "@dudesign/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./api": "./dist/api.js",
+    "./events": "./dist/events.js"
+  }
+}

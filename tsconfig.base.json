@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@dudesign/contracts": ["packages/contracts/src/index.ts"],
+      "@dudesign/contracts/*": ["packages/contracts/src/*.ts"],
+      "@dudesign/domain": ["packages/domain/src/index.ts"],
+      "@dudesign/domain/*": ["packages/domain/src/*.ts"],
+      "@dudesign/runtime-gateway": ["packages/runtime-gateway/src/index.ts"],
+      "@dudesign/runtime-gateway/*": ["packages/runtime-gateway/src/*.ts"],
+      "@dudesign/artifact-store": ["packages/artifact-store/src/index.ts"],
+      "@dudesign/artifact-store/*": ["packages/artifact-store/src/*.ts"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  }
+}

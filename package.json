@@ -1,0 +1,26 @@
+{
+  "name": "dudesign",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run typecheck && npm --workspace @dudesign/api run dev",
+    "dev:web": "npm --workspace @dudesign/web run dev",
+    "start:api": "npm run typecheck && npm --workspace @dudesign/api run start",
+    "start:web": "npm --workspace @dudesign/web run start",
+    "test": "npm run test:api",
+    "test:api": "npm run typecheck && npm --workspace @dudesign/api run test",
+    "typecheck": "tsc -b packages/* apps/*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

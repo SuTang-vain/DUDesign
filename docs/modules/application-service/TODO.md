@@ -1,0 +1,117 @@
+# 后端业务服务层 TODO
+
+> 模块：Application Service Layer
+> 面向对象：用户前端、管理端、队列 worker、Runtime Gateway
+> 上游依赖：数据库、对象存储、队列、鉴权系统
+> 下游输出：User API、Admin API、DesignEvent stream、业务状态快照
+
+## Phase APP-0：服务骨架与基础设施
+
+- [x] 建立 M1 阶段 Node 原生 HTTP API 服务；后续再确认生产框架是 Fastify 还是 Next.js Route Handlers。
+- [ ] 建立 PostgreSQL 连接和迁移机制。
+- [x] 建立对象存储抽象。
+- [ ] 建立 Redis/Queue 抽象。
+- [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
+- [ ] 建立 request id / trace id。
+
+验收：
+
+- 服务可启动，健康检查可用。
+- 本地开发可使用最小依赖跑通用户/workspace CRUD。
+
+## Phase APP-1：Auth、User、Workspace
+
+- [x] 定义用户、workspace、session、job、variation、artifact、share 领域模型。
+- [ ] 实现用户表。
+- [ ] 实现 session/auth middleware。
+- [ ] 实现个人 hosted workspace 默认创建。
+- [ ] 实现 workspace owner 校验。
+- [ ] 预留 `team_id`、workspace member、role。
+
+验收：
+
+- 所有 workspace 查询都按当前用户隔离。
+- MVP 不暴露团队 UI，但数据模型支持后续扩展。
+
+## Phase APP-2：Session 与 Message
+
+- [x] 实现 `POST /api/sessions`。
+- [x] 实现 `GET /api/sessions`。
+- [x] 实现 `POST /api/sessions/:id/resume`。
+- [x] 实现 M1 内存版 session messages 持久化。
+- [ ] 实现 runtime unavailable 时的业务快照恢复。
+
+验收：
+
+- 不依赖 BabeL-O 时，也能读取会话和历史消息。
+- session resume 返回 jobs、variations、artifacts 关联快照。
+
+## Phase APP-3：Design Job 与 Variation
+
+- [x] 实现 `POST /api/design-jobs`。
+- [x] 实现 `GET /api/design-jobs/:id`。
+- [x] 实现 M1 内存版 job/variation 状态机。
+- [ ] 实现队列入队。
+- [x] 实现 `GET /api/design-jobs/:id/stream`。
+- [ ] 实现部分失败状态。
+
+验收：
+
+- 创建 job 时写入 N 个 variation。
+- 3/6 variation 并发任务可以被正确追踪。
+
+## Phase APP-4：Artifact、Preview、Export、Share
+
+- [x] 实现 M1 mock artifact 存储记录。
+- [x] 实现 artifact version。
+- [x] 实现 mock preview URL 和 HTML preview endpoint。
+- [ ] 实现 screenshot artifact。
+- [ ] 实现 export zip。
+- [ ] 实现 share token。
+- [ ] 实现 share revoke。
+
+验收：
+
+- BabeL-O 不可用时，已完成 artifact 仍可预览、导出、分享。
+- share 页面只能只读访问被分享 artifact。
+
+## Phase APP-5：Annotation 与 Refine
+
+- [x] 实现 `POST /api/variations/:id/refine`。
+- [x] 实现 `POST /api/variations/:id/annotations`。
+- [x] 实现 M1 内存版 annotation_batches。
+- [x] 实现 annotation -> prompt suffix 持久化。
+- [x] 实现新 artifact version 关联。
+
+验收：
+
+- refine 只影响当前 variation。
+- annotation payload 可回放、可审计。
+
+## Phase APP-6：Admin API 与审计
+
+- [ ] 实现 Admin API 权限中间件。
+- [ ] 实现 audit log。
+- [ ] 实现 job cancel/retry。
+- [ ] 实现 artifact repair/rebuild preview。
+- [ ] 实现 runtime health 读取代理。
+- [ ] 实现 cost 聚合接口。
+
+验收：
+
+- 管理端所有写操作都有审计记录。
+- support/operator/developer 权限区分可测试。
+
+## Phase APP-7：业务服务质量门禁
+
+- [ ] Repository 单元测试。
+- [ ] Service 状态机测试。
+- [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview。
+- [ ] Owner 权限测试。
+- [ ] Share token 权限测试。
+- [ ] Queue worker 测试。
+- [ ] Runtime unavailable 降级测试。
+
+验收：
+
+- 业务服务层可以独立于真实 BabeL-O 使用 mock Gateway 完成核心流程测试。
