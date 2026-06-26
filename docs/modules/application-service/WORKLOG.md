@@ -445,3 +445,80 @@
 - 把 `ApplicationService` 中直接遍历 Map 的查询逐步下沉到 repository methods。
 - 增加 usage event 幂等键和唯一约束。
 - 选择 migration runner，并实现 PostgreSQL repository 的连接、事务和 seed bootstrap。
+
+## 2026-06-26 M15 PostgreSQL Repository Bootstrap
+
+### 已完成
+
+- 新增 `PostgresRepository` 初版。
+- 支持：
+  - `pg` connection pool。
+  - `schema_migrations` 表。
+  - 按文件顺序执行 SQL migrations。
+  - seed 默认 dev/alt user 和 workspace。
+  - 从 PostgreSQL hydrate users、workspaces、sessions、messages、jobs、variations、artifacts、shares、annotation_batches、usage_events、audit_logs 到 repository maps。
+  - 对 session/message/job/variation/artifact/share/annotation/usage/audit 写操作做 write-through 持久化。
+- 新增 `createApplicationServiceFromEnv()`：
+  - 默认使用内存 repository。
+  - `DUDESIGN_REPOSITORY=postgres` 时要求 `DATABASE_URL` 并启用 `PostgresRepository`。
+- `startApiServer()` 改为 async，生产启动会通过 env factory 创建 service。
+- API 包新增 `migrate:postgres` 脚本。
+
+### 验证
+
+- `npm run typecheck`
+
+### 决策
+
+- 当前 `PostgresRepository` 是过渡实现：启动时 hydrate 到 Map，写操作 write-through 到 PostgreSQL。
+- 这样可以在不大规模重写同步 `ApplicationService` 的前提下，先验证迁移、seed、hydration 和持久化路径。
+- 后续正式生产形态应让 PostgreSQL 成为 async source-of-truth，并把 service 中的直接 Map 查询下沉为 repository query methods。
+
+### 下一步
+
+- 用本地 PostgreSQL 跑一条独立 integration smoke，验证重启后 session/job/artifact/share 可恢复。
+- 增加 migration runner 测试或 dry-run 校验。
+- 逐步替换 `ApplicationService` 中的直接 Map 遍历。
+
+## 2026-06-27 M16 PostgreSQL Integration Smoke
+
+### 已完成
+
+- 新增 `apps/api/src/postgresRepository.test.ts`。
+- 使用 `DUDESIGN_POSTGRES_TEST_URL` 作为 opt-in integration test 开关；未配置时自动 skip，不阻塞默认本地测试。
+- 测试每次创建独立 PostgreSQL schema，并在结束时 drop schema，避免污染开发库。
+- baseline migration 的后置 artifact 外键约束改为幂等 `do` block。
+- 真实 PostgreSQL 验证中发现 `close()` 被重复调用时会触发 `Called end on pool more than once`，已修复为幂等 close。
+- `PostgresRepository.connect()` 支持 `schema` 参数：
+  - 自动创建 schema。
+  - 通过 `search_path` 将 migrations、seed、hydrate、write-through 限定到该 schema。
+- `PostgresRepository` 增加串行 write queue 和 `flush()`：
+  - 保证 session -> job -> variation -> artifact 等外键写入顺序稳定。
+  - integration smoke 可以在 close/hydrate 前等待 write-through 全部完成。
+- integration smoke 覆盖：
+  - migrations + seed。
+  - session runtime id 持久化。
+  - message/job/variation/artifact/share/usage event 写入。
+  - 关闭 repository 后重新 connect + hydrate。
+  - session snapshot 恢复。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- 真实 PostgreSQL smoke：
+  - 使用 Homebrew PostgreSQL 16 临时数据目录。
+  - 临时端口：`55432`。
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`。
+  - 执行 `npm --workspace @dudesign/api run test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 使用方式
+
+```bash
+DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm --workspace @dudesign/api run test
+```
+
+### 下一步
+
+- 后续把 service 查询逐步下沉到 repository query methods。

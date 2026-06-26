@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch dist/server.js",
+    "migrate:postgres": "tsc -b && node -e \"import('./dist/postgresRepository.js').then(async ({ PostgresRepository }) => { if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required'); const repo = await PostgresRepository.connect({ connectionString: process.env.DATABASE_URL }); await repo.close(); })\"",
     "start": "node dist/server.js",
     "test": "tsc -b && node --test dist/*.test.js"
   },
@@ -12,6 +13,8 @@
     "@dudesign/artifact-store": "0.1.0",
     "@dudesign/contracts": "0.1.0",
     "@dudesign/domain": "0.1.0",
-    "@dudesign/runtime-gateway": "0.1.0"
+    "@dudesign/runtime-gateway": "0.1.0",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.22.0"
   }
 }

@@ -113,6 +113,10 @@ export class InMemoryStore implements ApplicationRepository {
     return session
   }
 
+  saveSession(session: DesignSession): void {
+    this.sessions.set(session.id, session)
+  }
+
   private createSeedUserWorkspace(input: {
     userId: string
     workspaceId: string
@@ -414,6 +418,10 @@ export class InMemoryStore implements ApplicationRepository {
     }
     this.artifacts.set(artifact.id, artifact)
     return artifact
+  }
+
+  saveArtifact(artifact: Artifact): void {
+    this.artifacts.set(artifact.id, artifact)
   }
 
   createAnnotationBatch(input: {

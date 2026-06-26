@@ -109,6 +109,7 @@ export type ApplicationRepository = {
   readonly devWorkspace: Workspace
 
   createSession(input: CreateSessionInput): DesignSession
+  saveSession(session: DesignSession): void
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage
   createJob(input: CreateJobInput): DesignJob
   createVariations(input: { job: DesignJob; count: number }): DesignVariation[]
@@ -128,6 +129,7 @@ export type ApplicationRepository = {
   applyVariationEvent(input: ApplyVariationEventInput): void
   createMockArtifact(input: CreateHtmlArtifactInput): Artifact
   createArtifact(input: CreateArtifactInput): Artifact
+  saveArtifact(artifact: Artifact): void
   createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch
   createShare(input: CreateShareInput): Share
   getShareByToken(token: string): Share | null

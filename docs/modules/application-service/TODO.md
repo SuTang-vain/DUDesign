@@ -132,7 +132,10 @@
 - [x] 在 generation/refine/export/share 写入 usage event。
 - [x] 抽象 Repository 接口，让 `ApplicationService` 不再类型绑定 `InMemoryStore`。
 - [x] 建立 PostgreSQL SQL-first baseline migration。
-- [ ] 实现 PostgreSQL Repository。
+- [x] 实现 PostgreSQL Repository 初版：migration、seed、hydrate、write-through 持久化。
+- [x] 增加 PostgreSQL Repository opt-in integration smoke。
+- [ ] 将 `ApplicationService` 直接 Map 读取逐步替换为 repository query methods。
+- [ ] 将 PostgreSQL Repository 从 hydrated/write-through 过渡到 async source-of-truth。
 - [ ] 增加 usage event 幂等键，避免 runtime event replay 重复计费。
 - [ ] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
 

@@ -61,7 +61,7 @@ export class ApplicationService {
       runtimeSessionId: runtime.runtimeSessionId,
       updatedAt: new Date().toISOString(),
     }
-    this.store.sessions.set(session.id, updated)
+    this.store.saveSession(updated)
     return {
       session: {
         id: updated.id,
@@ -968,7 +968,7 @@ export class ApplicationService {
         variationId: artifact.variationId ?? '',
       },
     })
-    this.store.artifacts.set(artifact.id, {
+    this.store.saveArtifact({
       ...artifact,
       storageKey: stored.storageKey,
       contentHash: stored.contentHash,

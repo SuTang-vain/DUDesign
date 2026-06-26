@@ -2,6 +2,7 @@ import http from 'node:http'
 import { pathToFileURL, URL } from 'node:url'
 import type { DesignEvent } from '@dudesign/contracts'
 import { ApplicationService, type HttpError } from './service.js'
+import { createApplicationServiceFromEnv } from './serviceFactory.js'
 import { createRequestContext, type RequestContext } from './auth.js'
 
 const defaultPort = Number(process.env.PORT ?? 4000)
@@ -17,14 +18,15 @@ export function createApiServer(service = new ApplicationService()): http.Server
   })
 }
 
-export function startApiServer(options: {
+export async function startApiServer(options: {
   service?: ApplicationService
   port?: number
   host?: string
-} = {}): http.Server {
+} = {}): Promise<http.Server> {
   const port = options.port ?? defaultPort
   const host = options.host ?? defaultHost
-  const server = createApiServer(options.service)
+  const service = options.service ?? await createApplicationServiceFromEnv()
+  const server = createApiServer(service)
   server.listen(port, host, () => {
     console.log(`DUDesign API listening on http://${host}:${port}`)
   })
@@ -291,5 +293,5 @@ function sendError(res: http.ServerResponse, error: unknown): void {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startApiServer()
+  await startApiServer()
 }
