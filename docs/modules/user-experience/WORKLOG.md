@@ -245,3 +245,49 @@
 
 - circle、arrow、pen UI 实现后，需要同步补 serialization unit cases 和 browser E2E。
 - 后续接 BabeL-O Adapter 时，应该只消费 `promptSuffix` 和原始 shapes metadata，不直接理解前端临时 UI 状态。
+
+## 2026-06-26 UX-M1 Preview Iframe Sandbox Test
+
+### 已完成
+
+- 为 job variation card preview iframe、variation editor preview iframe、share preview iframe 增加稳定 `data-testid`。
+- 新增 `apps/web/e2e/preview-sandbox.spec.ts`。
+- E2E 覆盖：
+  - variation editor preview iframe 的 `sandbox` 属性为空。
+  - preview iframe 不包含 `allow-scripts`、`allow-same-origin`、`allow-forms`。
+  - preview API 响应包含 `default-src 'none'` 和 `script-src 'none'` CSP。
+  - share preview iframe 使用同样的严格 sandbox。
+  - share preview 使用 `srcDoc` 渲染固定 artifact HTML。
+
+### 验证记录
+
+- `npm run test:ux:e2e`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+
+### 发现与修复
+
+- 直接通过 Playwright 在 iframe 内注入 script 不能代表真实页面脚本能力，因为自动化上下文可以操作 DOM；测试改为校验 iframe sandbox 属性和 preview API CSP header。
+- 分享页依赖 `GET /api/shares/:token` 返回 `artifact.html`，测试前需要确保 API 服务加载最新代码。
+
+### 后续关注
+
+- 后续如果允许部分 sandbox capability，必须通过测试显式变更，不允许无意加入 `allow-scripts`。
+
+## 2026-06-26 UX-M2 Share Fixed Artifact Rendering
+
+### 已完成
+
+- 分享页从使用 `variation.previewUrl` iframe 改为使用 `artifact.html` 的 `srcDoc`。
+- 避免分享页在原 variation 继续 refine 后漂移到最新 preview。
+- 分享页仍展示只读 artifact version 和 visibility。
+
+### 验证记录
+
+- `npm run typecheck`
+- `npm test`
+
+### 后续关注
+
+- 后续 share 页面需要接入更严格 iframe sandbox 策略和 CSP。
+- password/private share UI 接入前，继续遵守后端 `SHARE_FORBIDDEN` 行为。

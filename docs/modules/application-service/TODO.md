@@ -130,7 +130,8 @@
 - [x] 定义 PostgreSQL 业务表草案。
 - [x] 定义 immutable usage event 领域模型。
 - [x] 在 generation/refine/export/share 写入 usage event。
-- [ ] 抽象 Repository 接口，拆出 InMemoryStore。
+- [x] 抽象 Repository 接口，让 `ApplicationService` 不再类型绑定 `InMemoryStore`。
+- [x] 建立 PostgreSQL SQL-first baseline migration。
 - [ ] 实现 PostgreSQL Repository。
 - [ ] 增加 usage event 幂等键，避免 runtime event replay 重复计费。
 - [ ] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。

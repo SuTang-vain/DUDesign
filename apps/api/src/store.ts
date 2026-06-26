@@ -9,6 +9,7 @@ import type {
   Workspace,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
+import type { ApplicationRepository } from './repository.js'
 
 export type SessionMessage = {
   id: string
@@ -42,7 +43,7 @@ export type AuditLog = {
   createdAt: string
 }
 
-export class InMemoryStore {
+export class InMemoryStore implements ApplicationRepository {
   readonly users = new Map<string, User>()
   readonly workspaces = new Map<string, Workspace>()
   readonly sessions = new Map<string, DesignSession>()

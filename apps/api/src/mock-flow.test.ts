@@ -140,6 +140,20 @@ describe('DUDesign mock API flow', () => {
     assert.equal(shareDetail.artifact.version, 3)
     assert.match(shareDetail.artifact.html ?? '', /version 3/)
 
+    const driftRefined = await postJson<RefineVariationResponse>('/api/variations/' + variationId + '/refine', {
+      prompt: 'Create a later edit that should not change the existing share.',
+      baseArtifactId: shareDetail.artifact.id,
+      deviceContext: 'desktop',
+    })
+    assert.equal(driftRefined.artifact?.version, 4)
+    const driftPreview = await getText(`/api/variations/${variationId}/preview`)
+    assert.match(driftPreview, /version 4/)
+    const stableShareDetail = await getJson<SharedVariationResponse>(`/api/shares/${shared.share.token}`)
+    assert.equal(stableShareDetail.artifact.id, shareDetail.artifact.id)
+    assert.equal(stableShareDetail.artifact.version, 3)
+    assert.match(stableShareDetail.artifact.html ?? '', /version 3/)
+    assert.doesNotMatch(stableShareDetail.artifact.html ?? '', /version 4/)
+
     const expiredShare = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
       visibility: 'public',
       expiresAt: '2000-01-01T00:00:00.000Z',
@@ -226,7 +240,7 @@ describe('DUDesign mock API flow', () => {
       && artifact.storageKey.endsWith('/index.html')
       && artifact.contentHash.startsWith('sha256:')
       && artifact.previewUrl === `/api/variations/${variationId}/preview`
-      && artifact.shareCount >= 5,
+      && artifact.shareCount >= 1,
     ))
 
     const supportLookup = await getJson<{
@@ -293,10 +307,10 @@ describe('DUDesign mock API flow', () => {
     }>('/api/admin/costs/summary', {
       headers: { 'x-dudesign-admin-role': 'support' },
     })
-    assert.equal(costSummary.totals.usageEventCount >= 11, true)
-    assert.equal(costSummary.totals.costCents >= 27, true)
+    assert.equal(costSummary.totals.usageEventCount >= 12, true)
+    assert.equal(costSummary.totals.costCents >= 30, true)
     assert.equal(costSummary.byUser[0]?.userId, 'usr_dev')
-    assert.equal(costSummary.byUser[0]?.usageEventCount >= 11, true)
+    assert.equal(costSummary.byUser[0]?.usageEventCount >= 12, true)
 
     const retried = await postJson<{
       retry: { job: { id: string; variationCount: number } }

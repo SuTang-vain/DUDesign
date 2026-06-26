@@ -212,7 +212,12 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         <div className={`device-preview ${device}`}>
           {previewUrl ? (
             <div data-testid="variation-preview" className="annotated-preview-wrap">
-              <iframe title={detail?.variation.title ?? 'Variation preview'} src={previewUrl} sandbox="" />
+              <iframe
+                data-testid="variation-preview-frame"
+                title={detail?.variation.title ?? 'Variation preview'}
+                src={previewUrl}
+                sandbox=""
+              />
               <div
                 ref={overlayRef}
                 data-testid="annotation-overlay"

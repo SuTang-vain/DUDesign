@@ -13,16 +13,17 @@ import { join } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
+import type { ApplicationRepository } from './repository.js'
 import type { RequestContext } from './auth.js'
 
 export class ApplicationService {
-  readonly store: InMemoryStore
+  readonly store: ApplicationRepository
   readonly events: JobEventBus
   readonly runtime: RuntimeGateway
   readonly artifacts: ArtifactStore
 
   constructor(options: {
-    store?: InMemoryStore
+    store?: ApplicationRepository
     events?: JobEventBus
     runtime?: RuntimeGateway
     artifacts?: ArtifactStore
@@ -946,7 +947,7 @@ export class ApplicationService {
     }
   }
 
-  private recordUsageEvent(input: Parameters<InMemoryStore['createUsageEvent']>[0]) {
+  private recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]) {
     this.store.createUsageEvent(input)
   }
 

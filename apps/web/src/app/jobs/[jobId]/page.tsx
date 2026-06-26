@@ -104,7 +104,12 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
             </div>
             <div className="preview-frame">
               {variation.previewUrl ? (
-                <iframe title={variation.title ?? variation.id} src={apiUrl(variation.previewUrl)} sandbox="" />
+                <iframe
+                  data-testid="variation-card-preview-frame"
+                  title={variation.title ?? variation.id}
+                  src={apiUrl(variation.previewUrl)}
+                  sandbox=""
+                />
               ) : (
                 <div className="preview-placeholder">Waiting for preview</div>
               )}

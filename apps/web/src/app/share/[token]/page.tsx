@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { apiUrl, getSharedVariation } from '@/lib/api'
+import { useEffect, useState } from 'react'
+import { getSharedVariation } from '@/lib/api'
 import type { SharedVariationResponse } from '@dudesign/contracts'
 
 export default function SharePage(props: { params: Promise<{ token: string }> }): React.JSX.Element {
@@ -28,11 +28,6 @@ export default function SharePage(props: { params: Promise<{ token: string }> })
     }
   }, [token])
 
-  const previewUrl = useMemo(() => {
-    if (!detail?.variation.previewUrl) return null
-    return apiUrl(detail.variation.previewUrl)
-  }, [detail?.variation.previewUrl])
-
   return (
     <main className="share-shell">
       <header className="share-header">
@@ -51,8 +46,13 @@ export default function SharePage(props: { params: Promise<{ token: string }> })
       {error ? <p className="error-text">{error}</p> : null}
 
       <section data-testid="share-preview" className="share-preview">
-        {previewUrl ? (
-          <iframe title={detail?.variation.title ?? 'Shared preview'} src={previewUrl} sandbox="" />
+        {detail?.artifact.html ? (
+          <iframe
+            data-testid="share-preview-frame"
+            title={detail.variation.title ?? 'Shared preview'}
+            srcDoc={detail.artifact.html}
+            sandbox=""
+          />
         ) : (
           <div className="preview-placeholder">Waiting for shared preview</div>
         )}

@@ -395,3 +395,53 @@
 - 将 mock zip 替换为真实 ZIP 生成。
 - 为 share revoke 写入 audit log。
 - 为 share 增加 password hash 和一次性访问校验流程。
+
+## 2026-06-26 M13 Share Drift Regression
+
+### 已完成
+
+- API smoke 增加 share 不漂移回归：
+  - 创建 public share 时固定 artifact v3。
+  - share 创建后继续 refine 当前 variation 到 v4。
+  - variation preview 显示 v4。
+  - 原 share detail 仍返回创建时 artifact id、artifact v3 和 v3 HTML。
+- 调整 admin artifact smoke 断言，不再假设后续 share 都绑定同一个 artifact version。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- share 的事实来源是 `shares.artifactId`，不是 variation 当前 `previewUrl`。
+- admin artifact explorer 的 `shareCount` 是每个 artifact version 的引用数，不能用 variation 总分享数做断言。
+
+## 2026-06-26 M14 Repository Contract and PostgreSQL Baseline
+
+### 已完成
+
+- 新增 `ApplicationRepository` 接口，明确业务服务层需要的 repository surface。
+- `InMemoryStore` 改为实现 `ApplicationRepository`，继续作为测试/dev fake。
+- `ApplicationService` 构造参数从 `InMemoryStore` 收敛为 `ApplicationRepository`。
+- `apps/api/src/index.ts` 导出 `ApplicationRepository` 类型。
+- 新增 SQL-first PostgreSQL baseline migration：
+  - `apps/api/db/migrations/0001_initial_schema.sql`
+  - 覆盖 users、workspaces、workspace_members、design_sessions、session_messages、design_jobs、design_variations、artifacts、annotation_batches、shares、usage_events、audit_logs。
+  - 包含关键 check constraints、外键、唯一约束和查询索引。
+
+### 验证
+
+- `npm run typecheck`
+
+### 决策
+
+- 本阶段只做 repository contract 与 migration baseline，不引入 PostgreSQL runtime dependency。
+- `ApplicationService` 仍可直接访问 repository maps，作为从内存实现迁移到 repository method 的过渡形态。
+- 后续 PostgreSQL repository 应先跑与 `InMemoryStore` 相同 API smoke，再替换生产 wiring。
+
+### 下一步
+
+- 把 `ApplicationService` 中直接遍历 Map 的查询逐步下沉到 repository methods。
+- 增加 usage event 幂等键和唯一约束。
+- 选择 migration runner，并实现 PostgreSQL repository 的连接、事务和 seed bootstrap。
