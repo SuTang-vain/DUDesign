@@ -6,6 +6,7 @@
     "rootDir": "src"
   },
   "references": [
+    { "path": "../../packages/artifact-store" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/runtime-gateway" }

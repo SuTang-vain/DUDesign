@@ -9,6 +9,7 @@
     "test": "tsc -b && node --test dist/*.test.js"
   },
   "dependencies": {
+    "@dudesign/artifact-store": "0.1.0",
     "@dudesign/contracts": "0.1.0",
     "@dudesign/domain": "0.1.0",
     "@dudesign/runtime-gateway": "0.1.0"

@@ -383,6 +383,38 @@ export class InMemoryStore {
     return artifact
   }
 
+  createArtifact(input: {
+    workspaceId: string
+    sessionId: string
+    variationId?: string | null
+    parentArtifactId?: string | null
+    kind: Artifact['kind']
+    version?: number
+    storageKey: string
+    entryPath?: string | null
+    contentHash: string
+    sizeBytes: number
+    metadata?: Record<string, unknown>
+  }): Artifact {
+    const artifact: Artifact = {
+      id: createId('art'),
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variationId ?? null,
+      parentArtifactId: input.parentArtifactId ?? null,
+      kind: input.kind,
+      version: input.version ?? 1,
+      storageKey: input.storageKey,
+      entryPath: input.entryPath ?? null,
+      contentHash: input.contentHash,
+      sizeBytes: input.sizeBytes,
+      metadata: input.metadata ?? {},
+      createdAt: nowIso(),
+    }
+    this.artifacts.set(artifact.id, artifact)
+    return artifact
+  }
+
   createAnnotationBatch(input: {
     variationId: string
     artifactId: string
@@ -414,6 +446,7 @@ export class InMemoryStore {
       token: createId('share'),
       visibility: input.visibility,
       passwordHash: null,
+      revokedAt: null,
       expiresAt: input.expiresAt ?? null,
       createdAt: nowIso(),
     }
@@ -423,5 +456,16 @@ export class InMemoryStore {
 
   getShareByToken(token: string): Share | null {
     return this.shares.get(token) ?? null
+  }
+
+  revokeShare(token: string): Share | null {
+    const share = this.shares.get(token)
+    if (!share) return null
+    const revoked = {
+      ...share,
+      revokedAt: nowIso(),
+    }
+    this.shares.set(token, revoked)
+    return revoked
   }
 }

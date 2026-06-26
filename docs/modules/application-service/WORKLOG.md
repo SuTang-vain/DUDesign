@@ -283,6 +283,21 @@
 - `npm run test:ux:e2e`
 - `npm --workspace @dudesign/web run build`
 
+## 2026-06-26 M11 Annotation Prompt Contract
+
+### 已完成
+
+- 将 annotation prompt suffix 生成逻辑从 `ApplicationService` 提取为 `annotationPrompt.ts`。
+- 新增 `annotationPrompt.test.ts`，锁定 rect/text 归一化坐标序列化格式。
+- `annotateVariation()` 继续通过同一函数生成 prompt suffix，保证浏览器标注和 API smoke 使用同一个契约。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm test`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+
 ## 2026-06-26 M10 Immutable Usage Events and Schema Draft
 
 ### 已完成
@@ -310,3 +325,73 @@
 - 为 usage event 增加幂等键，避免 runtime event replay 或服务重试导致重复计费。
 - 抽象 `ApplicationRepository`，把当前 `InMemoryStore` 从 `ApplicationService` 中剥离。
 - 选择 SQL-first migration 工具，并开始落地 PostgreSQL repository。
+
+## 2026-06-26 M11 LocalArtifactStore
+
+### 已完成
+
+- 在 `@dudesign/artifact-store` 实现 `LocalArtifactStore`。
+- 支持 `put()`、`get()`、`getSignedReadUrl()`、`delete()`。
+- 本地存储会写入 artifact body 和旁路 metadata JSON，记录 content type、metadata、sha256 hash、size。
+- 增加 storage key 规范化和路径逃逸防护，避免 `../` 写出 artifact root。
+- API 服务接入 `ArtifactStore`：
+  - 默认 artifact root 为 `.dudesign/artifacts`，可通过 `DUDESIGN_ARTIFACT_ROOT` 覆盖。
+  - mock variation 生成/refine 时，业务 store 创建 artifact metadata，`LocalArtifactStore` 写入 HTML body。
+  - preview、export、share detail 改为从 artifact store 读取 HTML，而不是临时拼接。
+- 根测试链路新增 `test:artifact-store`，并在 `npm test` 中先执行。
+- `.gitignore` 增加 `.dudesign/`，避免本地 artifact 输出进入版本控制。
+
+### 验证
+
+- `npm test`
+
+### 决策
+
+- 当前阶段保持“业务 metadata 在 Application Service store，artifact body 在 ArtifactStore”边界。
+- `LocalArtifactStore` 是 dev/MVP 实现，后续 S3/R2/OSS 实现应复用相同 `ArtifactStore` 接口。
+- preview/export/share 都读取同一个 artifact body，保证分享固定 artifact version 时内容不漂移。
+
+### 下一步
+
+- 为 `ArtifactStore` 增加 `copy()` 或 `putMany()`，支撑 export zip 和多文件 HTML 产物。
+- 增加 artifact content type 校验与最大文件大小限制。
+- 开始设计 S3-compatible ArtifactStore，作为线上部署实现。
+
+## 2026-06-26 M12 Export Zip and Share Controls
+
+### 已完成
+
+- `POST /api/variations/:id/export` 保持原 HTML 返回兼容，同时新增 `exportArtifact`。
+- 导出时创建 `export_zip` artifact metadata，并将 mock zip body 写入 `ArtifactStore`。
+- `Share` 领域模型新增 `revokedAt`。
+- 新增 `POST /api/shares/:token/revoke`：
+  - 仅 share owner 可撤销。
+  - 撤销后公开读取返回 `SHARE_REVOKED`。
+- `GET /api/shares/:token` 增加：
+  - revoked 检查。
+  - expired 检查。
+  - MVP 阶段 `private` / `password` share 公开读取返回 `SHARE_FORBIDDEN`。
+- API smoke 覆盖：
+  - export zip artifact metadata。
+  - share detail 固定 artifact HTML。
+  - expired share。
+  - private/password share forbidden。
+  - 非 owner revoke forbidden。
+  - owner revoke 后链接不可读。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- `export_zip` 目前是 mock package body，不是真正 ZIP 二进制；但已经打通 artifact kind、storage、metadata 和 API contract。
+- 第一版 MVP 的 private/password share 不做公开鉴权 UI，先返回明确禁止状态，后续由真实登录和 password flow 接管。
+- share revoke 是业务状态，不删除 artifact body，保证审计和 owner 历史可恢复。
+
+### 下一步
+
+- 将 mock zip 替换为真实 ZIP 生成。
+- 为 share revoke 写入 audit log。
+- 为 share 增加 password hash 和一次性访问校验流程。

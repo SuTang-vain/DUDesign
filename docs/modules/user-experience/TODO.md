@@ -112,7 +112,7 @@
 - [x] 建立页面级 Playwright smoke test。
 - [ ] 建立设计事件 stream mock test。
 - [x] 建立 annotation browser E2E。
-- [ ] 建立 annotation serialization unit test。
+- [x] 建立 annotation serialization unit test。
 - [ ] 建立 preview iframe sandbox test。
 - [ ] 建立用户端可访问性基础检查。
 

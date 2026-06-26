@@ -5,10 +5,12 @@ import type {
   DesignEvent,
   RefineVariationRequest,
   ShareVariationRequest,
-  AnnotationShape,
 } from '@dudesign/contracts'
+import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import { MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gateway'
-import type { DesignVariationStatus } from '@dudesign/domain'
+import type { Artifact, DesignVariation, DesignVariationStatus } from '@dudesign/domain'
+import { join } from 'node:path'
+import { buildAnnotationPrompt } from './annotationPrompt.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
 import type { RequestContext } from './auth.js'
@@ -17,15 +19,20 @@ export class ApplicationService {
   readonly store: InMemoryStore
   readonly events: JobEventBus
   readonly runtime: RuntimeGateway
+  readonly artifacts: ArtifactStore
 
   constructor(options: {
     store?: InMemoryStore
     events?: JobEventBus
     runtime?: RuntimeGateway
+    artifacts?: ArtifactStore
   } = {}) {
     this.store = options.store ?? new InMemoryStore()
     this.events = options.events ?? new JobEventBus()
     this.runtime = options.runtime ?? new MockRuntimeGateway()
+    this.artifacts = options.artifacts ?? new LocalArtifactStore({
+      rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
+    })
   }
 
   getBootstrap(ctx: RequestContext) {
@@ -222,7 +229,7 @@ export class ApplicationService {
       workspaceRoot: workspace.storageKey,
       deviceContext: input.deviceContext,
     })) {
-      this.applyEventSideEffects(event)
+      await this.applyEventSideEffects(event)
       this.events.publish(event)
     }
 
@@ -279,60 +286,27 @@ export class ApplicationService {
     }
   }
 
-  getVariationPreview(ctx: RequestContext, variationId: string): string {
+  async getVariationPreview(ctx: RequestContext, variationId: string): Promise<string> {
     const variation = this.store.variations.get(variationId)
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireVariationAccess(variationId, ctx.userId)
-    const title = variation.title ?? 'DUDesign Variation'
     const artifact = variation.currentArtifactId ? this.store.artifacts.get(variation.currentArtifactId) : null
-    const version = artifact?.version ?? 1
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      body { margin: 0; min-height: 100vh; background: #f7f4ed; color: #191714; display: grid; place-items: center; }
-      main { width: min(1080px, calc(100vw - 48px)); min-height: 620px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; }
-      h1 { font-size: clamp(48px, 8vw, 112px); line-height: 0.92; margin: 0; letter-spacing: 0; }
-      p { font-size: 18px; line-height: 1.65; color: #5f5a52; max-width: 560px; }
-      .accent { color: #4f46e5; }
-      .panel { background: #fffefa; border: 1px solid #e5ded2; border-radius: 8px; padding: 28px; box-shadow: 0 24px 80px rgba(40, 35, 24, 0.12); }
-      .invoice { border: 2px solid #191714; padding: 24px; aspect-ratio: 4 / 5; display: grid; align-content: space-between; }
-      .row { display: flex; justify-content: space-between; border-bottom: 1px solid #d8d0c2; padding: 12px 0; font-size: 14px; }
-      button { border: 0; background: #191714; color: #fffefa; border-radius: 6px; padding: 14px 18px; font-weight: 700; }
-      @media (max-width: 760px) { main { grid-template-columns: 1fr; padding: 32px 0; } h1 { font-size: 56px; } }
-    </style>
-  </head>
-  <body>
-    <main>
-      <section>
-        <h1>Send the invoice.<br />Get <span class="accent">paid</span> faster.</h1>
-        <p>Mock preview for ${escapeHtml(title)} version ${version}. This hosted artifact proves the DUDesign API can create variations, attach artifacts, and serve iframe-ready HTML before the real BabeL-O adapter is connected.</p>
-        <button>${version > 1 ? 'Refined version' : 'Start free'}</button>
-      </section>
-      <section class="panel">
-        <div class="invoice">
-          <strong>Invoice #${escapeHtml(variation.index.toString().padStart(2, '0'))} · v${version}</strong>
-          <div>
-            <div class="row"><span>Design exploration</span><strong>$2,400</strong></div>
-            <div class="row"><span>Frontend build</span><strong>$900</strong></div>
-            <div class="row"><span>Final polish</span><strong>$700</strong></div>
-          </div>
-          <strong>Total due: $4,000</strong>
-        </div>
-      </section>
-    </main>
-  </body>
-</html>`
+    if (!artifact) return renderMockVariationHtml(variation, null)
+    return this.readArtifactHtml(artifact.storageKey)
   }
 
-  exportVariation(ctx: RequestContext, variationId: string) {
+  async exportVariation(ctx: RequestContext, variationId: string) {
     this.requireVariationAccess(variationId, ctx.userId)
     const { variation, artifact } = this.requireCurrentVariationArtifact(variationId)
     const job = this.store.jobs.get(variation.jobId)
+    const html = await this.readArtifactHtml(artifact.storageKey)
+    const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase()
+    const exportArtifact = await this.createExportZipArtifact({
+      variation,
+      sourceArtifact: artifact,
+      filename: filename.replace(/\.html$/, '.zip'),
+      html,
+    })
     this.recordUsageEvent({
       kind: 'export.created',
       userId: ctx.userId,
@@ -346,6 +320,7 @@ export class ApplicationService {
       costCents: 0,
       metadata: {
         artifactVersion: artifact.version,
+        exportArtifactId: exportArtifact.id,
         jobStatus: job?.status ?? null,
       },
     })
@@ -353,8 +328,15 @@ export class ApplicationService {
       artifact: {
         id: artifact.id,
         version: artifact.version,
-        filename: `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase(),
-        html: this.getVariationPreview(ctx, variationId),
+        filename,
+        html,
+      },
+      exportArtifact: {
+        id: exportArtifact.id,
+        kind: 'export_zip',
+        filename: exportArtifact.entryPath ?? filename.replace(/\.html$/, '.zip'),
+        sizeBytes: exportArtifact.sizeBytes,
+        contentHash: exportArtifact.contentHash,
       },
     }
   }
@@ -400,11 +382,17 @@ export class ApplicationService {
     }
   }
 
-  getSharedVariation(token: string) {
+  async getSharedVariation(token: string) {
     const share = this.store.getShareByToken(token)
     if (!share) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    if (share.revokedAt) {
+      throw createHttpError(410, 'SHARE_REVOKED', 'This share link has been revoked.')
+    }
     if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) {
       throw createHttpError(410, 'SHARE_EXPIRED', 'This share link has expired.')
+    }
+    if (share.visibility !== 'public') {
+      throw createHttpError(403, 'SHARE_FORBIDDEN', `${share.visibility} share links require authenticated access in MVP.`)
     }
     const variation = this.store.variations.get(share.variationId)
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${share.variationId}`)
@@ -415,6 +403,7 @@ export class ApplicationService {
         id: share.id,
         token: share.token,
         visibility: share.visibility,
+        revokedAt: share.revokedAt,
         expiresAt: share.expiresAt,
         createdAt: share.createdAt,
       },
@@ -427,6 +416,24 @@ export class ApplicationService {
         id: artifact.id,
         version: artifact.version,
         entryPath: artifact.entryPath,
+        html: await this.readArtifactHtml(artifact.storageKey),
+      },
+    }
+  }
+
+  revokeShare(ctx: RequestContext, token: string) {
+    const share = this.store.getShareByToken(token)
+    if (!share) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    if (share.ownerId !== ctx.userId) {
+      throw createHttpError(403, 'SHARE_FORBIDDEN', 'You do not have access to this share link.')
+    }
+    const revoked = this.store.revokeShare(token)
+    if (!revoked) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    return {
+      share: {
+        id: revoked.id,
+        token: revoked.token,
+        revokedAt: revoked.revokedAt!,
       },
     }
   }
@@ -821,7 +828,7 @@ export class ApplicationService {
         templateRequirements: input.templateRequirements,
       })) {
         const normalized = this.rewriteMockVariationId(event, input.variationIdsByIndex)
-        this.applyEventSideEffects(normalized)
+        await this.applyEventSideEffects(normalized)
         this.events.publish(normalized)
       }
       this.store.setJobStatus(input.jobId, 'completed')
@@ -853,7 +860,7 @@ export class ApplicationService {
     } as DesignEvent
   }
 
-  private applyEventSideEffects(event: DesignEvent): void {
+  private async applyEventSideEffects(event: DesignEvent): Promise<void> {
     if (!event.variationId) return
     switch (event.type) {
       case 'design.variation_queued':
@@ -871,6 +878,7 @@ export class ApplicationService {
           variationId: event.variationId,
           artifactId: event.payload.artifactId,
         })
+        await this.writeMockArtifactBody(artifact.id)
         this.store.applyVariationEvent({
           variationId: event.variationId,
           status: 'rendering_preview',
@@ -895,6 +903,7 @@ export class ApplicationService {
                 parentArtifactId: variation.currentArtifactId,
               })
             : existingArtifact
+          if (artifact && !existingArtifact) await this.writeMockArtifactBody(artifact.id)
           this.store.applyVariationEvent({
           variationId: event.variationId,
           status: 'completed',
@@ -940,6 +949,137 @@ export class ApplicationService {
   private recordUsageEvent(input: Parameters<InMemoryStore['createUsageEvent']>[0]) {
     this.store.createUsageEvent(input)
   }
+
+  private async writeMockArtifactBody(artifactId: string): Promise<void> {
+    const artifact = this.store.artifacts.get(artifactId)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    const variation = artifact.variationId ? this.store.variations.get(artifact.variationId) ?? null : null
+    const stored = await this.artifacts.put({
+      workspaceId: artifact.workspaceId,
+      artifactId: artifact.id,
+      relativePath: `v${artifact.version}/${artifact.entryPath ?? 'index.html'}`,
+      contentType: 'text/html; charset=utf-8',
+      body: renderMockVariationHtml(variation, artifact),
+      metadata: {
+        kind: artifact.kind,
+        version: String(artifact.version),
+        sessionId: artifact.sessionId,
+        variationId: artifact.variationId ?? '',
+      },
+    })
+    this.store.artifacts.set(artifact.id, {
+      ...artifact,
+      storageKey: stored.storageKey,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        ...artifact.metadata,
+        storedBy: 'LocalArtifactStore',
+      },
+    })
+  }
+
+  private async readArtifactHtml(storageKey: string): Promise<string> {
+    const artifact = await this.artifacts.get(storageKey)
+    return new TextDecoder().decode(artifact.body)
+  }
+
+  private async createExportZipArtifact(input: {
+    variation: DesignVariation
+    sourceArtifact: Artifact
+    filename: string
+    html: string
+  }): Promise<Artifact> {
+    const exportArtifactId = `export_${input.sourceArtifact.id}`
+    const manifest = {
+      kind: 'dudesign.mock-export',
+      variationId: input.variation.id,
+      sourceArtifactId: input.sourceArtifact.id,
+      sourceVersion: input.sourceArtifact.version,
+      files: ['index.html'],
+    }
+    const body = [
+      'DUDesign mock export package',
+      JSON.stringify(manifest, null, 2),
+      '--- index.html ---',
+      input.html,
+    ].join('\n')
+    const stored = await this.artifacts.put({
+      workspaceId: input.sourceArtifact.workspaceId,
+      artifactId: exportArtifactId,
+      relativePath: input.filename,
+      contentType: 'application/zip',
+      body,
+      metadata: {
+        kind: 'export_zip',
+        sourceArtifactId: input.sourceArtifact.id,
+        variationId: input.variation.id,
+      },
+    })
+    return this.store.createArtifact({
+      workspaceId: input.sourceArtifact.workspaceId,
+      sessionId: input.sourceArtifact.sessionId,
+      variationId: input.variation.id,
+      parentArtifactId: input.sourceArtifact.id,
+      kind: 'export_zip',
+      version: input.sourceArtifact.version,
+      storageKey: stored.storageKey,
+      entryPath: input.filename,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        mock: true,
+        sourceArtifactId: input.sourceArtifact.id,
+      },
+    })
+  }
+}
+
+function renderMockVariationHtml(variation: DesignVariation | null, artifact: Artifact | null): string {
+  const title = variation?.title ?? 'DUDesign Variation'
+  const version = artifact?.version ?? 1
+  const variationIndex = variation?.index ?? 1
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #f7f4ed; color: #191714; display: grid; place-items: center; }
+      main { width: min(1080px, calc(100vw - 48px)); min-height: 620px; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; }
+      h1 { font-size: clamp(48px, 8vw, 112px); line-height: 0.92; margin: 0; letter-spacing: 0; }
+      p { font-size: 18px; line-height: 1.65; color: #5f5a52; max-width: 560px; }
+      .accent { color: #4f46e5; }
+      .panel { background: #fffefa; border: 1px solid #e5ded2; border-radius: 8px; padding: 28px; box-shadow: 0 24px 80px rgba(40, 35, 24, 0.12); }
+      .invoice { border: 2px solid #191714; padding: 24px; aspect-ratio: 4 / 5; display: grid; align-content: space-between; }
+      .row { display: flex; justify-content: space-between; border-bottom: 1px solid #d8d0c2; padding: 12px 0; font-size: 14px; }
+      button { border: 0; background: #191714; color: #fffefa; border-radius: 6px; padding: 14px 18px; font-weight: 700; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; padding: 32px 0; } h1 { font-size: 56px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Send the invoice.<br />Get <span class="accent">paid</span> faster.</h1>
+        <p>Mock preview for ${escapeHtml(title)} version ${version}. This hosted artifact proves the DUDesign API can create variations, attach artifacts, and serve iframe-ready HTML before the real BabeL-O adapter is connected.</p>
+        <button>${version > 1 ? 'Refined version' : 'Start free'}</button>
+      </section>
+      <section class="panel">
+        <div class="invoice">
+          <strong>Invoice #${escapeHtml(variationIndex.toString().padStart(2, '0'))} · v${version}</strong>
+          <div>
+            <div class="row"><span>Design exploration</span><strong>$2,400</strong></div>
+            <div class="row"><span>Frontend build</span><strong>$900</strong></div>
+            <div class="row"><span>Final polish</span><strong>$700</strong></div>
+          </div>
+          <strong>Total due: $4,000</strong>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`
 }
 
 function validateVariationCount(count: number): void {
@@ -1036,32 +1176,4 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
-}
-
-function buildAnnotationPrompt(shapes: AnnotationShape[], prompt?: string): string {
-  const lines = shapes.map((shape, index) => {
-    const label = `Annotation ${index + 1}`
-    if (shape.type === 'rect') {
-      return `${label}: rectangle at x=${round(shape.x)}, y=${round(shape.y)}, w=${round(shape.w)}, h=${round(shape.h)}${shape.note ? `; note: ${shape.note}` : ''}`
-    }
-    if (shape.type === 'circle') {
-      return `${label}: circle at cx=${round(shape.cx)}, cy=${round(shape.cy)}, r=${round(shape.r)}${shape.note ? `; note: ${shape.note}` : ''}`
-    }
-    if (shape.type === 'arrow') {
-      return `${label}: arrow from (${round(shape.from.x)}, ${round(shape.from.y)}) to (${round(shape.to.x)}, ${round(shape.to.y)})${shape.note ? `; note: ${shape.note}` : ''}`
-    }
-    if (shape.type === 'pen') {
-      return `${label}: freehand stroke with ${shape.points.length} points${shape.note ? `; note: ${shape.note}` : ''}`
-    }
-    return `${label}: text note at (${round(shape.anchor.x)}, ${round(shape.anchor.y)}): ${shape.text}${shape.note ? `; note: ${shape.note}` : ''}`
-  })
-  return [
-    prompt?.trim() || 'Apply the requested visual changes from these annotations.',
-    'Use normalized coordinates where 0,0 is the top-left of the current preview and 1,1 is the bottom-right.',
-    ...lines,
-  ].join('\n')
-}
-
-function round(value: number): string {
-  return Number.isFinite(value) ? value.toFixed(3) : '0.000'
 }

@@ -21,10 +21,14 @@ export type ArtifactStoreGetResult = {
   metadata: Record<string, string>
 }
 
+export type LocalArtifactStoreOptions = {
+  rootDir: string
+  publicBaseUrl?: string
+}
+
 export type ArtifactStore = {
   put(input: ArtifactStorePutInput): Promise<ArtifactStorePutResult>
   get(storageKey: string): Promise<ArtifactStoreGetResult>
   getSignedReadUrl(storageKey: string, options?: { expiresInSeconds?: number }): Promise<string>
   delete(storageKey: string): Promise<void>
 }
-

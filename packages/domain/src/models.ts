@@ -132,6 +132,7 @@ export type Share = {
   token: string
   visibility: ShareVisibility
   passwordHash: string | null
+  revokedAt: ISODateTime | null
   expiresAt: ISODateTime | null
   createdAt: ISODateTime
 }

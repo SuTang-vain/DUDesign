@@ -11,6 +11,7 @@
 - [x] 建立 PostgreSQL schema 草案。
 - [ ] 建立 PostgreSQL 连接和迁移机制。
 - [x] 建立对象存储抽象。
+- [x] 实现本地 `LocalArtifactStore`，用于 MVP/dev 环境 artifact body 存储。
 - [ ] 建立 Redis/Queue 抽象。
 - [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
 - [x] 建立 M1 request id 传递；trace id 后续接观测系统。
@@ -65,13 +66,16 @@
 ## Phase APP-4：Artifact、Preview、Export、Share
 
 - [x] 实现 M1 mock artifact 存储记录。
+- [x] 将 mock HTML artifact body 写入 `ArtifactStore`，metadata 继续由业务 store 管理。
 - [x] 实现 artifact version。
 - [x] 实现 mock preview URL 和 HTML preview endpoint。
 - [ ] 实现 screenshot artifact。
 - [x] 实现 mock HTML export。
-- [ ] 实现 export zip。
+- [x] 实现 mock `export_zip` artifact。
 - [x] 实现 share token。
-- [ ] 实现 share revoke。
+- [x] 实现 share revoke。
+- [x] 实现 share expiresAt 测试。
+- [x] 明确 MVP private/password share 行为：公开读取返回 `SHARE_FORBIDDEN`。
 
 验收：
 
@@ -112,9 +116,10 @@
 - [ ] Service 状态机测试。
 - [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
 - [x] Owner 权限测试。
-- [ ] Share token 权限测试。
+- [x] Share token 权限测试。
 - [ ] Queue worker 测试。
 - [ ] Runtime unavailable 降级测试。
+- [x] LocalArtifactStore 单元测试。
 
 验收：
 

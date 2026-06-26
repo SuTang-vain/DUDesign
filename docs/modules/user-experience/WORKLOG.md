@@ -219,3 +219,29 @@
 
 - 当前 annotation browser E2E 覆盖 rect；circle、arrow、pen 后续实现后应加入同一组 E2E。
 - 仍需补 annotation serialization unit test，直接验证归一化 payload 和 prompt suffix。
+
+## 2026-06-26 UX-M1 Annotation Serialization Unit Test
+
+### 已完成
+
+- 将 annotation prompt suffix 生成逻辑提取到 `apps/api/src/annotationPrompt.ts`。
+- `ApplicationService.annotateVariation()` 复用 `buildAnnotationPrompt()`，保持 API 行为不变。
+- 新增 `apps/api/src/annotationPrompt.test.ts`。
+- 单元测试覆盖：
+  - rect 坐标序列化为三位小数。
+  - text annotation anchor 坐标序列化。
+  - prompt 自定义前缀。
+  - 默认 prompt 文案。
+  - 非有限坐标值输出为 `0.000`。
+
+### 验证记录
+
+- `npm --workspace @dudesign/api run test`
+- `npm test`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+
+### 后续关注
+
+- circle、arrow、pen UI 实现后，需要同步补 serialization unit cases 和 browser E2E。
+- 后续接 BabeL-O Adapter 时，应该只消费 `promptSuffix` 和原始 shapes metadata，不直接理解前端临时 UI 状态。

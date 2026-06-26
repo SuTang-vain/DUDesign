@@ -125,6 +125,9 @@ describe('DUDesign mock API flow', () => {
     assert.equal(exported.artifact.version, 3)
     assert.match(exported.artifact.filename, /variation-01-v3\.html/)
     assert.match(exported.artifact.html, /version 3/)
+    assert.equal(exported.exportArtifact?.kind, 'export_zip')
+    assert.match(exported.exportArtifact?.filename ?? '', /variation-01-v3\.zip/)
+    assert.match(exported.exportArtifact?.contentHash ?? '', /^sha256:/)
 
     const shared = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
       visibility: 'public',
@@ -135,6 +138,44 @@ describe('DUDesign mock API flow', () => {
     const shareDetail = await getJson<SharedVariationResponse>(`/api/shares/${shared.share.token}`)
     assert.equal(shareDetail.variation.id, variationId)
     assert.equal(shareDetail.artifact.version, 3)
+    assert.match(shareDetail.artifact.html ?? '', /version 3/)
+
+    const expiredShare = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
+      visibility: 'public',
+      expiresAt: '2000-01-01T00:00:00.000Z',
+    })
+    const expiredResponse = await fetch(`${baseUrl}/api/shares/${expiredShare.share.token}`)
+    assert.equal(expiredResponse.status, 410)
+    const expiredPayload = await expiredResponse.json() as { error: { code: string } }
+    assert.equal(expiredPayload.error.code, 'SHARE_EXPIRED')
+
+    for (const visibility of ['private', 'password'] as const) {
+      const restrictedShare = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
+        visibility,
+      })
+      const restrictedResponse = await fetch(`${baseUrl}/api/shares/${restrictedShare.share.token}`)
+      assert.equal(restrictedResponse.status, 403)
+      const restrictedPayload = await restrictedResponse.json() as { error: { code: string } }
+      assert.equal(restrictedPayload.error.code, 'SHARE_FORBIDDEN')
+    }
+
+    const shareToRevoke = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
+      visibility: 'public',
+    })
+    const revokeForbidden = await fetch(`${baseUrl}/api/shares/${shareToRevoke.share.token}/revoke`, {
+      method: 'POST',
+      headers: {
+        'x-dudesign-user-id': 'usr_alt',
+      },
+    })
+    assert.equal(revokeForbidden.status, 403)
+    const revoked = await postJson<{ share: { token: string; revokedAt: string } }>(`/api/shares/${shareToRevoke.share.token}/revoke`, {})
+    assert.equal(revoked.share.token, shareToRevoke.share.token)
+    assert.match(revoked.share.revokedAt, /^\d{4}-/)
+    const revokedResponse = await fetch(`${baseUrl}/api/shares/${shareToRevoke.share.token}`)
+    assert.equal(revokedResponse.status, 410)
+    const revokedPayload = await revokedResponse.json() as { error: { code: string } }
+    assert.equal(revokedPayload.error.code, 'SHARE_REVOKED')
 
     const forbiddenJob = await fetch(`${baseUrl}/api/design-jobs/${createdJob.job.id}`, {
       headers: { 'x-dudesign-user-id': 'usr_alt' },
@@ -183,9 +224,9 @@ describe('DUDesign mock API flow', () => {
       && artifact.variationId === variationId
       && artifact.kind === 'html'
       && artifact.storageKey.endsWith('/index.html')
-      && artifact.contentHash.startsWith('hash_')
+      && artifact.contentHash.startsWith('sha256:')
       && artifact.previewUrl === `/api/variations/${variationId}/preview`
-      && artifact.shareCount === 1,
+      && artifact.shareCount >= 5,
     ))
 
     const supportLookup = await getJson<{
@@ -252,10 +293,10 @@ describe('DUDesign mock API flow', () => {
     }>('/api/admin/costs/summary', {
       headers: { 'x-dudesign-admin-role': 'support' },
     })
-    assert.equal(costSummary.totals.usageEventCount >= 7, true)
+    assert.equal(costSummary.totals.usageEventCount >= 11, true)
     assert.equal(costSummary.totals.costCents >= 27, true)
     assert.equal(costSummary.byUser[0]?.userId, 'usr_dev')
-    assert.equal(costSummary.byUser[0]?.usageEventCount >= 7, true)
+    assert.equal(costSummary.byUser[0]?.usageEventCount >= 11, true)
 
     const retried = await postJson<{
       retry: { job: { id: string; variationCount: number } }

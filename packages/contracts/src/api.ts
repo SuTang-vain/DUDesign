@@ -178,6 +178,13 @@ export type ExportVariationResponse = {
     filename: string
     html: string
   }
+  exportArtifact?: {
+    id: ID
+    kind: 'export_zip'
+    filename: string
+    sizeBytes: number
+    contentHash: string
+  }
 }
 
 export type ShareVariationResponse = {
@@ -195,6 +202,7 @@ export type SharedVariationResponse = {
     id: ID
     token: string
     visibility: 'public' | 'private' | 'password'
+    revokedAt: string | null
     expiresAt: string | null
     createdAt: string
   }
@@ -207,5 +215,14 @@ export type SharedVariationResponse = {
     id: ID
     version: number
     entryPath: string | null
+    html?: string
+  }
+}
+
+export type RevokeShareResponse = {
+  share: {
+    id: ID
+    token: string
+    revokedAt: string
   }
 }

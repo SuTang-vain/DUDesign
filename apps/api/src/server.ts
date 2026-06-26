@@ -133,7 +133,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationPreviewMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/preview$/)
   if (method === 'GET' && variationPreviewMatch) {
-    sendHtml(res, 200, service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!)))
+    sendHtml(res, 200, await service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!)))
     return
   }
 
@@ -151,7 +151,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationExportMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/export$/)
   if (method === 'POST' && variationExportMatch) {
-    sendJson(res, 200, service.exportVariation(ctx, decodeURIComponent(variationExportMatch[1]!)))
+    sendJson(res, 200, await service.exportVariation(ctx, decodeURIComponent(variationExportMatch[1]!)))
     return
   }
 
@@ -161,9 +161,15 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const shareRevokeMatch = url.pathname.match(/^\/api\/shares\/([^/]+)\/revoke$/)
+  if (method === 'POST' && shareRevokeMatch) {
+    sendJson(res, 200, service.revokeShare(ctx, decodeURIComponent(shareRevokeMatch[1]!)))
+    return
+  }
+
   const shareMatch = url.pathname.match(/^\/api\/shares\/([^/]+)$/)
   if (method === 'GET' && shareMatch) {
-    sendJson(res, 200, service.getSharedVariation(decodeURIComponent(shareMatch[1]!)))
+    sendJson(res, 200, await service.getSharedVariation(decodeURIComponent(shareMatch[1]!)))
     return
   }
 
