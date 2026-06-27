@@ -172,10 +172,12 @@ export class MockRuntimeGateway implements RuntimeGateway {
     })
   }
 
-  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
-    return {
-      cancelled: true,
-      message: `Mock runtime job ${input.jobId} cancelled${input.reason ? `: ${input.reason}` : '.'}`,
-    }
-  }
+	  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
+	    return {
+	      cancelled: true,
+	      message: `Mock runtime job ${input.jobId} cancelled${input.reason ? `: ${input.reason}` : '.'}`,
+	      cancelledVariationCount: input.variations?.length ?? 0,
+	      failedVariationCount: 0,
+	    }
+	  }
 }

@@ -28,7 +28,7 @@
 - [x] 实现 `/v1/stream` 最小 NDJSON/SSE client。
 - [x] 实现 stream idle timeout。
 - [x] 实现 stream 连接前失败重连。
-- [ ] 实现 cancel。
+- [x] 实现 cancel。
 - [x] 实现 API key / auth header 配置。
 - [x] 实现 API 服务层 runtime mode 环境切换。
 
@@ -53,11 +53,11 @@
 ## Phase RTC-3：并行 Variation Orchestration
 
 - [x] 实现 `spawnVariationAgents` 最小真实 stream 适配。
-- [ ] 为每个 variation 创建独立 child session。
+- [x] 为每个 variation 创建独立 child session。
 - [ ] 注入 variation index 和风格差异 prompt。
 - [x] 聚合多个 child session 的事件。
 - [x] 支持单个 child failed，不影响其他 child。
-- [ ] 返回每个 variation 的 runtime_child_session_id / runtime_agent_job_id。
+- [x] 返回并持久化每个 variation 的 runtime_child_session_id / runtime_agent_job_id。
 
 验收：
 
@@ -72,7 +72,7 @@
 - [x] 把 workspace 文件同步为业务 artifact。
 - [x] 通过 DUDesign API 提供 workspace asset serving。
 - [x] preview HTML 相对资源 URL 改写到稳定 asset endpoint。
-- [ ] 产出 artifact updated event。
+- [x] `artifact_updated` 事件落成增量 artifact snapshot。
 - [x] 防止 path traversal。
 - [ ] 防止 symlink escape。
 

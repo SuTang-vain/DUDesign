@@ -67,7 +67,7 @@ describe('BabelORuntimeGateway', () => {
     assert.deepEqual(calls, ['GET https://runtime.example.test/v1/contract'])
   })
 
-  it('returns unavailable resume results when the runtime contract mismatches', async () => {
+	  it('returns unavailable resume results when the runtime contract mismatches', async () => {
     const gateway = new BabelORuntimeGateway({
       client: new BabelORuntimeClient({
         baseUrl: 'https://runtime.example.test',
@@ -90,10 +90,91 @@ describe('BabelORuntimeGateway', () => {
 
     assert.equal(resumed.status, 'unavailable')
     assert.equal(resumed.runtimeSessionId, null)
-    assert.match(resumed.message ?? '', /contract_mismatch/)
-  })
+	    assert.match(resumed.message ?? '', /contract_mismatch/)
+	  })
 
-  it('maps raw Nexus events through the adapter without exposing runtime details', () => {
+	  it('cancels runtime agents when the contract is compatible', async () => {
+	    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+	    const gateway = new BabelORuntimeGateway({
+	      client: new BabelORuntimeClient({
+	        baseUrl: 'https://runtime.example.test',
+	        fetch: async (url, init) => {
+	          calls.push({
+	            url: String(url),
+	            method: init?.method ?? 'GET',
+	            ...(init?.body && { body: JSON.parse(String(init.body)) }),
+	          })
+	          if (String(url).endsWith('/v1/contract')) {
+	            return jsonResponse({
+	              contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+	              runtimeVersion: '1.2.3',
+	            })
+	          }
+	          return jsonResponse({
+	            cancelled: true,
+	            message: 'runtime cancel accepted',
+	            cancelledVariationCount: 1,
+	            failedVariationCount: 0,
+	          })
+	        },
+	      }),
+	    })
+
+	    const cancelled = await gateway.cancelRuntimeJob({
+	      jobId: 'job_1',
+	      reason: 'operator cancel',
+	      variations: [
+	        { variationId: 'var_1', runtimeChildSessionId: 'rt_child_1', runtimeAgentJobId: 'agent_1' },
+	      ],
+	    })
+
+	    assert.deepEqual(cancelled, {
+	      cancelled: true,
+	      message: 'runtime cancel accepted',
+	      cancelledVariationCount: 1,
+	      failedVariationCount: 0,
+	    })
+	    assert.deepEqual(calls.map(call => `${call.method} ${call.url}`), [
+	      'GET https://runtime.example.test/v1/contract',
+	      'POST https://runtime.example.test/v1/agents/cancel',
+	    ])
+	    assert.deepEqual(calls[1]?.body, {
+	      jobId: 'job_1',
+	      reason: 'operator cancel',
+	      variations: [
+	        { variationId: 'var_1', runtimeChildSessionId: 'rt_child_1', runtimeAgentJobId: 'agent_1' },
+	      ],
+	    })
+	  })
+
+	  it('does not call cancel when the runtime contract mismatches', async () => {
+	    const calls: string[] = []
+	    const gateway = new BabelORuntimeGateway({
+	      client: new BabelORuntimeClient({
+	        baseUrl: 'https://runtime.example.test',
+	        fetch: async (url, init) => {
+	          calls.push(`${init?.method ?? 'GET'} ${url}`)
+	          return jsonResponse({
+	            contractVersion: '2026-06-27.babel-o-runtime.v2',
+	            runtimeVersion: '2.0.0',
+	          })
+	        },
+	      }),
+	    })
+
+	    const cancelled = await gateway.cancelRuntimeJob({
+	      jobId: 'job_1',
+	      variations: [
+	        { variationId: 'var_1', runtimeChildSessionId: 'rt_child_1', runtimeAgentJobId: 'agent_1' },
+	      ],
+	    })
+
+	    assert.equal(cancelled.cancelled, false)
+	    assert.match(cancelled.message ?? '', /contract_mismatch/)
+	    assert.deepEqual(calls, ['GET https://runtime.example.test/v1/contract'])
+	  })
+
+	  it('maps raw Nexus events through the adapter without exposing runtime details', () => {
     const gateway = new BabelORuntimeGateway({
       client: new BabelORuntimeClient({
         baseUrl: 'https://runtime.example.test',
@@ -166,16 +247,20 @@ describe('BabelORuntimeGateway', () => {
       'POST https://runtime.example.test/v1/agents',
       'GET https://runtime.example.test/v1/stream?streamId=stream_1&runtimeSessionId=rt_child_1&agentJobId=agent_1',
     ])
-    assert.deepEqual(events.map(event => event.type), [
-      'design.job_started',
-      'design.variation_queued',
-      'design.variation_streaming',
-      'design.variation_completed',
-      'design.job_completed',
-    ])
-    assert.equal(events[1]?.variationId, 'runtime_variation_1')
-    assert.equal(events[2]?.variationId, 'runtime_variation_1')
-  })
+	    assert.deepEqual(events.map(event => event.type), [
+	      'design.job_started',
+	      'design.variation_queued',
+	      'design.variation_queued',
+	      'design.variation_streaming',
+	      'design.variation_completed',
+	      'design.job_completed',
+	    ])
+	    assert.equal(events[1]?.variationId, 'runtime_variation_1')
+	    assert.equal(events[2]?.variationId, 'runtime_variation_1')
+	    assert.equal(events[3]?.variationId, 'runtime_variation_1')
+	    assert.equal(events[2]?.type === 'design.variation_queued' ? events[2].payload.runtimeChildSessionId : null, 'rt_child_1')
+	    assert.equal(events[2]?.type === 'design.variation_queued' ? events[2].payload.runtimeAgentJobId : null, 'agent_1')
+	  })
 
   it('merges variation streams and lets one child fail without stopping the others', async () => {
     const gateway = new BabelORuntimeGateway({

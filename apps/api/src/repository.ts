@@ -98,6 +98,8 @@ export type ApplyVariationEventInput = {
   status?: DesignVariation['status']
   artifactId?: string
   previewUrl?: string
+  runtimeChildSessionId?: string
+  runtimeAgentJobId?: string
   inputTokens?: number
   outputTokens?: number
   costCents?: number

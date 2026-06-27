@@ -84,11 +84,18 @@ export type RefineVariationInput = {
 export type CancelRuntimeJobInput = {
   jobId: ID
   reason?: string
+  variations?: Array<{
+    variationId: ID
+    runtimeChildSessionId: string | null
+    runtimeAgentJobId: string | null
+  }>
 }
 
 export type CancelRuntimeJobResult = {
   cancelled: boolean
   message?: string
+  cancelledVariationCount?: number
+  failedVariationCount?: number
 }
 
 export type RuntimeGateway = {

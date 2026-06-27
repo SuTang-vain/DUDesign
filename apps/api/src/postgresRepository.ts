@@ -332,6 +332,8 @@ export class PostgresRepository extends InMemoryStore {
       status: input.status ?? existing.status,
       currentArtifactId: input.artifactId ?? existing.currentArtifactId,
       previewUrl: input.previewUrl ?? existing.previewUrl,
+      runtimeChildSessionId: input.runtimeChildSessionId ?? existing.runtimeChildSessionId,
+      runtimeAgentJobId: input.runtimeAgentJobId ?? existing.runtimeAgentJobId,
       inputTokens: input.inputTokens ?? existing.inputTokens,
       outputTokens: input.outputTokens ?? existing.outputTokens,
       costCents: input.costCents ?? existing.costCents,

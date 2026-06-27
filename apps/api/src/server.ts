@@ -168,6 +168,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const artifactDownloadMatch = url.pathname.match(/^\/api\/artifacts\/([^/]+)\/download$/)
+  if (method === 'GET' && artifactDownloadMatch) {
+    const download = await service.downloadArtifact(ctx, decodeURIComponent(artifactDownloadMatch[1]!))
+    sendDownload(res, 200, download)
+    return
+  }
+
   const variationShareMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/share$/)
   if (method === 'POST' && variationShareMatch) {
     sendJson(res, 200, await service.shareVariation(ctx, decodeURIComponent(variationShareMatch[1]!), await readJson(req)))
@@ -306,6 +313,23 @@ function sendAsset(
     'cache-control': cacheControl,
   })
   res.end(Buffer.from(asset.body))
+}
+
+function sendDownload(
+  res: http.ServerResponse,
+  status: number,
+  download: { filename: string; contentType: string; body: Uint8Array },
+): void {
+  res.writeHead(status, {
+    'content-type': download.contentType,
+    'content-disposition': `attachment; filename="${download.filename.replaceAll(/["\\\r\n]/g, '_')}"`,
+    'content-length': String(download.body.byteLength),
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'cache-control': 'private, max-age=60',
+  })
+  res.end(Buffer.from(download.body))
 }
 
 function sendCorsPreflight(res: http.ServerResponse): void {

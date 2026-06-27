@@ -173,6 +173,18 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(exported.exportArtifact?.kind, 'export_zip')
   assert.match(exported.exportArtifact?.filename ?? '', /variation-01-v3\.zip/)
   assert.match(exported.exportArtifact?.contentHash ?? '', /^sha256:/)
+  assert.deepEqual(exported.exportArtifact?.files, ['index.html', 'images/mark.svg', 'styles/share-preview.css'])
+  assert.equal(exported.exportArtifact?.downloadUrl, `/api/artifacts/${exported.exportArtifact?.id}/download`)
+  const exportZip = await fetch(`${baseUrl}${exported.exportArtifact!.downloadUrl}`)
+  assert.equal(exportZip.ok, true)
+  assert.equal(exportZip.headers.get('content-type'), 'application/zip')
+  assert.match(exportZip.headers.get('content-disposition') ?? '', /variation-01-v3\.zip/)
+  assert.deepEqual(listZipEntries(new Uint8Array(await exportZip.arrayBuffer())), [
+    'index.html',
+    'images/mark.svg',
+    'styles/share-preview.css',
+    'dudesign-export.json',
+  ])
 
   const shared = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
     visibility: 'public',
@@ -342,12 +354,15 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     body: JSON.stringify({ reason: 'operator cancel smoke' }),
   })
   if (cancelResponse.status === 200) {
-    const cancelled = await cancelResponse.json() as {
-      job: { id: string; status: string }
-      audit: { action: string; targetId: string; reason: string }
-    }
-    assert.ok(['cancelled', 'completed'].includes(cancelled.job.status))
-    assert.equal(cancelled.audit.action, 'job.cancel')
+	    const cancelled = await cancelResponse.json() as {
+	      job: { id: string; status: string }
+	      runtime: { cancelled: boolean; cancelledVariationCount?: number }
+	      audit: { action: string; targetId: string; reason: string }
+	    }
+	    assert.ok(['cancelled', 'completed'].includes(cancelled.job.status))
+	    assert.equal(cancelled.runtime.cancelled, true)
+	    assert.equal(cancelled.runtime.cancelledVariationCount, 1)
+	    assert.equal(cancelled.audit.action, 'job.cancel')
     assert.equal(cancelled.audit.targetId, cancellableJob.job.id)
   } else {
     assert.equal(cancelResponse.status, 409)
@@ -454,4 +469,32 @@ async function createAssetArtifact(
     sizeBytes: stored.sizeBytes,
     metadata: { test: 'share-assets', htmlArtifactId: htmlArtifact.id },
   })
+}
+
+function listZipEntries(zip: Uint8Array): string[] {
+  const names: string[] = []
+  const decoder = new TextDecoder()
+  let offset = 0
+  while (offset + 46 <= zip.byteLength) {
+    const signature = readU32(zip, offset)
+    if (signature === 0x02014b50) {
+      const nameLength = readU16(zip, offset + 28)
+      const extraLength = readU16(zip, offset + 30)
+      const commentLength = readU16(zip, offset + 32)
+      const nameStart = offset + 46
+      names.push(decoder.decode(zip.slice(nameStart, nameStart + nameLength)))
+      offset = nameStart + nameLength + extraLength + commentLength
+      continue
+    }
+    offset += 1
+  }
+  return names
+}
+
+function readU16(bytes: Uint8Array, offset: number): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset, true)
+}
+
+function readU32(bytes: Uint8Array, offset: number): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset, true)
 }

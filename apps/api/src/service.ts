@@ -386,7 +386,31 @@ export class ApplicationService {
         filename: exportArtifact.entryPath ?? filename.replace(/\.html$/, '.zip'),
         sizeBytes: exportArtifact.sizeBytes,
         contentHash: exportArtifact.contentHash,
+        downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
+        files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
       },
+    }
+  }
+
+  async downloadArtifact(ctx: RequestContext, artifactId: string): Promise<{
+    filename: string
+    contentType: string
+    body: Uint8Array
+  }> {
+    const artifact = await this.store.getArtifactById(artifactId)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    if (artifact.kind !== 'export_zip') {
+      throw createHttpError(403, 'ARTIFACT_DOWNLOAD_FORBIDDEN', 'Only export artifacts can be downloaded through this endpoint.')
+    }
+    if (!artifact.variationId) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Export artifact is not attached to a variation.')
+    }
+    await this.requireVariationAccess(artifact.variationId, ctx.userId)
+    const stored = await this.artifacts.get(artifact.storageKey)
+    return {
+      filename: artifact.entryPath ?? `${artifact.id}.zip`,
+      contentType: stored.contentType || 'application/zip',
+      body: stored.body,
     }
   }
 
@@ -536,10 +560,17 @@ export class ApplicationService {
     if (snapshot.job.status === 'completed' || snapshot.job.status === 'failed' || snapshot.job.status === 'cancelled') {
       throw createHttpError(409, 'JOB_NOT_CANCELLABLE', `Job ${jobId} is already ${snapshot.job.status}.`)
     }
-    const runtime = await this.runtime.cancelRuntimeJob({
-      jobId,
-      reason: input.reason,
-    })
+	    const runtime = await this.runtime.cancelRuntimeJob({
+	      jobId,
+	      reason: input.reason,
+	      variations: snapshot.variations
+	        .filter(variation => variation.status !== 'completed' && variation.status !== 'failed' && variation.status !== 'cancelled')
+	        .map(variation => ({
+	          variationId: variation.id,
+	          runtimeChildSessionId: variation.runtimeChildSessionId,
+	          runtimeAgentJobId: variation.runtimeAgentJobId,
+	        })),
+	    })
     await this.store.setJobStatus(jobId, 'cancelled')
     for (const variation of snapshot.variations) {
       if (variation.status !== 'completed' && variation.status !== 'failed' && variation.status !== 'cancelled') {
@@ -729,10 +760,37 @@ export class ApplicationService {
     if (!event.variationId) return
     switch (event.type) {
       case 'design.variation_queued':
-        await this.store.applyVariationEvent({ variationId: event.variationId, status: 'queued' })
+        await this.store.applyVariationEvent({
+          variationId: event.variationId,
+          status: 'queued',
+          runtimeChildSessionId: event.payload.runtimeChildSessionId,
+          runtimeAgentJobId: event.payload.runtimeAgentJobId,
+        })
         break
       case 'design.variation_streaming':
         await this.store.applyVariationEvent({ variationId: event.variationId, status: 'streaming' })
+        break
+      case 'design.variation_artifact_updated':
+        {
+          const context = await this.store.getVariationJobContext(event.variationId)
+          const variation = context?.variation
+          const job = context?.job
+          const artifact = variation
+            ? await this.materializeArtifactFromRuntimePayload({
+                event,
+                workspaceId: job?.workspaceId ?? this.store.devWorkspace.id,
+                sessionId: event.sessionId ?? variation.sessionId,
+                variation,
+                sourceEventType: 'artifact_updated',
+              })
+            : undefined
+          await this.store.applyVariationEvent({
+            variationId: event.variationId,
+            status: artifact ? 'rendering_preview' : 'streaming',
+            artifactId: artifact?.id,
+            previewUrl: artifact ? `/api/variations/${event.variationId}/preview` : undefined,
+          })
+        }
         break
       case 'design.variation_preview_ready': {
         const context = await this.store.getVariationJobContext(event.variationId)
@@ -762,11 +820,12 @@ export class ApplicationService {
             ? await this.store.getArtifactById(event.payload.artifactId) ?? undefined
             : undefined
           const artifact = existingArtifact ?? (variation
-            ? await this.materializeHtmlArtifactFromEvent({
+            ? await this.materializeArtifactFromRuntimePayload({
                 event,
                 workspaceId: job?.workspaceId ?? this.store.devWorkspace.id,
                 sessionId: event.sessionId ?? variation.sessionId,
                 variation,
+                sourceEventType: 'completed',
               })
             : undefined)
           await this.store.applyVariationEvent({
@@ -845,12 +904,13 @@ export class ApplicationService {
     })
   }
 
-  private async materializeHtmlArtifactFromEvent(input: {
-    event: Extract<DesignEvent, { type: 'design.variation_completed' }>
+  private async materializeArtifactFromRuntimePayload(input: {
+    event: Extract<DesignEvent, { type: 'design.variation_artifact_updated' | 'design.variation_completed' }>
     workspaceId: string
     sessionId: string
     variation: DesignVariation
-  }): Promise<Artifact> {
+    sourceEventType: 'artifact_updated' | 'completed'
+  }): Promise<Artifact | null> {
     if (Array.isArray(input.event.payload.files) && input.event.payload.files.length > 0) {
       return await this.createRuntimeWorkspaceArtifacts({
         workspaceId: input.workspaceId,
@@ -859,6 +919,7 @@ export class ApplicationService {
         runtimeArtifactId: input.event.payload.artifactId,
         files: input.event.payload.files,
         entryPath: input.event.payload.entryPath ?? 'index.html',
+        sourceEventType: input.sourceEventType,
       })
     }
     if (typeof input.event.payload.html === 'string' && input.event.payload.html.trim()) {
@@ -870,7 +931,11 @@ export class ApplicationService {
         html: input.event.payload.html,
         entryPath: input.event.payload.entryPath ?? 'index.html',
         changedPaths: input.event.payload.changedPaths ?? [],
+        sourceEventType: input.sourceEventType,
       })
+    }
+    if (input.sourceEventType === 'artifact_updated') {
+      return null
     }
     const artifact = await this.store.createMockArtifact({
       workspaceId: input.workspaceId,
@@ -892,6 +957,7 @@ export class ApplicationService {
     html: string
     entryPath: string
     changedPaths: string[]
+    sourceEventType: 'artifact_updated' | 'completed'
   }): Promise<Artifact> {
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const artifactId = input.runtimeArtifactId?.startsWith('art_') ? input.runtimeArtifactId : `art_${input.variation.id}_runtime_${version}`
@@ -922,6 +988,7 @@ export class ApplicationService {
       sizeBytes: stored.sizeBytes,
       metadata: {
         source: 'babel-o-runtime',
+        sourceEventType: input.sourceEventType,
         runtimeArtifactId: input.runtimeArtifactId ?? null,
         changedPaths: input.changedPaths,
       },
@@ -935,6 +1002,7 @@ export class ApplicationService {
     runtimeArtifactId?: string
     files: Array<{ path: string; content: string; contentType?: string }>
     entryPath: string
+    sourceEventType: 'artifact_updated' | 'completed'
   }): Promise<Artifact> {
     const files = normalizeRuntimeFiles(input.files)
     const entryPath = normalizeRuntimeArtifactPath(input.entryPath)
@@ -971,6 +1039,7 @@ export class ApplicationService {
       sizeBytes: storedEntry.sizeBytes,
       metadata: {
         source: 'babel-o-workspace',
+        sourceEventType: input.sourceEventType,
         runtimeArtifactId: input.runtimeArtifactId ?? null,
         fileCount: files.length,
       },
@@ -1052,19 +1121,36 @@ export class ApplicationService {
     html: string
   }): Promise<Artifact> {
     const exportArtifactId = `export_${input.sourceArtifact.id}`
+    const assets = await this.store.getVariationAssetArtifacts(input.variation.id, input.sourceArtifact.id)
+    const files: Array<{ path: string; body: Uint8Array | string }> = [
+      {
+        path: input.sourceArtifact.entryPath ?? 'index.html',
+        body: input.html,
+      },
+    ]
+    for (const asset of assets) {
+      if (!asset.entryPath) continue
+      const stored = await this.artifacts.get(asset.storageKey)
+      files.push({
+        path: asset.entryPath,
+        body: stored.body,
+      })
+    }
     const manifest = {
-      kind: 'dudesign.mock-export',
+      kind: 'dudesign.export',
       variationId: input.variation.id,
       sourceArtifactId: input.sourceArtifact.id,
       sourceVersion: input.sourceArtifact.version,
-      files: ['index.html'],
+      files: files.map(file => file.path),
+      exportedAt: new Date().toISOString(),
     }
-    const body = [
-      'DUDesign mock export package',
-      JSON.stringify(manifest, null, 2),
-      '--- index.html ---',
-      input.html,
-    ].join('\n')
+    const body = createZipArchive([
+      ...files,
+      {
+        path: 'dudesign-export.json',
+        body: JSON.stringify(manifest, null, 2),
+      },
+    ])
     const stored = await this.artifacts.put({
       workspaceId: input.sourceArtifact.workspaceId,
       artifactId: exportArtifactId,
@@ -1075,6 +1161,7 @@ export class ApplicationService {
         kind: 'export_zip',
         sourceArtifactId: input.sourceArtifact.id,
         variationId: input.variation.id,
+        files: manifest.files.join('\n'),
       },
     })
     return await this.store.createArtifact({
@@ -1089,8 +1176,8 @@ export class ApplicationService {
       contentHash: stored.contentHash,
       sizeBytes: stored.sizeBytes,
       metadata: {
-        mock: true,
         sourceArtifactId: input.sourceArtifact.id,
+        files: manifest.files,
       },
     })
   }
@@ -1252,6 +1339,108 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
 function encodeRuntimeAssetPath(path: string): string {
   return path.split('/').map(part => encodeURIComponent(part)).join('/')
 }
+
+function createZipArchive(files: Array<{ path: string; body: Uint8Array | string }>): Uint8Array {
+  const encoder = new TextEncoder()
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+  for (const file of files) {
+    const path = normalizeRuntimeArtifactPath(file.path)
+    const name = encoder.encode(path)
+    const body = typeof file.body === 'string' ? encoder.encode(file.body) : file.body
+    const crc = crc32(body)
+    const localHeader = concatBytes([
+      u32(0x04034b50),
+      u16(20),
+      u16(0x0800),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(crc),
+      u32(body.byteLength),
+      u32(body.byteLength),
+      u16(name.byteLength),
+      u16(0),
+      name,
+    ])
+    localParts.push(localHeader, body)
+    centralParts.push(concatBytes([
+      u32(0x02014b50),
+      u16(20),
+      u16(20),
+      u16(0x0800),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(crc),
+      u32(body.byteLength),
+      u32(body.byteLength),
+      u16(name.byteLength),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(offset),
+      name,
+    ]))
+    offset += localHeader.byteLength + body.byteLength
+  }
+  const centralDirectory = concatBytes(centralParts)
+  const end = concatBytes([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(files.length),
+    u16(files.length),
+    u32(centralDirectory.byteLength),
+    u32(offset),
+    u16(0),
+  ])
+  return concatBytes([...localParts, centralDirectory, end])
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const length = parts.reduce((total, part) => total + part.byteLength, 0)
+  const out = new Uint8Array(length)
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.byteLength
+  }
+  return out
+}
+
+function u16(value: number): Uint8Array {
+  const out = new Uint8Array(2)
+  const view = new DataView(out.buffer)
+  view.setUint16(0, value, true)
+  return out
+}
+
+function u32(value: number): Uint8Array {
+  const out = new Uint8Array(4)
+  const view = new DataView(out.buffer)
+  view.setUint32(0, value >>> 0, true)
+  return out
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff
+  for (const byte of bytes) {
+    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff]!
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+  }
+  return value >>> 0
+})
 
 export type HttpError = Error & {
   status: number

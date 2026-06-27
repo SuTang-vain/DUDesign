@@ -509,3 +509,127 @@
 - 跑根 `npm test` 全量门禁。
 - 补 share artifact asset serving，保证公开分享链接也能加载对应版本的 CSS/JS/assets 且不随当前 variation 漂移。
 - 推进 runtime `artifact_updated` 增量事件落库，减少 completed 前预览空窗。
+
+## 2026-06-27 M15 Runtime Artifact Updated Incremental Snapshot
+
+### 已完成
+
+- Application Service 支持 `design.variation_artifact_updated` side effects：
+  - 当 runtime update 携带 `files` 或 `html` 时，立即 materialize 为 DUDesign artifact。
+  - variation 状态更新为 `rendering_preview`。
+  - variation `currentArtifactId` 指向最新增量 snapshot。
+  - preview URL 提前写入 `/api/variations/:id/preview`。
+- 将 runtime artifact materialize 逻辑从 completed 专用改为 updated/completed 共用：
+  - `files` bundle 继续生成 HTML artifact + asset artifacts。
+  - inline HTML 继续生成 HTML artifact。
+  - artifact metadata 记录 `sourceEventType=artifact_updated|completed`。
+- 对只包含 `changedPaths`、不包含 `html/files` 的 update 做非破坏性处理：
+  - 不生成 artifact。
+  - 不让 job 失败。
+  - variation 保持 streaming。
+- API BabeL-O mocked flow 增加覆盖：
+  - stream 先返回 `workspace_dirty` partial bundle。
+  - partial snapshot 可在 job 完成前通过 preview 读取。
+  - partial preview 的 CSS 相对路径会被改写为 variation asset endpoint。
+  - stream 后续返回 final `result` bundle，并生成最终 artifact。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- `artifact_updated` 不记录 usage event，避免 runtime 高频增量事件造成成本统计膨胀；usage 仍在 completed/refined/export/share 处记录。
+- 增量 snapshot 会创建新 artifact version；如果 BabeL-O 高频输出，后续需要节流或按 runtime artifact id 做合并策略。
+- 当前仍基于 stream 携带的 `html/files`，不直接扫描 runtime workspace 文件系统。
+
+### 下一步
+
+- 跑根 `npm test` 全量门禁。
+- 推进 runtime child session / agent id 持久化，支撑 resume、cancel、debug。
+- 为 artifact_updated 高频场景补节流/去重策略设计。
+
+## 2026-06-27 M16 Runtime Child Session And Agent Id Persistence
+
+### 已完成
+
+- 扩展 DUDesign 标准事件：
+  - `design.variation_queued.payload.runtimeChildSessionId`
+  - `design.variation_queued.payload.runtimeAgentJobId`
+- `BabelORuntimeGateway` 在 `/v1/agents` 返回后发送第二条 `design.variation_queued` 事件：
+  - 保留原始 queued 事件用于 UI 立即展示排队状态。
+  - 新 queued 事件携带 BabeL-O child session / agent job 句柄。
+- Application Service 在 `variation_queued` side effect 中持久化 runtime 句柄。
+- Repository contract 增加 `ApplyVariationEventInput` 的 runtime id 字段。
+- `InMemoryStore` 与 `PostgresRepository` 均支持写入：
+  - `runtimeChildSessionId`
+  - `runtimeAgentJobId`
+- API mocked BabeL-O flow 增加断言：
+  - 每个 variation 最终保存对应 `rt_child_N`。
+  - 每个 variation 最终保存对应 `agent_N`。
+- PostgreSQL integration smoke 增加 runtime id 持久化断言：
+  - cache hydrate 后可读。
+  - SQL-first `getVariationById()` 可读。
+- Runtime gateway 单测覆盖 queued 事件携带 runtime ids。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- 不新增新的 runtime metadata event，复用 `design.variation_queued` 携带可选 runtime ids，避免前端/业务层增加事件类型分支。
+- 允许同一个 variation 收到两次 queued：
+  - 第一次表示业务排队。
+  - 第二次表示 runtime child session/agent 已分配。
+- 句柄只作为 runtime resume/cancel/debug 的内部能力，不暴露 BabeL-O 私有事件结构。
+
+### 下一步
+
+- 跑根 `npm test` 全量门禁。
+- 推进 runtime cancel，把 DUDesign job cancel 映射到 BabeL-O agent/job cancel。
+- 或先补 runtime diagnostics，把 child session / agent id 暴露到管理端排障视图。
+
+## 2026-06-27 M17 Runtime Cancel
+
+### 已完成
+
+- 扩展 runtime cancel contract：
+  - `CancelRuntimeJobInput.variations`
+  - 每个 variation 携带 `variationId`、`runtimeChildSessionId`、`runtimeAgentJobId`。
+  - `CancelRuntimeJobResult` 支持 `cancelledVariationCount` 与 `failedVariationCount`。
+- Application Service 的 admin cancel 会把未完成 variation 的 runtime 句柄传入 runtime gateway。
+- `BabelORuntimeClient` 新增 cancel 调用：
+  - `POST /v1/agents/cancel`
+  - 请求体包含 `jobId`、`reason`、`variations`。
+- `BabelORuntimeGateway.cancelRuntimeJob()` 增加 contract check：
+  - compatible/degraded 时调用 BabeL-O cancel endpoint。
+  - contract mismatch/unavailable 时返回 `cancelled=false`，但不阻断 DUDesign 本地 cancel 收口。
+- `MockRuntimeGateway` 返回 cancelled variation 数量，便于 API smoke 断言。
+- 测试覆盖：
+  - client cancel request body。
+  - gateway compatible cancel 转发。
+  - gateway contract mismatch 不调用 cancel endpoint。
+  - API smoke 校验 runtime cancel 被调用并返回 cancelled variation count。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- Cancel 采用“best effort runtime cancel + DUDesign 本地状态收口”策略：
+  - runtime 不可用时，仍允许管理端把 DUDesign job 标记为 cancelled。
+  - audit log 记录 runtime cancel 是否成功。
+- BabeL-O 私有 cancel 细节不泄露给业务层；业务层只依赖 `RuntimeGateway.cancelRuntimeJob()`。
+- 当前 cancel endpoint 命名为 `/v1/agents/cancel`，后续若 BabeL-O 提供 job-level endpoint，只需要改 adapter/client。
+
+### 下一步
+
+- 跑根 `npm test` 全量门禁。
+- 推进 share/export 多文件 zip 化，让 HTML/CSS/JS/assets 可完整导出。
+- 或补 runtime diagnostics，把 cancel 结果、child session、agent id 展示给管理端。

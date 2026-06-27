@@ -117,12 +117,16 @@ export class BabelORuntimeGateway implements RuntimeGateway {
     }
   }
 
-  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
-    return {
-      cancelled: false,
-      message: `BabeL-O cancel is not implemented yet for job ${input.jobId}.`,
-    }
-  }
+	  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
+	    const contract = await this.client.getRuntimeContract()
+	    if (contract.status !== 'compatible' && contract.status !== 'degraded') {
+	      return {
+	        cancelled: false,
+	        message: `BabeL-O runtime is not cancellable: ${contract.status}.`,
+	      }
+	    }
+	    return this.client.cancelRuntimeJob(input)
+	  }
 
   mapRuntimeEvent(
     event: Parameters<BabelONexusEventAdapter['toDesignEvent']>[0],
@@ -148,6 +152,17 @@ export class BabelORuntimeGateway implements RuntimeGateway {
     let terminal = false
     try {
       const agent = await this.client.spawnVariationAgent({ ...input, variationIndex })
+      yield createDesignEvent({
+        type: 'design.variation_queued',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId,
+        payload: {
+          index: variationIndex,
+          runtimeChildSessionId: agent.runtimeChildSessionId,
+          runtimeAgentJobId: agent.agentJobId,
+        },
+      })
       for await (const rawEvent of this.client.streamRuntimeEvents({
         streamId: agent.streamId,
         runtimeSessionId: agent.runtimeChildSessionId,

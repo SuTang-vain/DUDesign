@@ -184,6 +184,8 @@ export type ExportVariationResponse = {
     filename: string
     sizeBytes: number
     contentHash: string
+    downloadUrl: string
+    files: string[]
   }
 }
 

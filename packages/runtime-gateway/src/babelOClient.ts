@@ -1,4 +1,6 @@
 import type {
+  CancelRuntimeJobInput,
+  CancelRuntimeJobResult,
   RefineVariationInput,
   CreateRuntimeSessionInput,
   ResumeRuntimeSessionInput,
@@ -78,6 +80,13 @@ export type BabelORuntimeAgentResponse = {
   streamId?: string
   agentJobId?: string
   runtimeChildSessionId?: string
+}
+
+export type BabelORuntimeCancelResponse = {
+  cancelled?: boolean
+  message?: string
+  cancelledVariationCount?: number
+  failedVariationCount?: number
 }
 
 export type BabelORuntimeStreamRequest = {
@@ -262,6 +271,23 @@ export class BabelORuntimeClient {
     return this.streamJsonWithReconnect(`/v1/stream${search.size > 0 ? `?${search}` : ''}`)
   }
 
+  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
+    const response = await this.requestJson<BabelORuntimeCancelResponse>('/v1/agents/cancel', {
+      method: 'POST',
+      body: {
+        jobId: input.jobId,
+        reason: input.reason,
+        variations: input.variations ?? [],
+      },
+    })
+    return {
+      cancelled: optionalBoolean(response.cancelled) ?? true,
+      message: optionalString(response.message),
+      cancelledVariationCount: optionalNumber(response.cancelledVariationCount),
+      failedVariationCount: optionalNumber(response.failedVariationCount),
+    }
+  }
+
   private resolveStatus(contractVersion: string, runtimeStatus: unknown): RuntimeContractStatus {
     if (contractVersion !== this.expectedContractVersion) return 'contract_mismatch'
     const status = optionalString(runtimeStatus)
@@ -391,6 +417,14 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
 }
 
 function stringArray(value: unknown): string[] {

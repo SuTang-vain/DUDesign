@@ -140,6 +140,12 @@ export async function exportVariation(variationId: string): Promise<ExportVariat
   return postJson(`/api/variations/${encodeURIComponent(variationId)}/export`, {})
 }
 
+export async function downloadArtifact(path: string): Promise<Blob> {
+  const res = await fetch(apiUrl(path), { cache: 'no-store' })
+  if (!res.ok) throw new Error(await errorMessage(res))
+  return res.blob()
+}
+
 export async function shareVariation(
   variationId: string,
   input: ShareVariationRequest,

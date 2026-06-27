@@ -36,6 +36,8 @@ export type DesignVariationQueuedEvent = DesignEventEnvelope<
   'design.variation_queued',
   {
     index: number
+    runtimeChildSessionId?: string
+    runtimeAgentJobId?: string
   }
 >
 

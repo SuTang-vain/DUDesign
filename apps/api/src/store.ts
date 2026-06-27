@@ -482,9 +482,11 @@ export class InMemoryStore implements ApplicationRepository {
   applyVariationEvent(input: {
     variationId: string
     status?: DesignVariation['status']
-    artifactId?: string
-    previewUrl?: string
-    inputTokens?: number
+	    artifactId?: string
+	    previewUrl?: string
+	    runtimeChildSessionId?: string
+	    runtimeAgentJobId?: string
+	    inputTokens?: number
     outputTokens?: number
     costCents?: number
     errorCode?: string
@@ -495,9 +497,11 @@ export class InMemoryStore implements ApplicationRepository {
     this.variations.set(input.variationId, {
       ...variation,
       status: input.status ?? variation.status,
-      currentArtifactId: input.artifactId ?? variation.currentArtifactId,
-      previewUrl: input.previewUrl ?? variation.previewUrl,
-      inputTokens: input.inputTokens ?? variation.inputTokens,
+	      currentArtifactId: input.artifactId ?? variation.currentArtifactId,
+	      previewUrl: input.previewUrl ?? variation.previewUrl,
+	      runtimeChildSessionId: input.runtimeChildSessionId ?? variation.runtimeChildSessionId,
+	      runtimeAgentJobId: input.runtimeAgentJobId ?? variation.runtimeAgentJobId,
+	      inputTokens: input.inputTokens ?? variation.inputTokens,
       outputTokens: input.outputTokens ?? variation.outputTokens,
       costCents: input.costCents ?? variation.costCents,
       errorCode: input.errorCode ?? variation.errorCode,

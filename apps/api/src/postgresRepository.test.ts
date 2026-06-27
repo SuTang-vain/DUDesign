@@ -93,10 +93,12 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
     })
     await repository.applyVariationEvent({
       variationId: variation.id,
-      status: 'completed',
-      artifactId: artifact.id,
-      previewUrl: `/api/variations/${variation.id}/preview`,
-      inputTokens: 11,
+	      status: 'completed',
+	      artifactId: artifact.id,
+	      previewUrl: `/api/variations/${variation.id}/preview`,
+	      runtimeChildSessionId: 'rt_child_pg_smoke',
+	      runtimeAgentJobId: 'agent_pg_smoke',
+	      inputTokens: 11,
       outputTokens: 22,
       costCents: 3,
     })
@@ -147,7 +149,9 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.sessions.get(session.id)?.runtimeSessionId, 'runtime_pg_smoke')
       assert.equal(hydrated.messages.get(session.id)?.[0]?.id, message.id)
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
-      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
+	      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
+	      assert.equal(hydrated.variations.get(variation.id)?.runtimeChildSessionId, 'rt_child_pg_smoke')
+	      assert.equal(hydrated.variations.get(variation.id)?.runtimeAgentJobId, 'agent_pg_smoke')
       assert.equal(hydrated.artifacts.get(artifact.id)?.contentHash, 'sha256:postgres-smoke')
       assert.equal(hydrated.artifacts.get(cssAsset.id)?.contentHash, 'sha256:postgres-css')
       assert.equal(hydrated.artifacts.get(imageAsset.id)?.contentHash, 'sha256:postgres-svg')
@@ -159,7 +163,10 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal((await hydrated.getPrimaryWorkspaceForUser(repository.devUser.id))?.id, repository.devWorkspace.id)
       assert.equal((await hydrated.getSessionById(session.id))?.runtimeSessionId, 'runtime_pg_smoke')
       assert.equal((await hydrated.getJobById(job.id))?.prompt, 'Persist a design job')
-      assert.equal((await hydrated.getVariationById(variation.id))?.currentArtifactId, artifact.id)
+      const sqlVariation = await hydrated.getVariationById(variation.id)
+      assert.equal(sqlVariation?.currentArtifactId, artifact.id)
+      assert.equal(sqlVariation?.runtimeChildSessionId, 'rt_child_pg_smoke')
+      assert.equal(sqlVariation?.runtimeAgentJobId, 'agent_pg_smoke')
       assert.equal((await hydrated.getArtifactById(artifact.id))?.contentHash, 'sha256:postgres-smoke')
       assert.equal((await hydrated.listSessions()).some(candidate => candidate.id === session.id), true)
       assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)

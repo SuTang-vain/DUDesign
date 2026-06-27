@@ -247,9 +247,9 @@ describe('BabelORuntimeClient', () => {
     ])
   })
 
-  it('streams SSE runtime events', async () => {
-    const client = new BabelORuntimeClient({
-      baseUrl: 'https://runtime.example.test',
+	  it('streams SSE runtime events', async () => {
+	    const client = new BabelORuntimeClient({
+	      baseUrl: 'https://runtime.example.test',
       fetch: async () => streamResponse('event: message\ndata: {"type":"thinking_delta","delta":"plan"}\n\ndata: [DONE]\n\n'),
     })
 
@@ -258,12 +258,58 @@ describe('BabelORuntimeClient', () => {
       events.push(event)
     }
 
-    assert.deepEqual(events, [
-      { type: 'thinking_delta', delta: 'plan' },
-    ])
-  })
+	    assert.deepEqual(events, [
+	      { type: 'thinking_delta', delta: 'plan' },
+	    ])
+	  })
 
-  it('fails a connected stream after the idle timeout', async () => {
+	  it('cancels runtime agents with variation handles', async () => {
+	    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+	    const client = new BabelORuntimeClient({
+	      baseUrl: 'https://runtime.example.test',
+	      fetch: async (url, init) => {
+	        calls.push({
+	          url: String(url),
+	          method: init?.method ?? 'GET',
+	          ...(init?.body && { body: JSON.parse(String(init.body)) }),
+	        })
+	        return jsonResponse({
+	          cancelled: true,
+	          message: 'cancelled',
+	          cancelledVariationCount: 2,
+	          failedVariationCount: 0,
+	        })
+	      },
+	    })
+
+	    const cancelled = await client.cancelRuntimeJob({
+	      jobId: 'job_1',
+	      reason: 'operator requested cancel',
+	      variations: [
+	        { variationId: 'var_1', runtimeChildSessionId: 'rt_child_1', runtimeAgentJobId: 'agent_1' },
+	        { variationId: 'var_2', runtimeChildSessionId: null, runtimeAgentJobId: 'agent_2' },
+	      ],
+	    })
+
+	    assert.deepEqual(cancelled, {
+	      cancelled: true,
+	      message: 'cancelled',
+	      cancelledVariationCount: 2,
+	      failedVariationCount: 0,
+	    })
+	    assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents/cancel')
+	    assert.equal(calls[0]?.method, 'POST')
+	    assert.deepEqual(calls[0]?.body, {
+	      jobId: 'job_1',
+	      reason: 'operator requested cancel',
+	      variations: [
+	        { variationId: 'var_1', runtimeChildSessionId: 'rt_child_1', runtimeAgentJobId: 'agent_1' },
+	        { variationId: 'var_2', runtimeChildSessionId: null, runtimeAgentJobId: 'agent_2' },
+	      ],
+	    })
+	  })
+
+	  it('fails a connected stream after the idle timeout', async () => {
     const client = new BabelORuntimeClient({
       baseUrl: 'https://runtime.example.test',
       streamIdleTimeoutMs: 10,

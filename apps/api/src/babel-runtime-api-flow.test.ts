@@ -6,6 +6,17 @@ import type { CreateDesignJobResponse, CreateSessionResponse } from '@dudesign/c
 import { ApplicationService } from './service.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
+type JobSnapshot = {
+  job: { status: string }
+  variations: Array<{
+    id: string
+    status: string
+    runtimeChildSessionId: string | null
+    runtimeAgentJobId: string | null
+  }>
+  artifacts: unknown[]
+}
+
 describe('DUDesign API flow with BabeL-O runtime gateway', () => {
   let harness: ApiFlowHarness
   let activeStreams = 0
@@ -56,26 +67,44 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
             return streamResponse([
               JSON.stringify({ type: 'assistant_delta', delta: `Streaming ${streamId}` }),
               JSON.stringify({
+                type: 'workspace_dirty',
+                artifactId: `runtime_partial_artifact_${streamId}`,
+                entryPath: 'index.html',
+                changedPaths: ['index.html', 'styles.css'],
+                files: [
+                  {
+                    path: 'index.html',
+                    content: `<!doctype html><html><head><link rel="stylesheet" href="./styles.css"></head><body><h1>${streamId}</h1><p>Runtime partial snapshot</p></body></html>`,
+                    contentType: 'text/html; charset=utf-8',
+                  },
+                  {
+                    path: 'styles.css',
+                    content: 'body { color: rgb(90, 90, 90); }',
+                    contentType: 'text/css; charset=utf-8',
+                  },
+                ],
+              }),
+              JSON.stringify({
                 type: 'result',
                 artifactId: `runtime_artifact_${streamId}`,
                 entryPath: 'index.html',
                 files: [
-	                  {
-	                    path: 'index.html',
-	                    content: `<!doctype html><html><head><link rel="stylesheet" href="./styles.css"><script src="scripts/app.js"></script></head><body><h1>${streamId}</h1><p>Runtime workspace bridge</p></body></html>`,
-	                    contentType: 'text/html; charset=utf-8',
-	                  },
-	                  {
-	                    path: 'styles.css',
-	                    content: 'body { color: rgb(20, 20, 20); }',
-	                    contentType: 'text/css; charset=utf-8',
-	                  },
-	                  {
-	                    path: 'scripts/app.js',
-	                    content: 'window.__dudesignRuntimeAssetLoaded = true;',
-	                    contentType: 'text/javascript; charset=utf-8',
-	                  },
-	                ],
+                  {
+                    path: 'index.html',
+                    content: `<!doctype html><html><head><link rel="stylesheet" href="./styles.css"><script src="scripts/app.js"></script></head><body><h1>${streamId}</h1><p>Runtime workspace bridge</p></body></html>`,
+                    contentType: 'text/html; charset=utf-8',
+                  },
+                  {
+                    path: 'styles.css',
+                    content: 'body { color: rgb(20, 20, 20); }',
+                    contentType: 'text/css; charset=utf-8',
+                  },
+                  {
+                    path: 'scripts/app.js',
+                    content: 'window.__dudesignRuntimeAssetLoaded = true;',
+                    contentType: 'text/javascript; charset=utf-8',
+                  },
+                ],
                 inputTokens: 100,
                 outputTokens: 400,
                 costCents: 2,
@@ -89,6 +118,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
                 activeStreams -= 1
               },
               delayMs: 25,
+              chunkDelayMs: 25,
             })
           }
           return jsonResponse({})
@@ -120,26 +150,35 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
         styles: ['runtime'],
       },
     })
+    const partialSnapshot = await waitForJobStatus(createdJob.job.id, 'rendering_preview')
+    const partialVariation = partialSnapshot.variations.find(variation => variation.status === 'rendering_preview')
+    assert.ok(partialVariation)
+    assert.equal(partialSnapshot.artifacts.length >= 2, true)
+    const partialPreview = await getText(`/api/variations/${partialVariation.id}/preview`)
+    assert.match(partialPreview, /Runtime partial snapshot/)
+    assert.match(partialPreview, /\/api\/variations\/[^/]+\/assets\/styles\.css/)
     const jobSnapshot = await waitForJob(createdJob.job.id)
 
 	    assert.equal(jobSnapshot.job.status, 'completed')
 	    assert.equal(jobSnapshot.variations.length, 2)
 	    assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
-	    assert.equal(jobSnapshot.artifacts.length, 6)
-	    const preview = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/preview`)
-	    assert.match(preview, /Runtime workspace bridge/)
-	    assert.match(preview, /\/api\/variations\/[^/]+\/assets\/styles\.css/)
-	    assert.match(preview, /\/api\/variations\/[^/]+\/assets\/scripts\/app\.js/)
-	    assert.doesNotMatch(preview, /href="\.\/styles\.css"/)
-	    assert.doesNotMatch(preview, /Mock preview/)
-	    const css = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/assets/styles.css`)
-	    assert.match(css, /rgb\(20, 20, 20\)/)
-	    const js = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/assets/scripts/app.js`)
-	    assert.match(js, /__dudesignRuntimeAssetLoaded/)
-	    const escapeAttempt = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/assets/%5C..%5Cstyles.css`)
-	    assert.equal(escapeAttempt.status, 400)
-	    assert.equal(maxActiveStreams, 2)
-	  })
+	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeChildSessionId), ['rt_child_1', 'rt_child_2'])
+	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeAgentJobId), ['agent_1', 'agent_2'])
+	    assert.equal(jobSnapshot.artifacts.length, 10)
+    const preview = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/preview`)
+    assert.match(preview, /Runtime workspace bridge/)
+    assert.match(preview, /\/api\/variations\/[^/]+\/assets\/styles\.css/)
+    assert.match(preview, /\/api\/variations\/[^/]+\/assets\/scripts\/app\.js/)
+    assert.doesNotMatch(preview, /href="\.\/styles\.css"/)
+    assert.doesNotMatch(preview, /Mock preview/)
+    const css = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/assets/styles.css`)
+    assert.match(css, /rgb\(20, 20, 20\)/)
+    const js = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/assets/scripts/app.js`)
+    assert.match(js, /__dudesignRuntimeAssetLoaded/)
+    const escapeAttempt = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/assets/%5C..%5Cstyles.css`)
+    assert.equal(escapeAttempt.status, 400)
+    assert.equal(maxActiveStreams, 2)
+  })
 
   it('rejects runtime workspace files that escape the artifact root', async () => {
     unsafeBundle = true
@@ -167,22 +206,24 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     }
   })
 
-  async function waitForJob(jobId: string): Promise<{
-    job: { status: string }
-    variations: Array<{ id: string; status: string }>
-    artifacts: unknown[]
-  }> {
+	  async function waitForJob(jobId: string): Promise<JobSnapshot> {
     const startedAt = Date.now()
     while (Date.now() - startedAt < 2000) {
-      const snapshot = await getJson<{
-        job: { status: string }
-        variations: Array<{ id: string; status: string }>
-        artifacts: unknown[]
-      }>(`/api/design-jobs/${jobId}`)
+      const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
       if (snapshot.job.status === 'completed' || snapshot.job.status === 'failed') return snapshot
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     throw new Error(`Timed out waiting for job ${jobId}`)
+  }
+
+  async function waitForJobStatus(jobId: string, variationStatus: string): Promise<JobSnapshot> {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < 2000) {
+      const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
+      if (snapshot.variations.some(variation => variation.status === variationStatus)) return snapshot
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    throw new Error(`Timed out waiting for variation status ${variationStatus} in job ${jobId}`)
   }
 
   async function getJson<T>(path: string): Promise<T> {
@@ -221,6 +262,7 @@ function jsonResponse(payload: unknown): Response {
 
 function streamResponse(body: string, options: {
   delayMs?: number
+  chunkDelayMs?: number
   onOpen?: () => void
   onClose?: () => void
 } = {}): Response {
@@ -228,7 +270,13 @@ function streamResponse(body: string, options: {
     async start(controller) {
       options.onOpen?.()
       if (options.delayMs) await new Promise(resolve => setTimeout(resolve, options.delayMs))
-      controller.enqueue(new TextEncoder().encode(body))
+      const chunks = options.chunkDelayMs
+        ? body.split(/(?<=\n)/).filter(Boolean)
+        : [body]
+      for (const chunk of chunks) {
+        controller.enqueue(new TextEncoder().encode(chunk))
+        if (options.chunkDelayMs) await new Promise(resolve => setTimeout(resolve, options.chunkDelayMs))
+      }
       controller.close()
       options.onClose?.()
     },

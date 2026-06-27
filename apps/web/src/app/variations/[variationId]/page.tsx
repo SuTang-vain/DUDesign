@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiUrl, createAnnotationBatch, exportVariation, getVariation, refineVariation, shareVariation } from '@/lib/api'
+import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, refineVariation, shareVariation } from '@/lib/api'
 import type { AnnotationShape, VariationDetailResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'text'
@@ -97,22 +97,23 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     }
   }
 
-  async function downloadHtml(): Promise<void> {
+  async function downloadZip(): Promise<void> {
     if (!variationId) return
     setError(null)
     setNotice(null)
     try {
       const exported = await exportVariation(variationId)
-      const blob = new Blob([exported.artifact.html], { type: 'text/html;charset=utf-8' })
+      if (!exported.exportArtifact) throw new Error('Export artifact was not created.')
+      const blob = await downloadArtifact(exported.exportArtifact.downloadUrl)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = exported.artifact.filename
+      anchor.download = exported.exportArtifact.filename
       document.body.append(anchor)
       anchor.click()
       anchor.remove()
       URL.revokeObjectURL(url)
-      setNotice(`Downloaded ${exported.artifact.filename}`)
+      setNotice(`Downloaded ${exported.exportArtifact.filename}`)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -188,8 +189,8 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           <p>{detail?.job.prompt ?? 'Loading variation context...'}</p>
         </div>
         <div className="editor-command-bar" aria-label="Variation actions">
-          <button data-testid="download-html-button" onClick={() => void downloadHtml()} disabled={!detail?.variation.currentArtifactId}>
-            HTML
+          <button data-testid="download-html-button" onClick={() => void downloadZip()} disabled={!detail?.variation.currentArtifactId}>
+            ZIP
           </button>
           <button data-testid="share-button" onClick={() => void createShareLink()} disabled={!detail?.variation.currentArtifactId}>
             Share
