@@ -138,7 +138,7 @@
 - 新增 `apps/web/test/mock-product-flow.test.mjs`。
 - 新增 `npm --workspace @dudesign/web run test:flow`。
 - 新增根脚本 `npm run test:ux`。
-- 根 `npm test` 现在同时执行 API smoke 和 UX-M1 mock product flow。
+- 根 `npm test` 曾同时执行 API smoke 和 UX-M1 mock product flow；后续已调整为默认门禁不依赖外部服务。
 - flow test 验证首页、job 页、variation 页、export API、share API、share detail API、share 页路由。
 
 ### 验证记录
@@ -148,6 +148,8 @@
 - `npm --workspace @dudesign/web run build`
 
 ### 后续关注
+
+- `npm run test:ux` 需要 API/Web server 预先运行；默认 `npm test` 不再包含该 flow，避免服务未启动导致提交门禁产生假失败。
 
 - 当前 flow test 是 HTTP 级 mock product flow，尚未做真实浏览器点击和视觉断言。
 - 下一步应补 Playwright E2E，覆盖输入 prompt、点击 Generate、打开 variation、点击 Share/HTML。

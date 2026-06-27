@@ -111,7 +111,9 @@ NEXT_PUBLIC_DUDESIGN_API_URL=http://127.0.0.1:4000
 | Script | Description |
 | --- | --- |
 | `npm run typecheck` | Type-check all packages and apps. |
-| `npm test` | Run the API mock-flow test. |
+| `npm test` | Run default non-service-dependent unit/integration gates. |
+| `npm run test:ux` | Run the UX HTTP smoke; requires API and Web servers to already be running. |
+| `npm run test:ux:e2e` | Run browser E2E; requires API and Web servers to already be running. |
 | `npm run dev:api` | Type-check, then run the API in watch mode. |
 | `npm run dev:web` | Start the Next.js user web app on port 3001. |
 | `npm run start:api` | Type-check, then start the built API. |
