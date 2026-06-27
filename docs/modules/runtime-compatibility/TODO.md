@@ -13,7 +13,8 @@
 - [x] 定义 `RuntimeContract`。
 - [x] 定义 `RuntimeHealth`。
 - [x] 定义 contract status：compatible、degraded、unavailable、contract_mismatch。
-- [ ] 定义 Gateway 错误码。
+- [x] 定义 Gateway 错误码。
+- [x] 实现 `BabelORuntimeGateway` 真实 gateway 骨架。
 
 验收：
 
@@ -21,12 +22,15 @@
 
 ## Phase RTC-1：BabeL-O Adapter 基础连接
 
-- [ ] 实现 runtime health check。
-- [ ] 实现 `/v1/sessions` 创建。
-- [ ] 实现 `/v1/sessions/:id/resume`。
-- [ ] 实现 `/v1/stream` WebSocket client。
-- [ ] 实现基础超时、重连、取消。
-- [ ] 实现 API key / auth header 配置。
+- [x] 实现 runtime health check。
+- [x] 实现 `/v1/sessions` 创建。
+- [x] 实现 `/v1/sessions/:id/resume`。
+- [x] 实现 `/v1/stream` 最小 NDJSON/SSE client。
+- [x] 实现 stream idle timeout。
+- [x] 实现 stream 连接前失败重连。
+- [ ] 实现 cancel。
+- [x] 实现 API key / auth header 配置。
+- [x] 实现 API 服务层 runtime mode 环境切换。
 
 验收：
 
@@ -34,13 +38,13 @@
 
 ## Phase RTC-2：事件映射
 
-- [ ] 映射 `session_started` -> `design.session_started`。
-- [ ] 映射 `assistant_delta` / `thinking_delta` -> `design.variation_streaming`。
-- [ ] 映射 `workspace_dirty` / `workspace_dirty_detected` -> `design.variation_artifact_updated`。
-- [ ] 映射 `permission_request` -> `design.permission_required`。
-- [ ] 映射 `result` -> `design.variation_completed`。
-- [ ] 映射 `error` -> `design.variation_failed`。
-- [ ] 对 unknown event 做 debug 记录，不影响主流程。
+- [x] 映射 `session_started` -> `design.session_started`。
+- [x] 映射 `assistant_delta` / `thinking_delta` -> `design.variation_streaming`。
+- [x] 映射 `workspace_dirty` / `workspace_dirty_detected` -> `design.variation_artifact_updated`。
+- [x] 映射 `permission_request` -> `design.permission_required`。
+- [x] 映射 `result` -> `design.variation_completed`。
+- [x] 映射 `error` -> `design.variation_failed`。
+- [x] 对 unknown event 做 debug 记录，不影响主流程。
 
 验收：
 
@@ -48,11 +52,11 @@
 
 ## Phase RTC-3：并行 Variation Orchestration
 
-- [ ] 实现 `spawnVariationAgents`。
+- [x] 实现 `spawnVariationAgents` 最小真实 stream 适配。
 - [ ] 为每个 variation 创建独立 child session。
 - [ ] 注入 variation index 和风格差异 prompt。
-- [ ] 聚合多个 child session 的事件。
-- [ ] 支持单个 child failed，不影响其他 child。
+- [x] 聚合多个 child session 的事件。
+- [x] 支持单个 child failed，不影响其他 child。
 - [ ] 返回每个 variation 的 runtime_child_session_id / runtime_agent_job_id。
 
 验收：
@@ -62,11 +66,15 @@
 ## Phase RTC-4：Artifact Bridge
 
 - [ ] 定义 workspace root 安全策略。
-- [ ] 检测 runtime 写入的 HTML/CSS/JS。
-- [ ] 解析入口 `index.html`。
-- [ ] 把 workspace 文件同步为业务 artifact。
+- [x] 检测 runtime 写入的 HTML/CSS/JS。
+- [x] 解析入口 `index.html`。
+- [x] 支持 runtime result inline HTML 同步为业务 artifact。
+- [x] 把 workspace 文件同步为业务 artifact。
+- [x] 通过 DUDesign API 提供 workspace asset serving。
+- [x] preview HTML 相对资源 URL 改写到稳定 asset endpoint。
 - [ ] 产出 artifact updated event。
-- [ ] 防止 path traversal 和 symlink escape。
+- [x] 防止 path traversal。
+- [ ] 防止 symlink escape。
 
 验收：
 
@@ -89,7 +97,7 @@
 
 - [x] 建立 runtime contract manifest 初稿。
 - [ ] 建立 contract tests。
-- [ ] 建立 golden event replay。
+- [x] 建立 golden event replay。
 - [x] 建立 mock parallel generation smoke test。
 - [ ] 建立 resume smoke test。
 - [x] 建立 mock refine smoke test。

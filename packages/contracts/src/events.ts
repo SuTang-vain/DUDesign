@@ -47,12 +47,20 @@ export type DesignVariationStreamingEvent = DesignEventEnvelope<
   }
 >
 
+export type RuntimeArtifactFile = {
+  path: string
+  content: string
+  contentType?: string
+}
+
 export type DesignVariationArtifactUpdatedEvent = DesignEventEnvelope<
   'design.variation_artifact_updated',
   {
     artifactId?: string
     entryPath?: string
     changedPaths: string[]
+    html?: string
+    files?: RuntimeArtifactFile[]
   }
 >
 
@@ -69,6 +77,10 @@ export type DesignVariationCompletedEvent = DesignEventEnvelope<
   'design.variation_completed',
   {
     artifactId?: string
+    entryPath?: string
+    changedPaths?: string[]
+    html?: string
+    files?: RuntimeArtifactFile[]
     inputTokens?: number
     outputTokens?: number
     costCents?: number
@@ -136,4 +148,3 @@ export function createDesignEvent<TType extends DesignEvent['type']>(
     ...event,
   } as Extract<DesignEvent, { type: TType }>
 }
-

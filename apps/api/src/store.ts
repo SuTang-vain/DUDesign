@@ -402,6 +402,26 @@ export class InMemoryStore implements ApplicationRepository {
     }
   }
 
+  getVariationAssetArtifacts(variationId: string, parentArtifactId: string): MaybePromise<Artifact[]> {
+    return [...this.artifacts.values()]
+      .filter(artifact =>
+        artifact.kind === 'asset'
+        && artifact.variationId === variationId
+        && artifact.parentArtifactId === parentArtifactId
+        && typeof artifact.entryPath === 'string',
+      )
+      .sort((a, b) => (a.entryPath ?? '').localeCompare(b.entryPath ?? ''))
+  }
+
+  getVariationAssetArtifact(variationId: string, parentArtifactId: string, assetPath: string): MaybePromise<Artifact | null> {
+    return [...this.artifacts.values()].find(artifact =>
+      artifact.kind === 'asset'
+      && artifact.variationId === variationId
+      && artifact.parentArtifactId === parentArtifactId
+      && artifact.entryPath === assetPath,
+    ) ?? null
+  }
+
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void> {
     const job = this.jobs.get(jobId)
     if (!job) return

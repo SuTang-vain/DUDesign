@@ -13,7 +13,7 @@ export type RuntimeHealth = {
 
 export type RuntimeContract = {
   runtime: 'babel-o'
-  runtimeVersion: string
+  runtimeVersion: string | null
   contractVersion: string
   status: RuntimeContractStatus
   requiredEndpoints: string[]
@@ -35,9 +35,11 @@ export type CreateRuntimeSessionInput = {
 
 export type ResumeRuntimeSessionInput = {
   userId: ID
+  workspaceId: ID
   sessionId: ID
   runtimeSessionId: string | null
   workspaceRoot: string
+  memoryNamespace: string
   fallbackSummary?: string
 }
 
@@ -98,4 +100,3 @@ export type RuntimeGateway = {
   refineVariation(input: RefineVariationInput): AsyncIterable<DesignEvent>
   cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult>
 }
-

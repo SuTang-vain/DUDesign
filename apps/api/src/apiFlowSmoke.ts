@@ -10,6 +10,7 @@ import type {
   ShareVariationResponse,
   VariationDetailResponse,
 } from '@dudesign/contracts'
+import type { Artifact } from '@dudesign/domain'
 import { ApplicationService } from './service.js'
 import { createApiServer } from './server.js'
 
@@ -153,10 +154,17 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(annotated.annotationBatch.shapeCount, 1)
   assert.match(annotated.annotationBatch.promptSuffix, /rectangle at x=0\.120/)
   assert.equal(annotated.artifact?.version, 3)
+  await attachAssetBackedHtml(harness, variationId, annotated.artifact!.id)
 
   const preview = await getText(`/api/variations/${variationId}/preview`)
   assert.match(preview, /version 3/)
   assert.match(preview, /iframe-ready HTML/)
+  assert.match(preview, /\/api\/variations\/var_.*\/assets\/styles\/share-preview\.css/)
+  assert.match(preview, /\/api\/variations\/var_.*\/assets\/images\/mark\.svg/)
+  const variationCss = await fetch(`${baseUrl}/api/variations/${variationId}/assets/styles/share-preview.css`)
+  assert.equal(variationCss.ok, true)
+  assert.equal(variationCss.headers.get('content-type'), 'text/css; charset=utf-8')
+  assert.match(await variationCss.text(), /--share-accent/)
 
   const exported = await postJson<ExportVariationResponse>(`/api/variations/${variationId}/export`, {})
   assert.equal(exported.artifact.version, 3)
@@ -176,6 +184,12 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(shareDetail.variation.id, variationId)
   assert.equal(shareDetail.artifact.version, 3)
   assert.match(shareDetail.artifact.html ?? '', /version 3/)
+  assert.ok((shareDetail.artifact.html ?? '').includes(`/api/shares/${shared.share.token}/assets/styles/share-preview.css`))
+  assert.ok((shareDetail.artifact.html ?? '').includes(`/api/shares/${shared.share.token}/assets/images/mark.svg`))
+  const shareCss = await fetch(`${baseUrl}/api/shares/${shared.share.token}/assets/styles/share-preview.css`)
+  assert.equal(shareCss.ok, true)
+  assert.equal(shareCss.headers.get('cache-control'), 'public, max-age=300')
+  assert.match(await shareCss.text(), /--share-accent/)
 
   const driftRefined = await postJson<RefineVariationResponse>(`/api/variations/${variationId}/refine`, {
     prompt: 'Create a later edit that should not change the existing share.',
@@ -375,4 +389,69 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const retrySnapshot = await waitForJob(retried.retry.job.id)
   assert.equal(retrySnapshot.job.status, 'completed')
   assert.equal(retrySnapshot.variations.length, 3)
+}
+
+async function attachAssetBackedHtml(harness: ApiFlowHarness, variationId: string, htmlArtifactId: string): Promise<void> {
+  const artifact = await harness.service.store.getArtifactById(htmlArtifactId)
+  assert.ok(artifact)
+  const html = [
+    '<!doctype html>',
+    '<html>',
+    '<head>',
+    '<link rel="stylesheet" href="./styles/share-preview.css">',
+    '</head>',
+    '<body>',
+    '<main>iframe-ready HTML version 3</main>',
+    '<img src="images/mark.svg" alt="mark">',
+    '</body>',
+    '</html>',
+  ].join('')
+  const storedHtml = await harness.service.artifacts.put({
+    workspaceId: artifact.workspaceId,
+    artifactId: artifact.id,
+    relativePath: `v${artifact.version}/${artifact.entryPath ?? 'index.html'}`,
+    contentType: 'text/html; charset=utf-8',
+    body: html,
+    metadata: { kind: 'html', test: 'share-assets' },
+  })
+  await harness.service.store.saveArtifact({
+    ...artifact,
+    storageKey: storedHtml.storageKey,
+    contentHash: storedHtml.contentHash,
+    sizeBytes: storedHtml.sizeBytes,
+  })
+  await createAssetArtifact(harness, artifact, variationId, 'styles/share-preview.css', 'text/css; charset=utf-8', ':root { --share-accent: #2454ff; }')
+  await createAssetArtifact(harness, artifact, variationId, 'images/mark.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>')
+}
+
+async function createAssetArtifact(
+  harness: ApiFlowHarness,
+  htmlArtifact: Artifact,
+  variationId: string,
+  assetPath: string,
+  contentType: string,
+  body: string,
+): Promise<void> {
+  const assetArtifactId = `asset_${htmlArtifact.id}_${assetPath.replaceAll(/[^a-zA-Z0-9]+/g, '_')}`
+  const stored = await harness.service.artifacts.put({
+    workspaceId: htmlArtifact.workspaceId,
+    artifactId: assetArtifactId,
+    relativePath: `v${htmlArtifact.version}/${assetPath}`,
+    contentType,
+    body,
+    metadata: { kind: 'asset', htmlArtifactId: htmlArtifact.id },
+  })
+  await harness.service.store.createArtifact({
+    workspaceId: htmlArtifact.workspaceId,
+    sessionId: htmlArtifact.sessionId,
+    variationId,
+    parentArtifactId: htmlArtifact.id,
+    kind: 'asset',
+    version: htmlArtifact.version,
+    storageKey: stored.storageKey,
+    entryPath: assetPath,
+    contentHash: stored.contentHash,
+    sizeBytes: stored.sizeBytes,
+    metadata: { test: 'share-assets', htmlArtifactId: htmlArtifact.id },
+  })
 }

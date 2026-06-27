@@ -9,7 +9,7 @@ import type {
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import { MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gateway'
 import type { Artifact, DesignVariation, DesignVariationStatus } from '@dudesign/domain'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
@@ -96,11 +96,14 @@ export class ApplicationService {
     await this.requireSessionAccess(snapshot.session.id, ctx.userId)
     const workspace = await this.store.getWorkspaceById(snapshot.session.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${snapshot.session.workspaceId}`)
+    const user = await this.requireUser(snapshot.session.userId)
     const runtime = await this.runtime.resumeSession({
       userId: snapshot.session.userId,
+      workspaceId: workspace.id,
       sessionId: snapshot.session.id,
       runtimeSessionId: snapshot.session.runtimeSessionId,
       workspaceRoot: workspace.storageKey,
+      memoryNamespace: user.memoryNamespace,
     })
     return {
       ...snapshot,
@@ -299,7 +302,45 @@ export class ApplicationService {
     await this.requireVariationAccess(variationId, ctx.userId)
     const artifact = snapshot.artifact
     if (!artifact) return renderMockVariationHtml(variation, null)
-    return this.readArtifactHtml(artifact.storageKey)
+    const html = await this.readArtifactHtml(artifact.storageKey)
+    return await this.rewriteArtifactAssetUrls(variationId, artifact, html, assetPath =>
+      `/api/variations/${encodeURIComponent(variationId)}/assets/${encodeRuntimeAssetPath(assetPath)}`)
+  }
+
+  async getVariationAsset(ctx: RequestContext, variationId: string, assetPath: string): Promise<{
+    contentType: string
+    body: Uint8Array
+  }> {
+    const normalizedPath = normalizeRuntimeArtifactPath(assetPath)
+    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId)
+    const htmlArtifact = snapshot.artifact
+    if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
+    const asset = await this.store.getVariationAssetArtifact(variationId, htmlArtifact.id, normalizedPath)
+    if (!asset) throw createHttpError(404, 'ASSET_NOT_FOUND', `Asset not found: ${normalizedPath}`)
+    const stored = await this.artifacts.get(asset.storageKey)
+    return {
+      contentType: stored.contentType || contentTypeForPath(normalizedPath),
+      body: stored.body,
+    }
+  }
+
+  async getSharedVariationAsset(token: string, assetPath: string): Promise<{
+    contentType: string
+    body: Uint8Array
+  }> {
+    const normalizedPath = normalizeRuntimeArtifactPath(assetPath)
+    const snapshot = await this.requirePublicShareSnapshot(token)
+    const { share, artifact } = snapshot
+    const asset = await this.store.getVariationAssetArtifact(share.variationId, artifact.id, normalizedPath)
+    if (!asset) throw createHttpError(404, 'ASSET_NOT_FOUND', `Asset not found: ${normalizedPath}`)
+    const stored = await this.artifacts.get(asset.storageKey)
+    return {
+      contentType: stored.contentType || contentTypeForPath(normalizedPath),
+      body: stored.body,
+    }
   }
 
   async exportVariation(ctx: RequestContext, variationId: string) {
@@ -392,20 +433,8 @@ export class ApplicationService {
   }
 
   async getSharedVariation(token: string) {
-    const snapshot = await this.store.getSharedVariationSnapshot(token)
-    if (!snapshot) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
-    const { share, variation, artifact } = snapshot
-    if (share.revokedAt) {
-      throw createHttpError(410, 'SHARE_REVOKED', 'This share link has been revoked.')
-    }
-    if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) {
-      throw createHttpError(410, 'SHARE_EXPIRED', 'This share link has expired.')
-    }
-    if (share.visibility !== 'public') {
-      throw createHttpError(403, 'SHARE_FORBIDDEN', `${share.visibility} share links require authenticated access in MVP.`)
-    }
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${share.variationId}`)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${share.artifactId}`)
+    const { share, variation, artifact } = await this.requirePublicShareSnapshot(token)
+    const html = await this.readArtifactHtml(artifact.storageKey)
     return {
       share: {
         id: share.id,
@@ -424,9 +453,28 @@ export class ApplicationService {
         id: artifact.id,
         version: artifact.version,
         entryPath: artifact.entryPath,
-        html: await this.readArtifactHtml(artifact.storageKey),
+        html: await this.rewriteArtifactAssetUrls(variation.id, artifact, html, assetPath =>
+          `/api/shares/${encodeURIComponent(token)}/assets/${encodeRuntimeAssetPath(assetPath)}`),
       },
     }
+  }
+
+  private async requirePublicShareSnapshot(token: string) {
+    const snapshot = await this.store.getSharedVariationSnapshot(token)
+    if (!snapshot) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    const { share, variation, artifact } = snapshot
+    if (share.revokedAt) {
+      throw createHttpError(410, 'SHARE_REVOKED', 'This share link has been revoked.')
+    }
+    if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) {
+      throw createHttpError(410, 'SHARE_EXPIRED', 'This share link has expired.')
+    }
+    if (share.visibility !== 'public') {
+      throw createHttpError(403, 'SHARE_FORBIDDEN', `${share.visibility} share links require authenticated access in MVP.`)
+    }
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${share.variationId}`)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${share.artifactId}`)
+    return { share, variation, artifact }
   }
 
   async revokeShare(ctx: RequestContext, token: string) {
@@ -637,7 +685,7 @@ export class ApplicationService {
         memoryNamespace: runtimeContext?.user?.memoryNamespace ?? this.store.devUser.memoryNamespace,
         templateRequirements: input.templateRequirements,
       })) {
-        const normalized = this.rewriteMockVariationId(event, input.variationIdsByIndex)
+        const normalized = this.rewriteRuntimeVariationId(event, input.variationIdsByIndex)
         await this.applyEventSideEffects(normalized)
         this.events.publish(normalized)
       }
@@ -655,10 +703,10 @@ export class ApplicationService {
     }
   }
 
-  private rewriteMockVariationId(event: DesignEvent, idsByIndex: Map<number, string>): DesignEvent {
+  private rewriteRuntimeVariationId(event: DesignEvent, idsByIndex: Map<number, string>): DesignEvent {
     const variationId = event.variationId
-    if (!variationId?.startsWith('mock_variation_')) return event
-    const index = Number(variationId.replace('mock_variation_', ''))
+    const index = variationIndexFromRuntimeId(variationId)
+    if (!index) return event
     const realId = idsByIndex.get(index)
     if (!realId) return event
     if (event.type === 'design.variation_preview_ready') {
@@ -713,16 +761,14 @@ export class ApplicationService {
           const existingArtifact = event.payload.artifactId
             ? await this.store.getArtifactById(event.payload.artifactId) ?? undefined
             : undefined
-          const artifact = variation && !existingArtifact
-            ? await this.store.createMockArtifact({
+          const artifact = existingArtifact ?? (variation
+            ? await this.materializeHtmlArtifactFromEvent({
+                event,
                 workspaceId: job?.workspaceId ?? this.store.devWorkspace.id,
                 sessionId: event.sessionId ?? variation.sessionId,
-                variationId: event.variationId,
-                artifactId: event.payload.artifactId,
-                parentArtifactId: variation.currentArtifactId,
+                variation,
               })
-            : existingArtifact
-          if (artifact && !existingArtifact) await this.writeMockArtifactBody(artifact.id)
+            : undefined)
           await this.store.applyVariationEvent({
           variationId: event.variationId,
           status: 'completed',
@@ -799,9 +845,204 @@ export class ApplicationService {
     })
   }
 
+  private async materializeHtmlArtifactFromEvent(input: {
+    event: Extract<DesignEvent, { type: 'design.variation_completed' }>
+    workspaceId: string
+    sessionId: string
+    variation: DesignVariation
+  }): Promise<Artifact> {
+    if (Array.isArray(input.event.payload.files) && input.event.payload.files.length > 0) {
+      return await this.createRuntimeWorkspaceArtifacts({
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        variation: input.variation,
+        runtimeArtifactId: input.event.payload.artifactId,
+        files: input.event.payload.files,
+        entryPath: input.event.payload.entryPath ?? 'index.html',
+      })
+    }
+    if (typeof input.event.payload.html === 'string' && input.event.payload.html.trim()) {
+      return await this.createRuntimeHtmlArtifact({
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        variation: input.variation,
+        runtimeArtifactId: input.event.payload.artifactId,
+        html: input.event.payload.html,
+        entryPath: input.event.payload.entryPath ?? 'index.html',
+        changedPaths: input.event.payload.changedPaths ?? [],
+      })
+    }
+    const artifact = await this.store.createMockArtifact({
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variation.id,
+      artifactId: input.event.payload.artifactId,
+      entryPath: input.event.payload.entryPath,
+      parentArtifactId: input.variation.currentArtifactId,
+    })
+    await this.writeMockArtifactBody(artifact.id)
+    return artifact
+  }
+
+  private async createRuntimeHtmlArtifact(input: {
+    workspaceId: string
+    sessionId: string
+    variation: DesignVariation
+    runtimeArtifactId?: string
+    html: string
+    entryPath: string
+    changedPaths: string[]
+  }): Promise<Artifact> {
+    const version = await this.nextHtmlArtifactVersion(input.variation.id)
+    const artifactId = input.runtimeArtifactId?.startsWith('art_') ? input.runtimeArtifactId : `art_${input.variation.id}_runtime_${version}`
+    const stored = await this.artifacts.put({
+      workspaceId: input.workspaceId,
+      artifactId,
+      relativePath: `v${version}/${input.entryPath}`,
+      contentType: 'text/html; charset=utf-8',
+      body: input.html,
+      metadata: {
+        kind: 'html',
+        source: 'babel-o-runtime',
+        sessionId: input.sessionId,
+        variationId: input.variation.id,
+        runtimeArtifactId: input.runtimeArtifactId ?? '',
+      },
+    })
+    return await this.store.createArtifact({
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variation.id,
+      parentArtifactId: input.variation.currentArtifactId,
+      kind: 'html',
+      version,
+      storageKey: stored.storageKey,
+      entryPath: input.entryPath,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        source: 'babel-o-runtime',
+        runtimeArtifactId: input.runtimeArtifactId ?? null,
+        changedPaths: input.changedPaths,
+      },
+    })
+  }
+
+  private async createRuntimeWorkspaceArtifacts(input: {
+    workspaceId: string
+    sessionId: string
+    variation: DesignVariation
+    runtimeArtifactId?: string
+    files: Array<{ path: string; content: string; contentType?: string }>
+    entryPath: string
+  }): Promise<Artifact> {
+    const files = normalizeRuntimeFiles(input.files)
+    const entryPath = normalizeRuntimeArtifactPath(input.entryPath)
+    const entry = files.find(file => file.path === entryPath) ?? files.find(file => file.path === 'index.html')
+    if (!entry) {
+      throw createHttpError(400, 'RUNTIME_ARTIFACT_ENTRY_MISSING', 'Runtime artifact files must include index.html.')
+    }
+    const version = await this.nextHtmlArtifactVersion(input.variation.id)
+    const htmlArtifactId = `art_${input.variation.id}_workspace_${version}`
+    const storedEntry = await this.artifacts.put({
+      workspaceId: input.workspaceId,
+      artifactId: htmlArtifactId,
+      relativePath: `v${version}/${entry.path}`,
+      contentType: entry.contentType ?? contentTypeForPath(entry.path),
+      body: entry.content,
+      metadata: {
+        kind: 'html',
+        source: 'babel-o-workspace',
+        sessionId: input.sessionId,
+        variationId: input.variation.id,
+        runtimeArtifactId: input.runtimeArtifactId ?? '',
+      },
+    })
+    const htmlArtifact = await this.store.createArtifact({
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variation.id,
+      parentArtifactId: input.variation.currentArtifactId,
+      kind: 'html',
+      version,
+      storageKey: storedEntry.storageKey,
+      entryPath: entry.path,
+      contentHash: storedEntry.contentHash,
+      sizeBytes: storedEntry.sizeBytes,
+      metadata: {
+        source: 'babel-o-workspace',
+        runtimeArtifactId: input.runtimeArtifactId ?? null,
+        fileCount: files.length,
+      },
+    })
+
+    for (const file of files.filter(file => file.path !== entry.path)) {
+      const assetArtifactId = `asset_${input.variation.id}_${version}_${stablePathId(file.path)}`
+      const storedAsset = await this.artifacts.put({
+        workspaceId: input.workspaceId,
+        artifactId: assetArtifactId,
+        relativePath: `v${version}/${file.path}`,
+        contentType: file.contentType ?? contentTypeForPath(file.path),
+        body: file.content,
+        metadata: {
+          kind: 'asset',
+          source: 'babel-o-workspace',
+          sessionId: input.sessionId,
+          variationId: input.variation.id,
+          htmlArtifactId: htmlArtifact.id,
+        },
+      })
+      await this.store.createArtifact({
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        variationId: input.variation.id,
+        parentArtifactId: htmlArtifact.id,
+        kind: 'asset',
+        version,
+        storageKey: storedAsset.storageKey,
+        entryPath: file.path,
+        contentHash: storedAsset.contentHash,
+        sizeBytes: storedAsset.sizeBytes,
+        metadata: {
+          source: 'babel-o-workspace',
+          htmlArtifactId: htmlArtifact.id,
+        },
+      })
+    }
+
+    return htmlArtifact
+  }
+
+  private async nextHtmlArtifactVersion(variationId: string): Promise<number> {
+    const detail = await this.store.getVariationDetailSnapshot(variationId)
+    const versions = detail?.artifacts
+      .filter(artifact => artifact.kind === 'html')
+      .map(artifact => artifact.version) ?? []
+    return versions.length > 0 ? Math.max(...versions) + 1 : 1
+  }
+
   private async readArtifactHtml(storageKey: string): Promise<string> {
     const artifact = await this.artifacts.get(storageKey)
     return new TextDecoder().decode(artifact.body)
+  }
+
+  private async rewriteArtifactAssetUrls(
+    variationId: string,
+    htmlArtifact: Artifact,
+    html: string,
+    toAssetUrl: (assetPath: string) => string,
+  ): Promise<string> {
+    const assets = await this.store.getVariationAssetArtifacts(variationId, htmlArtifact.id)
+    if (assets.length === 0) return html
+    const assetPaths = new Set(assets.map(asset => asset.entryPath).filter((path): path is string => Boolean(path)))
+    const baseDir = htmlArtifact.entryPath?.includes('/')
+      ? htmlArtifact.entryPath.split('/').slice(0, -1).join('/')
+      : ''
+    return rewriteHtmlAssetUrls(html, value => {
+      const resolved = resolveHtmlAssetPath(value, baseDir)
+      if (!resolved || !assetPaths.has(resolved)) return value
+      return toAssetUrl(resolved)
+    })
   }
 
   private async createExportZipArtifact(input: {
@@ -918,6 +1159,100 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
   }
 }
 
+function variationIndexFromRuntimeId(variationId: string | undefined): number | null {
+  if (!variationId) return null
+  const match = variationId.match(/^(?:mock|runtime)_variation_(\d+)$/)
+  if (!match) return null
+  const index = Number(match[1])
+  return Number.isInteger(index) && index > 0 ? index : null
+}
+
+function normalizeRuntimeFiles(files: Array<{ path: string; content: string; contentType?: string }>): Array<{
+  path: string
+  content: string
+  contentType?: string
+}> {
+  const normalized = files.map(file => ({
+    ...file,
+    path: normalizeRuntimeArtifactPath(file.path),
+  }))
+  const seen = new Set<string>()
+  for (const file of normalized) {
+    if (seen.has(file.path)) throw createHttpError(400, 'RUNTIME_ARTIFACT_DUPLICATE_PATH', `Duplicate runtime artifact path: ${file.path}`)
+    seen.add(file.path)
+  }
+  return normalized
+}
+
+function normalizeRuntimeArtifactPath(path: string): string {
+  const normalized = path.replaceAll('\\', '/')
+  if (!normalized || normalized.includes('\0') || normalized.startsWith('/') || /^[a-zA-Z]:\//.test(normalized)) {
+    throw createHttpError(400, 'RUNTIME_ARTIFACT_INVALID_PATH', `Invalid runtime artifact path: ${path}`)
+  }
+  if (normalized.split('/').some(part => part === '..' || part === '')) {
+    throw createHttpError(400, 'RUNTIME_ARTIFACT_PATH_ESCAPE', `Runtime artifact path escapes workspace: ${path}`)
+  }
+  const clean = posix.normalize(normalized)
+  if (clean === '.' || clean.startsWith('../') || clean === '..' || posix.isAbsolute(clean)) {
+    throw createHttpError(400, 'RUNTIME_ARTIFACT_PATH_ESCAPE', `Runtime artifact path escapes workspace: ${path}`)
+  }
+  if (clean.split('/').some(part => part === '' || part === '..')) {
+    throw createHttpError(400, 'RUNTIME_ARTIFACT_INVALID_PATH', `Invalid runtime artifact path: ${path}`)
+  }
+  return clean
+}
+
+function contentTypeForPath(path: string): string {
+  if (path.endsWith('.html')) return 'text/html; charset=utf-8'
+  if (path.endsWith('.css')) return 'text/css; charset=utf-8'
+  if (path.endsWith('.js')) return 'text/javascript; charset=utf-8'
+  if (path.endsWith('.json')) return 'application/json'
+  if (path.endsWith('.svg')) return 'image/svg+xml'
+  if (path.endsWith('.png')) return 'image/png'
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
+function stablePathId(path: string): string {
+  return path.replaceAll(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'asset'
+}
+
+function rewriteHtmlAssetUrls(html: string, rewrite: (value: string) => string): string {
+  return html.replace(
+    /\b(src|href)\s*=\s*(["'])([^"']+)\2/gi,
+    (match: string, attr: string, quote: string, value: string) => {
+      const next = rewrite(value)
+      return next === value ? match : `${attr}=${quote}${escapeHtmlAttribute(next)}${quote}`
+    },
+  )
+}
+
+function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
+  const trimmed = value.trim()
+  if (
+    !trimmed
+    || trimmed.startsWith('#')
+    || trimmed.startsWith('?')
+    || trimmed.startsWith('/')
+    || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)
+    || trimmed.startsWith('//')
+  ) {
+    return null
+  }
+  const pathOnly = trimmed.split(/[?#]/, 1)[0] ?? ''
+  if (!pathOnly) return null
+  const candidate = baseDir ? `${baseDir}/${pathOnly}` : pathOnly
+  try {
+    return normalizeRuntimeArtifactPath(candidate)
+  } catch {
+    return null
+  }
+}
+
+function encodeRuntimeAssetPath(path: string): string {
+  return path.split('/').map(part => encodeURIComponent(part)).join('/')
+}
+
 export type HttpError = Error & {
   status: number
   code: string
@@ -937,4 +1272,13 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }

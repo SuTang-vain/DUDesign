@@ -1,4 +1,5 @@
 import { LocalArtifactStore } from '@dudesign/artifact-store'
+import { BabelORuntimeGateway, MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gateway'
 import { join } from 'node:path'
 import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
@@ -7,6 +8,7 @@ export async function createApplicationServiceFromEnv(): Promise<ApplicationServ
   const artifacts = new LocalArtifactStore({
     rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
   })
+  const runtime = createRuntimeGatewayFromEnv()
   if (process.env.DUDESIGN_REPOSITORY === 'postgres') {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required when DUDESIGN_REPOSITORY=postgres.')
@@ -15,7 +17,39 @@ export async function createApplicationServiceFromEnv(): Promise<ApplicationServ
       connectionString: process.env.DATABASE_URL,
       hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
-    return new ApplicationService({ store, artifacts })
+    return new ApplicationService({ store, artifacts, runtime })
   }
-  return new ApplicationService({ artifacts })
+  return new ApplicationService({ artifacts, runtime })
+}
+
+export function createRuntimeGatewayFromEnv(): RuntimeGateway {
+  if (process.env.DUDESIGN_RUNTIME_MODE !== 'babel-o') {
+    return new MockRuntimeGateway()
+  }
+  if (!process.env.DUDESIGN_BABELO_BASE_URL) {
+    throw new Error('DUDESIGN_BABELO_BASE_URL is required when DUDESIGN_RUNTIME_MODE=babel-o.')
+  }
+  return new BabelORuntimeGateway({
+    clientConfig: {
+      baseUrl: process.env.DUDESIGN_BABELO_BASE_URL,
+      apiKey: process.env.DUDESIGN_BABELO_API_KEY,
+      authHeaderName: process.env.DUDESIGN_BABELO_AUTH_HEADER,
+      timeoutMs: optionalPositiveInteger(process.env.DUDESIGN_BABELO_TIMEOUT_MS),
+      streamIdleTimeoutMs: optionalPositiveInteger(process.env.DUDESIGN_BABELO_STREAM_IDLE_TIMEOUT_MS),
+      streamReconnectAttempts: optionalNonNegativeInteger(process.env.DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS),
+      expectedContractVersion: process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
+    },
+  })
+}
+
+function optionalPositiveInteger(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function optionalNonNegativeInteger(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
 }

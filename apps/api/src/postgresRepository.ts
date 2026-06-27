@@ -834,6 +834,33 @@ export class PostgresRepository extends InMemoryStore {
     }
   }
 
+  override async getVariationAssetArtifacts(variationId: string, parentArtifactId: string): Promise<Artifact[]> {
+    await this.flush()
+    return (await this.pool.query(`
+      select *
+      from artifacts
+      where variation_id = $1
+        and parent_artifact_id = $2
+        and kind = 'asset'
+        and entry_path is not null
+      order by entry_path asc
+    `, [variationId, parentArtifactId])).rows.map(mapArtifact)
+  }
+
+  override async getVariationAssetArtifact(variationId: string, parentArtifactId: string, assetPath: string): Promise<Artifact | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select *
+      from artifacts
+      where variation_id = $1
+        and parent_artifact_id = $2
+        and kind = 'asset'
+        and entry_path = $3
+      limit 1
+    `, [variationId, parentArtifactId, assetPath])).rows[0]
+    return row ? mapArtifact(row) : null
+  }
+
   override async getSharedVariationSnapshot(token: string): Promise<SharedVariationSnapshot | null> {
     await this.flush()
     const shareRow = (await this.pool.query('select * from shares where token = $1', [token])).rows[0]

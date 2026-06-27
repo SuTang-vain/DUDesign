@@ -139,6 +139,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const variationAssetMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/assets\/(.+)$/)
+  if (method === 'GET' && variationAssetMatch) {
+    const asset = await service.getVariationAsset(
+      ctx,
+      decodeURIComponent(variationAssetMatch[1]!),
+      decodeURIComponent(variationAssetMatch[2]!),
+    )
+    sendAsset(res, 200, asset)
+    return
+  }
+
   const variationRefineMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine$/)
   if (method === 'POST' && variationRefineMatch) {
     sendJson(res, 200, await service.refineVariation(ctx, decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
@@ -166,6 +177,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const shareRevokeMatch = url.pathname.match(/^\/api\/shares\/([^/]+)\/revoke$/)
   if (method === 'POST' && shareRevokeMatch) {
     sendJson(res, 200, await service.revokeShare(ctx, decodeURIComponent(shareRevokeMatch[1]!)))
+    return
+  }
+
+  const shareAssetMatch = url.pathname.match(/^\/api\/shares\/([^/]+)\/assets\/(.+)$/)
+  if (method === 'GET' && shareAssetMatch) {
+    const asset = await service.getSharedVariationAsset(
+      decodeURIComponent(shareAssetMatch[1]!),
+      decodeURIComponent(shareAssetMatch[2]!),
+    )
+    sendAsset(res, 200, asset, 'public, max-age=300')
     return
   }
 
@@ -266,9 +287,25 @@ function sendHtml(res: http.ServerResponse, status: number, html: string): void 
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
-    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; img-src data: https:; frame-ancestors 'self'",
+    'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
   })
   res.end(html)
+}
+
+function sendAsset(
+  res: http.ServerResponse,
+  status: number,
+  asset: { contentType: string; body: Uint8Array },
+  cacheControl = 'private, max-age=60',
+): void {
+  res.writeHead(status, {
+    'content-type': asset.contentType,
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'cache-control': cacheControl,
+  })
+  res.end(Buffer.from(asset.body))
 }
 
 function sendCorsPreflight(res: http.ServerResponse): void {

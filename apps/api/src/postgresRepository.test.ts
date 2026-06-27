@@ -65,6 +65,32 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       sizeBytes: 128,
       metadata: { smoke: true },
     })
+    const cssAsset = await repository.createArtifact({
+      workspaceId: job.workspaceId,
+      sessionId: session.id,
+      variationId: variation.id,
+      parentArtifactId: artifact.id,
+      kind: 'asset',
+      version: artifact.version,
+      storageKey: `${job.workspaceId}/artifacts/pg-smoke/v1/styles/app.css`,
+      entryPath: 'styles/app.css',
+      contentHash: 'sha256:postgres-css',
+      sizeBytes: 32,
+      metadata: { smoke: true },
+    })
+    const imageAsset = await repository.createArtifact({
+      workspaceId: job.workspaceId,
+      sessionId: session.id,
+      variationId: variation.id,
+      parentArtifactId: artifact.id,
+      kind: 'asset',
+      version: artifact.version,
+      storageKey: `${job.workspaceId}/artifacts/pg-smoke/v1/images/logo.svg`,
+      entryPath: 'images/logo.svg',
+      contentHash: 'sha256:postgres-svg',
+      sizeBytes: 64,
+      metadata: { smoke: true },
+    })
     await repository.applyVariationEvent({
       variationId: variation.id,
       status: 'completed',
@@ -123,6 +149,8 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
       assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
       assert.equal(hydrated.artifacts.get(artifact.id)?.contentHash, 'sha256:postgres-smoke')
+      assert.equal(hydrated.artifacts.get(cssAsset.id)?.contentHash, 'sha256:postgres-css')
+      assert.equal(hydrated.artifacts.get(imageAsset.id)?.contentHash, 'sha256:postgres-svg')
       assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)
       assert.equal(hydrated.listUsageEvents({ jobId: job.id }).length, 1)
       clearHydratedCache(hydrated)
@@ -158,6 +186,9 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(variationDetail?.job?.id, job.id)
       const currentArtifact = await hydrated.getCurrentVariationArtifactSnapshot(variation.id)
       assert.equal(currentArtifact.artifact?.id, artifact.id)
+      const assets = await hydrated.getVariationAssetArtifacts(variation.id, artifact.id)
+      assert.deepEqual(assets.map(candidate => candidate.entryPath), ['images/logo.svg', 'styles/app.css'])
+      assert.equal((await hydrated.getVariationAssetArtifact(variation.id, artifact.id, 'styles/app.css'))?.id, cssAsset.id)
       const sharedVariation = await hydrated.getSharedVariationSnapshot(share.token)
       assert.equal(sharedVariation?.variation?.id, variation.id)
       assert.equal(sharedVariation?.artifact?.id, artifact.id)
@@ -184,7 +215,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(snapshot?.messages.length, 1)
       assert.equal(snapshot?.jobs.length, 1)
       assert.equal(snapshot?.variations.length, 1)
-      assert.equal(snapshot?.artifacts.length, 1)
+      assert.equal(snapshot?.artifacts.length, 3)
     } finally {
       await hydrated.close()
     }
