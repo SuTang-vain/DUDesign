@@ -13,6 +13,8 @@ RUN npm ci
 FROM deps AS build
 WORKDIR /app
 COPY . .
+ARG NEXT_PUBLIC_DUDESIGN_API_URL=
+ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
 RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/api apps/web apps/admin
 RUN npm --workspace @dudesign/web run build
 RUN npm --workspace @dudesign/admin run build

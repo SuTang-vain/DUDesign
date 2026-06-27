@@ -15,7 +15,7 @@ import type {
   VariationDetailResponse,
 } from '@dudesign/contracts'
 
-const API_BASE = process.env.NEXT_PUBLIC_DUDESIGN_API_URL ?? 'http://127.0.0.1:4000'
+const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_DUDESIGN_API_URL)
 
 export type BootstrapResponse = {
   user: {
@@ -92,6 +92,13 @@ export type VariationSnapshot = {
 
 export function apiUrl(path: string): string {
   return `${API_BASE}${path}`
+}
+
+function normalizeApiBase(value: string | undefined): string {
+  const base = (value ?? '').trim().replace(/\/+$/, '')
+  if (!base || base === '/api') return ''
+  if (base.endsWith('/api')) return base.slice(0, -4)
+  return base
 }
 
 export async function getBootstrap(): Promise<BootstrapResponse> {

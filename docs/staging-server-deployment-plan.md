@@ -4,6 +4,7 @@
 > 日期：2026-06-27
 > 目标服务器：`tyy` / `ubuntu@49.233.190.201`
 > 定位：将该服务器作为 DUDesign 远程测试、浏览验收和上线前 staging 环境
+> 当前公网入口：`http://49.233.190.201/`
 > 关联文档：
 > - `docs/development-release-governance.md`
 > - `docs/architecture-governance-plan.md`
@@ -33,7 +34,7 @@ docker: installed, 29.6.0
 node: not installed
 npm: not installed
 postgresql client: not installed
-nginx: not installed
+nginx: installed
 pm2: not installed
 ```
 
@@ -41,7 +42,11 @@ pm2: not installed
 
 ```text
 22/tcp: SSH
-53/tcp: system resolver
+80/tcp: Nginx staging reverse proxy
+3001/tcp: Web, bound to `127.0.0.1`
+3002/tcp: Admin, bound to `127.0.0.1`
+4000/tcp: API, bound to `127.0.0.1`
+5432/tcp: PostgreSQL container internal network only
 ```
 
 当前服务器较干净，适合作为 staging 起点。
@@ -71,34 +76,35 @@ pm2: not installed
 
 ## 3. 目标部署拓扑
 
-MVP staging 目标拓扑：
+MVP staging 当前拓扑：
 
 ```text
 Browser
-  -> Nginx/Caddy container
-    -> web container      :3001
-    -> admin container    :3002
-    -> api container      :4000
+  -> Tencent Cloud security group :80
+  -> host Nginx
+    -> web container      127.0.0.1:3001
+    -> admin container    127.0.0.1:3002
+    -> api container      127.0.0.1:4000
 api container
   -> postgres container   :5432
   -> local artifact volume
   -> MockRuntimeGateway or BabeL-O Gateway, by env
 ```
 
-第一阶段可以先不启用域名和 HTTPS，使用端口直连：
+当前公网入口：
 
 ```text
-Web:   http://49.233.190.201:3001
-Admin: http://49.233.190.201:3002
-API:   http://49.233.190.201:4000
+Web:   http://49.233.190.201/
+Admin: http://49.233.190.201/admin/
+API:   http://49.233.190.201/api/
 ```
 
-第二阶段再配置反向代理：
+后续绑定域名和 HTTPS 后：
 
 ```text
 Web:   https://staging.example.com
-Admin: https://staging-admin.example.com
-API:   https://staging-api.example.com
+Admin: https://staging.example.com/admin/
+API:   https://staging.example.com/api/
 ```
 
 ## 4. 服务器目录规划
@@ -137,6 +143,15 @@ HOST=0.0.0.0
 DUDESIGN_REPOSITORY=postgres
 DATABASE_URL=postgresql://dudesign:<password>@postgres:5432/dudesign_staging
 DUDESIGN_ARTIFACT_ROOT=/opt/dudesign/shared/artifacts
+```
+
+Staging Web/Admin 推荐：
+
+```bash
+# 留空表示通过 Nginx 同源 `/api` 访问 API。
+# 如果后续 API 拆到独立域名，只填写 origin，例如 `https://api.example.com`。
+# 不要填写 `/api` 路径后缀。
+NEXT_PUBLIC_DUDESIGN_API_URL=
 ```
 
 后续 M28 可加入：
@@ -217,29 +232,51 @@ chmod 600 /opt/dudesign/shared/env/staging.env
 
 ### 8.3 构建和启动
 
-后续需要在仓库中新增：
+仓库已包含：
 
 ```text
 deploy/staging/docker-compose.yml
-deploy/staging/Dockerfile.api
-deploy/staging/Dockerfile.web
-deploy/staging/Dockerfile.admin
+deploy/staging/Dockerfile
+deploy/staging/nginx.conf
+deploy/staging/staging.env.example
+deploy/staging/scripts/package-release.sh
+deploy/staging/scripts/deploy-remote.sh
+deploy/staging/scripts/smoke-remote.sh
 ```
 
-启动：
+推荐从本地打包上传部署，避免服务器直连 GitHub 不稳定：
 
 ```bash
-cd /opt/dudesign/repo
-docker compose -f deploy/staging/docker-compose.yml --env-file /opt/dudesign/shared/env/staging.env up -d --build
+DUDESIGN_STAGING_REMOTE=tyy \
+DUDESIGN_STAGING_PUBLIC_BASE=http://49.233.190.201 \
+deploy/staging/scripts/deploy-remote.sh
+```
+
+仅远程 smoke：
+
+```bash
+DUDESIGN_STAGING_REMOTE=tyy \
+DUDESIGN_STAGING_PUBLIC_BASE=http://49.233.190.201 \
+deploy/staging/scripts/smoke-remote.sh
+```
+
+服务器上手动启动：
+
+```bash
+cd /home/ubuntu/deployments/dudesign/current
+docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
 ```
 
 ### 8.4 验证
 
 ```bash
 docker compose -f deploy/staging/docker-compose.yml ps
-curl http://127.0.0.1:4000/api/dev/bootstrap
-curl -I http://127.0.0.1:3001
-curl -I http://127.0.0.1:3002
+curl -I http://127.0.0.1/
+curl http://127.0.0.1/api/dev/bootstrap
+curl -I http://127.0.0.1/admin/
+curl -I http://49.233.190.201/
+curl http://49.233.190.201/api/dev/bootstrap
+curl -I http://49.233.190.201/admin/
 ```
 
 ## 9. Staging Smoke 清单
@@ -290,29 +327,20 @@ API：
 
 ## 10. 安全与暴露面
 
-初期端口直连阶段需要注意：
+当前反向代理阶段需要注意：
 
 - 不要暴露 PostgreSQL 5432 到公网。
-- API/Web/Admin 可临时暴露用于测试，但后续必须收敛到反向代理。
+- API/Web/Admin 容器端口必须只绑定 `127.0.0.1`。
 - Admin 页面后续必须接入真实鉴权；当前 header-based role 只适合 staging/dev。
 - `staging.env` 不提交到 Git。
 - SSH key 不进入仓库。
 
-建议云服务器安全组初期只开放：
+建议云服务器安全组只开放：
 
 ```text
 22    SSH
-3001  Web staging, temporary
-3002  Admin staging, temporary
-4000  API staging, temporary
-```
-
-配置反向代理和 HTTPS 后，收敛为：
-
-```text
-22
 80
-443
+443   后续 HTTPS 使用
 ```
 
 ## 11. 回滚策略
@@ -337,23 +365,23 @@ docker compose -f deploy/staging/docker-compose.yml --env-file /opt/dudesign/sha
 
 ### M-DEPLOY-1：部署脚手架
 
-- 新增 `deploy/staging/docker-compose.yml`。
-- 新增 API/Web/Admin Dockerfile。
-- 新增 `.env.example` 或 `deploy/staging/staging.env.example`。
-- API 支持生产 host `0.0.0.0`。
-- 本地 `docker compose up` 能启动。
+- [x] 新增 `deploy/staging/docker-compose.yml`。
+- [x] 新增 API/Web/Admin 共用 Dockerfile。
+- [x] 新增 `deploy/staging/staging.env.example`。
+- [x] API 支持生产 host `0.0.0.0`。
+- [x] 本地 `docker compose up` 能启动。
 
 ### M-DEPLOY-2：远程部署
 
-- 初始化 `/opt/dudesign`。
-- 配置 staging env。
-- 构建并启动服务。
-- 执行 migration。
-- 端口直连 smoke。
+- [x] 初始化 `/home/ubuntu/deployments/dudesign/current`。
+- [x] 配置 staging env。
+- [x] 构建并启动服务。
+- [x] PostgreSQL repository 自动初始化基础 schema。
+- [x] Nginx 本机和公网 smoke。
 
 ### M-DEPLOY-3：浏览验收与反向代理
 
-- 通过浏览器走完整用户链路。
-- 管理端 smoke。
-- 引入 Nginx/Caddy。
-- 后续配置域名和 HTTPS。
+- [x] 通过浏览器打开公网用户端。
+- [x] 管理端 smoke。
+- [x] 引入 Nginx。
+- [ ] 后续配置域名和 HTTPS。
