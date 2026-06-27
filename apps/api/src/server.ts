@@ -65,7 +65,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/admin/jobs') {
-    sendJson(res, 200, service.listAdminJobs(ctx, {
+    sendJson(res, 200, await service.listAdminJobs(ctx, {
       status: url.searchParams.get('status'),
       userId: url.searchParams.get('userId'),
     }))
@@ -73,7 +73,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/admin/artifacts') {
-    sendJson(res, 200, service.listAdminArtifacts(ctx, {
+    sendJson(res, 200, await service.listAdminArtifacts(ctx, {
       jobId: url.searchParams.get('jobId'),
       variationId: url.searchParams.get('variationId'),
       kind: url.searchParams.get('kind'),
@@ -82,7 +82,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/admin/support/users') {
-    sendJson(res, 200, service.getAdminUserSupport(ctx, {
+    sendJson(res, 200, await service.getAdminUserSupport(ctx, {
       userId: url.searchParams.get('userId'),
       email: url.searchParams.get('email'),
     }))
@@ -90,7 +90,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/admin/costs/summary') {
-    sendJson(res, 200, service.getAdminCostSummary(ctx))
+    sendJson(res, 200, await service.getAdminCostSummary(ctx))
     return
   }
 
@@ -117,7 +117,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const jobStreamMatch = url.pathname.match(/^\/api\/design-jobs\/([^/]+)\/stream$/)
   if (method === 'GET' && jobStreamMatch) {
-    streamJobEvents(res, service, ctx, decodeURIComponent(jobStreamMatch[1]!))
+    await streamJobEvents(res, service, ctx, decodeURIComponent(jobStreamMatch[1]!))
     return
   }
 
@@ -159,7 +159,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationShareMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/share$/)
   if (method === 'POST' && variationShareMatch) {
-    sendJson(res, 200, service.shareVariation(ctx, decodeURIComponent(variationShareMatch[1]!), await readJson(req)))
+    sendJson(res, 200, await service.shareVariation(ctx, decodeURIComponent(variationShareMatch[1]!), await readJson(req)))
     return
   }
 
@@ -177,13 +177,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationMatch = url.pathname.match(/^\/api\/variations\/([^/]+)$/)
   if (method === 'GET' && variationMatch) {
-    sendJson(res, 200, service.getVariationDetail(ctx, decodeURIComponent(variationMatch[1]!)))
+    sendJson(res, 200, await service.getVariationDetail(ctx, decodeURIComponent(variationMatch[1]!)))
     return
   }
 
   const jobMatch = url.pathname.match(/^\/api\/design-jobs\/([^/]+)$/)
   if (method === 'GET' && jobMatch) {
-    sendJson(res, 200, service.getDesignJob(ctx, decodeURIComponent(jobMatch[1]!)))
+    sendJson(res, 200, await service.getDesignJob(ctx, decodeURIComponent(jobMatch[1]!)))
     return
   }
 
@@ -195,9 +195,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   })
 }
 
-function streamJobEvents(res: http.ServerResponse, service: ApplicationService, ctx: RequestContext, jobId: string): void {
+async function streamJobEvents(res: http.ServerResponse, service: ApplicationService, ctx: RequestContext, jobId: string): Promise<void> {
   try {
-    service.getDesignJob(ctx, jobId)
+    await service.getDesignJob(ctx, jobId)
   } catch (error) {
     sendJson(res, 404, {
       error: {

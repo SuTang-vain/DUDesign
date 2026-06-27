@@ -79,7 +79,7 @@ export class ApplicationService {
   }
 
   async resumeSession(ctx: RequestContext, sessionId: string) {
-    const snapshot = this.store.getSessionSnapshot(sessionId)
+    const snapshot = await this.store.getSessionSnapshot(sessionId)
     if (!snapshot) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
     this.requireSessionAccess(snapshot.session.id, ctx.userId)
     const workspace = this.store.getWorkspaceById(snapshot.session.workspaceId)
@@ -98,7 +98,7 @@ export class ApplicationService {
 
   async createDesignJob(ctx: RequestContext, input: CreateDesignJobRequest) {
     validateVariationCount(input.variationCount)
-    const context = this.store.getSessionWorkspaceContext(input.sessionId)
+    const context = await this.store.getSessionWorkspaceContext(input.sessionId)
     if (!context) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${input.sessionId}`)
     const { session, workspace } = context
     this.requireSessionAccess(session.id, ctx.userId)
@@ -149,15 +149,15 @@ export class ApplicationService {
     }
   }
 
-  getDesignJob(ctx: RequestContext, jobId: string) {
-    const snapshot = this.store.getJobSnapshot(jobId)
+  async getDesignJob(ctx: RequestContext, jobId: string) {
+    const snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     this.requireJobAccess(snapshot.job.id, ctx.userId)
     return snapshot
   }
 
-  getVariationDetail(ctx: RequestContext, variationId: string) {
-    const snapshot = this.store.getVariationDetailSnapshot(variationId)
+  async getVariationDetail(ctx: RequestContext, variationId: string) {
+    const snapshot = await this.store.getVariationDetailSnapshot(variationId)
     if (!snapshot) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const { variation, job, currentArtifact, artifacts } = snapshot
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
@@ -187,7 +187,7 @@ export class ApplicationService {
   }
 
   async refineVariation(ctx: RequestContext, variationId: string, input: RefineVariationRequest) {
-    const context = this.store.getVariationRefineContext(variationId, input.baseArtifactId)
+    const context = await this.store.getVariationRefineContext(variationId, input.baseArtifactId)
     if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const { variation, job, session, workspace, baseArtifact } = context
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
@@ -225,7 +225,7 @@ export class ApplicationService {
       this.events.publish(event)
     }
 
-    const current = this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const current = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const updated = current.variation!
     const artifact = current.artifact
     return {
@@ -246,7 +246,7 @@ export class ApplicationService {
   }
 
   async annotateVariation(ctx: RequestContext, variationId: string, input: CreateAnnotationBatchRequest) {
-    const context = this.store.getVariationArtifactContext(variationId, input.artifactId)
+    const context = await this.store.getVariationArtifactContext(variationId, input.artifactId)
     const variation = context.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireVariationAccess(variationId, ctx.userId)
@@ -281,7 +281,7 @@ export class ApplicationService {
   }
 
   async getVariationPreview(ctx: RequestContext, variationId: string): Promise<string> {
-    const snapshot = this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireVariationAccess(variationId, ctx.userId)
@@ -292,7 +292,7 @@ export class ApplicationService {
 
   async exportVariation(ctx: RequestContext, variationId: string) {
     this.requireVariationAccess(variationId, ctx.userId)
-    const { variation, artifact } = this.requireCurrentVariationArtifact(variationId)
+    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
     const job = this.store.getJobById(variation.jobId)
     const html = await this.readArtifactHtml(artifact.storageKey)
     const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase()
@@ -336,9 +336,9 @@ export class ApplicationService {
     }
   }
 
-  shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
+  async shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
     this.requireVariationAccess(variationId, ctx.userId)
-    const { variation, artifact } = this.requireCurrentVariationArtifact(variationId)
+    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
     if (!['public', 'private', 'password'].includes(input.visibility)) {
       throw createHttpError(400, 'INVALID_SHARE_VISIBILITY', 'visibility must be public, private, or password.')
     }
@@ -378,7 +378,7 @@ export class ApplicationService {
   }
 
   async getSharedVariation(token: string) {
-    const snapshot = this.store.getSharedVariationSnapshot(token)
+    const snapshot = await this.store.getSharedVariationSnapshot(token)
     if (!snapshot) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
     const { share, variation, artifact } = snapshot
     if (share.revokedAt) {
@@ -447,29 +447,29 @@ export class ApplicationService {
     }
   }
 
-  listAdminJobs(ctx: RequestContext, filter: { status?: string | null; userId?: string | null } = {}) {
+  async listAdminJobs(ctx: RequestContext, filter: { status?: string | null; userId?: string | null } = {}) {
     this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.listAdminJobs(filter)
   }
 
-  listAdminArtifacts(ctx: RequestContext, filter: { jobId?: string | null; variationId?: string | null; kind?: string | null } = {}) {
+  async listAdminArtifacts(ctx: RequestContext, filter: { jobId?: string | null; variationId?: string | null; kind?: string | null } = {}) {
     this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.listAdminArtifacts(filter)
   }
 
-  getAdminUserSupport(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
+  async getAdminUserSupport(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
     this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.getAdminUserSupport(filter)
   }
 
-  getAdminCostSummary(ctx: RequestContext) {
+  async getAdminCostSummary(ctx: RequestContext) {
     this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.getAdminCostSummary()
   }
 
   async cancelJobAsAdmin(ctx: RequestContext, jobId: string, input: { reason?: string }) {
     this.requireAdminRole(ctx, ['operator', 'developer'])
-    const snapshot = this.store.getJobSnapshot(jobId)
+    const snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     if (snapshot.job.status === 'completed' || snapshot.job.status === 'failed' || snapshot.job.status === 'cancelled') {
       throw createHttpError(409, 'JOB_NOT_CANCELLABLE', `Job ${jobId} is already ${snapshot.job.status}.`)
@@ -538,8 +538,8 @@ export class ApplicationService {
     }
   }
 
-  private requireCurrentVariationArtifact(variationId: string) {
-    const snapshot = this.store.getCurrentVariationArtifactSnapshot(variationId)
+  private async requireCurrentVariationArtifact(variationId: string) {
+    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     if (!snapshot.artifactId) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
@@ -608,7 +608,7 @@ export class ApplicationService {
     variationIdsByIndex: Map<number, string>
   }): Promise<void> {
     this.store.setJobStatus(input.jobId, 'running')
-    const runtimeContext = this.store.getRuntimeSessionContext(input.sessionId)
+    const runtimeContext = await this.store.getRuntimeSessionContext(input.sessionId)
     try {
       for await (const event of this.runtime.spawnVariationAgents({
         userId: runtimeContext?.session.userId ?? this.store.devUser.id,
@@ -666,7 +666,7 @@ export class ApplicationService {
         this.store.applyVariationEvent({ variationId: event.variationId, status: 'streaming' })
         break
       case 'design.variation_preview_ready': {
-        const context = this.store.getVariationJobContext(event.variationId)
+        const context = await this.store.getVariationJobContext(event.variationId)
         const variation = context?.variation
         const job = context?.job
         const artifact = this.store.createMockArtifact({
@@ -686,7 +686,7 @@ export class ApplicationService {
       }
       case 'design.variation_completed':
         {
-          const context = this.store.getVariationJobContext(event.variationId)
+          const context = await this.store.getVariationJobContext(event.variationId)
           const variation = context?.variation
           const job = context?.job
           const existingArtifact = event.payload.artifactId

@@ -10,6 +10,8 @@ import type {
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, SessionMessage } from './store.js'
 
+export type MaybePromise<T> = T | Promise<T>
+
 export type SessionSnapshot = {
   session: DesignSession
   messages: SessionMessage[]
@@ -297,21 +299,21 @@ export type ApplicationRepository = {
   getJobById(jobId: string): DesignJob | null
   getVariationById(variationId: string): DesignVariation | null
   getArtifactById(artifactId: string): Artifact | null
-  getSessionWorkspaceContext(sessionId: string): SessionWorkspaceContext | null
-  getVariationJobContext(variationId: string): VariationJobContext | null
-  getVariationRefineContext(variationId: string, baseArtifactId: string): VariationRefineContext | null
-  getVariationArtifactContext(variationId: string, artifactId: string): VariationArtifactContext
-  getRuntimeSessionContext(sessionId: string): RuntimeSessionContext | null
+  getSessionWorkspaceContext(sessionId: string): MaybePromise<SessionWorkspaceContext | null>
+  getVariationJobContext(variationId: string): MaybePromise<VariationJobContext | null>
+  getVariationRefineContext(variationId: string, baseArtifactId: string): MaybePromise<VariationRefineContext | null>
+  getVariationArtifactContext(variationId: string, artifactId: string): MaybePromise<VariationArtifactContext>
+  getRuntimeSessionContext(sessionId: string): MaybePromise<RuntimeSessionContext | null>
   createSession(input: CreateSessionInput): DesignSession
   saveSession(session: DesignSession): void
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage
   createJob(input: CreateJobInput): DesignJob
   createVariations(input: { job: DesignJob; count: number }): DesignVariation[]
   listSessions(): DesignSession[]
-  getSessionSnapshot(sessionId: string): SessionSnapshot | null
-  getJobSnapshot(jobId: string): JobSnapshot | null
-  getVariationDetailSnapshot(variationId: string): VariationDetailSnapshot | null
-  getCurrentVariationArtifactSnapshot(variationId: string): CurrentVariationArtifactSnapshot
+  getSessionSnapshot(sessionId: string): MaybePromise<SessionSnapshot | null>
+  getJobSnapshot(jobId: string): MaybePromise<JobSnapshot | null>
+  getVariationDetailSnapshot(variationId: string): MaybePromise<VariationDetailSnapshot | null>
+  getCurrentVariationArtifactSnapshot(variationId: string): MaybePromise<CurrentVariationArtifactSnapshot>
   setJobStatus(jobId: string, status: DesignJob['status']): void
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog
   listAuditLogs(options?: { limit?: number }): AuditLog[]
@@ -329,16 +331,16 @@ export type ApplicationRepository = {
   createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch
   createShare(input: CreateShareInput): Share
   getShareByToken(token: string): Share | null
-  getSharedVariationSnapshot(token: string): SharedVariationSnapshot | null
+  getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null>
   revokeShare(token: string): Share | null
   listAdminJobs(filter?: AdminJobsFilter): {
     jobs: AdminJobSummary[]
-  }
+  } | Promise<{ jobs: AdminJobSummary[] }>
   listAdminArtifacts(filter?: AdminArtifactsFilter): {
     artifacts: AdminArtifactSummary[]
-  }
+  } | Promise<{ artifacts: AdminArtifactSummary[] }>
   getAdminUserSupport(filter?: AdminUserSupportFilter): {
     users: AdminUserSupport[]
-  }
-  getAdminCostSummary(): AdminCostSummary
+  } | Promise<{ users: AdminUserSupport[] }>
+  getAdminCostSummary(): MaybePromise<AdminCostSummary>
 }

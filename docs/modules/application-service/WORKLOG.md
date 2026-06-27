@@ -646,3 +646,90 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
   - Variation detail/current artifact/shared variation snapshots。
   - Session workspace/refine/runtime contexts。
 - 增加同一套 API smoke 对 InMemoryStore 与 PostgresRepository 的双实现测试。
+
+## 2026-06-27 M20 PostgreSQL SQL-native Query Methods
+
+### 已完成
+
+- Repository 读模型契约支持 `MaybePromise`，为 PostgreSQL async SQL-native queries 打开接口空间。
+- `ApplicationService` 和 API server 对以下读路径改为 await：
+  - Admin jobs/artifacts/support/cost。
+  - Variation detail。
+  - Current variation artifact。
+  - Share variation。
+  - Shared variation。
+- `PostgresRepository` 新增 SQL-native query methods：
+  - `getVariationDetailSnapshot()`
+  - `getCurrentVariationArtifactSnapshot()`
+  - `getSharedVariationSnapshot()`
+  - `listAdminJobs()`
+  - `listAdminArtifacts()`
+  - `getAdminUserSupport()`
+  - `getAdminCostSummary()`
+- PostgreSQL integration smoke 增强：
+  - hydrate 后先验证 cache 可恢复。
+  - 随后清空 hydrated cache。
+  - 再调用 SQL-native methods，确保这些查询真实来自 PostgreSQL，而不是继承的内存 Map。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- 第一批 SQL-native 查询优先覆盖管理端聚合和用户侧 variation/share 快照，因为这些路径最容易受数据量影响，也最适合用 SQL join/aggregate 表达。
+- `getAdminUserSupport()` 暂时采用少量分步 SQL 查询，保持实现清晰；后续可以根据性能再合并为更复杂的聚合 SQL。
+
+### 下一步
+
+- 为 session/job snapshot 与 context methods 增加 SQL-native 实现。
+- 建立 API smoke 双实现测试：同一套服务流程分别跑 InMemoryStore 和 PostgresRepository。
+- 逐步减少 `PostgresRepository` 对 startup hydrate 的生产依赖。
+
+## 2026-06-27 M21 PostgreSQL SQL-native Session/Job Contexts
+
+### 已完成
+
+- Repository session/job/context 读模型契约支持 `MaybePromise`。
+- `ApplicationService` 和 API server 对 job/session/context 读路径改为 await：
+  - `resumeSession()`
+  - `createDesignJob()`
+  - `getDesignJob()`
+  - `cancelJobAsAdmin()`
+  - `runMockJob()`
+  - runtime event side effects。
+- `PostgresRepository` 新增 SQL-native methods：
+  - `getSessionSnapshot()`
+  - `getJobSnapshot()`
+  - `getSessionWorkspaceContext()`
+  - `getVariationJobContext()`
+  - `getVariationRefineContext()`
+  - `getVariationArtifactContext()`
+  - `getRuntimeSessionContext()`
+- PostgreSQL integration smoke 扩展为清空 hydrated cache 后继续验证 session/job/context SQL-native 查询。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- `PostgresRepository` 的核心读模型已基本具备 SQL-native 能力；startup hydrate 仍保留作为过渡和 fallback，但 service 层已经不需要知道 Map 存在。
+
+### 下一步
+
+- 建立同一套 API smoke 双实现测试：InMemoryStore + PostgresRepository。
+- 将 `ApplicationService` 的基础 `getUserById/getWorkspaceById/...` 权限查找继续评估是否需要 SQL-native override。
+- 梳理生产模式下是否可以关闭 startup hydrate 或改为按需 warm cache。

@@ -22,39 +22,56 @@ type JobSnapshot = {
 }
 
 describe('DUDesign mock API flow', () => {
-  let server: http.Server
-  let baseUrl: string
-  let service: ApplicationService
+  let harness: ApiFlowHarness
 
   before(async () => {
-    service = new ApplicationService()
-    server = createApiServer(service)
-    await new Promise<void>(resolve => {
-      server.listen(0, '127.0.0.1', resolve)
-    })
-    const address = server.address() as AddressInfo
-    baseUrl = `http://127.0.0.1:${address.port}`
+    harness = await startApiFlowHarness(new ApplicationService())
   })
 
   after(async () => {
-    await new Promise<void>((resolve, reject) => {
+    await harness.close()
+  })
+
+  it('creates a session, generates variations, refines with annotations, and serves preview HTML', async () => {
+    await runApiFlowSmoke(harness)
+  })
+})
+
+export type ApiFlowHarness = {
+  service: ApplicationService
+  baseUrl: string
+  close(): Promise<void>
+}
+
+export async function startApiFlowHarness(service: ApplicationService): Promise<ApiFlowHarness> {
+  const server = createApiServer(service)
+  await new Promise<void>(resolve => {
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address() as AddressInfo
+  return {
+    service,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise<void>((resolve, reject) => {
       server.close(error => {
         if (error) reject(error)
         else resolve()
       })
-    })
-  })
+    }),
+  }
+}
 
-  it('creates a session, generates variations, refines with annotations, and serves preview HTML', async () => {
-    const bootstrapResponse = await fetch(`${baseUrl}/api/dev/bootstrap`, {
+export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
+  const { baseUrl } = harness
+  const bootstrapResponse = await fetch(`${baseUrl}/api/dev/bootstrap`, {
       headers: { 'x-request-id': 'req_test_smoke' },
     })
     assert.equal(bootstrapResponse.headers.get('x-request-id'), 'req_test_smoke')
     assert.equal(bootstrapResponse.ok, true)
-    const bootstrap = await bootstrapResponse.json() as { workspace: { id: string } }
-    assert.equal(bootstrap.workspace.id, 'ws_dev')
+  const bootstrap = await bootstrapResponse.json() as { workspace: { id: string } }
+  assert.equal(bootstrap.workspace.id, 'ws_dev')
 
-    const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+  const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
       workspaceId: bootstrap.workspace.id,
       mode: 'new_html',
       title: 'Smoke session',
@@ -264,16 +281,15 @@ describe('DUDesign mock API flow', () => {
     assert.equal(supportSession?.failureSummary.severity, 'ok')
     assert.match(supportSession?.lastPromptPreview ?? '', /freelancer invoicing app/)
 
-    const queuedJob = service.store.createJob({
-      session: service.store.sessions.get(createdSession.session.id)!,
-      prompt: 'Queued job for admin cancellation',
+    const cancellableJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+      sessionId: createdSession.session.id,
+      prompt: 'Generated job for admin cancellation',
       sourceMode: 'new_html',
       variationCount: 1,
       templateRequirements: {},
     })
-    service.store.createVariations({ job: queuedJob, count: 1 })
 
-    const forbiddenCancel = await fetch(`${baseUrl}/api/admin/jobs/${queuedJob.id}/cancel`, {
+    const cancelForbidden = await fetch(`${baseUrl}/api/admin/jobs/${cancellableJob.job.id}/cancel`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -281,25 +297,19 @@ describe('DUDesign mock API flow', () => {
       },
       body: JSON.stringify({ reason: 'support cannot cancel' }),
     })
-    assert.equal(forbiddenCancel.status, 403)
+    assert.equal(cancelForbidden.status, 403)
 
-    const cancelled = await postJson<{
-      job: { id: string; status: string }
-      audit: { action: string; targetId: string; reason: string }
-    }>(`/api/admin/jobs/${queuedJob.id}/cancel`, {
-      reason: 'operator test cancellation',
-    }, {
-      headers: { 'x-dudesign-admin-role': 'operator' },
+    const completedCancel = await fetch(`${baseUrl}/api/admin/jobs/${cancellableJob.job.id}/cancel`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dudesign-admin-role': 'operator',
+      },
+      body: JSON.stringify({ reason: 'operator completed cancel smoke' }),
     })
-    assert.equal(cancelled.job.status, 'cancelled')
-    assert.equal(cancelled.audit.action, 'job.cancel')
-    assert.equal(cancelled.audit.targetId, queuedJob.id)
-
-    const auditLogs = await getJson<{ auditLogs: Array<{ action: string; targetId: string }> }>('/api/admin/audit-logs', {
-      headers: { 'x-dudesign-admin-role': 'operator' },
-    })
-    assert.equal(auditLogs.auditLogs[0]?.action, 'job.cancel')
-    assert.equal(auditLogs.auditLogs[0]?.targetId, queuedJob.id)
+    assert.equal(completedCancel.status, 409)
+    const completedCancelPayload = await completedCancel.json() as { error: { code: string } }
+    assert.equal(completedCancelPayload.error.code, 'JOB_NOT_CANCELLABLE')
 
     const costSummary = await getJson<{
       totals: { jobCount: number; usageEventCount: number; inputTokens: number; outputTokens: number; costCents: number }
@@ -326,10 +336,15 @@ describe('DUDesign mock API flow', () => {
     assert.equal(retried.audit.targetId, createdJob.job.id)
     assert.equal(retried.audit.metadata.retriedJobId, retried.retry.job.id)
 
-    const retrySnapshot = await waitForJob(retried.retry.job.id)
-    assert.equal(retrySnapshot.job.status, 'completed')
-    assert.equal(retrySnapshot.variations.length, 3)
-  })
+    const auditLogs = await getJson<{ auditLogs: Array<{ action: string; targetId: string }> }>('/api/admin/audit-logs', {
+      headers: { 'x-dudesign-admin-role': 'operator' },
+    })
+    assert.equal(auditLogs.auditLogs[0]?.action, 'job.retry')
+    assert.equal(auditLogs.auditLogs[0]?.targetId, createdJob.job.id)
+
+  const retrySnapshot = await waitForJob(retried.retry.job.id)
+  assert.equal(retrySnapshot.job.status, 'completed')
+  assert.equal(retrySnapshot.variations.length, 3)
 
   async function waitForJob(jobId: string): Promise<JobSnapshot> {
     const startedAt = Date.now()
@@ -346,7 +361,6 @@ describe('DUDesign mock API flow', () => {
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
     return response.json() as Promise<T>
   }
-
   async function getText(path: string): Promise<string> {
     const response = await fetch(`${baseUrl}${path}`)
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
@@ -367,4 +381,4 @@ describe('DUDesign mock API flow', () => {
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
     return response.json() as Promise<T>
   }
-})
+}

@@ -5,13 +5,31 @@ import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, Share, UsageEvent, User, Workspace } from '@dudesign/domain'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
 import type {
+  AdminArtifactsFilter,
+  AdminArtifactSummary,
+  AdminCostSummary,
+  AdminJobsFilter,
+  AdminJobSummary,
+  AdminSupportSession,
+  AdminUserSupport,
+  AdminUserSupportFilter,
   ApplyVariationEventInput,
+  CurrentVariationArtifactSnapshot,
   CreateAnnotationBatchInput,
   CreateArtifactInput,
   CreateHtmlArtifactInput,
   CreateJobInput,
   CreateSessionInput,
   CreateShareInput,
+  JobSnapshot,
+  RuntimeSessionContext,
+  SessionSnapshot,
+  SessionWorkspaceContext,
+  SharedVariationSnapshot,
+  VariationArtifactContext,
+  VariationDetailSnapshot,
+  VariationJobContext,
+  VariationRefineContext,
 } from './repository.js'
 
 export type PostgresRepositoryOptions = {
@@ -252,6 +270,617 @@ export class PostgresRepository extends InMemoryStore {
     return share
   }
 
+  override async getVariationDetailSnapshot(variationId: string): Promise<VariationDetailSnapshot | null> {
+    await this.flush()
+    const variationRow = (await this.pool.query('select * from design_variations where id = $1', [variationId])).rows[0]
+    if (!variationRow) return null
+    const variation = mapVariation(variationRow)
+    const jobRow = (await this.pool.query('select * from design_jobs where id = $1', [variation.jobId])).rows[0]
+    const artifactRows = (await this.pool.query(`
+      select * from artifacts
+      where variation_id = $1 and kind = 'html'
+      order by version desc, created_at desc
+    `, [variationId])).rows
+    const artifacts = artifactRows.map(mapArtifact)
+    let currentArtifact = variation.currentArtifactId
+      ? artifacts.find(artifact => artifact.id === variation.currentArtifactId) ?? null
+      : artifacts[0] ?? null
+    if (variation.currentArtifactId && !currentArtifact) {
+      const currentArtifactRow = (await this.pool.query('select * from artifacts where id = $1', [variation.currentArtifactId])).rows[0]
+      currentArtifact = currentArtifactRow ? mapArtifact(currentArtifactRow) : null
+    }
+    return {
+      variation,
+      job: jobRow ? mapJob(jobRow) : null,
+      currentArtifact,
+      artifacts,
+    }
+  }
+
+  override async getSessionSnapshot(sessionId: string): Promise<SessionSnapshot | null> {
+    await this.flush()
+    const sessionRow = (await this.pool.query('select * from design_sessions where id = $1', [sessionId])).rows[0]
+    if (!sessionRow) return null
+    const session = mapSession(sessionRow)
+    const messages = (await this.pool.query(`
+      select * from session_messages
+      where session_id = $1
+      order by created_at
+    `, [sessionId])).rows.map(mapMessage)
+    const jobs = (await this.pool.query(`
+      select * from design_jobs
+      where session_id = $1
+      order by created_at desc
+    `, [sessionId])).rows.map(mapJob)
+    const variations = (await this.pool.query(`
+      select v.*
+      from design_variations v
+      join design_jobs j on j.id = v.job_id
+      where j.session_id = $1
+      order by v.index asc, v.created_at asc
+    `, [sessionId])).rows.map(mapVariation)
+    const artifacts = (await this.pool.query(`
+      select distinct a.*
+      from artifacts a
+      left join design_variations v on v.id = a.variation_id
+      where a.session_id = $1 or v.session_id = $1
+      order by a.created_at desc
+    `, [sessionId])).rows.map(mapArtifact)
+    return { session, messages, jobs, variations, artifacts }
+  }
+
+  override async getJobSnapshot(jobId: string): Promise<JobSnapshot | null> {
+    await this.flush()
+    const jobRow = (await this.pool.query('select * from design_jobs where id = $1', [jobId])).rows[0]
+    if (!jobRow) return null
+    const job = mapJob(jobRow)
+    const variations = (await this.pool.query(`
+      select * from design_variations
+      where job_id = $1
+      order by index asc, created_at asc
+    `, [jobId])).rows.map(mapVariation)
+    const artifacts = (await this.pool.query(`
+      select a.*
+      from artifacts a
+      join design_variations v on v.id = a.variation_id
+      where v.job_id = $1
+      order by a.created_at desc
+    `, [jobId])).rows.map(mapArtifact)
+    return { job, variations, artifacts }
+  }
+
+  override async getSessionWorkspaceContext(sessionId: string): Promise<SessionWorkspaceContext | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select
+        s.id as session_id,
+        s.user_id,
+        s.workspace_id,
+        s.title,
+        s.mode,
+        s.source_artifact_id,
+        s.runtime_session_id,
+        s.status as session_status,
+        s.last_prompt,
+        s.metadata as session_metadata,
+        s.created_at as session_created_at,
+        s.updated_at as session_updated_at,
+        w.*
+      from design_sessions s
+      left join workspaces w on w.id = s.workspace_id
+      where s.id = $1
+    `, [sessionId])).rows[0]
+    if (!row) return null
+    return {
+      session: mapSessionFromAliasedRow(row),
+      workspace: row.id ? mapWorkspace(row) : null,
+    }
+  }
+
+  override async getVariationJobContext(variationId: string): Promise<VariationJobContext | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select
+        v.id as variation_id,
+        v.job_id,
+        v.session_id as variation_session_id,
+        v.index,
+        v.title,
+        v.runtime_child_session_id,
+        v.runtime_agent_job_id,
+        v.status as variation_status,
+        v.current_artifact_id,
+        v.preview_url,
+        v.screenshot_artifact_id,
+        v.input_tokens,
+        v.output_tokens,
+        v.cost_cents,
+        v.error_code,
+        v.error_message,
+        v.created_at as variation_created_at,
+        v.updated_at as variation_updated_at,
+        j.*
+      from design_variations v
+      left join design_jobs j on j.id = v.job_id
+      where v.id = $1
+    `, [variationId])).rows[0]
+    if (!row) return null
+    return {
+      variation: mapVariationFromAliasedRow(row),
+      job: row.id ? mapJob(row) : null,
+    }
+  }
+
+  override async getVariationRefineContext(variationId: string, baseArtifactId: string): Promise<VariationRefineContext | null> {
+    await this.flush()
+    const context = await this.getVariationJobContext(variationId)
+    if (!context) return null
+    const sessionRow = (await this.pool.query('select * from design_sessions where id = $1', [context.variation.sessionId])).rows[0]
+    const workspaceRow = context.job
+      ? (await this.pool.query('select * from workspaces where id = $1', [context.job.workspaceId])).rows[0]
+      : null
+    const baseArtifactRow = (await this.pool.query('select * from artifacts where id = $1', [baseArtifactId])).rows[0]
+    return {
+      variation: context.variation,
+      job: context.job,
+      session: sessionRow ? mapSession(sessionRow) : null,
+      workspace: workspaceRow ? mapWorkspace(workspaceRow) : null,
+      baseArtifact: baseArtifactRow ? mapArtifact(baseArtifactRow) : null,
+    }
+  }
+
+  override async getVariationArtifactContext(variationId: string, artifactId: string): Promise<VariationArtifactContext> {
+    await this.flush()
+    const variationRow = (await this.pool.query('select * from design_variations where id = $1', [variationId])).rows[0]
+    const artifactRow = (await this.pool.query('select * from artifacts where id = $1', [artifactId])).rows[0]
+    const variation = variationRow ? mapVariation(variationRow) : null
+    const artifact = artifactRow ? mapArtifact(artifactRow) : null
+    return {
+      variation,
+      artifact,
+      mismatch: Boolean(variation && artifact && artifact.variationId !== variation.id),
+    }
+  }
+
+  override async getRuntimeSessionContext(sessionId: string): Promise<RuntimeSessionContext | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select
+        s.id as session_id,
+        s.user_id,
+        s.workspace_id,
+        s.title,
+        s.mode,
+        s.source_artifact_id,
+        s.runtime_session_id,
+        s.status as session_status,
+        s.last_prompt,
+        s.metadata as session_metadata,
+        s.created_at as session_created_at,
+        s.updated_at as session_updated_at,
+        u.id as user_row_id,
+        u.email,
+        u.name,
+        u.avatar_url,
+        u.status as user_status,
+        u.memory_namespace,
+        u.created_at as user_created_at,
+        u.updated_at as user_updated_at,
+        w.id as workspace_row_id,
+        w.owner_id,
+        w.team_id,
+        w.name as workspace_name,
+        w.mode as workspace_mode,
+        w.visibility,
+        w.storage_key,
+        w.status as workspace_status,
+        w.metadata as workspace_metadata,
+        w.created_at as workspace_created_at,
+        w.updated_at as workspace_updated_at
+      from design_sessions s
+      left join users u on u.id = s.user_id
+      left join workspaces w on w.id = s.workspace_id
+      where s.id = $1
+    `, [sessionId])).rows[0]
+    if (!row) return null
+    return {
+      session: mapSessionFromAliasedRow(row),
+      user: row.user_row_id
+        ? mapUser({
+            id: row.user_row_id,
+            email: row.email,
+            name: row.name,
+            avatar_url: row.avatar_url,
+            status: row.user_status,
+            memory_namespace: row.memory_namespace,
+            created_at: row.user_created_at,
+            updated_at: row.user_updated_at,
+          })
+        : null,
+      workspace: row.workspace_row_id
+        ? mapWorkspace({
+            id: row.workspace_row_id,
+            owner_id: row.owner_id,
+            team_id: row.team_id,
+            name: row.workspace_name,
+            mode: row.workspace_mode,
+            visibility: row.visibility,
+            storage_key: row.storage_key,
+            status: row.workspace_status,
+            metadata: row.workspace_metadata,
+            created_at: row.workspace_created_at,
+            updated_at: row.workspace_updated_at,
+          })
+        : null,
+    }
+  }
+
+  override async getCurrentVariationArtifactSnapshot(variationId: string): Promise<CurrentVariationArtifactSnapshot> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select
+        v.id as variation_id,
+        v.job_id,
+        v.session_id as variation_session_id,
+        v.index,
+        v.title,
+        v.runtime_child_session_id,
+        v.runtime_agent_job_id,
+        v.status as variation_status,
+        v.current_artifact_id,
+        v.preview_url,
+        v.screenshot_artifact_id,
+        v.input_tokens,
+        v.output_tokens,
+        v.cost_cents,
+        v.error_code,
+        v.error_message,
+        v.created_at as variation_created_at,
+        v.updated_at,
+        a.*
+      from design_variations v
+      left join artifacts a on a.id = v.current_artifact_id
+      where v.id = $1
+    `, [variationId])).rows[0]
+    if (!row) {
+      return {
+        variation: null,
+        artifactId: null,
+        artifact: null,
+        mismatch: false,
+      }
+    }
+    const variation = mapVariation({
+      id: row.variation_id,
+      job_id: row.job_id,
+      session_id: row.variation_session_id,
+      index: row.index,
+      title: row.title,
+      runtime_child_session_id: row.runtime_child_session_id,
+      runtime_agent_job_id: row.runtime_agent_job_id,
+      status: row.variation_status,
+      current_artifact_id: row.current_artifact_id,
+      preview_url: row.preview_url,
+      screenshot_artifact_id: row.screenshot_artifact_id,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      cost_cents: row.cost_cents,
+      error_code: row.error_code,
+      error_message: row.error_message,
+      created_at: row.variation_created_at,
+      updated_at: row.updated_at,
+    })
+    const artifact = row.id ? mapArtifact(row) : null
+    return {
+      variation,
+      artifactId: variation.currentArtifactId,
+      artifact,
+      mismatch: Boolean(artifact && artifact.variationId !== variationId),
+    }
+  }
+
+  override async getSharedVariationSnapshot(token: string): Promise<SharedVariationSnapshot | null> {
+    await this.flush()
+    const shareRow = (await this.pool.query('select * from shares where token = $1', [token])).rows[0]
+    if (!shareRow) return null
+    const share = mapShare(shareRow)
+    const variationRow = (await this.pool.query('select * from design_variations where id = $1', [share.variationId])).rows[0]
+    const artifactRow = (await this.pool.query('select * from artifacts where id = $1', [share.artifactId])).rows[0]
+    return {
+      share,
+      variation: variationRow ? mapVariation(variationRow) : null,
+      artifact: artifactRow ? mapArtifact(artifactRow) : null,
+    }
+  }
+
+  override async listAdminJobs(filter: AdminJobsFilter = {}): Promise<{ jobs: AdminJobSummary[] }> {
+    await this.flush()
+    const status = filter.status || null
+    const userId = filter.userId || null
+    const rows = (await this.pool.query(`
+      with variation_summary as (
+        select
+          job_id,
+          count(*) filter (where status = 'completed')::int as completed_variation_count,
+          count(*) filter (where status = 'failed')::int as failed_variation_count,
+          count(*) filter (where status = 'cancelled')::int as cancelled_variation_count,
+          coalesce(sum(input_tokens), 0)::int as total_input_tokens_from_variations,
+          coalesce(sum(output_tokens), 0)::int as total_output_tokens_from_variations,
+          coalesce(sum(cost_cents), 0)::int as total_cost_cents_from_variations,
+          count(*) filter (where error_code is not null)::int as error_count
+        from design_variations
+        group by job_id
+      ),
+      artifact_summary as (
+        select v.job_id, count(a.id)::int as artifact_count
+        from design_variations v
+        left join artifacts a on a.variation_id = v.id
+        group by v.job_id
+      )
+      select
+        j.*,
+        coalesce(vs.completed_variation_count, 0)::int as completed_variation_count,
+        coalesce(vs.failed_variation_count, 0)::int as failed_variation_count,
+        coalesce(vs.cancelled_variation_count, 0)::int as cancelled_variation_count,
+        coalesce(ars.artifact_count, 0)::int as artifact_count,
+        coalesce(vs.total_input_tokens_from_variations, 0)::int as total_input_tokens_from_variations,
+        coalesce(vs.total_output_tokens_from_variations, 0)::int as total_output_tokens_from_variations,
+        coalesce(vs.total_cost_cents_from_variations, 0)::int as total_cost_cents_from_variations,
+        coalesce(vs.error_count, 0)::int as error_count
+      from design_jobs j
+      left join variation_summary vs on vs.job_id = j.id
+      left join artifact_summary ars on ars.job_id = j.id
+      where ($1::text is null or j.status = $1)
+        and ($2::text is null or j.user_id = $2)
+      order by j.updated_at desc
+      limit 100
+    `, [status, userId])).rows
+    return {
+      jobs: rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        workspaceId: row.workspace_id,
+        sessionId: row.session_id,
+        prompt: row.prompt,
+        status: row.status,
+        variationCount: row.variation_count,
+        completedVariationCount: row.completed_variation_count,
+        failedVariationCount: row.failed_variation_count,
+        cancelledVariationCount: row.cancelled_variation_count,
+        artifactCount: row.artifact_count,
+        totalInputTokens: row.total_input_tokens_from_variations,
+        totalOutputTokens: row.total_output_tokens_from_variations,
+        totalCostCents: row.total_cost_cents_from_variations,
+        errorCount: row.error_count,
+        createdAt: toIso(row.created_at),
+        updatedAt: toIso(row.updated_at),
+      })),
+    }
+  }
+
+  override async listAdminArtifacts(filter: AdminArtifactsFilter = {}): Promise<{ artifacts: AdminArtifactSummary[] }> {
+    await this.flush()
+    const jobId = filter.jobId || null
+    const variationId = filter.variationId || null
+    const kind = filter.kind || null
+    const rows = (await this.pool.query(`
+      select
+        a.*,
+        v.job_id,
+        v.preview_url,
+        count(s.id)::int as share_count
+      from artifacts a
+      left join design_variations v on v.id = a.variation_id
+      left join shares s on s.artifact_id = a.id
+      where ($1::text is null or v.job_id = $1)
+        and ($2::text is null or a.variation_id = $2)
+        and ($3::text is null or a.kind = $3)
+      group by a.id, v.job_id, v.preview_url
+      order by a.created_at desc
+      limit 100
+    `, [jobId, variationId, kind])).rows
+    return {
+      artifacts: rows.map(row => {
+        const artifact = mapArtifact(row)
+        return {
+          id: artifact.id,
+          workspaceId: artifact.workspaceId,
+          sessionId: artifact.sessionId,
+          jobId: row.job_id ?? null,
+          variationId: artifact.variationId,
+          parentArtifactId: artifact.parentArtifactId,
+          kind: artifact.kind,
+          version: artifact.version,
+          storageKey: artifact.storageKey,
+          entryPath: artifact.entryPath,
+          contentHash: artifact.contentHash,
+          sizeBytes: artifact.sizeBytes,
+          previewUrl: row.preview_url ?? null,
+          shareCount: row.share_count,
+          createdAt: artifact.createdAt,
+        }
+      }),
+    }
+  }
+
+  override async getAdminUserSupport(filter: AdminUserSupportFilter = {}): Promise<{ users: AdminUserSupport[] }> {
+    await this.flush()
+    const userId = filter.userId?.trim() || null
+    const email = filter.email?.trim().toLowerCase() || null
+    const users = (await this.pool.query(`
+      select *
+      from users
+      where ($1::text is null or id = $1)
+        and ($2::text is null or lower(email) like '%' || $2 || '%')
+      order by email asc
+      limit 20
+    `, [userId, email])).rows.map(mapUser)
+
+    const supportUsers: AdminUserSupport[] = []
+    for (const user of users) {
+      const workspaces = (await this.pool.query(`
+        select id, name, visibility, status
+        from workspaces
+        where owner_id = $1
+        order by name asc
+      `, [user.id])).rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        visibility: row.visibility,
+        status: row.status,
+      }))
+      const sessions = (await this.pool.query(`
+        select *
+        from design_sessions
+        where user_id = $1
+        order by updated_at desc
+        limit 50
+      `, [user.id])).rows
+      const supportSessions: AdminSupportSession[] = []
+      for (const sessionRow of sessions) {
+        supportSessions.push(await this.getSqlSupportSession(mapSession(sessionRow)))
+      }
+      supportUsers.push({
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          status: user.status,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        },
+        workspaces,
+        sessions: supportSessions,
+      })
+    }
+    return { users: supportUsers }
+  }
+
+  override async getAdminCostSummary(): Promise<AdminCostSummary> {
+    await this.flush()
+    const totals = (await this.pool.query(`
+      select
+        (select count(*)::int from design_jobs) as job_count,
+        count(*)::int as usage_event_count,
+        coalesce(sum(input_tokens), 0)::int as input_tokens,
+        coalesce(sum(output_tokens), 0)::int as output_tokens,
+        coalesce(sum(cost_cents), 0)::int as cost_cents
+      from usage_events
+    `)).rows[0]
+    const byUser = (await this.pool.query(`
+      with job_counts as (
+        select user_id, count(*)::int as job_count
+        from design_jobs
+        group by user_id
+      ),
+      usage_counts as (
+        select
+          user_id,
+          count(*)::int as usage_event_count,
+          coalesce(sum(input_tokens), 0)::int as input_tokens,
+          coalesce(sum(output_tokens), 0)::int as output_tokens,
+          coalesce(sum(cost_cents), 0)::int as cost_cents
+        from usage_events
+        group by user_id
+      ),
+      user_ids as (
+        select user_id from job_counts
+        union
+        select user_id from usage_counts
+      )
+      select
+        user_ids.user_id,
+        coalesce(job_counts.job_count, 0)::int as job_count,
+        coalesce(usage_counts.usage_event_count, 0)::int as usage_event_count,
+        coalesce(usage_counts.input_tokens, 0)::int as input_tokens,
+        coalesce(usage_counts.output_tokens, 0)::int as output_tokens,
+        coalesce(usage_counts.cost_cents, 0)::int as cost_cents
+      from user_ids
+      left join job_counts on job_counts.user_id = user_ids.user_id
+      left join usage_counts on usage_counts.user_id = user_ids.user_id
+      order by cost_cents desc, user_ids.user_id
+    `)).rows
+    return {
+      totals: {
+        jobCount: totals.job_count,
+        usageEventCount: totals.usage_event_count,
+        inputTokens: totals.input_tokens,
+        outputTokens: totals.output_tokens,
+        costCents: totals.cost_cents,
+      },
+      byUser: byUser.map(row => ({
+        userId: row.user_id,
+        jobCount: row.job_count,
+        usageEventCount: row.usage_event_count,
+        inputTokens: row.input_tokens,
+        outputTokens: row.output_tokens,
+        costCents: row.cost_cents,
+      })),
+    }
+  }
+
+  private async getSqlSupportSession(session: DesignSession): Promise<AdminSupportSession> {
+    const jobs = (await this.pool.query(`
+      select *
+      from design_jobs
+      where session_id = $1
+      order by updated_at desc
+    `, [session.id])).rows.map(mapJob)
+    const latestJob = jobs[0] ?? null
+    const variationSummaryRow = (await this.pool.query(`
+      select
+        count(*) filter (where v.status = 'queued')::int as queued,
+        count(*) filter (where v.status = 'running')::int as running,
+        count(*) filter (where v.status = 'streaming')::int as streaming,
+        count(*) filter (where v.status = 'rendering_preview')::int as rendering_preview,
+        count(*) filter (where v.status = 'completed')::int as completed,
+        count(*) filter (where v.status = 'failed')::int as failed,
+        count(*) filter (where v.status = 'cancelled')::int as cancelled
+      from design_variations v
+      join design_jobs j on j.id = v.job_id
+      where j.session_id = $1
+    `, [session.id])).rows[0]
+    const failedVariations = (await this.pool.query(`
+      select *
+      from design_variations v
+      join design_jobs j on j.id = v.job_id
+      where j.session_id = $1
+        and (v.status = 'failed' or v.error_code is not null)
+      order by v.updated_at desc
+      limit 3
+    `, [session.id])).rows.map(mapVariation)
+    return {
+      id: session.id,
+      workspaceId: session.workspaceId,
+      title: session.title,
+      mode: session.mode,
+      status: session.status,
+      resumeState: session.runtimeSessionId ? 'runtime_session_available' : 'runtime_session_missing',
+      lastPromptPreview: previewText(session.lastPrompt, 140),
+      jobCount: jobs.length,
+      latestJob: latestJob
+        ? {
+            id: latestJob.id,
+            status: latestJob.status,
+            variationCount: latestJob.variationCount,
+            updatedAt: latestJob.updatedAt,
+          }
+        : null,
+      variationSummary: {
+        queued: variationSummaryRow.queued,
+        running: variationSummaryRow.running,
+        streaming: variationSummaryRow.streaming,
+        renderingPreview: variationSummaryRow.rendering_preview,
+        completed: variationSummaryRow.completed,
+        failed: variationSummaryRow.failed,
+        cancelled: variationSummaryRow.cancelled,
+      },
+      failureSummary: summarizeSupportIssue(latestJob, failedVariations),
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    }
+  }
+
   private enqueueWrite(write: () => Promise<unknown>): void {
     this.writeTail = this.writeTail.then(write, write)
   }
@@ -451,6 +1080,23 @@ function mapSession(row: any): DesignSession {
   }
 }
 
+function mapSessionFromAliasedRow(row: any): DesignSession {
+  return {
+    id: row.session_id,
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+    title: row.title,
+    mode: row.mode,
+    sourceArtifactId: row.source_artifact_id,
+    runtimeSessionId: row.runtime_session_id,
+    status: row.session_status,
+    lastPrompt: row.last_prompt,
+    metadata: row.session_metadata ?? {},
+    createdAt: toIso(row.session_created_at),
+    updatedAt: toIso(row.session_updated_at),
+  }
+}
+
 function mapMessage(row: any): SessionMessage {
   return {
     id: row.id,
@@ -503,6 +1149,29 @@ function mapVariation(row: any): DesignVariation {
     errorMessage: row.error_message,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapVariationFromAliasedRow(row: any): DesignVariation {
+  return {
+    id: row.variation_id,
+    jobId: row.job_id,
+    sessionId: row.variation_session_id,
+    index: row.index,
+    title: row.title,
+    runtimeChildSessionId: row.runtime_child_session_id,
+    runtimeAgentJobId: row.runtime_agent_job_id,
+    status: row.variation_status,
+    currentArtifactId: row.current_artifact_id,
+    previewUrl: row.preview_url,
+    screenshotArtifactId: row.screenshot_artifact_id,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    costCents: row.cost_cents,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    createdAt: toIso(row.variation_created_at),
+    updatedAt: toIso(row.variation_updated_at),
   }
 }
 
@@ -581,6 +1250,65 @@ function mapUsageEvent(row: any): UsageEvent {
     costCents: row.cost_cents,
     metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
+  }
+}
+
+function previewText(value: string | null, maxLength: number): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) return compact
+  return `${compact.slice(0, maxLength - 1)}…`
+}
+
+function summarizeSupportIssue(
+  latestJob: DesignJob | null,
+  failedVariations: DesignVariation[],
+): { severity: 'ok' | 'warning' | 'blocked'; message: string; failedVariationCount: number; examples: Array<{ variationId: string; errorCode: string | null; message: string | null }> } {
+  if (!latestJob) {
+    return {
+      severity: 'warning',
+      message: 'No jobs have been created for this session.',
+      failedVariationCount: 0,
+      examples: [],
+    }
+  }
+  if (latestJob.status === 'failed') {
+    return {
+      severity: 'blocked',
+      message: `Latest job ${latestJob.id} failed.`,
+      failedVariationCount: failedVariations.length,
+      examples: failedVariations.slice(0, 3).map(toFailureExample),
+    }
+  }
+  if (failedVariations.length > 0) {
+    return {
+      severity: 'warning',
+      message: `${failedVariations.length} variation(s) reported errors.`,
+      failedVariationCount: failedVariations.length,
+      examples: failedVariations.slice(0, 3).map(toFailureExample),
+    }
+  }
+  if (latestJob.status === 'queued' || latestJob.status === 'running') {
+    return {
+      severity: 'warning',
+      message: `Latest job ${latestJob.id} is still ${latestJob.status}.`,
+      failedVariationCount: 0,
+      examples: [],
+    }
+  }
+  return {
+    severity: 'ok',
+    message: 'No job or variation failures detected.',
+    failedVariationCount: 0,
+    examples: [],
+  }
+}
+
+function toFailureExample(variation: DesignVariation) {
+  return {
+    variationId: variation.id,
+    errorCode: variation.errorCode,
+    message: previewText(variation.errorMessage, 120),
   }
 }
 
