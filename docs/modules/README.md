@@ -5,6 +5,7 @@
 > - `docs/online-design-platform-plan.md`
 > - `docs/architecture-governance-plan.md`
 > - `docs/development-release-governance.md`
+> - `docs/manual-browser-qa-checklist.md`
 
 本目录按四层架构拆分模块级推进文档。每个模块维护两类文件：
 

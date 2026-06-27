@@ -7,6 +7,7 @@
 > - `docs/online-design-platform-plan.md`
 > - `docs/architecture-governance-plan.md`
 > - `docs/modules/README.md`
+> - `docs/manual-browser-qa-checklist.md`
 > - `docs/staging-server-deployment-plan.md`
 
 ## 1. 治理目标
@@ -337,6 +338,12 @@ Staging 检查项：
 - preview/export/share 可用。
 - admin runtime health 可读。
 - 日志中无启动错误。
+
+详细手动浏览体验验收见：
+
+```text
+docs/manual-browser-qa-checklist.md
+```
 
 建议 staging smoke：
 
