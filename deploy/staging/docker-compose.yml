@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dudesign_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-dudesign}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dudesign_staging_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/staging/Dockerfile
+      target: api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4000
+      DUDESIGN_REPOSITORY: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dudesign}:${POSTGRES_PASSWORD:-dudesign_staging_password}@postgres:5432/${POSTGRES_DB:-dudesign_staging}
+      DUDESIGN_ARTIFACT_ROOT: /app/.dudesign/artifacts
+    volumes:
+      - artifact-data:/app/.dudesign/artifacts
+    ports:
+      - "${API_PORT:-4000}:4000"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/staging/Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${WEB_PORT:-3001}:3001"
+
+  admin:
+    build:
+      context: ../..
+      dockerfile: deploy/staging/Dockerfile
+      target: admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${ADMIN_PORT:-3002}:3002"
+
+volumes:
+  postgres-data:
+  artifact-data:
