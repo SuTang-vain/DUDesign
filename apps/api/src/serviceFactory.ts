@@ -13,6 +13,7 @@ export async function createApplicationServiceFromEnv(): Promise<ApplicationServ
     }
     const store = await PostgresRepository.connect({
       connectionString: process.env.DATABASE_URL,
+      hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
     return new ApplicationService({ store, artifacts })
   }

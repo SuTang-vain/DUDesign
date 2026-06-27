@@ -988,3 +988,96 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 评估 production 模式关闭 startup hydrate，或将 hydrate 限定为 dev/test warm cache。
 - 增加 Runtime unavailable 降级测试，验证 runtime 不可用时已落库的 preview/export/share/resume 仍可用或返回明确降级提示。
+
+## 2026-06-27 M28 Production Repository Hydrate Mode
+
+### 已完成
+
+- `PostgresRepository.connect()` 新增 `hydrateOnStart` option：
+  - 默认 `true`，保持 dev/test 兼容。
+  - `false` 时仅执行 migration + seed，不再 startup hydrate 全量业务数据。
+- `createApplicationServiceFromEnv()` 支持：
+  - `DUDESIGN_REPOSITORY=postgres`
+  - `DATABASE_URL=...`
+  - `DUDESIGN_REPOSITORY_HYDRATE=false`
+- PostgreSQL API flow 增加 no-hydrate smoke：
+  - 同一套 `runApiFlowSmoke()`。
+  - 一个 schema 跑默认 hydrate。
+  - 一个 schema 跑 `hydrateOnStart: false`。
+- 验证无 startup hydrate 时，核心 API 仍通过：
+  - bootstrap。
+  - session create/resume。
+  - parallel variation generation。
+  - preview/refine/annotation。
+  - export/share/revoke。
+  - admin jobs/artifacts/support/cost/audit。
+
+### Repository Mode 决策
+
+- dev/test：默认继续 hydrate，便于调试和保留过渡期内存观测能力。
+- production：推荐设置 `DUDESIGN_REPOSITORY_HYDRATE=false`，让 PostgreSQL 成为明确 source-of-truth，避免启动时全量加载业务数据。
+- hydrate 后续保留为 warm cache/debug 能力，不再作为业务正确性的依赖。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 包含 startup hydrate 与 no-hydrate 两套 API smoke。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 下一步
+
+- 推进 M29 Runtime unavailable 降级测试：
+  - 已完成 session 可 resume snapshot。
+  - preview/export/share 仍可读取 artifact。
+  - 新生成任务返回明确 runtime unavailable 或 queued/degraded 状态。
+
+## 2026-06-27 M29 Runtime Unavailable Degradation Test
+
+### 已完成
+
+- 新增 `runtime-unavailable.test.ts`。
+- 增加 `UnavailableRuntimeGateway` 测试替身：
+  - `createSession()` 抛出 runtime unavailable。
+  - `resumeSession()` 返回 `{ status: 'unavailable' }`。
+  - `spawnVariationAgents()` / `refineVariation()` 抛出 runtime unavailable。
+- `ApplicationService.createSession()` 支持 runtime create 降级：
+  - DUDesign session 仍创建成功。
+  - `runtimeSessionId` 为 `null`。
+- `runMockJob()` 在 runtime spawn 失败时：
+  - job 标记为 `failed`。
+  - variation 标记为 `failed`。
+  - errorCode 为 `RUNTIME_UNAVAILABLE`。
+  - 不再让后台 promise 以未处理异常方式结束。
+- 测试覆盖 runtime 不可用时：
+  - 已完成 session 可 resume snapshot，runtime 状态为 unavailable。
+  - preview 仍可读取已落库 artifact。
+  - export 仍可读取 artifact 并生成导出。
+  - share 仍可创建并只读访问。
+  - 新建 session 不阻塞，但 runtimeSessionId 为 null。
+  - 新生成任务最终明确 failed，并写入 RUNTIME_UNAVAILABLE。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 包含 startup hydrate、no-hydrate 与 runtime unavailable degradation 测试。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- runtime 不可用时，已完成数据读取能力不依赖 BabeL-O。
+- 新任务不假装成功：当前 MVP 选择明确 failed + RUNTIME_UNAVAILABLE，后续如引入队列 worker 可扩展为 queued/degraded retry。
+
+### 下一步
+
+- 可以收口提交 M23-M29 后端服务层数据底座改动。
+- 下一阶段建议转入 runtime gateway contract adapter / BabeL-O 兼容层联调。

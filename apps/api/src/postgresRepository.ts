@@ -37,6 +37,7 @@ export type PostgresRepositoryOptions = {
   connectionString: string
   migrationsDir?: string
   schema?: string
+  hydrateOnStart?: boolean
 }
 
 export class PostgresRepository extends InMemoryStore {
@@ -59,7 +60,7 @@ export class PostgresRepository extends InMemoryStore {
     const repository = new PostgresRepository(options)
     await repository.migrate()
     await repository.seedDefaults()
-    await repository.hydrate()
+    if (options.hydrateOnStart ?? true) await repository.hydrate()
     return repository
   }
 

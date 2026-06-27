@@ -146,8 +146,9 @@
 - [x] 为 usage event 增加幂等键，避免 runtime event replay 重复计费。
 - [x] 将 PostgreSQL Repository usage event 写入拆为 SQL-first mutation method。
 - [x] 将 PostgreSQL Repository share/annotation/audit 写入继续拆为 SQL-first mutation methods。
-- [ ] 梳理生产模式下关闭 startup hydrate 或改为按需 warm cache。
+- [x] 梳理 production repository mode：支持关闭 startup hydrate，并验证 no-hydrate API smoke。
 - [x] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
+- [x] 增加 Runtime unavailable 降级测试。
 
 验收：
 

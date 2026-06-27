@@ -49,7 +49,7 @@ export class ApplicationService {
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
     await this.requireWorkspaceAccess(workspace.id, user.id)
     const session = await this.store.createSession({ ...input, userId: user.id })
-    const runtime = await this.runtime.createSession({
+    const runtime = await this.tryCreateRuntimeSession({
       userId: user.id,
       workspaceId: workspace.id,
       sessionId: session.id,
@@ -76,6 +76,17 @@ export class ApplicationService {
     const sessions = await this.store.listSessions()
     return {
       sessions: sessions.filter(session => session.userId === ctx.userId),
+    }
+  }
+
+  private async tryCreateRuntimeSession(input: Parameters<RuntimeGateway['createSession']>[0]) {
+    try {
+      return await this.runtime.createSession(input)
+    } catch (error) {
+      return {
+        runtimeSessionId: null,
+        message: error instanceof Error ? error.message : 'Runtime unavailable.',
+      }
     }
   }
 
@@ -633,7 +644,14 @@ export class ApplicationService {
       await this.store.setJobStatus(input.jobId, 'completed')
     } catch (error) {
       await this.store.setJobStatus(input.jobId, 'failed')
-      throw error
+      for (const variationId of input.variationIdsByIndex.values()) {
+        await this.store.applyVariationEvent({
+          variationId,
+          status: 'failed',
+          errorCode: 'RUNTIME_UNAVAILABLE',
+          errorMessage: error instanceof Error ? error.message : 'Runtime unavailable.',
+        })
+      }
     }
   }
 
