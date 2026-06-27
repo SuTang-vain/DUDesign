@@ -38,14 +38,14 @@ export class ApplicationService {
 
   getBootstrap(ctx: RequestContext) {
     const user = this.requireUser(ctx.userId)
-    const workspace = [...this.store.workspaces.values()].find(candidate => candidate.ownerId === user.id)
+    const workspace = this.store.getPrimaryWorkspaceForUser(user.id)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
     return { user, workspace }
   }
 
   async createSession(ctx: RequestContext, input: CreateSessionRequest) {
     const user = this.requireUser(ctx.userId)
-    const workspace = this.store.workspaces.get(input.workspaceId)
+    const workspace = this.store.getWorkspaceById(input.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
     this.requireWorkspaceAccess(workspace.id, user.id)
     const session = this.store.createSession({ ...input, userId: user.id })
@@ -82,7 +82,7 @@ export class ApplicationService {
     const snapshot = this.store.getSessionSnapshot(sessionId)
     if (!snapshot) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
     this.requireSessionAccess(snapshot.session.id, ctx.userId)
-    const workspace = this.store.workspaces.get(snapshot.session.workspaceId)
+    const workspace = this.store.getWorkspaceById(snapshot.session.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${snapshot.session.workspaceId}`)
     const runtime = await this.runtime.resumeSession({
       userId: snapshot.session.userId,
@@ -98,10 +98,10 @@ export class ApplicationService {
 
   async createDesignJob(ctx: RequestContext, input: CreateDesignJobRequest) {
     validateVariationCount(input.variationCount)
-    const session = this.store.sessions.get(input.sessionId)
-    if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${input.sessionId}`)
+    const context = this.store.getSessionWorkspaceContext(input.sessionId)
+    if (!context) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${input.sessionId}`)
+    const { session, workspace } = context
     this.requireSessionAccess(session.id, ctx.userId)
-    const workspace = this.store.workspaces.get(session.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
     this.store.appendMessage({
       sessionId: session.id,
@@ -187,17 +187,14 @@ export class ApplicationService {
   }
 
   async refineVariation(ctx: RequestContext, variationId: string, input: RefineVariationRequest) {
-    const variation = this.store.variations.get(variationId)
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    const job = this.store.jobs.get(variation.jobId)
+    const context = this.store.getVariationRefineContext(variationId, input.baseArtifactId)
+    if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    const { variation, job, session, workspace, baseArtifact } = context
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
     this.requireJobAccess(job.id, ctx.userId)
-    const session = this.store.sessions.get(variation.sessionId)
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${variation.sessionId}`)
-    const workspace = this.store.workspaces.get(job.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${job.workspaceId}`)
     if (!input.prompt.trim()) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
-    const baseArtifact = this.store.artifacts.get(input.baseArtifactId)
     if (!baseArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.baseArtifactId}`)
 
     this.store.appendMessage({
@@ -228,8 +225,9 @@ export class ApplicationService {
       this.events.publish(event)
     }
 
-    const updated = this.store.variations.get(variationId)!
-    const artifact = updated.currentArtifactId ? this.store.artifacts.get(updated.currentArtifactId) : null
+    const current = this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const updated = current.variation!
+    const artifact = current.artifact
     return {
       variation: {
         id: updated.id,
@@ -248,12 +246,13 @@ export class ApplicationService {
   }
 
   async annotateVariation(ctx: RequestContext, variationId: string, input: CreateAnnotationBatchRequest) {
-    const variation = this.store.variations.get(variationId)
+    const context = this.store.getVariationArtifactContext(variationId, input.artifactId)
+    const variation = context.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireVariationAccess(variationId, ctx.userId)
-    const artifact = this.store.artifacts.get(input.artifactId)
+    const artifact = context.artifact
     if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.artifactId}`)
-    if (artifact.variationId !== variationId) {
+    if (context.mismatch) {
       throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
     }
     if (!Array.isArray(input.shapes) || input.shapes.length === 0) {
@@ -282,10 +281,11 @@ export class ApplicationService {
   }
 
   async getVariationPreview(ctx: RequestContext, variationId: string): Promise<string> {
-    const variation = this.store.variations.get(variationId)
+    const snapshot = this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireVariationAccess(variationId, ctx.userId)
-    const artifact = variation.currentArtifactId ? this.store.artifacts.get(variation.currentArtifactId) : null
+    const artifact = snapshot.artifact
     if (!artifact) return renderMockVariationHtml(variation, null)
     return this.readArtifactHtml(artifact.storageKey)
   }
@@ -293,7 +293,7 @@ export class ApplicationService {
   async exportVariation(ctx: RequestContext, variationId: string) {
     this.requireVariationAccess(variationId, ctx.userId)
     const { variation, artifact } = this.requireCurrentVariationArtifact(variationId)
-    const job = this.store.jobs.get(variation.jobId)
+    const job = this.store.getJobById(variation.jobId)
     const html = await this.readArtifactHtml(artifact.storageKey)
     const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase()
     const exportArtifact = await this.createExportZipArtifact({
@@ -498,7 +498,7 @@ export class ApplicationService {
       },
     })
     return {
-      job: this.store.jobs.get(jobId),
+      job: this.store.getJobById(jobId),
       runtime,
       audit,
     }
@@ -506,9 +506,9 @@ export class ApplicationService {
 
   async retryJobAsAdmin(ctx: RequestContext, jobId: string, input: { reason?: string } = {}) {
     this.requireAdminRole(ctx, ['operator', 'developer'])
-    const original = this.store.jobs.get(jobId)
+    const original = this.store.getJobById(jobId)
     if (!original) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
-    const session = this.store.sessions.get(original.sessionId)
+    const session = this.store.getSessionById(original.sessionId)
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${original.sessionId}`)
     const retry = await this.createDesignJob(
       { ...ctx, userId: original.userId },
@@ -552,7 +552,7 @@ export class ApplicationService {
   }
 
   private requireUser(userId: string) {
-    const user = this.store.users.get(userId)
+    const user = this.store.getUserById(userId)
     if (!user) throw createHttpError(401, 'UNAUTHENTICATED', `Unknown user: ${userId}`)
     if (user.status !== 'active') throw createHttpError(403, 'USER_DISABLED', `User disabled: ${userId}`)
     return user
@@ -566,7 +566,7 @@ export class ApplicationService {
   }
 
   private requireWorkspaceAccess(workspaceId: string, userId: string): void {
-    const workspace = this.store.workspaces.get(workspaceId)
+    const workspace = this.store.getWorkspaceById(workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
     if (workspace.ownerId !== userId) {
       throw createHttpError(403, 'WORKSPACE_FORBIDDEN', 'You do not have access to this workspace.')
@@ -574,7 +574,7 @@ export class ApplicationService {
   }
 
   private requireSessionAccess(sessionId: string, userId: string): void {
-    const session = this.store.sessions.get(sessionId)
+    const session = this.store.getSessionById(sessionId)
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
     if (session.userId !== userId) {
       throw createHttpError(403, 'SESSION_FORBIDDEN', 'You do not have access to this session.')
@@ -582,7 +582,7 @@ export class ApplicationService {
   }
 
   private requireJobAccess(jobId: string, userId: string): void {
-    const job = this.store.jobs.get(jobId)
+    const job = this.store.getJobById(jobId)
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     if (job.userId !== userId) {
       throw createHttpError(403, 'JOB_FORBIDDEN', 'You do not have access to this design job.')
@@ -590,7 +590,7 @@ export class ApplicationService {
   }
 
   private requireVariationAccess(variationId: string, userId: string): void {
-    const variation = this.store.variations.get(variationId)
+    const variation = this.store.getVariationById(variationId)
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     this.requireJobAccess(variation.jobId, userId)
   }
@@ -608,9 +608,10 @@ export class ApplicationService {
     variationIdsByIndex: Map<number, string>
   }): Promise<void> {
     this.store.setJobStatus(input.jobId, 'running')
+    const runtimeContext = this.store.getRuntimeSessionContext(input.sessionId)
     try {
       for await (const event of this.runtime.spawnVariationAgents({
-        userId: this.store.sessions.get(input.sessionId)?.userId ?? this.store.devUser.id,
+        userId: runtimeContext?.session.userId ?? this.store.devUser.id,
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,
         jobId: input.jobId,
@@ -619,7 +620,7 @@ export class ApplicationService {
         sourceArtifactId: input.sourceArtifactId,
         variationCount: input.variationCount,
         workspaceRoot: input.workspaceRoot,
-        memoryNamespace: this.store.users.get(this.store.sessions.get(input.sessionId)?.userId ?? '')?.memoryNamespace ?? this.store.devUser.memoryNamespace,
+        memoryNamespace: runtimeContext?.user?.memoryNamespace ?? this.store.devUser.memoryNamespace,
         templateRequirements: input.templateRequirements,
       })) {
         const normalized = this.rewriteMockVariationId(event, input.variationIdsByIndex)
@@ -665,8 +666,9 @@ export class ApplicationService {
         this.store.applyVariationEvent({ variationId: event.variationId, status: 'streaming' })
         break
       case 'design.variation_preview_ready': {
-        const variation = this.store.variations.get(event.variationId)
-        const job = variation ? this.store.jobs.get(variation.jobId) : undefined
+        const context = this.store.getVariationJobContext(event.variationId)
+        const variation = context?.variation
+        const job = context?.job
         const artifact = this.store.createMockArtifact({
           workspaceId: job?.workspaceId ?? this.store.devWorkspace.id,
           sessionId: event.sessionId ?? variation?.sessionId ?? '',
@@ -684,10 +686,11 @@ export class ApplicationService {
       }
       case 'design.variation_completed':
         {
-          const variation = this.store.variations.get(event.variationId)
-          const job = variation ? this.store.jobs.get(variation.jobId) : undefined
+          const context = this.store.getVariationJobContext(event.variationId)
+          const variation = context?.variation
+          const job = context?.job
           const existingArtifact = event.payload.artifactId
-            ? this.store.artifacts.get(event.payload.artifactId)
+            ? this.store.getArtifactById(event.payload.artifactId) ?? undefined
             : undefined
           const artifact = variation && !existingArtifact
             ? this.store.createMockArtifact({
@@ -746,9 +749,9 @@ export class ApplicationService {
   }
 
   private async writeMockArtifactBody(artifactId: string): Promise<void> {
-    const artifact = this.store.artifacts.get(artifactId)
+    const artifact = this.store.getArtifactById(artifactId)
     if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    const variation = artifact.variationId ? this.store.variations.get(artifact.variationId) ?? null : null
+    const variation = artifact.variationId ? this.store.getVariationById(artifact.variationId) : null
     const stored = await this.artifacts.put({
       workspaceId: artifact.workspaceId,
       artifactId: artifact.id,

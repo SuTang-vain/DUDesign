@@ -593,3 +593,56 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 将 session/workspace/job/variation/artifact 的基础查找和权限上下文继续下沉到 repository methods。
 - 为 `getVariationDetailSnapshot()` 和 `getSharedVariationSnapshot()` 增加 PostgreSQL SQL-native 实现。
+
+## 2026-06-27 M19 Repository Lookup Contexts
+
+### 已完成
+
+- 新增基础 lookup/context repository methods：
+  - `getUserById()`
+  - `getWorkspaceById()`
+  - `getPrimaryWorkspaceForUser()`
+  - `getSessionById()`
+  - `getJobById()`
+  - `getVariationById()`
+  - `getArtifactById()`
+  - `getSessionWorkspaceContext()`
+  - `getVariationJobContext()`
+  - `getVariationRefineContext()`
+  - `getVariationArtifactContext()`
+  - `getRuntimeSessionContext()`
+- `ApplicationService` 中对 repository 内部 Map 的直接读取已清零。
+- 替换范围覆盖：
+  - bootstrap workspace 查询。
+  - session 创建和恢复。
+  - design job 创建。
+  - variation refine/annotation/preview。
+  - export usage metadata。
+  - admin cancel/retry。
+  - 权限 helper。
+  - mock runtime spawn memory namespace。
+  - runtime event side effects。
+  - artifact body 写入。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- M19 先完成 service 到 repository 的读边界治理，仍保持 `PostgresRepository` hydrated/write-through 过渡形态。
+- 后续 SQL-native 化可以逐个覆盖这些 context methods，不再需要修改 service 层调用点。
+
+### 下一步
+
+- 为高频读模型增加 `PostgresRepository` SQL-native 实现：
+  - Admin jobs/artifacts/cost summary。
+  - Variation detail/current artifact/shared variation snapshots。
+  - Session workspace/refine/runtime contexts。
+- 增加同一套 API smoke 对 InMemoryStore 与 PostgresRepository 的双实现测试。

@@ -20,8 +20,13 @@ import type {
   AdminUserSupportFilter,
   ApplicationRepository,
   CurrentVariationArtifactSnapshot,
+  RuntimeSessionContext,
+  SessionWorkspaceContext,
   SharedVariationSnapshot,
+  VariationArtifactContext,
   VariationDetailSnapshot,
+  VariationJobContext,
+  VariationRefineContext,
 } from './repository.js'
 
 export type SessionMessage = {
@@ -96,6 +101,85 @@ export class InMemoryStore implements ApplicationRepository {
     this.devWorkspace = primary.workspace
     this.altUser = alternate.user
     this.altWorkspace = alternate.workspace
+  }
+
+  getUserById(userId: string): User | null {
+    return this.users.get(userId) ?? null
+  }
+
+  getWorkspaceById(workspaceId: string): Workspace | null {
+    return this.workspaces.get(workspaceId) ?? null
+  }
+
+  getPrimaryWorkspaceForUser(userId: string): Workspace | null {
+    return [...this.workspaces.values()].find(candidate => candidate.ownerId === userId) ?? null
+  }
+
+  getSessionById(sessionId: string): DesignSession | null {
+    return this.sessions.get(sessionId) ?? null
+  }
+
+  getJobById(jobId: string): DesignJob | null {
+    return this.jobs.get(jobId) ?? null
+  }
+
+  getVariationById(variationId: string): DesignVariation | null {
+    return this.variations.get(variationId) ?? null
+  }
+
+  getArtifactById(artifactId: string): Artifact | null {
+    return this.artifacts.get(artifactId) ?? null
+  }
+
+  getSessionWorkspaceContext(sessionId: string): SessionWorkspaceContext | null {
+    const session = this.getSessionById(sessionId)
+    if (!session) return null
+    return {
+      session,
+      workspace: this.getWorkspaceById(session.workspaceId),
+    }
+  }
+
+  getVariationJobContext(variationId: string): VariationJobContext | null {
+    const variation = this.getVariationById(variationId)
+    if (!variation) return null
+    return {
+      variation,
+      job: this.getJobById(variation.jobId),
+    }
+  }
+
+  getVariationRefineContext(variationId: string, baseArtifactId: string): VariationRefineContext | null {
+    const variation = this.getVariationById(variationId)
+    if (!variation) return null
+    const job = this.getJobById(variation.jobId)
+    return {
+      variation,
+      job,
+      session: this.getSessionById(variation.sessionId),
+      workspace: job ? this.getWorkspaceById(job.workspaceId) : null,
+      baseArtifact: this.getArtifactById(baseArtifactId),
+    }
+  }
+
+  getVariationArtifactContext(variationId: string, artifactId: string): VariationArtifactContext {
+    const variation = this.getVariationById(variationId)
+    const artifact = this.getArtifactById(artifactId)
+    return {
+      variation,
+      artifact,
+      mismatch: Boolean(variation && artifact && artifact.variationId !== variation.id),
+    }
+  }
+
+  getRuntimeSessionContext(sessionId: string): RuntimeSessionContext | null {
+    const session = this.getSessionById(sessionId)
+    if (!session) return null
+    return {
+      session,
+      user: this.getUserById(session.userId),
+      workspace: this.getWorkspaceById(session.workspaceId),
+    }
   }
 
   createSession(input: {

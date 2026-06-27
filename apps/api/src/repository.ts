@@ -44,6 +44,36 @@ export type SharedVariationSnapshot = {
   artifact: Artifact | null
 }
 
+export type SessionWorkspaceContext = {
+  session: DesignSession
+  workspace: Workspace | null
+}
+
+export type VariationJobContext = {
+  variation: DesignVariation
+  job: DesignJob | null
+}
+
+export type VariationRefineContext = {
+  variation: DesignVariation
+  job: DesignJob | null
+  session: DesignSession | null
+  workspace: Workspace | null
+  baseArtifact: Artifact | null
+}
+
+export type VariationArtifactContext = {
+  variation: DesignVariation | null
+  artifact: Artifact | null
+  mismatch: boolean
+}
+
+export type RuntimeSessionContext = {
+  session: DesignSession
+  user: User | null
+  workspace: Workspace | null
+}
+
 export type CreateSessionInput = {
   userId: string
   workspaceId: string
@@ -260,6 +290,18 @@ export type ApplicationRepository = {
   readonly devUser: User
   readonly devWorkspace: Workspace
 
+  getUserById(userId: string): User | null
+  getWorkspaceById(workspaceId: string): Workspace | null
+  getPrimaryWorkspaceForUser(userId: string): Workspace | null
+  getSessionById(sessionId: string): DesignSession | null
+  getJobById(jobId: string): DesignJob | null
+  getVariationById(variationId: string): DesignVariation | null
+  getArtifactById(artifactId: string): Artifact | null
+  getSessionWorkspaceContext(sessionId: string): SessionWorkspaceContext | null
+  getVariationJobContext(variationId: string): VariationJobContext | null
+  getVariationRefineContext(variationId: string, baseArtifactId: string): VariationRefineContext | null
+  getVariationArtifactContext(variationId: string, artifactId: string): VariationArtifactContext
+  getRuntimeSessionContext(sessionId: string): RuntimeSessionContext | null
   createSession(input: CreateSessionInput): DesignSession
   saveSession(session: DesignSession): void
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage
