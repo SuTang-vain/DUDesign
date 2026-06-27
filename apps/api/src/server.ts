@@ -50,7 +50,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/dev/bootstrap') {
-    sendJson(res, 200, service.getBootstrap(ctx))
+    sendJson(res, 200, await service.getBootstrap(ctx))
     return
   }
 
@@ -60,7 +60,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/admin/audit-logs') {
-    sendJson(res, 200, service.listAuditLogs(ctx))
+    sendJson(res, 200, await service.listAuditLogs(ctx))
     return
   }
 
@@ -100,7 +100,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (method === 'GET' && url.pathname === '/api/sessions') {
-    sendJson(res, 200, service.listSessions(ctx))
+    sendJson(res, 200, await service.listSessions(ctx))
     return
   }
 
@@ -165,7 +165,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const shareRevokeMatch = url.pathname.match(/^\/api\/shares\/([^/]+)\/revoke$/)
   if (method === 'POST' && shareRevokeMatch) {
-    sendJson(res, 200, service.revokeShare(ctx, decodeURIComponent(shareRevokeMatch[1]!)))
+    sendJson(res, 200, await service.revokeShare(ctx, decodeURIComponent(shareRevokeMatch[1]!)))
     return
   }
 

@@ -773,3 +773,140 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 为 `PostgresRepository` 的基础 permission lookup methods 评估是否补 SQL-native override。
 - 设计从 hydrated/write-through 到 async source-of-truth 的拆分步骤。
 - 增加 usage event 幂等键，避免 runtime event replay 重复计费。
+
+## 2026-06-27 M23 PostgreSQL SQL-native Permission And Share Lookups
+
+### 已完成
+
+- 将 `ApplicationRepository` 基础读取契约放宽为 `MaybePromise`：
+  - `getUserById()`
+  - `getWorkspaceById()`
+  - `getPrimaryWorkspaceForUser()`
+  - `getSessionById()`
+  - `getJobById()`
+  - `getVariationById()`
+  - `getArtifactById()`
+  - `listSessions()`
+  - `getShareByToken()`
+  - `revokeShare()`
+- `ApplicationService` 权限 guard 异步化：
+  - user/workspace/session/job/variation access checks。
+  - admin role checks。
+  - share revoke owner check。
+- API server 对异步服务方法补齐 `await`：
+  - `/api/dev/bootstrap`
+  - `/api/sessions`
+  - `/api/admin/audit-logs`
+  - `/api/shares/:token/revoke`
+- `PostgresRepository` 新增 SQL-native 基础 lookup：
+  - user/workspace/primary workspace/session/job/variation/artifact/share。
+  - session list。
+  - share revoke。
+- PostgreSQL integration smoke 在清空 hydrated cache 后继续验证：
+  - 基础实体 lookup 不依赖内存 Map。
+  - `listSessions()` 不依赖内存 Map。
+  - `getShareByToken()` 和 `revokeShare()` 不依赖内存 Map。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- 读路径继续向 SQL source-of-truth 收敛；`PostgresRepository` 仍继承 `InMemoryStore` 以复用 mutation 逻辑，但业务服务不再要求基础 lookup 同步返回。
+- startup hydrate 暂时保留，作为从 write-through 迁移到 SQL-first mutation 前的过渡机制。
+
+### 下一步
+
+- 将 PostgreSQL 写入路径拆成 SQL-first mutation methods，逐步减少对 `super.*` mutation 的依赖。
+- 为 usage event 增加幂等键，避免 runtime event replay 或重试造成重复计费。
+- 评估生产模式是否可以关闭 startup hydrate，或改成仅用于 dev/test 的 warm cache。
+
+## 2026-06-27 M24 PostgreSQL SQL-first Mainline Mutations
+
+### 已完成
+
+- 将 `ApplicationRepository` 主链路 mutation 契约放宽为 `MaybePromise`：
+  - `createSession()`
+  - `saveSession()`
+  - `appendMessage()`
+  - `createJob()`
+  - `createVariations()`
+  - `setJobStatus()`
+  - `applyVariationEvent()`
+- `ApplicationService` 对上述 mutation 调用补齐 `await`，让 InMemoryStore 与 PostgresRepository 共用同一套服务层代码。
+- `PostgresRepository` 主链路 mutation 改为 SQL-first：
+  - 先构造领域对象。
+  - 先写 PostgreSQL。
+  - 写入成功后同步 hydrated cache 作为过渡。
+- 保留 `writeTail` 串行队列，并新增 `withWrite()`，用于 create job 这类多表写入的顺序一致性。
+- 修正 `getSessionWorkspaceContext()` 和 `getRuntimeSessionContext()` 的 SQL alias：
+  - 不再让 `workspaces.mode = hosted` 覆盖 `design_sessions.mode = new_html/from_existing_html`。
+  - 避免 SQL-first `createJob()` 回写 session 时触发 session mode check constraint。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- mutation 合约进入 async-ready 状态，后续 repository 可以继续把写入移动到 SQL source-of-truth，而不需要再次大改服务层调用方式。
+- 本轮只拆 session/message/job/variation 主链路写入，artifact/share/annotation/usage/audit 仍保留 write-through 过渡，避免一次性扩大风险面。
+
+### 下一步
+
+- 将 artifact 写入改为 SQL-first，重点处理版本号生成和 `(variation_id, kind, version)` 唯一约束冲突。
+- 将 usage event 增加幂等键并改为 SQL-first，避免 runtime replay 重复计费。
+- 最后处理 share/annotation/audit 的 SQL-first 写入，并评估关闭 startup hydrate。
+
+## 2026-06-27 M25 PostgreSQL SQL-first Artifact Mutations
+
+### 已完成
+
+- 将 artifact mutation 契约放宽为 `MaybePromise`：
+  - `createMockArtifact()`
+  - `createArtifact()`
+  - `saveArtifact()`
+- `ApplicationService` 对 artifact 创建和保存补齐 `await`：
+  - preview-ready artifact。
+  - completed/refine artifact。
+  - LocalArtifactStore 写入后的 artifact metadata 回存。
+  - export zip artifact 创建。
+- `PostgresRepository` artifact 写入改为 SQL-first：
+  - `createMockArtifact()` 通过 PostgreSQL 查询当前 variation/html 最大版本号后生成下一版本。
+  - `createArtifact()` 先构造 artifact，再写入 PostgreSQL，最后同步 cache。
+  - `saveArtifact()` 先写 PostgreSQL，再同步 cache。
+- 保留 `(variation_id, kind, version)` 唯一约束作为最终保护，API smoke 已覆盖 version 1 到 version 4 的连续生成和分享不漂移。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- artifact 版本号由 SQL source-of-truth 生成，避免 hydrated cache 缺失时重复从 v1 开始。
+- 本轮仍不处理 share/annotation/usage/audit mutation；这些会在后续拆分，usage event 需要先补幂等键。
+
+### 下一步
+
+- 优先为 usage event 设计并落地幂等键，再改为 SQL-first 写入。
+- 继续将 share/annotation/audit 写入拆为 SQL-first。
+- 最后评估关闭 startup hydrate 或改成 dev/test warm cache。

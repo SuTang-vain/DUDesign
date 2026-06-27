@@ -104,68 +104,68 @@ export class InMemoryStore implements ApplicationRepository {
     this.altWorkspace = alternate.workspace
   }
 
-  getUserById(userId: string): User | null {
+  getUserById(userId: string): MaybePromise<User | null> {
     return this.users.get(userId) ?? null
   }
 
-  getWorkspaceById(workspaceId: string): Workspace | null {
+  getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
     return this.workspaces.get(workspaceId) ?? null
   }
 
-  getPrimaryWorkspaceForUser(userId: string): Workspace | null {
+  getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null> {
     return [...this.workspaces.values()].find(candidate => candidate.ownerId === userId) ?? null
   }
 
-  getSessionById(sessionId: string): DesignSession | null {
+  getSessionById(sessionId: string): MaybePromise<DesignSession | null> {
     return this.sessions.get(sessionId) ?? null
   }
 
-  getJobById(jobId: string): DesignJob | null {
+  getJobById(jobId: string): MaybePromise<DesignJob | null> {
     return this.jobs.get(jobId) ?? null
   }
 
-  getVariationById(variationId: string): DesignVariation | null {
+  getVariationById(variationId: string): MaybePromise<DesignVariation | null> {
     return this.variations.get(variationId) ?? null
   }
 
-  getArtifactById(artifactId: string): Artifact | null {
+  getArtifactById(artifactId: string): MaybePromise<Artifact | null> {
     return this.artifacts.get(artifactId) ?? null
   }
 
   getSessionWorkspaceContext(sessionId: string): MaybePromise<SessionWorkspaceContext | null> {
-    const session = this.getSessionById(sessionId)
+    const session = this.sessions.get(sessionId) ?? null
     if (!session) return null
     return {
       session,
-      workspace: this.getWorkspaceById(session.workspaceId),
+      workspace: this.workspaces.get(session.workspaceId) ?? null,
     }
   }
 
   getVariationJobContext(variationId: string): MaybePromise<VariationJobContext | null> {
-    const variation = this.getVariationById(variationId)
+    const variation = this.variations.get(variationId) ?? null
     if (!variation) return null
     return {
       variation,
-      job: this.getJobById(variation.jobId),
+      job: this.jobs.get(variation.jobId) ?? null,
     }
   }
 
   getVariationRefineContext(variationId: string, baseArtifactId: string): MaybePromise<VariationRefineContext | null> {
-    const variation = this.getVariationById(variationId)
+    const variation = this.variations.get(variationId) ?? null
     if (!variation) return null
-    const job = this.getJobById(variation.jobId)
+    const job = this.jobs.get(variation.jobId) ?? null
     return {
       variation,
       job,
-      session: this.getSessionById(variation.sessionId),
-      workspace: job ? this.getWorkspaceById(job.workspaceId) : null,
-      baseArtifact: this.getArtifactById(baseArtifactId),
+      session: this.sessions.get(variation.sessionId) ?? null,
+      workspace: job ? this.workspaces.get(job.workspaceId) ?? null : null,
+      baseArtifact: this.artifacts.get(baseArtifactId) ?? null,
     }
   }
 
   getVariationArtifactContext(variationId: string, artifactId: string): MaybePromise<VariationArtifactContext> {
-    const variation = this.getVariationById(variationId)
-    const artifact = this.getArtifactById(artifactId)
+    const variation = this.variations.get(variationId) ?? null
+    const artifact = this.artifacts.get(artifactId) ?? null
     return {
       variation,
       artifact,
@@ -174,12 +174,12 @@ export class InMemoryStore implements ApplicationRepository {
   }
 
   getRuntimeSessionContext(sessionId: string): MaybePromise<RuntimeSessionContext | null> {
-    const session = this.getSessionById(sessionId)
+    const session = this.sessions.get(sessionId) ?? null
     if (!session) return null
     return {
       session,
-      user: this.getUserById(session.userId),
-      workspace: this.getWorkspaceById(session.workspaceId),
+      user: this.users.get(session.userId) ?? null,
+      workspace: this.workspaces.get(session.workspaceId) ?? null,
     }
   }
 
@@ -190,7 +190,7 @@ export class InMemoryStore implements ApplicationRepository {
     title?: string
     sourceArtifactId?: string | null
     runtimeSessionId?: string | null
-  }): DesignSession {
+  }): MaybePromise<DesignSession> {
     const now = nowIso()
     const session: DesignSession = {
       id: createId('ses'),
@@ -211,7 +211,7 @@ export class InMemoryStore implements ApplicationRepository {
     return session
   }
 
-  saveSession(session: DesignSession): void {
+  saveSession(session: DesignSession): MaybePromise<void> {
     this.sessions.set(session.id, session)
   }
 
@@ -251,7 +251,7 @@ export class InMemoryStore implements ApplicationRepository {
     return { user, workspace }
   }
 
-  appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage {
+  appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage> {
     const next: SessionMessage = {
       id: createId('msg'),
       createdAt: nowIso(),
@@ -269,7 +269,7 @@ export class InMemoryStore implements ApplicationRepository {
     sourceMode: DesignJob['sourceMode']
     variationCount: number
     templateRequirements: Record<string, unknown>
-  }): DesignJob {
+  }): MaybePromise<DesignJob> {
     const now = nowIso()
     const job: DesignJob = {
       id: createId('job'),
@@ -298,7 +298,7 @@ export class InMemoryStore implements ApplicationRepository {
     return job
   }
 
-  createVariations(input: { job: DesignJob; count: number }): DesignVariation[] {
+  createVariations(input: { job: DesignJob; count: number }): MaybePromise<DesignVariation[]> {
     const now = nowIso()
     const variations: DesignVariation[] = []
     for (let index = 1; index <= input.count; index += 1) {
@@ -328,7 +328,7 @@ export class InMemoryStore implements ApplicationRepository {
     return variations
   }
 
-  listSessions(): DesignSession[] {
+  listSessions(): MaybePromise<DesignSession[]> {
     return [...this.sessions.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
@@ -402,7 +402,7 @@ export class InMemoryStore implements ApplicationRepository {
     }
   }
 
-  setJobStatus(jobId: string, status: DesignJob['status']): void {
+  setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void> {
     const job = this.jobs.get(jobId)
     if (!job) return
     const now = nowIso()
@@ -467,7 +467,7 @@ export class InMemoryStore implements ApplicationRepository {
     costCents?: number
     errorCode?: string
     errorMessage?: string
-  }): void {
+  }): MaybePromise<void> {
     const variation = this.variations.get(input.variationId)
     if (!variation) return
     this.variations.set(input.variationId, {
@@ -491,7 +491,7 @@ export class InMemoryStore implements ApplicationRepository {
     artifactId?: string
     entryPath?: string
     parentArtifactId?: string | null
-  }): Artifact {
+  }): MaybePromise<Artifact> {
     const now = nowIso()
     const existingVersions = [...this.artifacts.values()]
       .filter(artifact => artifact.variationId === input.variationId && artifact.kind === 'html')
@@ -528,7 +528,7 @@ export class InMemoryStore implements ApplicationRepository {
     contentHash: string
     sizeBytes: number
     metadata?: Record<string, unknown>
-  }): Artifact {
+  }): MaybePromise<Artifact> {
     const artifact: Artifact = {
       id: createId('art'),
       workspaceId: input.workspaceId,
@@ -548,7 +548,7 @@ export class InMemoryStore implements ApplicationRepository {
     return artifact
   }
 
-  saveArtifact(artifact: Artifact): void {
+  saveArtifact(artifact: Artifact): MaybePromise<void> {
     this.artifacts.set(artifact.id, artifact)
   }
 
@@ -591,12 +591,12 @@ export class InMemoryStore implements ApplicationRepository {
     return share
   }
 
-  getShareByToken(token: string): Share | null {
+  getShareByToken(token: string): MaybePromise<Share | null> {
     return this.shares.get(token) ?? null
   }
 
   getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null> {
-    const share = this.getShareByToken(token)
+    const share = this.shares.get(token) ?? null
     if (!share) return null
     return {
       share,
@@ -605,7 +605,7 @@ export class InMemoryStore implements ApplicationRepository {
     }
   }
 
-  revokeShare(token: string): Share | null {
+  revokeShare(token: string): MaybePromise<Share | null> {
     const share = this.shares.get(token)
     if (!share) return null
     const revoked = {

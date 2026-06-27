@@ -27,33 +27,33 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
   })
 
   it('migrates, writes through, and hydrates persisted records', async () => {
-    const session = repository.createSession({
+    const session = await repository.createSession({
       userId: repository.devUser.id,
       workspaceId: repository.devWorkspace.id,
       mode: 'new_html',
       title: 'Postgres smoke',
     })
-    repository.saveSession({
+    await repository.saveSession({
       ...session,
       runtimeSessionId: 'runtime_pg_smoke',
       updatedAt: new Date().toISOString(),
     })
-    const message = repository.appendMessage({
+    const message = await repository.appendMessage({
       sessionId: session.id,
       role: 'user',
       content: 'Persist this prompt',
       metadata: { smoke: true },
     })
-    const job = repository.createJob({
+    const job = await repository.createJob({
       session: repository.sessions.get(session.id)!,
       prompt: 'Persist a design job',
       sourceMode: 'new_html',
       variationCount: 1,
       templateRequirements: { styles: ['postgres'] },
     })
-    const [variation] = repository.createVariations({ job, count: 1 })
+    const [variation] = await repository.createVariations({ job, count: 1 })
     assert.ok(variation)
-    const artifact = repository.createArtifact({
+    const artifact = await repository.createArtifact({
       workspaceId: job.workspaceId,
       sessionId: session.id,
       variationId: variation.id,
@@ -65,7 +65,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       sizeBytes: 128,
       metadata: { smoke: true },
     })
-    repository.applyVariationEvent({
+    await repository.applyVariationEvent({
       variationId: variation.id,
       status: 'completed',
       artifactId: artifact.id,
@@ -74,7 +74,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       outputTokens: 22,
       costCents: 3,
     })
-    repository.setJobStatus(job.id, 'completed')
+    await repository.setJobStatus(job.id, 'completed')
     const share = repository.createShare({
       artifactId: artifact.id,
       variationId: variation.id,
@@ -108,9 +108,18 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
       assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
       assert.equal(hydrated.artifacts.get(artifact.id)?.contentHash, 'sha256:postgres-smoke')
-      assert.equal(hydrated.getShareByToken(share.token)?.artifactId, artifact.id)
+      assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)
       assert.equal(hydrated.listUsageEvents({ jobId: job.id }).length, 1)
       clearHydratedCache(hydrated)
+      assert.equal((await hydrated.getUserById(repository.devUser.id))?.email, repository.devUser.email)
+      assert.equal((await hydrated.getWorkspaceById(repository.devWorkspace.id))?.ownerId, repository.devUser.id)
+      assert.equal((await hydrated.getPrimaryWorkspaceForUser(repository.devUser.id))?.id, repository.devWorkspace.id)
+      assert.equal((await hydrated.getSessionById(session.id))?.runtimeSessionId, 'runtime_pg_smoke')
+      assert.equal((await hydrated.getJobById(job.id))?.prompt, 'Persist a design job')
+      assert.equal((await hydrated.getVariationById(variation.id))?.currentArtifactId, artifact.id)
+      assert.equal((await hydrated.getArtifactById(artifact.id))?.contentHash, 'sha256:postgres-smoke')
+      assert.equal((await hydrated.listSessions()).some(candidate => candidate.id === session.id), true)
+      assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)
       const adminJobs = await hydrated.listAdminJobs({ userId: repository.devUser.id })
       assert.equal(adminJobs.jobs.length, 1)
       assert.equal(adminJobs.jobs[0]?.id, job.id)
@@ -151,6 +160,10 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       const runtimeContext = await hydrated.getRuntimeSessionContext(session.id)
       assert.equal(runtimeContext?.user?.id, repository.devUser.id)
       assert.equal(runtimeContext?.workspace?.id, repository.devWorkspace.id)
+      const revokedShare = await hydrated.revokeShare(share.token)
+      assert.equal(revokedShare?.token, share.token)
+      clearHydratedCache(hydrated)
+      assert.match((await hydrated.getShareByToken(share.token))?.revokedAt ?? '', /^\d{4}-/)
       await hydrated.hydrate()
       const snapshot = await hydrated.getSessionSnapshot(session.id)
       assert.equal(snapshot?.messages.length, 1)

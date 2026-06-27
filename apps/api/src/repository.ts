@@ -292,29 +292,29 @@ export type ApplicationRepository = {
   readonly devUser: User
   readonly devWorkspace: Workspace
 
-  getUserById(userId: string): User | null
-  getWorkspaceById(workspaceId: string): Workspace | null
-  getPrimaryWorkspaceForUser(userId: string): Workspace | null
-  getSessionById(sessionId: string): DesignSession | null
-  getJobById(jobId: string): DesignJob | null
-  getVariationById(variationId: string): DesignVariation | null
-  getArtifactById(artifactId: string): Artifact | null
+  getUserById(userId: string): MaybePromise<User | null>
+  getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null>
+  getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null>
+  getSessionById(sessionId: string): MaybePromise<DesignSession | null>
+  getJobById(jobId: string): MaybePromise<DesignJob | null>
+  getVariationById(variationId: string): MaybePromise<DesignVariation | null>
+  getArtifactById(artifactId: string): MaybePromise<Artifact | null>
   getSessionWorkspaceContext(sessionId: string): MaybePromise<SessionWorkspaceContext | null>
   getVariationJobContext(variationId: string): MaybePromise<VariationJobContext | null>
   getVariationRefineContext(variationId: string, baseArtifactId: string): MaybePromise<VariationRefineContext | null>
   getVariationArtifactContext(variationId: string, artifactId: string): MaybePromise<VariationArtifactContext>
   getRuntimeSessionContext(sessionId: string): MaybePromise<RuntimeSessionContext | null>
-  createSession(input: CreateSessionInput): DesignSession
-  saveSession(session: DesignSession): void
-  appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage
-  createJob(input: CreateJobInput): DesignJob
-  createVariations(input: { job: DesignJob; count: number }): DesignVariation[]
-  listSessions(): DesignSession[]
+  createSession(input: CreateSessionInput): MaybePromise<DesignSession>
+  saveSession(session: DesignSession): MaybePromise<void>
+  appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage>
+  createJob(input: CreateJobInput): MaybePromise<DesignJob>
+  createVariations(input: { job: DesignJob; count: number }): MaybePromise<DesignVariation[]>
+  listSessions(): MaybePromise<DesignSession[]>
   getSessionSnapshot(sessionId: string): MaybePromise<SessionSnapshot | null>
   getJobSnapshot(jobId: string): MaybePromise<JobSnapshot | null>
   getVariationDetailSnapshot(variationId: string): MaybePromise<VariationDetailSnapshot | null>
   getCurrentVariationArtifactSnapshot(variationId: string): MaybePromise<CurrentVariationArtifactSnapshot>
-  setJobStatus(jobId: string, status: DesignJob['status']): void
+  setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void>
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog
   listAuditLogs(options?: { limit?: number }): AuditLog[]
   createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): UsageEvent
@@ -324,15 +324,15 @@ export type ApplicationRepository = {
     variationId?: string
     limit?: number
   }): UsageEvent[]
-  applyVariationEvent(input: ApplyVariationEventInput): void
-  createMockArtifact(input: CreateHtmlArtifactInput): Artifact
-  createArtifact(input: CreateArtifactInput): Artifact
-  saveArtifact(artifact: Artifact): void
+  applyVariationEvent(input: ApplyVariationEventInput): MaybePromise<void>
+  createMockArtifact(input: CreateHtmlArtifactInput): MaybePromise<Artifact>
+  createArtifact(input: CreateArtifactInput): MaybePromise<Artifact>
+  saveArtifact(artifact: Artifact): MaybePromise<void>
   createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch
   createShare(input: CreateShareInput): Share
-  getShareByToken(token: string): Share | null
+  getShareByToken(token: string): MaybePromise<Share | null>
   getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null>
-  revokeShare(token: string): Share | null
+  revokeShare(token: string): MaybePromise<Share | null>
   listAdminJobs(filter?: AdminJobsFilter): {
     jobs: AdminJobSummary[]
   } | Promise<{ jobs: AdminJobSummary[] }>

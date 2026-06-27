@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, Share, UsageEvent, User, Workspace } from '@dudesign/domain'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
+import { createId, nowIso } from './id.js'
 import type {
   AdminArtifactsFilter,
   AdminArtifactSummary,
@@ -177,44 +178,125 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from usage_events order by created_at')).rows) this.usageEvents.push(mapUsageEvent(row))
   }
 
-  override createSession(input: CreateSessionInput): DesignSession {
-    const session = super.createSession(input)
-    this.enqueueWrite(() => this.persistSession(session))
+  override async createSession(input: CreateSessionInput): Promise<DesignSession> {
+    const now = nowIso()
+    const session: DesignSession = {
+      id: createId('ses'),
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      title: input.title ?? 'Untitled design session',
+      mode: input.mode,
+      sourceArtifactId: input.sourceArtifactId ?? null,
+      runtimeSessionId: input.runtimeSessionId ?? null,
+      status: 'active',
+      lastPrompt: null,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    await this.persistSession(session)
+    this.sessions.set(session.id, session)
+    this.messages.set(session.id, [])
     return session
   }
 
-  override saveSession(session: DesignSession): void {
-    super.saveSession(session)
-    this.enqueueWrite(() => this.persistSession(session))
+  override async saveSession(session: DesignSession): Promise<void> {
+    await this.persistSession(session)
+    this.sessions.set(session.id, session)
   }
 
-  override appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): SessionMessage {
-    const created = super.appendMessage(message)
-    this.enqueueWrite(() => this.persistMessage(created))
+  override async appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): Promise<SessionMessage> {
+    const created: SessionMessage = {
+      id: createId('msg'),
+      createdAt: nowIso(),
+      ...message,
+    }
+    await this.persistMessage(created)
+    const list = this.messages.get(message.sessionId) ?? []
+    list.push(created)
+    this.messages.set(message.sessionId, list)
     return created
   }
 
-  override createJob(input: CreateJobInput): DesignJob {
-    const job = super.createJob(input)
-    this.enqueueWrite(async () => {
-      await this.persistSession(this.sessions.get(input.session.id)!)
+  override async createJob(input: CreateJobInput): Promise<DesignJob> {
+    const now = nowIso()
+    const job: DesignJob = {
+      id: createId('job'),
+      sessionId: input.session.id,
+      userId: input.session.userId,
+      workspaceId: input.session.workspaceId,
+      prompt: input.prompt,
+      sourceMode: input.sourceMode,
+      variationCount: input.variationCount,
+      templateRequirements: input.templateRequirements,
+      status: 'queued',
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCostCents: 0,
+      startedAt: null,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const updatedSession = {
+      ...input.session,
+      lastPrompt: input.prompt,
+      updatedAt: now,
+    }
+    await this.withWrite(async () => {
+      await this.persistSession(updatedSession)
       await this.persistJob(job)
     })
+    this.jobs.set(job.id, job)
+    this.sessions.set(input.session.id, updatedSession)
     return job
   }
 
-  override createVariations(input: { job: DesignJob; count: number }): DesignVariation[] {
-    const variations = super.createVariations(input)
-    this.enqueueWrite(async () => {
+  override async createVariations(input: { job: DesignJob; count: number }): Promise<DesignVariation[]> {
+    const now = nowIso()
+    const variations: DesignVariation[] = []
+    for (let index = 1; index <= input.count; index += 1) {
+      variations.push({
+        id: createId('var'),
+        jobId: input.job.id,
+        sessionId: input.job.sessionId,
+        index,
+        title: `Variation ${String(index).padStart(2, '0')}`,
+        runtimeChildSessionId: null,
+        runtimeAgentJobId: null,
+        status: 'queued',
+        currentArtifactId: null,
+        previewUrl: null,
+        screenshotArtifactId: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+    await this.withWrite(async () => {
       for (const variation of variations) await this.persistVariation(variation)
     })
+    for (const variation of variations) this.variations.set(variation.id, variation)
     return variations
   }
 
-  override setJobStatus(jobId: string, status: DesignJob['status']): void {
-    super.setJobStatus(jobId, status)
-    const job = this.jobs.get(jobId)
-    if (job) this.enqueueWrite(() => this.persistJob(job))
+  override async setJobStatus(jobId: string, status: DesignJob['status']): Promise<void> {
+    const existing = await this.getJobById(jobId)
+    if (!existing) return
+    const now = nowIso()
+    const job: DesignJob = {
+      ...existing,
+      status,
+      startedAt: existing.startedAt ?? (status === 'running' ? now : null),
+      completedAt: status === 'completed' || status === 'failed' || status === 'cancelled' ? now : existing.completedAt,
+      updatedAt: now,
+    }
+    await this.persistJob(job)
+    this.jobs.set(jobId, job)
   }
 
   override createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog {
@@ -229,27 +311,77 @@ export class PostgresRepository extends InMemoryStore {
     return event
   }
 
-  override applyVariationEvent(input: ApplyVariationEventInput): void {
-    super.applyVariationEvent(input)
-    const variation = this.variations.get(input.variationId)
-    if (variation) this.enqueueWrite(() => this.persistVariation(variation))
+  override async applyVariationEvent(input: ApplyVariationEventInput): Promise<void> {
+    const existing = await this.getVariationById(input.variationId)
+    if (!existing) return
+    const variation: DesignVariation = {
+      ...existing,
+      status: input.status ?? existing.status,
+      currentArtifactId: input.artifactId ?? existing.currentArtifactId,
+      previewUrl: input.previewUrl ?? existing.previewUrl,
+      inputTokens: input.inputTokens ?? existing.inputTokens,
+      outputTokens: input.outputTokens ?? existing.outputTokens,
+      costCents: input.costCents ?? existing.costCents,
+      errorCode: input.errorCode ?? existing.errorCode,
+      errorMessage: input.errorMessage ?? existing.errorMessage,
+      updatedAt: nowIso(),
+    }
+    await this.persistVariation(variation)
+    this.variations.set(input.variationId, variation)
   }
 
-  override createMockArtifact(input: CreateHtmlArtifactInput): Artifact {
-    const artifact = super.createMockArtifact(input)
-    this.enqueueWrite(() => this.persistArtifact(artifact))
+  override async createMockArtifact(input: CreateHtmlArtifactInput): Promise<Artifact> {
+    await this.flush()
+    const versionRow = (await this.pool.query(`
+      select coalesce(max(version), 0)::int + 1 as next_version
+      from artifacts
+      where variation_id = $1 and kind = 'html'
+    `, [input.variationId])).rows[0]
+    const version = versionRow?.next_version ?? 1
+    const artifact: Artifact = {
+      id: input.artifactId ?? createId('art'),
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variationId,
+      parentArtifactId: input.parentArtifactId ?? null,
+      kind: 'html',
+      version,
+      storageKey: `${input.workspaceId}/${input.variationId}/v${version}/index.html`,
+      entryPath: input.entryPath ?? 'index.html',
+      contentHash: createId('hash'),
+      sizeBytes: 1024 + version,
+      metadata: { mock: true, version },
+      createdAt: nowIso(),
+    }
+    await this.persistArtifact(artifact)
+    this.artifacts.set(artifact.id, artifact)
     return artifact
   }
 
-  override createArtifact(input: CreateArtifactInput): Artifact {
-    const artifact = super.createArtifact(input)
-    this.enqueueWrite(() => this.persistArtifact(artifact))
+  override async createArtifact(input: CreateArtifactInput): Promise<Artifact> {
+    const artifact: Artifact = {
+      id: createId('art'),
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variationId: input.variationId ?? null,
+      parentArtifactId: input.parentArtifactId ?? null,
+      kind: input.kind,
+      version: input.version ?? 1,
+      storageKey: input.storageKey,
+      entryPath: input.entryPath ?? null,
+      contentHash: input.contentHash,
+      sizeBytes: input.sizeBytes,
+      metadata: input.metadata ?? {},
+      createdAt: nowIso(),
+    }
+    await this.persistArtifact(artifact)
+    this.artifacts.set(artifact.id, artifact)
     return artifact
   }
 
-  override saveArtifact(artifact: Artifact): void {
-    super.saveArtifact(artifact)
-    this.enqueueWrite(() => this.persistArtifact(artifact))
+  override async saveArtifact(artifact: Artifact): Promise<void> {
+    await this.persistArtifact(artifact)
+    this.artifacts.set(artifact.id, artifact)
   }
 
   override createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch {
@@ -264,10 +396,79 @@ export class PostgresRepository extends InMemoryStore {
     return share
   }
 
-  override revokeShare(token: string): Share | null {
-    const share = super.revokeShare(token)
-    if (share) this.enqueueWrite(() => this.persistShare(share))
-    return share
+  override async getUserById(userId: string): Promise<User | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from users where id = $1', [userId])).rows[0]
+    return row ? mapUser(row) : null
+  }
+
+  override async getWorkspaceById(workspaceId: string): Promise<Workspace | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from workspaces where id = $1', [workspaceId])).rows[0]
+    return row ? mapWorkspace(row) : null
+  }
+
+  override async getPrimaryWorkspaceForUser(userId: string): Promise<Workspace | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select *
+      from workspaces
+      where owner_id = $1
+      order by created_at asc, id asc
+      limit 1
+    `, [userId])).rows[0]
+    return row ? mapWorkspace(row) : null
+  }
+
+  override async getSessionById(sessionId: string): Promise<DesignSession | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from design_sessions where id = $1', [sessionId])).rows[0]
+    return row ? mapSession(row) : null
+  }
+
+  override async getJobById(jobId: string): Promise<DesignJob | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from design_jobs where id = $1', [jobId])).rows[0]
+    return row ? mapJob(row) : null
+  }
+
+  override async getVariationById(variationId: string): Promise<DesignVariation | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from design_variations where id = $1', [variationId])).rows[0]
+    return row ? mapVariation(row) : null
+  }
+
+  override async getArtifactById(artifactId: string): Promise<Artifact | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from artifacts where id = $1', [artifactId])).rows[0]
+    return row ? mapArtifact(row) : null
+  }
+
+  override async listSessions(): Promise<DesignSession[]> {
+    await this.flush()
+    return (await this.pool.query(`
+      select *
+      from design_sessions
+      order by updated_at desc
+    `)).rows.map(mapSession)
+  }
+
+  override async getShareByToken(token: string): Promise<Share | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from shares where token = $1', [token])).rows[0]
+    return row ? mapShare(row) : null
+  }
+
+  override async revokeShare(token: string): Promise<Share | null> {
+    const existing = await this.getShareByToken(token)
+    if (!existing) return null
+    const revoked = {
+      ...existing,
+      revokedAt: new Date().toISOString(),
+    }
+    this.shares.set(token, revoked)
+    this.enqueueWrite(() => this.persistShare(revoked))
+    return revoked
   }
 
   override async getVariationDetailSnapshot(variationId: string): Promise<VariationDetailSnapshot | null> {
@@ -354,18 +555,28 @@ export class PostgresRepository extends InMemoryStore {
     const row = (await this.pool.query(`
       select
         s.id as session_id,
-        s.user_id,
-        s.workspace_id,
-        s.title,
-        s.mode,
-        s.source_artifact_id,
-        s.runtime_session_id,
+        s.user_id as session_user_id,
+        s.workspace_id as session_workspace_id,
+        s.title as session_title,
+        s.mode as session_mode,
+        s.source_artifact_id as session_source_artifact_id,
+        s.runtime_session_id as session_runtime_session_id,
         s.status as session_status,
-        s.last_prompt,
+        s.last_prompt as session_last_prompt,
         s.metadata as session_metadata,
         s.created_at as session_created_at,
         s.updated_at as session_updated_at,
-        w.*
+        w.id as workspace_row_id,
+        w.owner_id,
+        w.team_id,
+        w.name as workspace_name,
+        w.mode as workspace_mode,
+        w.visibility,
+        w.storage_key,
+        w.status as workspace_status,
+        w.metadata as workspace_metadata,
+        w.created_at as workspace_created_at,
+        w.updated_at as workspace_updated_at
       from design_sessions s
       left join workspaces w on w.id = s.workspace_id
       where s.id = $1
@@ -373,7 +584,21 @@ export class PostgresRepository extends InMemoryStore {
     if (!row) return null
     return {
       session: mapSessionFromAliasedRow(row),
-      workspace: row.id ? mapWorkspace(row) : null,
+      workspace: row.workspace_row_id
+        ? mapWorkspace({
+            id: row.workspace_row_id,
+            owner_id: row.owner_id,
+            team_id: row.team_id,
+            name: row.workspace_name,
+            mode: row.workspace_mode,
+            visibility: row.visibility,
+            storage_key: row.storage_key,
+            status: row.workspace_status,
+            metadata: row.workspace_metadata,
+            created_at: row.workspace_created_at,
+            updated_at: row.workspace_updated_at,
+          })
+        : null,
     }
   }
 
@@ -447,14 +672,14 @@ export class PostgresRepository extends InMemoryStore {
     const row = (await this.pool.query(`
       select
         s.id as session_id,
-        s.user_id,
-        s.workspace_id,
-        s.title,
-        s.mode,
-        s.source_artifact_id,
-        s.runtime_session_id,
+        s.user_id as session_user_id,
+        s.workspace_id as session_workspace_id,
+        s.title as session_title,
+        s.mode as session_mode,
+        s.source_artifact_id as session_source_artifact_id,
+        s.runtime_session_id as session_runtime_session_id,
         s.status as session_status,
-        s.last_prompt,
+        s.last_prompt as session_last_prompt,
         s.metadata as session_metadata,
         s.created_at as session_created_at,
         s.updated_at as session_updated_at,
@@ -885,6 +1110,12 @@ export class PostgresRepository extends InMemoryStore {
     this.writeTail = this.writeTail.then(write, write)
   }
 
+  private async withWrite<T>(write: () => Promise<T>): Promise<T> {
+    const next = this.writeTail.then(write, write)
+    this.writeTail = next.then(() => undefined, () => undefined)
+    return next
+  }
+
   private async persistSession(session: DesignSession): Promise<void> {
     await this.pool.query(`
       insert into design_sessions (id, user_id, workspace_id, title, mode, source_artifact_id, runtime_session_id, status, last_prompt, metadata, created_at, updated_at)
@@ -1083,14 +1314,14 @@ function mapSession(row: any): DesignSession {
 function mapSessionFromAliasedRow(row: any): DesignSession {
   return {
     id: row.session_id,
-    userId: row.user_id,
-    workspaceId: row.workspace_id,
-    title: row.title,
-    mode: row.mode,
-    sourceArtifactId: row.source_artifact_id,
-    runtimeSessionId: row.runtime_session_id,
+    userId: row.session_user_id,
+    workspaceId: row.session_workspace_id,
+    title: row.session_title,
+    mode: row.session_mode,
+    sourceArtifactId: row.session_source_artifact_id,
+    runtimeSessionId: row.session_runtime_session_id,
     status: row.session_status,
-    lastPrompt: row.last_prompt,
+    lastPrompt: row.session_last_prompt,
     metadata: row.session_metadata ?? {},
     createdAt: toIso(row.session_created_at),
     updatedAt: toIso(row.session_updated_at),
