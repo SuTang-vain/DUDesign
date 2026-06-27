@@ -415,7 +415,7 @@ export class InMemoryStore implements ApplicationRepository {
     })
   }
 
-  createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog {
+  createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): MaybePromise<AuditLog> {
     const entry: AuditLog = {
       id: createId('aud'),
       createdAt: nowIso(),
@@ -432,7 +432,9 @@ export class InMemoryStore implements ApplicationRepository {
       .slice(0, limit)
   }
 
-  createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): UsageEvent {
+  createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): MaybePromise<UsageEvent> {
+    const existing = this.usageEvents.find(event => event.idempotencyKey === input.idempotencyKey)
+    if (existing) return existing
     const event: UsageEvent = {
       id: createId('use'),
       createdAt: nowIso(),
@@ -558,7 +560,7 @@ export class InMemoryStore implements ApplicationRepository {
     userId: string
     shapes: unknown[]
     promptSuffix: string
-  }): AnnotationBatch {
+  }): MaybePromise<AnnotationBatch> {
     const batch: AnnotationBatch = {
       id: createId('ann'),
       createdAt: nowIso(),
@@ -574,7 +576,7 @@ export class InMemoryStore implements ApplicationRepository {
     ownerId: string
     visibility: Share['visibility']
     expiresAt?: string | null
-  }): Share {
+  }): MaybePromise<Share> {
     const share: Share = {
       id: createId('shr'),
       artifactId: input.artifactId,

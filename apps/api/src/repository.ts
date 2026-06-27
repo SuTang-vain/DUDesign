@@ -315,9 +315,9 @@ export type ApplicationRepository = {
   getVariationDetailSnapshot(variationId: string): MaybePromise<VariationDetailSnapshot | null>
   getCurrentVariationArtifactSnapshot(variationId: string): MaybePromise<CurrentVariationArtifactSnapshot>
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void>
-  createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog
+  createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): MaybePromise<AuditLog>
   listAuditLogs(options?: { limit?: number }): AuditLog[]
-  createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): UsageEvent
+  createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): MaybePromise<UsageEvent>
   listUsageEvents(options?: {
     userId?: string
     jobId?: string
@@ -328,8 +328,8 @@ export type ApplicationRepository = {
   createMockArtifact(input: CreateHtmlArtifactInput): MaybePromise<Artifact>
   createArtifact(input: CreateArtifactInput): MaybePromise<Artifact>
   saveArtifact(artifact: Artifact): MaybePromise<void>
-  createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch
-  createShare(input: CreateShareInput): Share
+  createAnnotationBatch(input: CreateAnnotationBatchInput): MaybePromise<AnnotationBatch>
+  createShare(input: CreateShareInput): MaybePromise<Share>
   getShareByToken(token: string): MaybePromise<Share | null>
   getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null>
   revokeShare(token: string): MaybePromise<Share | null>

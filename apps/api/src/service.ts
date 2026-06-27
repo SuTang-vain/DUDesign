@@ -260,7 +260,7 @@ export class ApplicationService {
       throw createHttpError(400, 'ANNOTATION_REQUIRED', 'At least one annotation shape is required.')
     }
     const promptSuffix = buildAnnotationPrompt(input.shapes, input.prompt)
-    const batch = this.store.createAnnotationBatch({
+    const batch = await this.store.createAnnotationBatch({
       variationId,
       artifactId: input.artifactId,
       userId: ctx.userId,
@@ -303,7 +303,8 @@ export class ApplicationService {
       filename: filename.replace(/\.html$/, '.zip'),
       html,
     })
-    this.recordUsageEvent({
+    await this.recordUsageEvent({
+      idempotencyKey: `usage:export.created:export:${exportArtifact.id}:source:${artifact.id}`,
       kind: 'export.created',
       userId: ctx.userId,
       workspaceId: artifact.workspaceId,
@@ -343,14 +344,15 @@ export class ApplicationService {
     if (!['public', 'private', 'password'].includes(input.visibility)) {
       throw createHttpError(400, 'INVALID_SHARE_VISIBILITY', 'visibility must be public, private, or password.')
     }
-    const share = this.store.createShare({
+    const share = await this.store.createShare({
       artifactId: artifact.id,
       variationId: variation.id,
       ownerId: ctx.userId,
       visibility: input.visibility,
       expiresAt: input.expiresAt ?? null,
     })
-    this.recordUsageEvent({
+    await this.recordUsageEvent({
+      idempotencyKey: `usage:share.created:share:${share.id}`,
       kind: 'share.created',
       userId: ctx.userId,
       workspaceId: artifact.workspaceId,
@@ -485,7 +487,7 @@ export class ApplicationService {
         await this.store.applyVariationEvent({ variationId: variation.id, status: 'cancelled' })
       }
     }
-    const audit = this.store.createAuditLog({
+    const audit = await this.store.createAuditLog({
       requestId: ctx.requestId,
       operatorUserId: ctx.userId,
       operatorRole: ctx.adminRole!,
@@ -521,7 +523,7 @@ export class ApplicationService {
         templateRequirements: normalizeTemplateRequirements(original.templateRequirements),
       },
     )
-    const audit = this.store.createAuditLog({
+    const audit = await this.store.createAuditLog({
       requestId: ctx.requestId,
       operatorUserId: ctx.userId,
       operatorRole: ctx.adminRole!,
@@ -713,7 +715,8 @@ export class ApplicationService {
         })
           if (variation && job && artifact) {
             const isRefine = Boolean(artifact.parentArtifactId)
-            this.recordUsageEvent({
+            await this.recordUsageEvent({
+              idempotencyKey: `usage:${isRefine ? 'variation.refined' : 'variation.completed'}:job:${job.id}:variation:${variation.id}:artifact:${artifact.id}`,
               kind: isRefine ? 'variation.refined' : 'variation.completed',
               userId: job.userId,
               workspaceId: job.workspaceId,
@@ -745,8 +748,8 @@ export class ApplicationService {
     }
   }
 
-  private recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]) {
-    this.store.createUsageEvent(input)
+  private async recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]): Promise<void> {
+    await this.store.createUsageEvent(input)
   }
 
   private async writeMockArtifactBody(artifactId: string): Promise<void> {

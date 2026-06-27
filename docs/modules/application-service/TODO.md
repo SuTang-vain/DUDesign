@@ -140,12 +140,13 @@
 - [x] 为 PostgreSQL Repository 实现 SQL-native user-facing variation/share snapshot methods。
 - [x] 为 PostgreSQL Repository 实现 SQL-native session/job/context methods。
 - [x] 为 PostgreSQL Repository 实现 SQL-native 基础权限/分享/实体 lookup methods。
-- [ ] 将 PostgreSQL Repository 从 hydrated/write-through 过渡到 async source-of-truth。
+- [x] 将 PostgreSQL Repository 从业务写入 write-through 过渡到 SQL-first source-of-truth。
 - [x] 将 PostgreSQL Repository 主链路写入从内存 write-through 拆为 SQL-first mutation methods：session、message、job、variation。
 - [x] 将 PostgreSQL Repository artifact 写入拆为 SQL-first mutation methods。
-- [ ] 将 PostgreSQL Repository share/annotation/usage/audit 写入继续拆为 SQL-first mutation methods。
+- [x] 为 usage event 增加幂等键，避免 runtime event replay 重复计费。
+- [x] 将 PostgreSQL Repository usage event 写入拆为 SQL-first mutation method。
+- [x] 将 PostgreSQL Repository share/annotation/audit 写入继续拆为 SQL-first mutation methods。
 - [ ] 梳理生产模式下关闭 startup hydrate 或改为按需 warm cache。
-- [ ] 增加 usage event 幂等键，避免 runtime event replay 重复计费。
 - [x] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
 
 验收：

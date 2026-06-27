@@ -299,16 +299,28 @@ export class PostgresRepository extends InMemoryStore {
     this.jobs.set(jobId, job)
   }
 
-  override createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog {
-    const audit = super.createAuditLog(input)
-    this.enqueueWrite(() => this.persistAuditLog(audit))
+  override async createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): Promise<AuditLog> {
+    const audit: AuditLog = {
+      id: createId('aud'),
+      createdAt: nowIso(),
+      ...input,
+    }
+    await this.persistAuditLog(audit)
+    this.auditLogs.push(audit)
     return audit
   }
 
-  override createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): UsageEvent {
-    const event = super.createUsageEvent(input)
-    this.enqueueWrite(() => this.persistUsageEvent(event))
-    return event
+  override async createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): Promise<UsageEvent> {
+    const event: UsageEvent = {
+      id: createId('use'),
+      createdAt: nowIso(),
+      ...input,
+    }
+    const persisted = await this.persistUsageEvent(event)
+    const existingIndex = this.usageEvents.findIndex(candidate => candidate.idempotencyKey === persisted.idempotencyKey)
+    if (existingIndex >= 0) this.usageEvents[existingIndex] = persisted
+    else this.usageEvents.push(persisted)
+    return persisted
   }
 
   override async applyVariationEvent(input: ApplyVariationEventInput): Promise<void> {
@@ -384,15 +396,32 @@ export class PostgresRepository extends InMemoryStore {
     this.artifacts.set(artifact.id, artifact)
   }
 
-  override createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch {
-    const batch = super.createAnnotationBatch(input)
-    this.enqueueWrite(() => this.persistAnnotationBatch(batch))
+  override async createAnnotationBatch(input: CreateAnnotationBatchInput): Promise<AnnotationBatch> {
+    const batch: AnnotationBatch = {
+      id: createId('ann'),
+      createdAt: nowIso(),
+      ...input,
+    }
+    await this.persistAnnotationBatch(batch)
+    this.annotationBatches.set(batch.id, batch)
     return batch
   }
 
-  override createShare(input: CreateShareInput): Share {
-    const share = super.createShare(input)
-    this.enqueueWrite(() => this.persistShare(share))
+  override async createShare(input: CreateShareInput): Promise<Share> {
+    const share: Share = {
+      id: createId('shr'),
+      artifactId: input.artifactId,
+      variationId: input.variationId,
+      ownerId: input.ownerId,
+      token: createId('share'),
+      visibility: input.visibility,
+      passwordHash: null,
+      revokedAt: null,
+      expiresAt: input.expiresAt ?? null,
+      createdAt: nowIso(),
+    }
+    await this.persistShare(share)
+    this.shares.set(share.token, share)
     return share
   }
 
@@ -466,8 +495,8 @@ export class PostgresRepository extends InMemoryStore {
       ...existing,
       revokedAt: new Date().toISOString(),
     }
+    await this.persistShare(revoked)
     this.shares.set(token, revoked)
-    this.enqueueWrite(() => this.persistShare(revoked))
     return revoked
   }
 
@@ -1226,15 +1255,19 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
-  private async persistUsageEvent(event: UsageEvent): Promise<void> {
-    await this.pool.query(`
-      insert into usage_events (id, kind, user_id, workspace_id, session_id, job_id, variation_id, artifact_id, input_tokens, output_tokens, cost_cents, metadata, created_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)
-      on conflict (id) do nothing
+  private async persistUsageEvent(event: UsageEvent): Promise<UsageEvent> {
+    const row = (await this.pool.query(`
+      insert into usage_events (id, idempotency_key, kind, user_id, workspace_id, session_id, job_id, variation_id, artifact_id, input_tokens, output_tokens, cost_cents, metadata, created_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)
+      on conflict (idempotency_key) do nothing
+      returning *
     `, [
-      event.id, event.kind, event.userId, event.workspaceId, event.sessionId, event.jobId, event.variationId,
+      event.id, event.idempotencyKey, event.kind, event.userId, event.workspaceId, event.sessionId, event.jobId, event.variationId,
       event.artifactId, event.inputTokens, event.outputTokens, event.costCents, JSON.stringify(event.metadata), event.createdAt,
-    ])
+    ])).rows[0]
+    if (row) return mapUsageEvent(row)
+    const existing = (await this.pool.query('select * from usage_events where idempotency_key = $1', [event.idempotencyKey])).rows[0]
+    return mapUsageEvent(existing)
   }
 
   private async persistAuditLog(audit: AuditLog): Promise<void> {
@@ -1469,6 +1502,7 @@ function mapAuditLog(row: any): AuditLog {
 function mapUsageEvent(row: any): UsageEvent {
   return {
     id: row.id,
+    idempotencyKey: row.idempotency_key,
     kind: row.kind,
     userId: row.user_id,
     workspaceId: row.workspace_id,

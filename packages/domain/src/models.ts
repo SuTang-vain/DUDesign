@@ -139,6 +139,7 @@ export type Share = {
 
 export type UsageEvent = {
   id: ID
+  idempotencyKey: string
   kind: UsageEventKind
   userId: ID
   workspaceId: ID

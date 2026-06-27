@@ -910,3 +910,81 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 优先为 usage event 设计并落地幂等键，再改为 SQL-first 写入。
 - 继续将 share/annotation/audit 写入拆为 SQL-first。
 - 最后评估关闭 startup hydrate 或改成 dev/test warm cache。
+
+## 2026-06-27 M26 Usage Event Idempotency And SQL-first Write
+
+### 已完成
+
+- 为 `UsageEvent` 增加 `idempotencyKey` 领域字段。
+- 新增 migration：
+  - `0002_usage_event_idempotency.sql`
+  - `usage_events.idempotency_key`
+  - `usage_events_idempotency_key_idx` unique index。
+  - 旧数据用 `id` 回填，确保迁移兼容。
+- `ApplicationService` 为 usage 写入生成稳定幂等键：
+  - `variation.completed/refined`：按 `kind + job + variation + artifact`。
+  - `export.created`：按 `export artifact + source artifact`。
+  - `share.created`：按 `share id`。
+- `InMemoryStore.createUsageEvent()` 支持按 `idempotencyKey` 去重。
+- `PostgresRepository.createUsageEvent()` 改为 SQL-first：
+  - `insert ... on conflict (idempotency_key) do nothing returning *`
+  - 冲突时读取既有 usage event 返回。
+  - 同步 hydrated cache，但 PostgreSQL 是写入 source-of-truth。
+- PostgreSQL integration smoke 增加重复 usage 写入，确认不会重复计费。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- usage event 是计费口径，优先保证幂等可信；runtime replay、retry、resume 触发同一业务事件时不会重复累计成本。
+- 用户明确创建新的 export 或 share 会有新的业务对象 id，因此仍会生成新的 usage 记录。
+
+### 下一步
+
+- 继续将 share/annotation/audit 写入拆为 SQL-first。
+- 在 share 写入 SQL-first 后，复查 share.created usage 的幂等键是否需要绑定 token 或 share id 即可。
+- 最后评估 production 模式关闭 startup hydrate。
+
+## 2026-06-27 M27 Share Annotation Audit SQL-first Writes
+
+### 已完成
+
+- 将剩余 write-through mutation 契约放宽为 `MaybePromise`：
+  - `createShare()`
+  - `createAnnotationBatch()`
+  - `createAuditLog()`
+- `ApplicationService` 对 share、annotation、audit 写入补齐 `await`。
+- `PostgresRepository` 改为 SQL-first：
+  - `createShare()` 先写 `shares`，再同步 cache。
+  - `revokeShare()` 先更新 `shares.revoked_at`，再同步 cache。
+  - `createAnnotationBatch()` 先写 `annotation_batches`，再同步 cache。
+  - `createAuditLog()` 先写 `audit_logs`，再同步 cache。
+- 至此业务写入主路径已经从内存 write-through 迁移为 PostgreSQL SQL-first source-of-truth；startup hydrate 仍保留为 warm cache/兼容过渡。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- share.created usage 的幂等键继续绑定 `share.id`；SQL-first share 创建后，该 id 是明确业务对象标识。
+- annotation 和 audit 暂不增加独立幂等键；annotation 是用户动作，audit 是管理操作记录，后续如引入 request-level retry 再补 request id 维度去重。
+
+### 下一步
+
+- 评估 production 模式关闭 startup hydrate，或将 hydrate 限定为 dev/test warm cache。
+- 增加 Runtime unavailable 降级测试，验证 runtime 不可用时已落库的 preview/export/share/resume 仍可用或返回明确降级提示。

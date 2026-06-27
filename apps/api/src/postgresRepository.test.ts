@@ -75,13 +75,14 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       costCents: 3,
     })
     await repository.setJobStatus(job.id, 'completed')
-    const share = repository.createShare({
+    const share = await repository.createShare({
       artifactId: artifact.id,
       variationId: variation.id,
       ownerId: repository.devUser.id,
       visibility: 'public',
     })
-    repository.createUsageEvent({
+    await repository.createUsageEvent({
+      idempotencyKey: `usage:test:${job.id}:${variation.id}:${artifact.id}`,
       kind: 'variation.completed',
       userId: repository.devUser.id,
       workspaceId: repository.devWorkspace.id,
@@ -93,6 +94,20 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       outputTokens: 22,
       costCents: 3,
       metadata: { smoke: true },
+    })
+    await repository.createUsageEvent({
+      idempotencyKey: `usage:test:${job.id}:${variation.id}:${artifact.id}`,
+      kind: 'variation.completed',
+      userId: repository.devUser.id,
+      workspaceId: repository.devWorkspace.id,
+      sessionId: session.id,
+      jobId: job.id,
+      variationId: variation.id,
+      artifactId: artifact.id,
+      inputTokens: 999,
+      outputTokens: 999,
+      costCents: 999,
+      metadata: { duplicate: true },
     })
 
     await repository.flush()
