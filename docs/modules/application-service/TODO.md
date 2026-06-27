@@ -141,7 +141,7 @@
 - [x] 为 PostgreSQL Repository 实现 SQL-native session/job/context methods。
 - [ ] 将 PostgreSQL Repository 从 hydrated/write-through 过渡到 async source-of-truth。
 - [ ] 增加 usage event 幂等键，避免 runtime event replay 重复计费。
-- [ ] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
+- [x] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
 
 验收：
 

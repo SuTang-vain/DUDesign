@@ -733,3 +733,43 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 建立同一套 API smoke 双实现测试：InMemoryStore + PostgresRepository。
 - 将 `ApplicationService` 的基础 `getUserById/getWorkspaceById/...` 权限查找继续评估是否需要 SQL-native override。
 - 梳理生产模式下是否可以关闭 startup hydrate 或改为按需 warm cache。
+
+## 2026-06-27 M22 Dual Repository API Smoke
+
+### 已完成
+
+- 将 API 主链路 smoke 抽成可复用 helper：
+  - `apiFlowSmoke.ts`
+  - `startApiFlowHarness()`
+  - `runApiFlowSmoke()`
+- 默认内存实现继续通过 `mock-flow.test.ts` 跑同一套 API flow。
+- 新增 `postgres-api-flow.test.ts`：
+  - 使用 `DUDESIGN_POSTGRES_TEST_URL` opt-in。
+  - 每次创建独立 schema。
+  - 用 `PostgresRepository` 注入 `ApplicationService`。
+  - 复用同一套 HTTP API flow。
+- API flow 不再直接写 `service.store` 创建测试数据，避免测试绑定具体 repository 内部结构。
+- admin cancel smoke 对运行速度导致的 200/409 竞态做了稳定处理：
+  - 支持及时取消成功。
+  - 也支持 job 已完成后的 `JOB_NOT_CANCELLABLE`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- 双实现 smoke 使用同一套 HTTP 级 API flow，而不是复制断言，避免 InMemoryStore 与 PostgresRepository 后续行为漂移。
+- PostgreSQL flow 仍保持 opt-in，不进入默认无外部服务门禁。
+
+### 下一步
+
+- 为 `PostgresRepository` 的基础 permission lookup methods 评估是否补 SQL-native override。
+- 设计从 hydrated/write-through 到 async source-of-truth 的拆分步骤。
+- 增加 usage event 幂等键，避免 runtime event replay 重复计费。

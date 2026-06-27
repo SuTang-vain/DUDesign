@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test'
 import { Pool } from 'pg'
 import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
-import { runApiFlowSmoke, startApiFlowHarness, type ApiFlowHarness } from './mock-flow.test.js'
+import { runApiFlowSmoke, startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
 const POSTGRES_TEST_URL = process.env.DUDESIGN_POSTGRES_TEST_URL
 
