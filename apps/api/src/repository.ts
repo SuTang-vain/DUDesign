@@ -24,6 +24,26 @@ export type JobSnapshot = {
   artifacts: Artifact[]
 }
 
+export type VariationDetailSnapshot = {
+  variation: DesignVariation
+  job: DesignJob | null
+  currentArtifact: Artifact | null
+  artifacts: Artifact[]
+}
+
+export type CurrentVariationArtifactSnapshot = {
+  variation: DesignVariation | null
+  artifactId: string | null
+  artifact: Artifact | null
+  mismatch: boolean
+}
+
+export type SharedVariationSnapshot = {
+  share: Share
+  variation: DesignVariation | null
+  artifact: Artifact | null
+}
+
 export type CreateSessionInput = {
   userId: string
   workspaceId: string
@@ -92,6 +112,138 @@ export type CreateShareInput = {
   expiresAt?: string | null
 }
 
+export type AdminJobsFilter = {
+  status?: string | null
+  userId?: string | null
+}
+
+export type AdminArtifactsFilter = {
+  jobId?: string | null
+  variationId?: string | null
+  kind?: string | null
+}
+
+export type AdminUserSupportFilter = {
+  userId?: string | null
+  email?: string | null
+}
+
+export type AdminJobSummary = {
+  id: string
+  userId: string
+  workspaceId: string
+  sessionId: string
+  prompt: string
+  status: DesignJob['status']
+  variationCount: number
+  completedVariationCount: number
+  failedVariationCount: number
+  cancelledVariationCount: number
+  artifactCount: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCostCents: number
+  errorCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminArtifactSummary = {
+  id: string
+  workspaceId: string
+  sessionId: string
+  jobId: string | null
+  variationId: string | null
+  parentArtifactId: string | null
+  kind: Artifact['kind']
+  version: number
+  storageKey: string
+  entryPath: string | null
+  contentHash: string
+  sizeBytes: number
+  previewUrl: string | null
+  shareCount: number
+  createdAt: string
+}
+
+export type AdminFailureSummary = {
+  severity: 'ok' | 'warning' | 'blocked'
+  message: string
+  failedVariationCount: number
+  examples: Array<{
+    variationId: string
+    errorCode: string | null
+    message: string | null
+  }>
+}
+
+export type AdminSupportSession = {
+  id: string
+  workspaceId: string
+  title: string
+  mode: DesignSession['mode']
+  status: DesignSession['status']
+  resumeState: 'runtime_session_available' | 'runtime_session_missing'
+  lastPromptPreview: string | null
+  jobCount: number
+  latestJob: {
+    id: string
+    status: DesignJob['status']
+    variationCount: number
+    updatedAt: string
+  } | null
+  variationSummary: {
+    queued: number
+    running: number
+    streaming: number
+    renderingPreview: number
+    completed: number
+    failed: number
+    cancelled: number
+  }
+  failureSummary: AdminFailureSummary
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminUserSupport = {
+  user: {
+    id: string
+    email: string
+    name: string | null
+    status: User['status']
+    createdAt: string
+    updatedAt: string
+  }
+  workspaces: Array<{
+    id: string
+    name: string
+    visibility: Workspace['visibility']
+    status: Workspace['status']
+  }>
+  sessions: AdminSupportSession[]
+}
+
+export type AdminCostByUser = {
+  userId: string
+  jobCount: number
+  usageEventCount: number
+  inputTokens: number
+  outputTokens: number
+  costCents: number
+}
+
+export type AdminCostSummary = {
+  totals: {
+    jobCount: number
+    usageEventCount: number
+    inputTokens: number
+    outputTokens: number
+    costCents: number
+  }
+  byUser: AdminCostByUser[]
+}
+
 export type ApplicationRepository = {
   readonly users: Map<string, User>
   readonly workspaces: Map<string, Workspace>
@@ -116,6 +268,8 @@ export type ApplicationRepository = {
   listSessions(): DesignSession[]
   getSessionSnapshot(sessionId: string): SessionSnapshot | null
   getJobSnapshot(jobId: string): JobSnapshot | null
+  getVariationDetailSnapshot(variationId: string): VariationDetailSnapshot | null
+  getCurrentVariationArtifactSnapshot(variationId: string): CurrentVariationArtifactSnapshot
   setJobStatus(jobId: string, status: DesignJob['status']): void
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): AuditLog
   listAuditLogs(options?: { limit?: number }): AuditLog[]
@@ -133,5 +287,16 @@ export type ApplicationRepository = {
   createAnnotationBatch(input: CreateAnnotationBatchInput): AnnotationBatch
   createShare(input: CreateShareInput): Share
   getShareByToken(token: string): Share | null
+  getSharedVariationSnapshot(token: string): SharedVariationSnapshot | null
   revokeShare(token: string): Share | null
+  listAdminJobs(filter?: AdminJobsFilter): {
+    jobs: AdminJobSummary[]
+  }
+  listAdminArtifacts(filter?: AdminArtifactsFilter): {
+    artifacts: AdminArtifactSummary[]
+  }
+  getAdminUserSupport(filter?: AdminUserSupportFilter): {
+    users: AdminUserSupport[]
+  }
+  getAdminCostSummary(): AdminCostSummary
 }

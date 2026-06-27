@@ -74,6 +74,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       outputTokens: 22,
       costCents: 3,
     })
+    repository.setJobStatus(job.id, 'completed')
     const share = repository.createShare({
       artifactId: artifact.id,
       variationId: variation.id,
@@ -109,6 +110,24 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.artifacts.get(artifact.id)?.contentHash, 'sha256:postgres-smoke')
       assert.equal(hydrated.getShareByToken(share.token)?.artifactId, artifact.id)
       assert.equal(hydrated.listUsageEvents({ jobId: job.id }).length, 1)
+      const adminJobs = hydrated.listAdminJobs({ userId: repository.devUser.id })
+      assert.equal(adminJobs.jobs.length, 1)
+      assert.equal(adminJobs.jobs[0]?.id, job.id)
+      assert.equal(adminJobs.jobs[0]?.completedVariationCount, 1)
+      assert.equal(adminJobs.jobs[0]?.totalCostCents, 3)
+      const adminArtifacts = hydrated.listAdminArtifacts({ jobId: job.id, kind: 'html' })
+      assert.equal(adminArtifacts.artifacts.length, 1)
+      assert.equal(adminArtifacts.artifacts[0]?.id, artifact.id)
+      assert.equal(adminArtifacts.artifacts[0]?.shareCount, 1)
+      const support = hydrated.getAdminUserSupport({ userId: repository.devUser.id })
+      assert.equal(support.users.length, 1)
+      assert.equal(support.users[0]?.user.id, repository.devUser.id)
+      assert.equal(support.users[0]?.sessions[0]?.id, session.id)
+      assert.equal(support.users[0]?.sessions[0]?.failureSummary.severity, 'ok')
+      const costSummary = hydrated.getAdminCostSummary()
+      assert.equal(costSummary.totals.jobCount, 1)
+      assert.equal(costSummary.totals.usageEventCount, 1)
+      assert.equal(costSummary.totals.costCents, 3)
       const snapshot = hydrated.getSessionSnapshot(session.id)
       assert.equal(snapshot?.messages.length, 1)
       assert.equal(snapshot?.jobs.length, 1)

@@ -522,3 +522,74 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 ### 下一步
 
 - 后续把 service 查询逐步下沉到 repository query methods。
+
+## 2026-06-27 M17 Repository Query Methods Baseline
+
+### 已完成
+
+- 将 Admin 查询从 `ApplicationService` 下沉到 `ApplicationRepository` 契约：
+  - `listAdminJobs()`
+  - `listAdminArtifacts()`
+  - `getAdminUserSupport()`
+  - `getAdminCostSummary()`
+- 为 Admin 查询定义明确 DTO 类型，避免服务层和未来 PostgreSQL SQL-native 实现之间用弱类型传递。
+- `InMemoryStore` 实现上述 query methods；`PostgresRepository` 当前通过 hydrate 后的统一 repository 查询路径复用该实现。
+- `ApplicationService` 保留鉴权与入口编排，不再直接承载 Admin jobs/artifacts/support/cost 的 Map 聚合逻辑。
+- PostgreSQL integration smoke 扩展覆盖：
+  - Admin jobs summary。
+  - Admin artifacts summary。
+  - Admin support user/session summary。
+  - Admin cost summary。
+- baseline migration 的 artifact 后置外键 guard 增加 schema 限定，避免多 schema 测试或未来隔离 schema 中同名 constraint 互相影响。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api test`
+- 真实 PostgreSQL smoke：
+  - 临时端口：`55432`
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://localhost:55432/dudesign_test`
+  - 执行 `npm --workspace @dudesign/api test` 通过。
+  - 测试后已停止 server 并清理临时数据目录。
+
+### 决策
+
+- M17 先完成 repository query methods 的契约边界，不立刻把 Admin 查询改写为 PostgreSQL 原生 SQL。
+- 当前 `PostgresRepository` 仍是 hydrated/write-through 过渡形态；等 service 直接 Map 读取进一步收敛后，再逐步将高频查询替换为 SQL-native methods。
+
+### 下一步
+
+- 继续把 session/job/detail/share 等非 Admin 读取路径下沉到 repository methods。
+- 为 `PostgresRepository` 增加 SQL-native Admin query methods，优先覆盖 jobs/artifacts/cost summary。
+- 增加同一套 API smoke 对 InMemoryStore 与 PostgresRepository 的双实现测试。
+
+## 2026-06-27 M18 User-facing Repository Read Models
+
+### 已完成
+
+- 新增用户侧读模型 repository methods：
+  - `getVariationDetailSnapshot()`
+  - `getCurrentVariationArtifactSnapshot()`
+  - `getSharedVariationSnapshot()`
+- `InMemoryStore` 实现上述 snapshot 查询。
+- `ApplicationService` 的用户侧 variation/share/export 读取路径改为消费 repository snapshots：
+  - `GET /api/variations/:id`
+  - `POST /api/variations/:id/export`
+  - `POST /api/variations/:id/share`
+  - `GET /api/shares/:token`
+- 保持 API 响应结构、权限校验和错误码语义不变。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api test`
+
+### 决策
+
+- snapshot methods 暂时仍在 hydrated repository 数据上实现，主要目标是先切断 `ApplicationService` 对 Map 聚合结构的直接依赖。
+- 后续 `PostgresRepository` 可以优先把这些 snapshot methods 改写为 SQL join 查询，而无需改动 service 层。
+
+### 下一步
+
+- 将 session/workspace/job/variation/artifact 的基础查找和权限上下文继续下沉到 repository methods。
+- 为 `getVariationDetailSnapshot()` 和 `getSharedVariationSnapshot()` 增加 PostgreSQL SQL-native 实现。

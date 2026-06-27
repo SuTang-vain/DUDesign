@@ -9,7 +9,20 @@ import type {
   Workspace,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
-import type { ApplicationRepository } from './repository.js'
+import type {
+  AdminArtifactSummary,
+  AdminArtifactsFilter,
+  AdminCostSummary,
+  AdminJobSummary,
+  AdminJobsFilter,
+  AdminSupportSession,
+  AdminUserSupport,
+  AdminUserSupportFilter,
+  ApplicationRepository,
+  CurrentVariationArtifactSnapshot,
+  SharedVariationSnapshot,
+  VariationDetailSnapshot,
+} from './repository.js'
 
 export type SessionMessage = {
   id: string
@@ -274,6 +287,36 @@ export class InMemoryStore implements ApplicationRepository {
     return { job, variations, artifacts }
   }
 
+  getVariationDetailSnapshot(variationId: string): VariationDetailSnapshot | null {
+    const variation = this.variations.get(variationId)
+    if (!variation) return null
+    const job = this.jobs.get(variation.jobId) ?? null
+    const artifacts = [...this.artifacts.values()]
+      .filter(artifact => artifact.variationId === variationId && artifact.kind === 'html')
+      .sort((a, b) => b.version - a.version)
+    const currentArtifact = variation.currentArtifactId
+      ? this.artifacts.get(variation.currentArtifactId) ?? null
+      : artifacts[0] ?? null
+    return {
+      variation,
+      job,
+      currentArtifact,
+      artifacts,
+    }
+  }
+
+  getCurrentVariationArtifactSnapshot(variationId: string): CurrentVariationArtifactSnapshot {
+    const variation = this.variations.get(variationId) ?? null
+    const artifactId = variation?.currentArtifactId ?? null
+    const artifact = artifactId ? this.artifacts.get(artifactId) ?? null : null
+    return {
+      variation,
+      artifactId,
+      artifact,
+      mismatch: Boolean(artifact && artifact.variationId !== variationId),
+    }
+  }
+
   setJobStatus(jobId: string, status: DesignJob['status']): void {
     const job = this.jobs.get(jobId)
     if (!job) return
@@ -467,6 +510,16 @@ export class InMemoryStore implements ApplicationRepository {
     return this.shares.get(token) ?? null
   }
 
+  getSharedVariationSnapshot(token: string): SharedVariationSnapshot | null {
+    const share = this.getShareByToken(token)
+    if (!share) return null
+    return {
+      share,
+      variation: this.variations.get(share.variationId) ?? null,
+      artifact: this.artifacts.get(share.artifactId) ?? null,
+    }
+  }
+
   revokeShare(token: string): Share | null {
     const share = this.shares.get(token)
     if (!share) return null
@@ -476,5 +529,281 @@ export class InMemoryStore implements ApplicationRepository {
     }
     this.shares.set(token, revoked)
     return revoked
+  }
+
+  listAdminJobs(filter: AdminJobsFilter = {}): { jobs: AdminJobSummary[] } {
+    const jobs = [...this.jobs.values()]
+      .filter(job => !filter.status || job.status === filter.status)
+      .filter(job => !filter.userId || job.userId === filter.userId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 100)
+
+    return {
+      jobs: jobs.map(job => {
+        const variations = [...this.variations.values()].filter(variation => variation.jobId === job.id)
+        const artifacts = [...this.artifacts.values()].filter(artifact =>
+          variations.some(variation => variation.id === artifact.variationId),
+        )
+        const counts = variations.reduce(
+          (acc, variation) => {
+            acc[variation.status] = (acc[variation.status] ?? 0) + 1
+            return acc
+          },
+          {} as Record<string, number>,
+        )
+        return {
+          id: job.id,
+          userId: job.userId,
+          workspaceId: job.workspaceId,
+          sessionId: job.sessionId,
+          prompt: job.prompt,
+          status: job.status,
+          variationCount: job.variationCount,
+          completedVariationCount: counts.completed ?? 0,
+          failedVariationCount: counts.failed ?? 0,
+          cancelledVariationCount: counts.cancelled ?? 0,
+          artifactCount: artifacts.length,
+          totalInputTokens: variations.reduce((sum, variation) => sum + variation.inputTokens, 0),
+          totalOutputTokens: variations.reduce((sum, variation) => sum + variation.outputTokens, 0),
+          totalCostCents: variations.reduce((sum, variation) => sum + variation.costCents, 0),
+          errorCount: variations.filter(variation => variation.errorCode).length,
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+        }
+      }),
+    }
+  }
+
+  listAdminArtifacts(filter: AdminArtifactsFilter = {}): { artifacts: AdminArtifactSummary[] } {
+    const variationIdsForJob = filter.jobId
+      ? new Set([...this.variations.values()].filter(variation => variation.jobId === filter.jobId).map(variation => variation.id))
+      : null
+
+    const artifacts = [...this.artifacts.values()]
+      .filter(artifact => !filter.kind || artifact.kind === filter.kind)
+      .filter(artifact => !filter.variationId || artifact.variationId === filter.variationId)
+      .filter(artifact => !variationIdsForJob || (artifact.variationId ? variationIdsForJob.has(artifact.variationId) : false))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 100)
+
+    return {
+      artifacts: artifacts.map(artifact => {
+        const variation = artifact.variationId ? this.variations.get(artifact.variationId) : null
+        const shareCount = [...this.shares.values()].filter(share => share.artifactId === artifact.id).length
+        return {
+          id: artifact.id,
+          workspaceId: artifact.workspaceId,
+          sessionId: artifact.sessionId,
+          jobId: variation?.jobId ?? null,
+          variationId: artifact.variationId,
+          parentArtifactId: artifact.parentArtifactId,
+          kind: artifact.kind,
+          version: artifact.version,
+          storageKey: artifact.storageKey,
+          entryPath: artifact.entryPath,
+          contentHash: artifact.contentHash,
+          sizeBytes: artifact.sizeBytes,
+          previewUrl: variation?.previewUrl ?? null,
+          shareCount,
+          createdAt: artifact.createdAt,
+        }
+      }),
+    }
+  }
+
+  getAdminUserSupport(filter: AdminUserSupportFilter = {}): { users: AdminUserSupport[] } {
+    const userId = filter.userId?.trim()
+    const email = filter.email?.trim().toLowerCase()
+    const users = [...this.users.values()]
+      .filter(user => !userId || user.id === userId)
+      .filter(user => !email || user.email.toLowerCase().includes(email))
+      .sort((a, b) => a.email.localeCompare(b.email))
+      .slice(0, 20)
+
+    return {
+      users: users.map(user => {
+        const workspaces = [...this.workspaces.values()]
+          .filter(workspace => workspace.ownerId === user.id)
+          .sort((a, b) => a.name.localeCompare(b.name))
+        const sessions = [...this.sessions.values()]
+          .filter(session => session.userId === user.id)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .slice(0, 50)
+
+        return {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            status: user.status,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+          },
+          workspaces: workspaces.map(workspace => ({
+            id: workspace.id,
+            name: workspace.name,
+            visibility: workspace.visibility,
+            status: workspace.status,
+          })),
+          sessions: sessions.map(session => {
+            const jobs = [...this.jobs.values()]
+              .filter(job => job.sessionId === session.id)
+              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            const jobIds = new Set(jobs.map(job => job.id))
+            const variations = [...this.variations.values()].filter(variation => jobIds.has(variation.jobId))
+            const variationSummary = variations.reduce(
+              (acc, variation) => {
+                acc[variation.status] = (acc[variation.status] ?? 0) + 1
+                return acc
+              },
+              {} as Record<string, number>,
+            )
+            const failedVariations = variations.filter(variation => variation.status === 'failed' || variation.errorCode)
+            const latestJob = jobs[0] ?? null
+
+            const supportSession: AdminSupportSession = {
+              id: session.id,
+              workspaceId: session.workspaceId,
+              title: session.title,
+              mode: session.mode,
+              status: session.status,
+              resumeState: session.runtimeSessionId ? 'runtime_session_available' : 'runtime_session_missing',
+              lastPromptPreview: previewText(session.lastPrompt, 140),
+              jobCount: jobs.length,
+              latestJob: latestJob
+                ? {
+                    id: latestJob.id,
+                    status: latestJob.status,
+                    variationCount: latestJob.variationCount,
+                    updatedAt: latestJob.updatedAt,
+                  }
+                : null,
+              variationSummary: {
+                queued: variationSummary.queued ?? 0,
+                running: variationSummary.running ?? 0,
+                streaming: variationSummary.streaming ?? 0,
+                renderingPreview: variationSummary.rendering_preview ?? 0,
+                completed: variationSummary.completed ?? 0,
+                failed: variationSummary.failed ?? 0,
+                cancelled: variationSummary.cancelled ?? 0,
+              },
+              failureSummary: summarizeSupportIssue(latestJob, failedVariations),
+              createdAt: session.createdAt,
+              updatedAt: session.updatedAt,
+            }
+            return supportSession
+          }),
+        }
+      }),
+    }
+  }
+
+  getAdminCostSummary(): AdminCostSummary {
+    const jobs = [...this.jobs.values()]
+    const usageEvents = this.listUsageEvents()
+    const totals = usageEvents.reduce(
+      (acc, event) => {
+        acc.inputTokens += event.inputTokens
+        acc.outputTokens += event.outputTokens
+        acc.costCents += event.costCents
+        return acc
+      },
+      { inputTokens: 0, outputTokens: 0, costCents: 0 },
+    )
+    const byUser = new Map<string, { userId: string; jobCount: number; usageEventCount: number; inputTokens: number; outputTokens: number; costCents: number }>()
+    for (const job of jobs) {
+      const row = byUser.get(job.userId) ?? {
+        userId: job.userId,
+        jobCount: 0,
+        usageEventCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+      }
+      row.jobCount += 1
+      byUser.set(job.userId, row)
+    }
+    for (const event of usageEvents) {
+      const row = byUser.get(event.userId) ?? {
+        userId: event.userId,
+        jobCount: 0,
+        usageEventCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+      }
+      row.usageEventCount += 1
+      row.inputTokens += event.inputTokens
+      row.outputTokens += event.outputTokens
+      row.costCents += event.costCents
+      byUser.set(event.userId, row)
+    }
+    return {
+      totals: {
+        jobCount: jobs.length,
+        usageEventCount: usageEvents.length,
+        ...totals,
+      },
+      byUser: [...byUser.values()].sort((a, b) => b.costCents - a.costCents || a.userId.localeCompare(b.userId)),
+    }
+  }
+}
+
+function previewText(value: string | null, maxLength: number): string | null {
+  if (!value) return null
+  const compact = value.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLength) return compact
+  return `${compact.slice(0, maxLength - 1)}…`
+}
+
+function summarizeSupportIssue(
+  latestJob: { status: string; id: string } | null,
+  failedVariations: Array<{ id: string; errorCode: string | null; errorMessage: string | null }>,
+): { severity: 'ok' | 'warning' | 'blocked'; message: string; failedVariationCount: number; examples: Array<{ variationId: string; errorCode: string | null; message: string | null }> } {
+  if (!latestJob) {
+    return {
+      severity: 'warning',
+      message: 'No jobs have been created for this session.',
+      failedVariationCount: 0,
+      examples: [],
+    }
+  }
+  if (latestJob.status === 'failed') {
+    return {
+      severity: 'blocked',
+      message: `Latest job ${latestJob.id} failed.`,
+      failedVariationCount: failedVariations.length,
+      examples: failedVariations.slice(0, 3).map(toFailureExample),
+    }
+  }
+  if (failedVariations.length > 0) {
+    return {
+      severity: 'warning',
+      message: `${failedVariations.length} variation(s) reported errors.`,
+      failedVariationCount: failedVariations.length,
+      examples: failedVariations.slice(0, 3).map(toFailureExample),
+    }
+  }
+  if (latestJob.status === 'queued' || latestJob.status === 'running') {
+    return {
+      severity: 'warning',
+      message: `Latest job ${latestJob.id} is still ${latestJob.status}.`,
+      failedVariationCount: 0,
+      examples: [],
+    }
+  }
+  return {
+    severity: 'ok',
+    message: 'No job or variation failures detected.',
+    failedVariationCount: 0,
+    examples: [],
+  }
+}
+
+function toFailureExample(variation: { id: string; errorCode: string | null; errorMessage: string | null }) {
+  return {
+    variationId: variation.id,
+    errorCode: variation.errorCode,
+    message: previewText(variation.errorMessage, 120),
   }
 }

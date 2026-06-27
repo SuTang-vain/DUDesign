@@ -146,22 +146,38 @@ create index if not exists artifacts_parent_idx on artifacts (parent_artifact_id
 
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'design_sessions_source_artifact_fk') then
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'design_sessions_source_artifact_fk'
+      and connamespace = current_schema()::regnamespace
+  ) then
     alter table design_sessions
       add constraint design_sessions_source_artifact_fk
       foreign key (source_artifact_id) references artifacts(id);
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'design_jobs_source_artifact_fk') then
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'design_jobs_source_artifact_fk'
+      and connamespace = current_schema()::regnamespace
+  ) then
     alter table design_jobs
       add constraint design_jobs_source_artifact_fk
       foreign key (source_artifact_id) references artifacts(id);
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'design_variations_current_artifact_fk') then
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'design_variations_current_artifact_fk'
+      and connamespace = current_schema()::regnamespace
+  ) then
     alter table design_variations
       add constraint design_variations_current_artifact_fk
       foreign key (current_artifact_id) references artifacts(id);
   end if;
-  if not exists (select 1 from pg_constraint where conname = 'design_variations_screenshot_artifact_fk') then
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'design_variations_screenshot_artifact_fk'
+      and connamespace = current_schema()::regnamespace
+  ) then
     alter table design_variations
       add constraint design_variations_screenshot_artifact_fk
       foreign key (screenshot_artifact_id) references artifacts(id);
