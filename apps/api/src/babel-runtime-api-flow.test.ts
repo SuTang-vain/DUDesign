@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { BabelORuntimeGateway, BabelORuntimeClient, DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
-import type { CreateDesignJobResponse, CreateSessionResponse } from '@dudesign/contracts'
+import type {
+  CreateAnnotationBatchResponse,
+  CreateDesignJobResponse,
+  CreateSessionResponse,
+  ResumeSessionResponse,
+  VariationDetailResponse,
+} from '@dudesign/contracts'
 
 import { ApplicationService } from './service.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
@@ -22,6 +28,10 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
   let activeStreams = 0
   let maxActiveStreams = 0
   let unsafeBundle = false
+  let sessionCreateCount = 0
+  let resumeMode: 'resumed' | 'fail_then_rebuild' = 'resumed'
+  const refineBodies: unknown[] = []
+  const resumeBodies: unknown[] = []
 
   before(async () => {
     const runtime = new BabelORuntimeGateway({
@@ -41,8 +51,33 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
               runtimeVersion: '1.2.3',
             })
           }
+          if (/\/v1\/sessions\/[^/]+\/resume$/.test(href)) {
+            resumeBodies.push(JSON.parse(String(init?.body)))
+            if (resumeMode === 'fail_then_rebuild') {
+              return new Response('runtime session gone', { status: 410 })
+            }
+            return jsonResponse({
+              status: 'resumed',
+              runtimeSessionId: 'rt_session_api_smoke',
+              message: 'ok',
+            })
+          }
           if (href.endsWith('/v1/sessions')) {
-            return jsonResponse({ runtimeSessionId: 'rt_session_api_smoke' })
+            sessionCreateCount += 1
+            return jsonResponse({
+              runtimeSessionId: resumeMode === 'fail_then_rebuild'
+                ? `rt_session_rebuilt_${sessionCreateCount}`
+                : 'rt_session_api_smoke',
+            })
+          }
+          if (href.endsWith('/v1/agents/refine')) {
+            const body = JSON.parse(String(init?.body)) as { runtimeChildSessionId?: string | null }
+            refineBodies.push(body)
+            return jsonResponse({
+              streamId: 'refine_stream_1',
+              agentJobId: 'refine_agent_1',
+              runtimeChildSessionId: body.runtimeChildSessionId ?? 'rt_child_refine_1',
+            })
           }
           if (href.endsWith('/v1/agents')) {
             const body = JSON.parse(String(init?.body)) as { variationIndex: number }
@@ -54,6 +89,20 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
           }
           if (href.includes('/v1/stream')) {
             const streamId = new URL(href).searchParams.get('streamId') ?? 'stream_0'
+            if (streamId === 'refine_stream_1') {
+              return streamResponse([
+                JSON.stringify({ type: 'assistant_delta', delta: 'Refining from current artifact context' }),
+                JSON.stringify({
+                  type: 'result',
+                  artifactId: 'runtime_refined_artifact_1',
+                  entryPath: 'index.html',
+                  html: '<!doctype html><html><body><h1>Runtime refined from annotation</h1></body></html>',
+                  inputTokens: 50,
+                  outputTokens: 120,
+                  costCents: 1,
+                }),
+              ].join('\n') + '\n')
+            }
             if (unsafeBundle) {
               return streamResponse(JSON.stringify({
                 type: 'result',
@@ -178,6 +227,93 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     const escapeAttempt = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/assets/%5C..%5Cstyles.css`)
     assert.equal(escapeAttempt.status, 400)
     assert.equal(maxActiveStreams, 2)
+  })
+
+  it('passes current artifact html and annotation suffix to mocked BabeL-O refine', async () => {
+    refineBodies.length = 0
+    const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+    const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'BabeL-O refine context smoke',
+    })
+    const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+      sessionId: createdSession.session.id,
+      prompt: 'A page that will be refined',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {},
+    })
+    const jobSnapshot = await waitForJob(createdJob.job.id)
+    const variationId = jobSnapshot.variations[0]!.id
+    const beforeRefine = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+    assert.ok(beforeRefine.currentArtifact)
+
+    const annotated = await postJson<CreateAnnotationBatchResponse>(`/api/variations/${variationId}/annotations`, {
+      artifactId: beforeRefine.currentArtifact.id,
+      prompt: 'Make the marked hero feel stronger.',
+      shapes: [
+        {
+          type: 'rect',
+          x: 10,
+          y: 20,
+          w: 300,
+          h: 120,
+          note: 'Hero area',
+        },
+      ],
+    })
+
+    assert.equal(refineBodies.length, 1)
+    const refineBody = refineBodies[0] as {
+      baseArtifactHtml?: string
+      baseArtifactEntryPath?: string | null
+      baseArtifactVersion?: number
+      annotationPromptSuffix?: string
+      runtimeChildSessionId?: string | null
+    }
+    assert.match(refineBody.baseArtifactHtml ?? '', /Runtime workspace bridge/)
+    assert.equal(refineBody.baseArtifactEntryPath, beforeRefine.currentArtifact.entryPath)
+    assert.equal(refineBody.baseArtifactVersion, beforeRefine.currentArtifact.version)
+    assert.match(refineBody.annotationPromptSuffix ?? '', /Make the marked hero feel stronger/)
+    assert.match(refineBody.annotationPromptSuffix ?? '', /rect/)
+    assert.equal(refineBody.runtimeChildSessionId, 'rt_child_1')
+    assert.match(annotated.annotationBatch.promptSuffix, /Hero area/)
+    const preview = await getText(`/api/variations/${variationId}/preview`)
+    assert.match(preview, /Runtime refined from annotation/)
+  })
+
+  it('resumes runtime sessions and persists rebuilt runtime ids', async () => {
+    resumeBodies.length = 0
+    resumeMode = 'resumed'
+    const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+    const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'BabeL-O runtime resume smoke',
+    })
+    const resumed = await postJson<ResumeSessionResponse>(`/api/sessions/${createdSession.session.id}/resume`, {})
+    assert.equal(resumed.runtime.status, 'resumed')
+    assert.equal(resumed.runtime.runtimeSessionId, 'rt_session_api_smoke')
+    assert.equal(resumeBodies.length, 1)
+
+    resumeMode = 'fail_then_rebuild'
+    const rebuilt = await postJson<ResumeSessionResponse>(`/api/sessions/${createdSession.session.id}/resume`, {})
+    assert.equal(rebuilt.runtime.status, 'rebuilt')
+    assert.ok(rebuilt.runtime.runtimeSessionId?.startsWith('rt_session_rebuilt_'))
+    assert.equal((rebuilt.session as { runtimeSessionId?: string | null }).runtimeSessionId, rebuilt.runtime.runtimeSessionId)
+
+    const continuedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+      sessionId: createdSession.session.id,
+      prompt: 'Continue after runtime rebuild',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {},
+    })
+    const continuedSnapshot = await waitForJob(continuedJob.job.id)
+    assert.equal(continuedSnapshot.job.status, 'completed')
+    assert.equal(continuedSnapshot.variations[0]?.status, 'completed')
+    resumeMode = 'resumed'
   })
 
   it('rejects runtime workspace files that escape the artifact root', async () => {

@@ -105,8 +105,19 @@ export class ApplicationService {
       workspaceRoot: workspace.storageKey,
       memoryNamespace: user.memoryNamespace,
     })
+    const session = runtime.runtimeSessionId && runtime.runtimeSessionId !== snapshot.session.runtimeSessionId
+      ? {
+          ...snapshot.session,
+          runtimeSessionId: runtime.runtimeSessionId,
+          updatedAt: new Date().toISOString(),
+        }
+      : snapshot.session
+    if (session !== snapshot.session) {
+      await this.store.saveSession(session)
+    }
     return {
       ...snapshot,
+      session,
       runtime,
     }
   }
@@ -211,6 +222,7 @@ export class ApplicationService {
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${job.workspaceId}`)
     if (!input.prompt.trim()) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
     if (!baseArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.baseArtifactId}`)
+    const baseArtifactHtml = await this.readArtifactHtml(baseArtifact.storageKey)
 
     await this.store.appendMessage({
       sessionId: session.id,
@@ -232,7 +244,11 @@ export class ApplicationService {
       variationId,
       runtimeChildSessionId: variation.runtimeChildSessionId,
       baseArtifactId: input.baseArtifactId,
+      baseArtifactHtml,
+      baseArtifactEntryPath: baseArtifact.entryPath,
+      baseArtifactVersion: baseArtifact.version,
       prompt: input.prompt,
+      annotationPromptSuffix: input.annotationPromptSuffix,
       workspaceRoot: workspace.storageKey,
       deviceContext: input.deviceContext,
     })) {
@@ -284,6 +300,7 @@ export class ApplicationService {
     const refined = await this.refineVariation(ctx, variationId, {
       prompt: promptSuffix,
       baseArtifactId: input.artifactId,
+      annotationPromptSuffix: promptSuffix,
     })
     return {
       ...refined,

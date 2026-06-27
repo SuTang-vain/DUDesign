@@ -82,11 +82,11 @@
 
 ## Phase RTC-5：Refine 与 Resume
 
-- [ ] 实现 `resumeSession`。
+- [x] 实现 `resumeSession`。
 - [x] 实现 mock `refineVariation`。
-- [ ] 把当前 artifact 内容注入 refine 上下文。
-- [ ] 把 annotation prompt suffix 注入 refine 上下文。
-- [ ] 支持 runtime session 不可恢复时重建 session。
+- [x] 把当前 artifact 内容注入 refine 上下文。
+- [x] 把 annotation prompt suffix 注入 refine 上下文。
+- [x] 支持 runtime session 不可恢复时重建 session。
 
 验收：
 
@@ -99,7 +99,7 @@
 - [ ] 建立 contract tests。
 - [x] 建立 golden event replay。
 - [x] 建立 mock parallel generation smoke test。
-- [ ] 建立 resume smoke test。
+- [x] 建立 resume smoke test。
 - [x] 建立 mock refine smoke test。
 - [ ] 将测试结果暴露给管理端。
 

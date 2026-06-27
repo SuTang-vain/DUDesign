@@ -28,6 +28,7 @@ export type ResumeSessionResponse = {
   artifacts: unknown[]
   runtime: {
     status: 'resumed' | 'rebuilt' | 'unavailable'
+    runtimeSessionId?: string | null
     message?: string
   }
 }
@@ -61,6 +62,7 @@ export type CreateDesignJobResponse = {
 export type RefineVariationRequest = {
   prompt: string
   baseArtifactId: ID
+  annotationPromptSuffix?: string
   deviceContext?: DeviceTarget
 }
 

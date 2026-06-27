@@ -294,7 +294,7 @@ function sendHtml(res: http.ServerResponse, status: number, html: string): void 
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-allow-headers': 'content-type',
-    'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
+    'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'none'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
   })
   res.end(html)
 }

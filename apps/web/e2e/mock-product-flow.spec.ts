@@ -7,7 +7,7 @@ test('UX-M1 mock product flow works through browser clicks', async ({ page }) =>
   const downloadPromise = page.waitForEvent('download')
   await page.getByTestId('download-html-button').click()
   const download = await downloadPromise
-  expect(download.suggestedFilename()).toMatch(/variation-01-v1\.html/)
+  expect(download.suggestedFilename()).toMatch(/variation-01-v1\.zip/)
   await expect(page.getByTestId('variation-notice')).toContainText('Downloaded')
 
   await page.getByTestId('share-button').click()

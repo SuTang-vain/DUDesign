@@ -633,3 +633,47 @@
 - 跑根 `npm test` 全量门禁。
 - 推进 share/export 多文件 zip 化，让 HTML/CSS/JS/assets 可完整导出。
 - 或补 runtime diagnostics，把 cancel 结果、child session、agent id 展示给管理端。
+
+## 2026-06-27 M18 Runtime Refine Context And Resume Smoke
+
+### 已完成
+
+- Runtime refine 请求新增当前 artifact 上下文：
+  - `baseArtifactHtml`
+  - `baseArtifactEntryPath`
+  - `baseArtifactVersion`
+- Application Service 在 refine 前从 Artifact Store 读取当前 HTML artifact，并注入 `RuntimeGateway.refineVariation()`。
+- Annotation-to-refine 路径把整理后的 annotation prompt suffix 传入 runtime refine 请求。
+- `BabelORuntimeClient.createRefineAgent()` 将 HTML artifact context 和 annotation suffix 转发到 `/v1/agents/refine`。
+- Runtime resume 增加不可恢复重建策略：
+  - 有旧 `runtimeSessionId` 时优先调用 `/v1/sessions/:id/resume`。
+  - resume HTTP 失败时尝试重新 `POST /v1/sessions`。
+  - 返回 `status=rebuilt` 和新的 `runtimeSessionId`。
+- Application Service 在 resume 返回新 runtime id 后回写业务 session，避免后续继续使用失效 runtime id。
+- API BabeL-O mocked flow 新增 smoke：
+  - annotation refine 会携带当前 HTML artifact。
+  - annotation prompt suffix 会进入 `/v1/agents/refine` 请求体。
+  - runtime resume 成功可恢复已有 session。
+  - runtime resume 失败后可 rebuild，并继续创建后续 design job。
+- Runtime client 单测新增：
+  - resume 失败后 rebuild。
+  - refine agent 请求体包含当前 artifact context。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api run test`
+- `npm test`
+
+### 决策
+
+- 当前 refine 只注入 HTML artifact 内容，不直接把 CSS/JS/assets 展开进 prompt；后续如 BabeL-O 需要完整 workspace bundle，可在 Gateway contract 内新增 `baseArtifactFiles`，不影响前端和业务 API。
+- Resume fallback 采用“先恢复，失败后重建”的策略；重建成功后持久化新 runtime id。
+- Annotation 原始 shapes 继续存业务侧 annotation batch；runtime 只消费整理后的 prompt suffix，避免把 UI 内部结构绑定给 BabeL-O。
+
+### 下一步
+
+- 推进 share/export 多文件 zip 化，让 HTML/CSS/JS/assets 可完整导出和分享。
+- 增加 runtime diagnostics，把 resume/rebuild/refine context 状态暴露给管理端排障。
+- 后续根据真实 BabeL-O 能力决定是否把完整 artifact file bundle 注入 refine。

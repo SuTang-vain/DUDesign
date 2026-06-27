@@ -220,7 +220,22 @@ export class BabelORuntimeClient {
         message: optionalString(response.message),
       }
     } catch (error) {
-      return unavailableResume(error)
+      try {
+        const created = await this.createSession({
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          workspaceRoot: input.workspaceRoot,
+          memoryNamespace: input.memoryNamespace,
+        })
+        return {
+          status: 'rebuilt',
+          runtimeSessionId: created.runtimeSessionId,
+          message: `Runtime session was rebuilt after resume failed: ${errorMessage(error)}`,
+        }
+      } catch (rebuildError) {
+        return unavailableResume(rebuildError)
+      }
     }
   }
 
@@ -255,6 +270,9 @@ export class BabelORuntimeClient {
         variationId: input.variationId,
         runtimeChildSessionId: input.runtimeChildSessionId,
         baseArtifactId: input.baseArtifactId,
+        baseArtifactHtml: input.baseArtifactHtml,
+        baseArtifactEntryPath: input.baseArtifactEntryPath ?? null,
+        baseArtifactVersion: input.baseArtifactVersion,
         prompt: input.prompt,
         annotationPromptSuffix: input.annotationPromptSuffix,
         workspaceRoot: input.workspaceRoot,
@@ -482,8 +500,12 @@ function unavailableResume(error: unknown): RuntimeResumeResult {
   return {
     status: 'unavailable',
     runtimeSessionId: null,
-    message: error instanceof Error ? error.message : 'Runtime resume failed.',
+    message: errorMessage(error),
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Runtime resume failed.'
 }
 
 function splitCompleteLines(buffer: string): [string[], string] {

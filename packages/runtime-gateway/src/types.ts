@@ -75,6 +75,9 @@ export type RefineVariationInput = {
   variationId: ID
   runtimeChildSessionId: string | null
   baseArtifactId: ID
+  baseArtifactHtml: string
+  baseArtifactEntryPath?: string | null
+  baseArtifactVersion?: number
   prompt: string
   annotationPromptSuffix?: string
   workspaceRoot: string

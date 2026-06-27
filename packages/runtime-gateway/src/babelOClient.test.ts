@@ -196,6 +196,101 @@ describe('BabelORuntimeClient', () => {
     })
   })
 
+  it('rebuilds a runtime session when resume fails', async () => {
+    const calls: Array<{ url: string; method: string; body: unknown }> = []
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (url, init) => {
+        calls.push({
+          url: String(url),
+          method: init?.method ?? 'GET',
+          body: init?.body ? JSON.parse(String(init.body)) : null,
+        })
+        if (String(url).endsWith('/resume')) {
+          return new Response('gone', { status: 410 })
+        }
+        return jsonResponse({ runtimeSessionId: 'rt_ses_rebuilt_after_resume_failure' })
+      },
+    })
+
+    const resumed = await client.resumeSession({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      runtimeSessionId: 'rt_ses_stale',
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+    })
+
+    assert.equal(resumed.status, 'rebuilt')
+    assert.equal(resumed.runtimeSessionId, 'rt_ses_rebuilt_after_resume_failure')
+    assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/sessions/rt_ses_stale/resume')
+    assert.equal(calls[1]?.url, 'https://runtime.example.test/v1/sessions')
+    assert.deepEqual(calls[1]?.body, {
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+    })
+  })
+
+  it('creates a refine agent with current artifact context', async () => {
+    const calls: Array<{ url: string; method: string; body?: unknown }> = []
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (url, init) => {
+        calls.push({
+          url: String(url),
+          method: init?.method ?? 'GET',
+          ...(init?.body && { body: JSON.parse(String(init.body)) }),
+        })
+        return jsonResponse({
+          streamId: 'refine_stream_1',
+          agentJobId: 'refine_agent_1',
+          runtimeChildSessionId: 'rt_child_1',
+        })
+      },
+    })
+
+    const agent = await client.createRefineAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      variationId: 'variation_1',
+      runtimeChildSessionId: 'rt_child_1',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
+      baseArtifactEntryPath: 'index.html',
+      baseArtifactVersion: 3,
+      prompt: 'Make the hero bolder',
+      annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
+      workspaceRoot: 'workspaces/workspace_1',
+      deviceContext: 'desktop',
+    })
+
+    assert.equal(agent.streamId, 'refine_stream_1')
+    assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents/refine')
+    assert.equal(calls[0]?.method, 'POST')
+    assert.deepEqual(calls[0]?.body, {
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      variationId: 'variation_1',
+      runtimeChildSessionId: 'rt_child_1',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
+      baseArtifactEntryPath: 'index.html',
+      baseArtifactVersion: 3,
+      prompt: 'Make the hero bolder',
+      annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
+      workspaceRoot: 'workspaces/workspace_1',
+      deviceContext: 'desktop',
+    })
+  })
+
   it('spawns a variation agent and streams NDJSON runtime events', async () => {
     const calls: Array<{ url: string; method: string; body?: unknown }> = []
     const client = new BabelORuntimeClient({
