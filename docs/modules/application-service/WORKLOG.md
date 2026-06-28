@@ -25,7 +25,13 @@
 
 - `npm run typecheck`
 - `npm test`
-- 临时本地 PostgreSQL：`DUDESIGN_POSTGRES_TEST_URL=... npm --workspace @dudesign/api run test`
+- 真实 PostgreSQL smoke：
+  - 使用本机 `initdb/pg_ctl` 创建临时 PostgreSQL 数据目录。
+  - 临时端口：`55432`。
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://127.0.0.1:55432/dudesign_test`。
+  - 执行 `npm --workspace @dudesign/api run test` 通过。
+  - 覆盖 shared API flow、no-hydrate API flow、PostgresRepository integration、model governance API。
+  - 测试后已停止 PostgreSQL 并清理临时数据目录。
 
 ### 决策
 
