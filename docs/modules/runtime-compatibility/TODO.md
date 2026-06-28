@@ -38,7 +38,7 @@
 - [x] 提供 BabeL-O source remote deploy helper。
 - [x] 完成云端 raw BabeL-O Nexus + runtime adapter health/contract smoke。
 - [x] 持久化 runtime adapter session/stream 映射，支持 adapter 重启后继续消费未完成 stream。
-- [ ] staging 真实内核 prompt smoke：确认 variation 由 BabeL-O child session 生成。
+- [x] staging 真实内核 prompt smoke：确认 variation 由 BabeL-O child session 生成。
 
 验收：
 

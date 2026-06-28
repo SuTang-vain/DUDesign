@@ -22,6 +22,17 @@ retry_curl() {
 
 ssh "$remote" "set -e
 cd '$base_dir/dudesign/current'
+remote_retry_curl() {
+  output=\"\$1\"
+  shift
+  for attempt in 1 2 3 4 5; do
+    if curl -fsS -o \"\$output\" \"\$@\"; then
+      return 0
+    fi
+    sleep \"\$attempt\"
+  done
+  curl -fsS -o \"\$output\" \"\$@\"
+}
 compose_profile_args=''
 if grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$' deploy/staging/.env; then
   compose_profile_args='--profile babel-o'
@@ -34,8 +45,8 @@ if grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$
   babelo_nexus_key=\"\${babelo_nexus_key:-dudesign-staging-babelo-key}\"
   babelo_nexus_port=\"\${babelo_nexus_port:-3300}\"
   runtime_adapter_port=\"\${runtime_adapter_port:-4100}\"
-  curl -fsS -o /tmp/babelo-nexus-health.json -H \"authorization: Bearer \$babelo_nexus_key\" \"http://127.0.0.1:\$babelo_nexus_port/health\"
-  curl -fsS -o /tmp/dudesign-adapter-health.json \"http://127.0.0.1:\$runtime_adapter_port/v1/health\"
+  remote_retry_curl /tmp/babelo-nexus-health.json -H \"authorization: Bearer \$babelo_nexus_key\" \"http://127.0.0.1:\$babelo_nexus_port/health\"
+  remote_retry_curl /tmp/dudesign-adapter-health.json \"http://127.0.0.1:\$runtime_adapter_port/v1/health\"
   echo 'raw-babelo-nexus-health:'
   cat /tmp/babelo-nexus-health.json
   echo

@@ -974,3 +974,35 @@
 - 部署最新 main 到 staging。
 - 将 staging env 配置为 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 并配置 raw BabeL-O 模型 provider/API key。
 - 执行 `deploy/staging/scripts/smoke-remote.sh`，用自动 prompt smoke 验证真实生成链路。
+
+## 2026-06-28 M25 Staging BabeL-O Prompt Smoke Pass
+
+### 已完成
+
+- 将 `e2aa1c4 Add staging BabeL-O prompt smoke` 推送到 `origin/main`。
+- 部署 staging 后完成真实 BabeL-O 链路 smoke：
+  - raw BabeL-O Nexus health 返回 `runtime=babel-o`、`version=0.3.9`。
+  - DUDesign runtime adapter health 返回 `status=compatible`、`contractVersion=2026-06-26.dudesign-runtime.v1`。
+  - API/admin/web 本地与公网 smoke 均返回 200。
+  - `smoke-babelo-prompt-remote.sh` 创建真实 design job 并完成生成：
+    - `job_3f368707f41a42d9`
+    - `var_8a994f990d6c4bda`
+- 强化 `smoke-remote.sh`：
+  - raw Nexus health 增加远端重试。
+  - runtime adapter health 增加远端重试。
+  - 避免容器刚启动时的一次性 connection reset 误判部署失败。
+
+### 验证
+
+- `deploy/staging/scripts/smoke-remote.sh`
+
+### 决策
+
+- staging 真实 prompt smoke 已从“脚本已接入”推进到“远端真实通过”。
+- 启动期健康检查允许短暂重试，但 prompt smoke 仍保持严格：不能接受 mock/fallback HTML。
+
+### 下一步
+
+- 补齐真实 runtime contract tests，把当前 staging 通过的事件流固化为 golden baseline。
+- 注入 variation index 和风格差异 prompt，验证 3/6 variation 真实并发。
+- 继续收紧 workspace root 与 symlink escape 安全策略。
