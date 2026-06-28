@@ -54,7 +54,11 @@ export class ApplicationService {
     const workspace = await this.store.getWorkspaceById(input.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
     await this.requireWorkspaceAccess(workspace.id, user.id)
-    const session = await this.store.createSession({ ...input, userId: user.id })
+    const session = await this.store.createSession({
+      ...input,
+      userId: user.id,
+      mode: input.mode ?? 'new_html',
+    })
     const runtime = await this.tryCreateRuntimeSession({
       userId: user.id,
       workspaceId: workspace.id,
@@ -386,7 +390,8 @@ export class ApplicationService {
     const job = await this.store.getJobById(variation.jobId)
     const html = await this.readArtifactHtml(artifact.storageKey)
     const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase()
-    const exportArtifact = await this.createExportZipArtifact({
+    const existingExportArtifact = await this.findExistingExportArtifact(variation.id, artifact.id)
+    const exportArtifact = existingExportArtifact ?? await this.createExportZipArtifact({
       variation,
       sourceArtifact: artifact,
       filename: filename.replace(/\.html$/, '.zip'),
@@ -425,6 +430,7 @@ export class ApplicationService {
         contentHash: exportArtifact.contentHash,
         downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
         files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
+        reused: Boolean(existingExportArtifact),
       },
     }
   }
@@ -1294,6 +1300,10 @@ export class ApplicationService {
         files: manifest.files,
       },
     })
+  }
+
+  private async findExistingExportArtifact(variationId: string, sourceArtifactId: string): Promise<Artifact | null> {
+    return this.store.getExportArtifactForSource(variationId, sourceArtifactId)
   }
 }
 

@@ -74,7 +74,7 @@ export type UpdateUserModelAccessRequest = {
 
 export type CreateSessionRequest = {
   workspaceId: ID
-  mode: SourceMode
+  mode?: SourceMode
   title?: string
   sourceArtifactId?: ID | null
 }
@@ -257,6 +257,7 @@ export type ExportVariationResponse = {
     contentHash: string
     downloadUrl: string
     files: string[]
+    reused?: boolean
   }
 }
 

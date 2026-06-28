@@ -44,6 +44,30 @@
 - 在 DUDesign 管理端继续补模型服务新增/编辑密钥引用、provider health 和用户 usage limit enforcement。
 - 将用户侧模型选择与 job/detail 页面联动展示，便于回看每个 variation 使用的模型。
 
+## 2026-06-28 Export Artifact Reuse
+
+### 已完成
+
+- Repository interface 新增 `getExportArtifactForSource()`。
+- InMemoryStore 和 PostgresRepository 均支持按 `variationId + sourceArtifactId + export_zip` 查找已有导出 artifact。
+- `ApplicationService.exportVariation()` 在同一 source artifact 重复导出时复用已有 `export_zip` artifact。
+- `ExportVariationResponse.exportArtifact` 新增可选 `reused` 标记。
+- BabeL-O runtime API flow 增加重复导出断言，确认第二次导出复用第一次的 artifact id 和 download url。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 导出 artifact 绑定 source artifact version；同一 version 重复导出应复用，避免重复写 zip 和重复生成不必要用量。
+- refine 生成新 source artifact version 后，后续导出仍会创建新的 export artifact，不影响版本可追溯性。
+
+### 下一步
+
+- 后续如 export zip 逻辑支持更多资产格式，继续保持 source artifact version 作为复用边界。
+
 ## 2026-06-26
 
 ### 已完成

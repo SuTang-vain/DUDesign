@@ -5,6 +5,7 @@ import type {
   CreateAnnotationBatchResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
+  ExportVariationResponse,
   ResumeSessionResponse,
   VariationDetailResponse,
 } from '@dudesign/contracts'
@@ -185,7 +186,6 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
     const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
       workspaceId: bootstrap.workspace.id,
-      mode: 'new_html',
       title: 'BabeL-O runtime smoke',
     })
     assert.equal(createdSession.session.runtimeSessionId, 'rt_session_api_smoke')
@@ -224,6 +224,11 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     assert.match(css, /rgb\(20, 20, 20\)/)
     const js = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/assets/scripts/app.js`)
     assert.match(js, /__dudesignRuntimeAssetLoaded/)
+    const firstExport = await postJson<ExportVariationResponse>(`/api/variations/${jobSnapshot.variations[0]!.id}/export`, {})
+    const secondExport = await postJson<ExportVariationResponse>(`/api/variations/${jobSnapshot.variations[0]!.id}/export`, {})
+    assert.equal(secondExport.exportArtifact?.id, firstExport.exportArtifact?.id)
+    assert.equal(secondExport.exportArtifact?.downloadUrl, firstExport.exportArtifact?.downloadUrl)
+    assert.equal(secondExport.exportArtifact?.reused, true)
     const escapeAttempt = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/assets/%5C..%5Cstyles.css`)
     assert.equal(escapeAttempt.status, 400)
     assert.equal(maxActiveStreams, 2)

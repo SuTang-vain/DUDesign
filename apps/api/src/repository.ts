@@ -354,6 +354,7 @@ export type ApplicationRepository = {
   getCurrentVariationArtifactSnapshot(variationId: string): MaybePromise<CurrentVariationArtifactSnapshot>
   getVariationAssetArtifacts(variationId: string, parentArtifactId: string): MaybePromise<Artifact[]>
   getVariationAssetArtifact(variationId: string, parentArtifactId: string, assetPath: string): MaybePromise<Artifact | null>
+  getExportArtifactForSource(variationId: string, sourceArtifactId: string): MaybePromise<Artifact | null>
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void>
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): MaybePromise<AuditLog>
   listAuditLogs(options?: { limit?: number }): AuditLog[]

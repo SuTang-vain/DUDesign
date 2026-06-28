@@ -521,6 +521,16 @@ export class InMemoryStore implements ApplicationRepository {
     ) ?? null
   }
 
+  getExportArtifactForSource(variationId: string, sourceArtifactId: string): MaybePromise<Artifact | null> {
+    return [...this.artifacts.values()]
+      .filter(artifact =>
+        artifact.kind === 'export_zip'
+        && artifact.variationId === variationId
+        && artifact.parentArtifactId === sourceArtifactId,
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+  }
+
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void> {
     const job = this.jobs.get(jobId)
     if (!job) return

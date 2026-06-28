@@ -581,6 +581,20 @@ export class PostgresRepository extends InMemoryStore {
     }
   }
 
+  override async getExportArtifactForSource(variationId: string, sourceArtifactId: string): Promise<Artifact | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select *
+      from artifacts
+      where variation_id = $1
+        and parent_artifact_id = $2
+        and kind = 'export_zip'
+      order by created_at desc
+      limit 1
+    `, [variationId, sourceArtifactId])).rows[0]
+    return row ? mapArtifact(row) : null
+  }
+
   override async getSessionSnapshot(sessionId: string): Promise<SessionSnapshot | null> {
     await this.flush()
     const sessionRow = (await this.pool.query('select * from design_sessions where id = $1', [sessionId])).rows[0]
