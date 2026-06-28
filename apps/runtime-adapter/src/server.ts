@@ -16,6 +16,7 @@ const server = createRuntimeAdapterServer({
     apiKey: process.env.BABELO_NEXUS_API_KEY ?? process.env.NEXUS_API_KEY,
     authHeaderName: process.env.BABELO_NEXUS_AUTH_HEADER ?? process.env.NEXUS_AUTH_HEADER,
   }),
+  workspaceBase: process.env.RUNTIME_ADAPTER_WORKSPACE_BASE,
   ...(process.env.RUNTIME_ADAPTER_STATE_FILE && {
     stateStore: new FileRuntimeAdapterStateStore(process.env.RUNTIME_ADAPTER_STATE_FILE),
   }),

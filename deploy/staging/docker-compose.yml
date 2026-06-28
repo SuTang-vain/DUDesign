@@ -58,6 +58,7 @@ services:
       BABELO_NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
       BABELO_NEXUS_AUTH_HEADER: ${BABELO_NEXUS_AUTH_HEADER:-}
       RUNTIME_ADAPTER_STATE_FILE: ${RUNTIME_ADAPTER_STATE_FILE:-/app/.dudesign/runtime-adapter/state.json}
+      RUNTIME_ADAPTER_WORKSPACE_BASE: ${RUNTIME_ADAPTER_WORKSPACE_BASE:-/workspace}
     depends_on:
       babel-o-nexus:
         condition: service_started
@@ -65,6 +66,7 @@ services:
       - babel-o
     volumes:
       - runtime-adapter-state:/app/.dudesign/runtime-adapter
+      - babel-o-workspace:/workspace
     ports:
       - "127.0.0.1:${RUNTIME_ADAPTER_PORT:-4100}:4100"
 

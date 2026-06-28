@@ -40,6 +40,13 @@ export type NexusAgentTranscriptResponse = {
   events?: Array<Record<string, unknown>>
 }
 
+export type NexusExecuteResponse = {
+  type?: string
+  sessionId?: string
+  success?: boolean
+  events?: Array<Record<string, unknown>>
+}
+
 export class NexusClient {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
@@ -131,6 +138,28 @@ export class NexusClient {
     return this.requestJson(`/v1/agents/${encodeURIComponent(agentJobId)}/transcript?limit=500&order=asc`)
   }
 
+  async execute(input: {
+    sessionId: string
+    prompt: string
+    cwd: string
+    modelId?: string
+    timeoutMs?: number
+  }): Promise<NexusExecuteResponse> {
+    return this.requestJson('/v1/execute', {
+      method: 'POST',
+      body: {
+        sessionId: input.sessionId,
+        prompt: input.prompt,
+        cwd: input.cwd,
+        timeoutMs: input.timeoutMs ?? 300000,
+        watchdogTimeoutMs: input.timeoutMs ?? 300000,
+        allowedTools: ['*'],
+        skipPermissionCheck: true,
+        ...(runtimeModelId(input.modelId) && { model: runtimeModelId(input.modelId) }),
+      },
+    })
+  }
+
   private async requestJson<T>(
     path: string,
     options: {
@@ -170,4 +199,10 @@ export class NexusClient {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function runtimeModelId(modelId: string | undefined): string | undefined {
+  const normalized = optionalString(modelId)
+  if (!normalized || normalized === 'babel-o-default') return undefined
+  return normalized
 }

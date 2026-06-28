@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
-import { createRuntimeAdapterServer } from './app.js'
+import { createRuntimeAdapterServer, resolveRuntimeWorkspaceRoot } from './app.js'
 import { NexusClient } from './nexusClient.js'
 import { FileRuntimeAdapterStateStore } from './stateStore.js'
 
@@ -43,33 +43,11 @@ describe('DUDesign BabeL-O runtime adapter', () => {
             sessionId: 'nexus_session_1',
           })
         }
-        if (href.endsWith('/v1/agents')) {
+        if (href.endsWith('/v1/execute')) {
           return jsonResponse({
-            type: 'agent_job_spawned',
-            job: {
-              jobId: 'agent_job_1',
-              parentSessionId: 'nexus_session_1',
-              childSessionId: 'nexus_child_1',
-              status: 'queued',
-              prompt: 'Build',
-            },
-          })
-        }
-        if (href.endsWith('/v1/agents/agent_job_1/wait')) {
-          return jsonResponse({
-            type: 'agent_job',
-            job: {
-              jobId: 'agent_job_1',
-              parentSessionId: 'nexus_session_1',
-              childSessionId: 'nexus_child_1',
-              status: 'completed',
-              prompt: 'Build',
-            },
-          })
-        }
-        if (href.includes('/v1/agents/agent_job_1/transcript')) {
-          return jsonResponse({
-            type: 'agent_transcript',
+            type: 'execute_result',
+            sessionId: 'nexus_session_1',
+            success: true,
             events: [
               { type: 'thinking_delta', delta: 'Plan' },
               { type: 'assistant_delta', delta: 'Done' },
@@ -127,6 +105,11 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.equal(calls[0]?.headers.get('authorization'), 'Bearer nexus-key')
   })
 
+  it('resolves relative DUDesign workspace roots under the runtime workspace base', () => {
+    assert.equal(resolveRuntimeWorkspaceRoot('workspaces/ws_dev', '/workspace'), '/workspace/workspaces/ws_dev')
+    assert.equal(resolveRuntimeWorkspaceRoot('/already/absolute', '/workspace'), '/already/absolute')
+  })
+
   it('creates and resumes Nexus sessions with DUDesign-compatible payloads', async () => {
     const created = await postJson<{ runtimeSessionId: string }>('/v1/sessions', {
       userId: 'user_1',
@@ -162,26 +145,22 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     })
     const stream = await getText(`/v1/stream?streamId=${spawned.streamId}`)
 
-    assert.equal(spawned.agentJobId, 'agent_job_1')
-    assert.equal(spawned.runtimeChildSessionId, 'nexus_child_1')
+    assert.match(spawned.agentJobId, /^execute_/)
+    assert.equal(spawned.runtimeChildSessionId, 'nexus_session_1')
     assert.match(stream, /"type":"thinking_delta"/)
     assert.match(stream, /"type":"assistant_delta"/)
     assert.match(stream, /"type":"result"/)
     assert.match(stream, /Adapter workspace artifact/)
-    const agentCall = nexusCalls.find(call => call.url.endsWith('/v1/agents') && call.method === 'POST')
-    assert.ok(agentCall)
-    const body = agentCall.body as {
-      modelId?: string
-      modelProvider?: string
+    const executeCall = nexusCalls.find(call => call.url.endsWith('/v1/execute') && call.method === 'POST')
+    assert.ok(executeCall)
+    const body = executeCall.body as {
+      model?: string
+      cwd?: string
       prompt?: string
-      metadata?: Record<string, unknown>
     }
-    assert.equal(body.modelId, 'anthropic/claude-3-5-sonnet')
-    assert.equal(body.modelProvider, 'babel-o')
+    assert.equal(body.model, 'anthropic/claude-3-5-sonnet')
+    assert.equal(body.cwd, workspaceRoot)
     assert.match(body.prompt ?? '', /Model selection: service=mdl_babelo_default, provider=babel-o, model=anthropic\/claude-3-5-sonnet/)
-    assert.equal(body.metadata?.modelServiceId, 'mdl_babelo_default')
-    assert.equal(body.metadata?.modelId, 'anthropic/claude-3-5-sonnet')
-    assert.equal(body.metadata?.modelProvider, 'babel-o')
   })
 
   it('persists adapter stream state and restores it after restart', async () => {
@@ -215,14 +194,47 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }))
     try {
       const stream = await getTextWithBase(secondHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
-      assert.equal(spawned.agentJobId, 'agent_job_1')
-      assert.equal(spawned.runtimeChildSessionId, 'nexus_child_1')
+      assert.match(spawned.agentJobId, /^execute_/)
+      assert.equal(spawned.runtimeChildSessionId, 'nexus_session_1')
       assert.match(stream, /"type":"result"/)
       assert.match(stream, /Adapter workspace artifact/)
       const consumedSnapshot = JSON.parse(await readFile(stateFile, 'utf8')) as { streams?: Record<string, unknown> }
       assert.equal(consumedSnapshot.streams?.[spawned.streamId], undefined)
     } finally {
       await secondHarness.close()
+    }
+  })
+
+  it('lets BabeL-O resolve its configured default model for the DUDesign placeholder model', async () => {
+    const executeBodies: Array<Record<string, unknown>> = []
+    const defaultModelHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({
+        onExecuteBody: body => executeBodies.push(body),
+      }),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(defaultModelHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_1',
+        jobId: 'job_default_model',
+        prompt: 'Build a page',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        modelServiceId: 'mdl_babelo_default',
+        modelId: 'babel-o-default',
+        modelProvider: 'babel-o',
+        templateRequirements: {},
+      })
+      await getTextWithBase(defaultModelHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(executeBodies.length, 1)
+      assert.equal(executeBodies[0]?.model, undefined)
+    } finally {
+      await defaultModelHarness.close()
     }
   })
 
@@ -258,10 +270,12 @@ describe('DUDesign BabeL-O runtime adapter', () => {
   }
 })
 
-function createMockNexus(): NexusClient {
+function createMockNexus(options: {
+  onExecuteBody?: (body: Record<string, unknown>) => void
+} = {}): NexusClient {
   return new NexusClient({
     baseUrl: 'https://nexus.example.test',
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       const href = String(url)
       if (href.endsWith('/health')) {
         return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
@@ -269,33 +283,14 @@ function createMockNexus(): NexusClient {
       if (href.endsWith('/v1/runtime/version')) {
         return jsonResponse({ type: 'runtime_version', serverVersion: '0.3.9' })
       }
-      if (href.endsWith('/v1/agents')) {
+      if (href.endsWith('/v1/execute')) {
+        if (init?.body) {
+          options.onExecuteBody?.(JSON.parse(String(init.body)) as Record<string, unknown>)
+        }
         return jsonResponse({
-          type: 'agent_job_spawned',
-          job: {
-            jobId: 'agent_job_1',
-            parentSessionId: 'nexus_session_1',
-            childSessionId: 'nexus_child_1',
-            status: 'queued',
-            prompt: 'Build',
-          },
-        })
-      }
-      if (href.endsWith('/v1/agents/agent_job_1/wait')) {
-        return jsonResponse({
-          type: 'agent_job',
-          job: {
-            jobId: 'agent_job_1',
-            parentSessionId: 'nexus_session_1',
-            childSessionId: 'nexus_child_1',
-            status: 'completed',
-            prompt: 'Build',
-          },
-        })
-      }
-      if (href.includes('/v1/agents/agent_job_1/transcript')) {
-        return jsonResponse({
-          type: 'agent_transcript',
+          type: 'execute_result',
+          sessionId: 'nexus_session_1',
+          success: true,
           events: [
             { type: 'thinking_delta', delta: 'Plan' },
             { type: 'assistant_delta', delta: 'Done' },

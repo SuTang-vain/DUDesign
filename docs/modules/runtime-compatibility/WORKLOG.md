@@ -909,3 +909,37 @@
 - 跑全量 `npm run typecheck` 和 `npm test`。
 - 做一次云端 runtime adapter state volume smoke。
 - 下一阶段推进真实 prompt smoke 前，需要先配置 raw BabeL-O Nexus 的模型 provider/API key。
+
+## 2026-06-28 M23 Runtime Adapter Execute Path
+
+### 已完成
+
+- Runtime adapter 从 raw Nexus `/v1/agents` + wait/transcript 路径切换到 raw BabeL-O `/v1/execute`。
+- Adapter stream 会直接调用 `/v1/execute`，并把返回事件转换为 DUDesign runtime stream。
+- Adapter stream state 持久化新增：
+  - `prompt`
+  - `modelId`
+- Adapter 重启恢复 stream 时可以继续使用原 prompt 和模型上下文。
+- 新增 `RUNTIME_ADAPTER_WORKSPACE_BASE`：
+  - 相对 `workspaceRoot` 会解析到 runtime 容器内 workspace base。
+  - 绝对 `workspaceRoot` 保持不变。
+- Staging compose 将 `babel-o-workspace` volume 同时挂载到 raw Nexus 和 runtime adapter。
+- 对 `babel-o-default` 这类 DUDesign 占位模型做空模型透传，让 BabeL-O 使用自身默认模型。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 决策
+
+- 当前 raw BabeL-O 的真实执行入口以 `/v1/execute` 为准；DUDesign adapter 继续对上游暴露稳定 `/v1/agents` / `/v1/stream` contract。
+- DUDesign API 不直接理解 raw `/v1/execute`，仍只通过 Gateway/Adapter 通信。
+- workspace volume 必须由 raw Nexus 和 adapter 共享，否则 adapter 无法稳定读取执行后写入的 `index.html`。
+
+### 下一步
+
+- 将 staging env 切到 `DUDESIGN_RUNTIME_PROVIDER=babel-o`，跑真实 prompt smoke。
+- 根据真实 prompt smoke 结果补齐 contract tests。
+- 继续收紧 workspace root 安全策略和 symlink escape 防护。

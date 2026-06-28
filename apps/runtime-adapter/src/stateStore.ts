@@ -7,6 +7,8 @@ export type PersistedRuntimeStream = {
   agentJobId: string
   variationId?: string
   workspaceRoot: string
+  prompt?: string
+  modelId?: string
 }
 
 export type RuntimeAdapterStateSnapshot = {
@@ -112,12 +114,16 @@ function normalizeStream(value: unknown): PersistedRuntimeStream | null {
   const workspaceRoot = stringField(input.workspaceRoot)
   if (!streamId || !runtimeSessionId || !agentJobId || !workspaceRoot) return null
   const variationId = stringField(input.variationId)
+  const prompt = stringField(input.prompt)
+  const modelId = stringField(input.modelId)
   return {
     streamId,
     runtimeSessionId,
     agentJobId,
     ...(variationId && { variationId }),
     workspaceRoot,
+    ...(prompt && { prompt }),
+    ...(modelId && { modelId }),
   }
 }
 

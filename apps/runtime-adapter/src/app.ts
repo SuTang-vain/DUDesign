@@ -1,14 +1,15 @@
 import http from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
-import { NexusClient, type NexusAgentJob } from './nexusClient.js'
+import { NexusClient } from './nexusClient.js'
 import { NoopRuntimeAdapterStateStore, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
 
 export type RuntimeAdapterOptions = {
   nexus: NexusClient
   runtimeVersion?: string
+  workspaceBase?: string
   stateStore?: RuntimeAdapterStateStore
 }
 
@@ -18,6 +19,8 @@ type RuntimeStream = {
   agentJobId: string
   variationId?: string
   workspaceRoot: string
+  prompt: string
+  modelId?: string
   waitStarted: boolean
 }
 
@@ -143,11 +146,12 @@ class RuntimeAdapterApp {
   private async handleCreateSession(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const body = await readJson(req)
     const sessionId = requiredString(body.sessionId, 'sessionId')
+    const workspaceRoot = this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot'))
     const created = await this.options.nexus.createSession({
       userId: requiredString(body.userId, 'userId'),
       workspaceId: requiredString(body.workspaceId, 'workspaceId'),
       sessionId,
-      workspaceRoot: requiredString(body.workspaceRoot, 'workspaceRoot'),
+      workspaceRoot,
       memoryNamespace: requiredString(body.memoryNamespace, 'memoryNamespace'),
     })
     const runtimeSessionId = requiredString(created.sessionId, 'sessionId')
@@ -182,37 +186,23 @@ class RuntimeAdapterApp {
       ? buildRefinePrompt(body)
       : buildVariationPrompt(body)
     const modelContext = modelContextFromBody(body)
-    const spawned = await this.options.nexus.spawnAgent({
-      parentSessionId: runtimeSessionId,
-      prompt,
-      modelId: modelContext.modelId,
-      modelProvider: modelContext.modelProvider,
-      metadata: {
-        mode,
-        jobId: stringField(body, 'jobId'),
-        variationId: stringField(body, 'variationId'),
-        variationIndex: numberField(body, 'variationIndex'),
-        modelServiceId: modelContext.modelServiceId,
-        modelId: modelContext.modelId,
-        modelProvider: modelContext.modelProvider,
-        source: 'dudesign-runtime-adapter',
-      },
-    })
-    const job = requireAgentJob(spawned.job)
     const streamId = this.nextId('stream')
+    const agentJobId = this.nextId('execute')
     this.streams.set(streamId, {
       streamId,
-      runtimeSessionId: job.childSessionId,
-      agentJobId: job.jobId,
+      runtimeSessionId,
+      agentJobId,
       variationId: stringField(body, 'variationId'),
-      workspaceRoot: requiredString(body.workspaceRoot, 'workspaceRoot'),
+      workspaceRoot: this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot')),
+      prompt,
+      ...(modelContext.modelId && { modelId: modelContext.modelId }),
       waitStarted: false,
     })
     await this.persistState()
     sendJson(res, 200, {
       streamId,
-      agentJobId: job.jobId,
-      runtimeChildSessionId: job.childSessionId,
+      agentJobId,
+      runtimeChildSessionId: runtimeSessionId,
     })
   }
 
@@ -264,19 +254,22 @@ class RuntimeAdapterApp {
       connection: 'keep-alive',
     })
     try {
-      writeNdjson(res, { type: 'assistant_delta', delta: 'BabeL-O child session started.' })
-      const waited = await this.options.nexus.waitForAgent(stream.agentJobId)
-      const job = requireAgentJob(waited.job)
-      const transcript = await this.options.nexus.getAgentTranscript(stream.agentJobId).catch(() => ({ events: [] }))
-      for (const event of transcript.events ?? []) {
+      writeNdjson(res, { type: 'assistant_delta', delta: 'BabeL-O execution started.' })
+      const executed = await this.options.nexus.execute({
+        sessionId: stream.runtimeSessionId,
+        prompt: stream.prompt,
+        cwd: stream.workspaceRoot,
+        modelId: stream.modelId,
+      })
+      for (const event of executed.events ?? []) {
         const mapped = normalizeTranscriptEvent(event)
         if (mapped) writeNdjson(res, mapped)
       }
-      if (job.status === 'failed' || job.status === 'cancelled') {
+      if (executed.success === false) {
         writeNdjson(res, {
           type: 'error',
-          code: `AGENT_${job.status.toUpperCase()}`,
-          message: `BabeL-O agent ${job.status}.`,
+          code: 'EXECUTION_FAILED',
+          message: 'BabeL-O execution failed.',
         })
         return
       }
@@ -306,6 +299,10 @@ class RuntimeAdapterApp {
     return id
   }
 
+  private runtimeWorkspaceRoot(workspaceRoot: string): string {
+    return resolveRuntimeWorkspaceRoot(workspaceRoot, this.options.workspaceBase)
+  }
+
   private resolveRuntimeSessionId(body: Record<string, unknown>): string {
     const directRuntimeSessionId = stringField(body, 'runtimeSessionId') ?? stringField(body, 'runtimeChildSessionId')
     if (directRuntimeSessionId) return directRuntimeSessionId
@@ -321,6 +318,7 @@ class RuntimeAdapterApp {
     for (const stream of Object.values(snapshot.streams)) {
       this.streams.set(stream.streamId, {
         ...stream,
+        prompt: stream.prompt ?? 'Continue the DUDesign runtime task and write the final page to index.html.',
         waitStarted: false,
       })
     }
@@ -340,6 +338,8 @@ class RuntimeAdapterApp {
             agentJobId: stream.agentJobId,
             ...(stream.variationId && { variationId: stream.variationId }),
             workspaceRoot: stream.workspaceRoot,
+            prompt: stream.prompt,
+            ...(stream.modelId && { modelId: stream.modelId }),
           },
         ]),
       ),
@@ -357,6 +357,12 @@ function nextSequenceFromStreams(streams: Map<string, RuntimeStream>): number {
     sequence = Math.max(sequence, Number(match[1]) + 1)
   }
   return sequence
+}
+
+export function resolveRuntimeWorkspaceRoot(workspaceRoot: string, workspaceBase?: string): string {
+  if (isAbsolute(workspaceRoot)) return workspaceRoot
+  const base = workspaceBase && workspaceBase.trim().length > 0 ? workspaceBase : process.cwd()
+  return resolve(base, workspaceRoot)
 }
 
 function contractPayload(runtimeVersion?: string): Record<string, unknown> {
@@ -497,15 +503,6 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
 
 function writeNdjson(res: http.ServerResponse, payload: unknown): void {
   res.write(`${JSON.stringify(payload)}\n`)
-}
-
-function requireAgentJob(value: unknown): NexusAgentJob {
-  if (!value || typeof value !== 'object') throw new Error('BabeL-O Nexus response did not include an agent job.')
-  const job = value as Partial<NexusAgentJob>
-  if (!job.jobId || !job.childSessionId || !job.parentSessionId || !job.status || !job.prompt) {
-    throw new Error('BabeL-O Nexus response included an invalid agent job.')
-  }
-  return job as NexusAgentJob
 }
 
 function requiredString(value: unknown, field: string): string {
