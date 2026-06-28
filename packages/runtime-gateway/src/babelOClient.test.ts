@@ -122,6 +122,28 @@ describe('BabelORuntimeClient', () => {
     })
   })
 
+  it('falls back to bearer authorization when auth header name is blank', async () => {
+    const calls: Array<{ headers: Headers }> = []
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      apiKey: 'gateway-key',
+      authHeaderName: '   ',
+      fetch: async (_url, init) => {
+        calls.push({ headers: new Headers(init?.headers) })
+        return jsonResponse({
+          runtime: 'babel-o',
+          runtimeVersion: '1.2.3',
+          contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+        })
+      },
+    })
+
+    const health = await client.getRuntimeHealth()
+
+    assert.equal(health.status, 'compatible')
+    assert.equal(calls[0]?.headers.get('authorization'), 'Bearer gateway-key')
+  })
+
   it('resumes an existing runtime session', async () => {
     const calls: Array<{ url: string; method: string; body: unknown }> = []
     const client = new BabelORuntimeClient({
@@ -268,6 +290,9 @@ describe('BabelORuntimeClient', () => {
       annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
       workspaceRoot: 'workspaces/workspace_1',
       deviceContext: 'desktop',
+      modelServiceId: 'mdl_babelo_default',
+      modelId: 'anthropic/claude-3-5-sonnet',
+      modelProvider: 'babel-o',
     })
 
     assert.equal(agent.streamId, 'refine_stream_1')
@@ -288,6 +313,9 @@ describe('BabelORuntimeClient', () => {
       annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
       workspaceRoot: 'workspaces/workspace_1',
       deviceContext: 'desktop',
+      modelServiceId: 'mdl_babelo_default',
+      modelId: 'anthropic/claude-3-5-sonnet',
+      modelProvider: 'babel-o',
     })
   })
 
@@ -324,6 +352,9 @@ describe('BabelORuntimeClient', () => {
       variationIndex: 1,
       workspaceRoot: 'workspaces/workspace_1',
       memoryNamespace: 'memory:user:user_1',
+      modelServiceId: 'mdl_babelo_default',
+      modelId: 'anthropic/claude-3-5-sonnet',
+      modelProvider: 'babel-o',
       templateRequirements: {
         styles: ['minimal'],
       },
@@ -335,6 +366,25 @@ describe('BabelORuntimeClient', () => {
 
     assert.equal(agent.streamId, 'stream_1')
     assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents')
+    assert.deepEqual(calls[0]?.body, {
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a page',
+      sourceMode: 'new_html',
+      sourceArtifactId: null,
+      variationCount: 2,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      modelServiceId: 'mdl_babelo_default',
+      modelId: 'anthropic/claude-3-5-sonnet',
+      modelProvider: 'babel-o',
+      templateRequirements: {
+        styles: ['minimal'],
+      },
+    })
     assert.equal(calls[1]?.url, 'https://runtime.example.test/v1/stream?streamId=stream_1')
     assert.deepEqual(events, [
       { type: 'assistant_delta', delta: 'hello' },

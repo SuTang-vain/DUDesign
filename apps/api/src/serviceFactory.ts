@@ -23,21 +23,23 @@ export async function createApplicationServiceFromEnv(): Promise<ApplicationServ
 }
 
 export function createRuntimeGatewayFromEnv(): RuntimeGateway {
-  if (process.env.DUDESIGN_RUNTIME_MODE !== 'babel-o') {
+  const runtimeProvider = process.env.DUDESIGN_RUNTIME_PROVIDER ?? process.env.DUDESIGN_RUNTIME_MODE
+  if (runtimeProvider !== 'babel-o') {
     return new MockRuntimeGateway()
   }
-  if (!process.env.DUDESIGN_BABELO_BASE_URL) {
-    throw new Error('DUDESIGN_BABELO_BASE_URL is required when DUDESIGN_RUNTIME_MODE=babel-o.')
+  const baseUrl = process.env.BABELO_BASE_URL ?? process.env.DUDESIGN_BABELO_BASE_URL
+  if (!baseUrl) {
+    throw new Error('BABELO_BASE_URL or DUDESIGN_BABELO_BASE_URL is required when DUDESIGN_RUNTIME_PROVIDER=babel-o.')
   }
   return new BabelORuntimeGateway({
     clientConfig: {
-      baseUrl: process.env.DUDESIGN_BABELO_BASE_URL,
-      apiKey: process.env.DUDESIGN_BABELO_API_KEY,
-      authHeaderName: process.env.DUDESIGN_BABELO_AUTH_HEADER,
-      timeoutMs: optionalPositiveInteger(process.env.DUDESIGN_BABELO_TIMEOUT_MS),
-      streamIdleTimeoutMs: optionalPositiveInteger(process.env.DUDESIGN_BABELO_STREAM_IDLE_TIMEOUT_MS),
-      streamReconnectAttempts: optionalNonNegativeInteger(process.env.DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS),
-      expectedContractVersion: process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
+      baseUrl,
+      apiKey: process.env.BABELO_API_KEY ?? process.env.DUDESIGN_BABELO_API_KEY,
+      authHeaderName: process.env.BABELO_AUTH_HEADER ?? process.env.DUDESIGN_BABELO_AUTH_HEADER,
+      timeoutMs: optionalPositiveInteger(process.env.BABELO_TIMEOUT_MS ?? process.env.DUDESIGN_BABELO_TIMEOUT_MS),
+      streamIdleTimeoutMs: optionalPositiveInteger(process.env.BABELO_STREAM_IDLE_TIMEOUT_MS ?? process.env.DUDESIGN_BABELO_STREAM_IDLE_TIMEOUT_MS),
+      streamReconnectAttempts: optionalNonNegativeInteger(process.env.BABELO_STREAM_RECONNECT_ATTEMPTS ?? process.env.DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS),
+      expectedContractVersion: process.env.BABELO_CONTRACT_VERSION ?? process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
     },
   })
 }

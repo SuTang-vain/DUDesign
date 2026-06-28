@@ -254,6 +254,9 @@ export class BabelORuntimeClient {
         variationIndex: input.variationIndex,
         workspaceRoot: input.workspaceRoot,
         memoryNamespace: input.memoryNamespace,
+        modelServiceId: input.modelServiceId ?? null,
+        modelId: input.modelId ?? null,
+        modelProvider: input.modelProvider ?? null,
         templateRequirements: input.templateRequirements ?? null,
       },
     })
@@ -277,6 +280,9 @@ export class BabelORuntimeClient {
         annotationPromptSuffix: input.annotationPromptSuffix,
         workspaceRoot: input.workspaceRoot,
         deviceContext: input.deviceContext,
+        modelServiceId: input.modelServiceId ?? null,
+        modelId: input.modelId ?? null,
+        modelProvider: input.modelProvider ?? null,
       },
     })
   }
@@ -421,7 +427,8 @@ export class BabelORuntimeClient {
       headers['content-type'] = 'application/json'
     }
     if (this.config.apiKey) {
-      headers[this.config.authHeaderName ?? 'authorization'] = this.config.authHeaderName
+      const authHeaderName = optionalHeaderName(this.config.authHeaderName)
+      headers[authHeaderName ?? 'authorization'] = authHeaderName
         ? this.config.apiKey
         : `Bearer ${this.config.apiKey}`
     }
@@ -435,6 +442,10 @@ function normalizeBaseUrl(baseUrl: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function optionalHeaderName(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
 }
 
 function optionalNumber(value: unknown): number | undefined {

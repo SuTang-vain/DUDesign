@@ -14,13 +14,14 @@
     "start:admin": "npm --workspace @dudesign/admin run start",
     "start:api": "npm run typecheck && npm --workspace @dudesign/api run start",
     "start:web": "npm --workspace @dudesign/web run start",
-    "test": "npm run test:artifact-store && npm run test:runtime-gateway && npm run test:api",
+    "test": "npm run test:artifact-store && npm run test:runtime-gateway && npm run test:runtime-adapter && npm run test:api",
     "test:artifact-store": "npm --workspace @dudesign/artifact-store run test",
     "test:runtime-gateway": "npm --workspace @dudesign/runtime-gateway run test",
+    "test:runtime-adapter": "npm --workspace @dudesign/runtime-adapter run test",
     "test:api": "npm --workspace @dudesign/api run test",
     "test:ux": "npm --workspace @dudesign/web run test:flow",
     "test:ux:e2e": "npm --workspace @dudesign/web run test:e2e",
-    "typecheck": "tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/api apps/web apps/admin"
+    "typecheck": "tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api apps/web apps/admin"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

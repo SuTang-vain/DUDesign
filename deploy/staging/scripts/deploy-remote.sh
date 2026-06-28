@@ -23,7 +23,17 @@ if [ ! -f '$base_dir/shared/env/staging.env' ]; then
   chmod 600 '$base_dir/shared/env/staging.env'
 fi
 ln -sfn '$base_dir/shared/env/staging.env' deploy/staging/.env
-docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
+cp deploy/staging/babelo-nexus.Dockerfile /tmp/dudesign-babelo-nexus.Dockerfile
+compose_profile_args=''
+if grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$' deploy/staging/.env; then
+  compose_profile_args='--profile babel-o'
+  babelo_context=\"\$(grep -E '^BABELO_NEXUS_CONTEXT=' deploy/staging/.env | tail -n 1 | cut -d= -f2-)\"
+  if [ -n \"\$babelo_context\" ] && [ ! -f \"\$babelo_context/package.json\" ]; then
+    echo \"BABELO_NEXUS_CONTEXT does not contain BabeL-O package.json: \$babelo_context\" >&2
+    exit 1
+  fi
+fi
+docker compose \$compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
 sudo nginx -t
 sudo systemctl reload nginx
 "

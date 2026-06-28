@@ -30,10 +30,67 @@ services:
       DUDESIGN_REPOSITORY: postgres
       DATABASE_URL: postgresql://${POSTGRES_USER:-dudesign}:${POSTGRES_PASSWORD:-dudesign_staging_password}@postgres:5432/${POSTGRES_DB:-dudesign_staging}
       DUDESIGN_ARTIFACT_ROOT: /app/.dudesign/artifacts
+      DUDESIGN_RUNTIME_PROVIDER: ${DUDESIGN_RUNTIME_PROVIDER:-mock}
+      DUDESIGN_RUNTIME_MODE: ${DUDESIGN_RUNTIME_MODE:-}
+      BABELO_BASE_URL: ${BABELO_BASE_URL:-http://runtime-adapter:4100}
+      BABELO_API_KEY: ${BABELO_API_KEY:-}
+      BABELO_AUTH_HEADER: ${BABELO_AUTH_HEADER:-}
+      BABELO_TIMEOUT_MS: ${BABELO_TIMEOUT_MS:-}
+      BABELO_STREAM_IDLE_TIMEOUT_MS: ${BABELO_STREAM_IDLE_TIMEOUT_MS:-}
+      BABELO_STREAM_RECONNECT_ATTEMPTS: ${BABELO_STREAM_RECONNECT_ATTEMPTS:-}
+      BABELO_CONTRACT_VERSION: ${BABELO_CONTRACT_VERSION:-}
     volumes:
       - artifact-data:/app/.dudesign/artifacts
     ports:
       - "127.0.0.1:${API_PORT:-4000}:4000"
+
+  runtime-adapter:
+    build:
+      context: ../..
+      dockerfile: deploy/staging/Dockerfile
+      target: runtime-adapter
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4100
+      BABELO_NEXUS_BASE_URL: ${BABELO_NEXUS_BASE_URL:-http://babel-o-nexus:3000}
+      BABELO_NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
+      BABELO_NEXUS_AUTH_HEADER: ${BABELO_NEXUS_AUTH_HEADER:-}
+      RUNTIME_ADAPTER_STATE_FILE: ${RUNTIME_ADAPTER_STATE_FILE:-/app/.dudesign/runtime-adapter/state.json}
+    depends_on:
+      babel-o-nexus:
+        condition: service_started
+    profiles:
+      - babel-o
+    volumes:
+      - runtime-adapter-state:/app/.dudesign/runtime-adapter
+    ports:
+      - "127.0.0.1:${RUNTIME_ADAPTER_PORT:-4100}:4100"
+
+  babel-o-nexus:
+    build:
+      context: ${BABELO_NEXUS_CONTEXT:-../../BABEL/BabeL-O}
+      dockerfile: ${BABELO_NEXUS_DOCKERFILE:-/tmp/dudesign-babelo-nexus.Dockerfile}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXUS_HOST: 0.0.0.0
+      NEXUS_PORT: 3000
+      NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
+      BABEL_O_WORKSPACE: /workspace
+      NEXUS_STORAGE_PATH: /data/nexus.sqlite
+      NEXUS_ALLOWED_TOOLS: ${BABELO_NEXUS_ALLOWED_TOOLS:-Read,ListDir,Glob,Grep,Write,Edit}
+      NEXUS_EXECUTE_TIMEOUT_MS: ${BABELO_NEXUS_EXECUTE_TIMEOUT_MS:-600000}
+      NEXUS_MAX_CONCURRENT_EXECUTIONS: ${BABELO_NEXUS_MAX_CONCURRENT_EXECUTIONS:-4}
+      BABEL_O_CONFIG_FILE: ${BABELO_NEXUS_CONFIG_FILE:-}
+    profiles:
+      - babel-o
+    volumes:
+      - babel-o-workspace:/workspace
+      - babel-o-data:/data
+    ports:
+      - "127.0.0.1:${BABELO_NEXUS_PORT:-3300}:3000"
 
   web:
     build:
@@ -66,3 +123,6 @@ services:
 volumes:
   postgres-data:
   artifact-data:
+  runtime-adapter-state:
+  babel-o-workspace:
+  babel-o-data:

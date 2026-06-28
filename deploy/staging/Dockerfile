@@ -2,6 +2,7 @@ FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/runtime-adapter/package.json apps/runtime-adapter/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/admin/package.json apps/admin/package.json
 COPY packages/artifact-store/package.json packages/artifact-store/package.json
@@ -15,7 +16,7 @@ WORKDIR /app
 COPY . .
 ARG NEXT_PUBLIC_DUDESIGN_API_URL=
 ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
-RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/api apps/web apps/admin
+RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api apps/web apps/admin
 RUN npm --workspace @dudesign/web run build
 RUN npm --workspace @dudesign/admin run build
 
@@ -28,6 +29,10 @@ RUN mkdir -p /app/.dudesign/artifacts
 FROM runtime AS api
 EXPOSE 4000
 CMD ["npm", "--workspace", "@dudesign/api", "run", "start"]
+
+FROM runtime AS runtime-adapter
+EXPOSE 4100
+CMD ["npm", "--workspace", "@dudesign/runtime-adapter", "run", "start"]
 
 FROM runtime AS web
 EXPOSE 3001

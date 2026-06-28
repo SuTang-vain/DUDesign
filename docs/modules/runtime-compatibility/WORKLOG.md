@@ -677,3 +677,235 @@
 - 推进 share/export 多文件 zip 化，让 HTML/CSS/JS/assets 可完整导出和分享。
 - 增加 runtime diagnostics，把 resume/rebuild/refine context 状态暴露给管理端排障。
 - 后续根据真实 BabeL-O 能力决定是否把完整 artifact file bundle 注入 refine。
+
+## 2026-06-28 M19 Staging Runtime Provider Probe
+
+### 已完成
+
+- DUDesign API runtime factory 支持新的 staging 变量命名：
+  - `DUDESIGN_RUNTIME_PROVIDER=babel-o`
+  - `BABELO_BASE_URL`
+  - `BABELO_API_KEY`
+  - `BABELO_AUTH_HEADER`
+  - `BABELO_TIMEOUT_MS`
+  - `BABELO_STREAM_IDLE_TIMEOUT_MS`
+  - `BABELO_STREAM_RECONNECT_ATTEMPTS`
+  - `BABELO_CONTRACT_VERSION`
+- 保留旧变量兼容：
+  - `DUDESIGN_RUNTIME_MODE=babel-o`
+  - `DUDESIGN_BABELO_*`
+- Staging docker compose 已把 runtime provider/env 透传给 API 容器。
+- `staging.env.example` 增加真实 runtime 配置说明。
+- `smoke-remote.sh` 增加 admin runtime health 检查：
+  - 请求 `GET /api/admin/runtime/health`。
+  - 当 staging env 启用 `babel-o` 时，若仍返回 `runtimeVersion=mock` 则失败。
+- 云端服务器探测结果：
+  - 当前 DUDesign staging 仍为 mock runtime。
+  - 宿主机无 Node，DUDesign 通过 Docker 运行。
+  - 使用源码临时 Docker 容器成功启动 BabeL-O Nexus 0.3.9。
+  - BabeL-O 原生 `/health` 返回 `runtime=babel-o`、`version=0.3.9`。
+  - BabeL-O 原生 `/v1/runtime/version` 返回 `serverVersion=0.3.9`、`schemaVersion=2026-05-21.babel-o.v1`。
+  - BabeL-O 原生 `/v1/contract` 返回 404。
+  - BabeL-O 原生 `/v1/sessions` 可创建 session。
+  - BabeL-O 原生 `/v1/agents` 返回 `agent_jobs` 列表，语义不是 DUDesign 当前期望的 `{ streamId, runtimeChildSessionId, agentJobId }`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- 云端临时容器探测：
+  - `GET /health`
+  - `GET /v1/runtime/version`
+  - `GET /v1/contract`
+  - `POST /v1/sessions`
+  - `GET /v1/agents`
+
+### 决策
+
+- 不能把 DUDesign API 直接指向原生 BabeL-O Nexus。
+- 当前需要一个 DUDesign/BabeL-O runtime adapter service：
+  - 向 DUDesign 暴露稳定的 `/v1/contract`、`/v1/agents`、`/v1/agents/refine`、`/v1/agents/cancel`、`/v1/stream`。
+  - 向下游调用原生 BabeL-O Nexus `/v1/sessions`、`/v1/agents`、transcript/stream/execute 能力。
+  - 将原生 `agent_job` / transcript events 转成 DUDesign 标准 runtime contract。
+- Adapter service 是内核解耦边界的一部分，应该放在第 4 层，而不是让 API 业务层直接理解 BabeL-O 原生 agent job 结构。
+
+### 下一步
+
+- 实现最小 `babel-o-runtime-adapter` 服务。
+- 在 staging compose 中新增 `babel-o`/adapter 服务，API 的 `BABELO_BASE_URL` 指向 adapter。
+- 给 adapter 增加真实 contract smoke：
+  - `/v1/contract` compatible。
+  - `POST /v1/sessions` 创建 runtime session。
+  - `POST /v1/agents` spawn child session。
+  - `/v1/stream` 输出 DUDesign 可映射事件。
+- adapter smoke 通过后，再把 staging env 改为 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 并跑真实 prompt。
+
+## 2026-06-28 M20 BabeL-O Runtime Adapter MVP
+
+### 已完成
+
+- 新增 `@dudesign/runtime-adapter` workspace app。
+- Adapter 对 DUDesign 暴露稳定 runtime contract：
+  - `GET /v1/health`
+  - `GET /v1/contract`
+  - `POST /v1/sessions`
+  - `POST /v1/sessions/:id/resume`
+  - `POST /v1/agents`
+  - `POST /v1/agents/refine`
+  - `POST /v1/agents/cancel`
+  - `GET /v1/stream`
+- Adapter 向下游调用原生 BabeL-O Nexus：
+  - `/health`
+  - `/v1/runtime/version`
+  - `/v1/sessions`
+  - `/v1/sessions/:id/resume`
+  - `/v1/agents`
+  - `/v1/agents/:jobId/wait`
+  - `/v1/agents/:jobId/transcript`
+  - `/v1/agents/:jobId/cancel`
+- Adapter 维护 DUDesign session id 到 raw Nexus session id 的内存映射，避免业务 API 直接理解原生 Nexus session。
+- Adapter 将 DUDesign generation/refine 请求转换为 BabeL-O child agent prompt。
+- Adapter stream 会：
+  - 等待 raw Nexus agent 完成。
+  - 将 transcript 中的 `thinking_delta` / `assistant_delta` / `error` 转为 DUDesign runtime stream。
+  - 从 workspace 读取 `index.html` 并输出 `result` 事件，交给 DUDesign artifact bridge 落库。
+- Staging Dockerfile 增加 `runtime-adapter` target。
+- Staging compose 增加 `runtime-adapter` profile service。
+- `deploy-remote.sh` 和 `smoke-remote.sh` 会在 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 时启用 `--profile babel-o`。
+- 云端临时镜像 build 已通过。
+- 云端临时 raw BabeL-O Nexus + runtime adapter health/contract smoke 已通过：
+  - Adapter `/v1/health` 返回 `runtimeVersion=0.3.9`。
+  - Adapter `/v1/contract` 返回 DUDesign contract `2026-06-26.dudesign-runtime.v1`。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm run typecheck`
+- `npm test`
+- 云端 Docker build：`deploy/staging/Dockerfile --target runtime-adapter`
+- 云端 adapter smoke：
+  - raw Nexus container -> adapter container -> `/v1/health`
+  - raw Nexus container -> adapter container -> `/v1/contract`
+
+### 决策
+
+- Adapter 是第 4 层内核兼容层的一部分，不进入 API 业务服务层。
+- MVP adapter 采用内存 session/job 映射，适合单进程 staging smoke；后续 production 需要持久化或可恢复映射。
+- MVP stream 先采用 wait + transcript + workspace artifact 方式，暂不实现真正的实时 WS bridge。
+- Raw Nexus 仍需要独立部署；DUDesign API 只指向 adapter，不直接指向 raw Nexus。
+
+### 下一步
+
+- 在 staging 中稳定部署 raw BabeL-O Nexus 服务。
+- 配置 provider/API key，确保 BabeL-O agent 能真实生成 `index.html`。
+- 将 staging env 切到 `DUDESIGN_RUNTIME_PROVIDER=babel-o`，跑真实 prompt smoke。
+- 将 adapter 的 session/job 映射持久化，支持 adapter 重启后的 resume/cancel。
+- 将 `/v1/stream` 从 wait-after-complete 升级为近实时转发。
+
+## 2026-06-28 M21 Stable Raw Nexus Compose Smoke
+
+### 已完成
+
+- 新增 raw BabeL-O Nexus staging compose profile：
+  - `babel-o-nexus` 作为独立 runtime service。
+  - `runtime-adapter` 通过 `BABELO_NEXUS_BASE_URL=http://babel-o-nexus:3000` 调用 raw Nexus。
+  - API 仍只指向 DUDesign runtime adapter，不直接依赖 raw Nexus 私有协议。
+- 新增 `deploy/staging/babelo-nexus.Dockerfile`：
+  - 从 BabeL-O 源码构建 runtime image。
+  - 暴露 `NEXUS_HOST`、`NEXUS_PORT`、`NEXUS_API_KEY`、workspace/data 等运行时配置。
+- 新增 `deploy/staging/scripts/deploy-babelo-source-remote.sh`：
+  - 将本地 BabeL-O source 发布到服务器 `/home/ubuntu/deployments/babel-o/current`。
+  - 供 staging compose 的 `BABELO_NEXUS_CONTEXT` 使用。
+- `deploy-remote.sh` 在 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 时：
+  - 自动复制 BabeL-O Nexus Dockerfile 到远端 `/tmp/dudesign-babelo-nexus.Dockerfile`。
+  - 校验 `BABELO_NEXUS_CONTEXT/package.json` 存在。
+  - 启用 `--profile babel-o`。
+- `smoke-remote.sh` 在 `babel-o` provider 下新增：
+  - raw BabeL-O Nexus `/health` smoke。
+  - runtime adapter `/v1/health` smoke。
+  - admin runtime health 非 mock 校验。
+- 修复真实 compose 环境暴露的空鉴权头问题：
+  - `BABELO_AUTH_HEADER=` / `BABELO_NEXUS_AUTH_HEADER=` 为空时，Gateway/Adapter 会回退到 `authorization: Bearer ...`。
+  - 为 runtime gateway 和 runtime adapter 分别增加回归测试。
+- Adapter `/v1/contract` 会读取 raw Nexus `/v1/runtime/version`，让 contract payload 也携带 `runtimeVersion=0.3.9`。
+
+### 云端验证
+
+- 已将 BabeL-O source 发布到服务器：
+  - `/home/ubuntu/deployments/babel-o/current`
+- 使用临时 compose project 启动：
+  - raw BabeL-O Nexus
+  - DUDesign runtime adapter
+- 云端 smoke 结果：
+  - raw Nexus `/health` 返回 `runtime=babel-o`、`version=0.3.9`。
+  - adapter `/v1/health` 返回 `runtimeVersion=0.3.9`、`status=compatible`。
+  - adapter `/v1/contract` 返回 DUDesign contract `2026-06-26.dudesign-runtime.v1`。
+- 临时 probe 结束后已清理容器、网络和临时文件，不影响当前正式 staging 服务。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm run typecheck`
+- `npm test`
+- 云端 raw Nexus + adapter compose probe。
+
+### 决策
+
+- Staging 真实内核接入采用“两段式”：
+  - raw BabeL-O Nexus 负责内核运行能力。
+  - DUDesign runtime adapter 负责协议兼容、contract 输出和事件归一化。
+- 空环境变量不能破坏 runtime 鉴权头，所有 auth header name 都必须按 blank-as-unset 处理。
+- 当前 probe 只验证 raw Nexus + adapter compatibility，不切换正式 staging API provider。
+
+### 下一步
+
+- 给 raw BabeL-O Nexus 配置真实模型 provider/API key，让 agent 能实际生成 `index.html`。
+- 将 staging env 切到 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 并跑端到端真实 prompt smoke。
+- 将 adapter 内存 session/job 映射持久化，避免 adapter 重启后 resume/cancel 丢上下文。
+- 将 `/v1/stream` 从 wait + transcript 升级为更实时的事件转发。
+
+## 2026-06-28 M22 Runtime Adapter Persistent State
+
+### 已完成
+
+- 新增 runtime adapter 状态存储接口：
+  - `RuntimeAdapterStateStore`
+  - `NoopRuntimeAdapterStateStore`
+  - `FileRuntimeAdapterStateStore`
+- Adapter 状态快照包含：
+  - DUDesign session id -> raw Nexus runtime session id 映射。
+  - DUDesign stream id -> raw Nexus agent job / child session / workspace root 映射。
+  - stream id sequence。
+- Adapter 会在以下节点持久化状态：
+  - 创建 runtime session 后。
+  - resume session 后。
+  - spawn agent 生成 stream 后。
+  - stream 消费完成并删除映射后。
+- `createRuntimeAdapterServer()` 支持注入 state store；默认仍使用 no-op store，保持本地测试和临时实例轻量。
+- `server.ts` 支持 `RUNTIME_ADAPTER_STATE_FILE`，打开文件状态存储。
+- Staging compose 为 runtime adapter 增加独立 volume：
+  - `runtime-adapter-state:/app/.dudesign/runtime-adapter`
+  - 默认状态文件 `/app/.dudesign/runtime-adapter/state.json`
+- 新增重启恢复测试：
+  - 第一个 adapter 实例 spawn agent 并写入 stream state。
+  - 关闭第一个实例。
+  - 第二个 adapter 实例从同一 state file 恢复 stream。
+  - 恢复后的 `/v1/stream` 可以继续 wait/transcript/artifact 输出。
+  - 消费完成后 state file 中对应 stream 被清理。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 决策
+
+- 当前阶段不把 runtime adapter 直接绑定 PostgreSQL，避免第 4 层依赖第 3 层业务数据访问实现。
+- File store 满足 staging 单实例重启恢复；后续 production 多副本可替换为 Redis/PostgreSQL-backed store，而不改变 adapter 核心协议。
+- stream 消费完成前持久化 raw agent job handle，优先保证 API 端已经拿到的 stream id 在 adapter 重启后还能继续读取。
+
+### 下一步
+
+- 跑全量 `npm run typecheck` 和 `npm test`。
+- 做一次云端 runtime adapter state volume smoke。
+- 下一阶段推进真实 prompt smoke 前，需要先配置 raw BabeL-O Nexus 的模型 provider/API key。

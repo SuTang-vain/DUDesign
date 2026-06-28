@@ -60,6 +60,9 @@ export type SpawnVariationAgentsInput = {
   variationCount: number
   workspaceRoot: string
   memoryNamespace: string
+  modelServiceId?: ID
+  modelId?: string
+  modelProvider?: string
   templateRequirements?: {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
@@ -82,6 +85,9 @@ export type RefineVariationInput = {
   annotationPromptSuffix?: string
   workspaceRoot: string
   deviceContext?: DeviceTarget
+  modelServiceId?: ID
+  modelId?: string
+  modelProvider?: string
 }
 
 export type CancelRuntimeJobInput = {
