@@ -943,3 +943,34 @@
 - 将 staging env 切到 `DUDESIGN_RUNTIME_PROVIDER=babel-o`，跑真实 prompt smoke。
 - 根据真实 prompt smoke 结果补齐 contract tests。
 - 继续收紧 workspace root 安全策略和 symlink escape 防护。
+
+## 2026-06-28 M24 Staging Prompt Smoke Script
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/smoke-babelo-prompt-remote.sh`。
+- 当 staging runtime provider 不是 `babel-o` 时，prompt smoke 会明确跳过。
+- 当 staging runtime provider 是 `babel-o` 时，脚本会：
+  - 通过 API 读取 bootstrap workspace。
+  - 创建 DUDesign session。
+  - 创建 1 个 variation 的 design job。
+  - 轮询 job 到 completed。
+  - 读取 variation preview HTML。
+  - 拒绝 mock/fallback 输出，例如 `Mock preview` 和 `BabeL-O completed without writing index.html`。
+- `smoke-remote.sh` 在常规 web/api/admin/runtime health smoke 后调用 prompt smoke。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-remote.sh`
+- `bash -n deploy/staging/scripts/smoke-babelo-prompt-remote.sh`
+
+### 决策
+
+- Prompt smoke 放在 staging 脚本层，而不是默认 `npm test`，因为它依赖远端 compose、raw BabeL-O Nexus 和 provider/API key。
+- 真实 prompt smoke 是否通过仍以实际 staging 执行为准；当前只完成自动化脚本接入。
+
+### 下一步
+
+- 部署最新 main 到 staging。
+- 将 staging env 配置为 `DUDESIGN_RUNTIME_PROVIDER=babel-o` 并配置 raw BabeL-O 模型 provider/API key。
+- 执行 `deploy/staging/scripts/smoke-remote.sh`，用自动 prompt smoke 验证真实生成链路。

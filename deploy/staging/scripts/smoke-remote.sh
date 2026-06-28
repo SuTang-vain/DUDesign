@@ -69,3 +69,5 @@ curl -fsS -o /tmp/dudesign-runtime-health.json -H 'x-dudesign-admin-role: suppor
 retry_curl public-web /tmp/dudesign-public-web.html "$public_base/"
 retry_curl public-api /tmp/dudesign-public-api.json "$public_base/api/dev/bootstrap"
 retry_curl public-admin /tmp/dudesign-public-admin.html "$public_base/admin/"
+
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smoke-babelo-prompt-remote.sh"
