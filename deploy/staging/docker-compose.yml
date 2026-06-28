@@ -115,10 +115,12 @@ services:
       target: admin
       args:
         NEXT_PUBLIC_DUDESIGN_API_URL: ${NEXT_PUBLIC_DUDESIGN_API_URL:-}
+        NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH: ${NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH:-/admin}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_DUDESIGN_API_URL: ${NEXT_PUBLIC_DUDESIGN_API_URL:-}
+      NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH: ${NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH:-/admin}
     ports:
       - "127.0.0.1:${ADMIN_PORT:-3002}:3002"
 

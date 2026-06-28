@@ -15,7 +15,9 @@ FROM deps AS build
 WORKDIR /app
 COPY . .
 ARG NEXT_PUBLIC_DUDESIGN_API_URL=
+ARG NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH=
 ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
+ENV NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH=$NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH
 RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api apps/web apps/admin
 RUN npm --workspace @dudesign/web run build
 RUN npm --workspace @dudesign/admin run build
