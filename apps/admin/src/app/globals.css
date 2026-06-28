@@ -231,6 +231,7 @@ button {
 
 .job-table,
 .artifact-table,
+.model-table,
 .support-list,
 .support-session-table {
   display: grid;
@@ -241,6 +242,8 @@ button {
 .job-row,
 .artifact-table-head,
 .artifact-row,
+.model-table-head,
+.model-row,
 .support-session-head,
 .support-session-row {
   display: grid;
@@ -250,6 +253,7 @@ button {
 
 .job-table-head,
 .artifact-table-head,
+.model-table-head,
 .support-session-head {
   color: var(--muted);
   font-size: 12px;
@@ -268,6 +272,11 @@ button {
   grid-template-columns: minmax(320px, 1fr) 120px 140px 120px 140px;
 }
 
+.model-table-head,
+.model-row {
+  grid-template-columns: minmax(280px, 1fr) 140px minmax(180px, 0.9fr) 110px 170px;
+}
+
 .support-session-head,
 .support-session-row {
   grid-template-columns: minmax(280px, 1fr) 150px 170px minmax(220px, 0.9fr);
@@ -275,6 +284,7 @@ button {
 
 .job-row,
 .artifact-row,
+.model-row,
 .support-user,
 .support-session-row {
   border: 1px solid var(--line);
@@ -285,6 +295,7 @@ button {
 
 .job-row p,
 .artifact-row p,
+.model-row p,
 .support-user p,
 .support-session-row p {
   color: var(--muted);
@@ -296,6 +307,7 @@ button {
 
 .job-row small,
 .artifact-row small,
+.model-row small,
 .support-session-row small {
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -434,12 +446,14 @@ button {
 
   .job-table-head,
   .artifact-table-head,
+  .model-table-head,
   .support-session-head {
     display: none;
   }
 
   .job-row,
   .artifact-row,
+  .model-row,
   .support-session-row {
     grid-template-columns: 1fr;
     align-items: stretch;

@@ -28,6 +28,43 @@ export type UsageEventKind =
   | 'export.created'
   | 'share.created'
 
+export type ModelServiceProvider = 'babel-o' | 'openai-compatible' | 'mock'
+
+export type ModelCapability =
+  | 'html_generation'
+  | 'html_refine'
+  | 'vision_annotation'
+  | 'long_context'
+
+export type ModelService = {
+  id: ID
+  provider: ModelServiceProvider
+  modelId: string
+  displayName: string
+  description: string | null
+  enabled: boolean
+  isDefault: boolean
+  capabilities: ModelCapability[]
+  contextWindow: number | null
+  inputTokenCostCents: number
+  outputTokenCostCents: number
+  metadata: Record<string, unknown>
+  createdAt: ISODateTime
+  updatedAt: ISODateTime
+}
+
+export type UserModelAccess = {
+  id: ID
+  userId: ID
+  modelServiceId: ID
+  enabled: boolean
+  dailyTokenLimit: number | null
+  monthlyCostLimitCents: number | null
+  metadata: Record<string, unknown>
+  createdAt: ISODateTime
+  updatedAt: ISODateTime
+}
+
 export type User = {
   id: ID
   email: string

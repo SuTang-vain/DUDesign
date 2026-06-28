@@ -4,6 +4,74 @@ export type SourceMode = 'new_html' | 'from_existing_html'
 
 export type DeviceTarget = 'desktop' | 'tablet' | 'mobile'
 
+export type ModelCapability =
+  | 'html_generation'
+  | 'html_refine'
+  | 'vision_annotation'
+  | 'long_context'
+
+export type UserModelOption = {
+  id: ID
+  modelId: string
+  displayName: string
+  description: string | null
+  provider: string
+  isDefault: boolean
+  capabilities: ModelCapability[]
+  contextWindow: number | null
+}
+
+export type ListUserModelsResponse = {
+  models: UserModelOption[]
+  defaultModelId: ID | null
+}
+
+export type AdminModelService = UserModelOption & {
+  enabled: boolean
+  inputTokenCostCents: number
+  outputTokenCostCents: number
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminUserModelAccess = {
+  id: ID
+  userId: ID
+  modelServiceId: ID
+  enabled: boolean
+  dailyTokenLimit: number | null
+  monthlyCostLimitCents: number | null
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    costCents: number
+    usageEventCount: number
+  }
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminModelsResponse = {
+  models: AdminModelService[]
+}
+
+export type UpdateAdminModelRequest = {
+  enabled?: boolean
+  isDefault?: boolean
+}
+
+export type AdminUserModelAccessResponse = {
+  userId: ID
+  access: AdminUserModelAccess[]
+}
+
+export type UpdateUserModelAccessRequest = {
+  enabled?: boolean
+  dailyTokenLimit?: number | null
+  monthlyCostLimitCents?: number | null
+}
+
 export type CreateSessionRequest = {
   workspaceId: ID
   mode: SourceMode
@@ -38,6 +106,7 @@ export type CreateDesignJobRequest = {
   prompt: string
   sourceMode: SourceMode
   sourceArtifactId?: ID | null
+  modelServiceId?: ID | null
   variationCount: number
   templateRequirements?: {
     styles?: string[]

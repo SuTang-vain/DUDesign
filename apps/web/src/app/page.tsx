@@ -23,6 +23,7 @@ export default function HomePage(): React.JSX.Element {
   const [variationCount, setVariationCount] = useState(3)
   const [mode, setMode] = useState<'new_html' | 'from_existing_html'>('new_html')
   const [styles, setStyles] = useState('minimal, trustworthy')
+  const [modelServiceId, setModelServiceId] = useState<string>('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'submitting' | 'error'>('loading')
   const [resumeId, setResumeId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
@@ -32,6 +33,7 @@ export default function HomePage(): React.JSX.Element {
     Promise.all([getBootstrap(), listSessions()])
       .then(data => {
         setBootstrap(data[0])
+        setModelServiceId(data[0].models.defaultModelId ?? data[0].models.models[0]?.id ?? '')
         setSessions(data[1].sessions)
         setStatus('idle')
       })
@@ -59,6 +61,7 @@ export default function HomePage(): React.JSX.Element {
         sessionId: session.session.id,
         prompt: prompt.trim(),
         sourceMode: mode,
+        modelServiceId: modelServiceId || undefined,
         variationCount,
         templateRequirements: {
           styles: styles.split(',').map(style => style.trim()).filter(Boolean),
@@ -144,6 +147,19 @@ export default function HomePage(): React.JSX.Element {
               <input value={styles} onChange={event => setStyles(event.target.value)} />
             </label>
           </div>
+          <label className="model-picker">
+            Model
+            <select value={modelServiceId} onChange={event => setModelServiceId(event.target.value)}>
+              {(bootstrap?.models.models ?? []).map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}{model.isDefault ? ' · default' : ''}
+                </option>
+              ))}
+            </select>
+            <span>
+              {modelDescription(bootstrap?.models.models.find(model => model.id === modelServiceId))}
+            </span>
+          </label>
           <div className="example-row">
             {promptExamples.map(example => (
               <button key={example} onClick={() => setPrompt(example)}>
@@ -184,6 +200,12 @@ export default function HomePage(): React.JSX.Element {
       </section>
     </main>
   )
+}
+
+function modelDescription(model: BootstrapResponse['models']['models'][number] | undefined): string {
+  if (!model) return 'No model is currently available.'
+  const capabilityText = model.capabilities.join(', ')
+  return `${model.provider} · ${model.modelId}${capabilityText ? ` · ${capabilityText}` : ''}`
 }
 
 function formatRelativeTime(value: string): string {

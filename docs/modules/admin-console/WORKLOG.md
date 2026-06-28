@@ -174,3 +174,42 @@
 
 - 定义并实现管理端敏感信息脱敏规则。
 - 增加 Memory Governance 只读视图，验证 memory namespace 不跨用户。
+
+## 2026-06-28 ADM-M5 Model Governance Console
+
+### 已完成
+
+- Admin API client 新增：
+  - `getAdminModels()`
+  - `updateAdminModel()`
+  - `getUserModelAccess()`
+  - `updateUserModelAccess()`
+- 管理端首页新增 Model Services 面板：
+  - 展示 provider、model id、display name、description。
+  - 展示 enabled/default 状态。
+  - 展示 capabilities、context window 和 token cost 配置。
+  - 支持开启/关闭模型服务。
+  - 支持设置默认模型。
+- 管理端首页新增 User Model Access 面板：
+  - 按 user id 查询模型访问权限。
+  - 展示 allow/block 状态。
+  - 展示 daily token limit、monthly cost cap。
+  - 展示该用户在对应模型上的 usage 摘要。
+  - 支持 allow/block 单个用户的单个模型。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 模型治理属于管理端治理面，不允许前端用户绕过业务服务层启用不可用模型。
+- 管理端写操作继续走 Admin API，并写入 audit log。
+- 当前只实现 enabled/default/access 这类安全开关；provider secret、API key 等敏感配置不进入前端明文展示。
+
+### 下一步
+
+- 增加模型治理管理端 E2E。
+- 在真实 RBAC 接入后拆分 support/operator/developer 对模型治理字段的权限。
+- 后续补模型成本按时间范围、workspace、model 的聚合过滤。

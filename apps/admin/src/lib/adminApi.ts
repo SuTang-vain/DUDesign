@@ -22,6 +22,49 @@ export type RuntimeHealthResponse = {
   }
 }
 
+export type AdminModel = {
+  id: string
+  provider: string
+  modelId: string
+  displayName: string
+  description: string | null
+  enabled: boolean
+  isDefault: boolean
+  capabilities: string[]
+  contextWindow: number | null
+  inputTokenCostCents: number
+  outputTokenCostCents: number
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminModelsResponse = {
+  models: AdminModel[]
+}
+
+export type AdminUserModelAccess = {
+  id: string
+  userId: string
+  modelServiceId: string
+  enabled: boolean
+  dailyTokenLimit: number | null
+  monthlyCostLimitCents: number | null
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    costCents: number
+    usageEventCount: number
+  }
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminUserModelAccessResponse = {
+  userId: string
+  access: AdminUserModelAccess[]
+}
+
 export type AuditLog = {
   id: string
   requestId: string
@@ -188,6 +231,31 @@ export async function getRuntimeHealth(role: AdminRole): Promise<RuntimeHealthRe
   return getJson('/api/admin/runtime/health', role)
 }
 
+export async function getAdminModels(role: AdminRole): Promise<AdminModelsResponse> {
+  return getJson('/api/admin/models', role)
+}
+
+export async function updateAdminModel(
+  role: AdminRole,
+  modelServiceId: string,
+  input: { enabled?: boolean; isDefault?: boolean },
+): Promise<{ model: AdminModel; audit: AuditLog }> {
+  return patchJson(`/api/admin/models/${encodeURIComponent(modelServiceId)}`, role, input)
+}
+
+export async function getUserModelAccess(role: AdminRole, userId: string): Promise<AdminUserModelAccessResponse> {
+  return getJson(`/api/admin/users/${encodeURIComponent(userId)}/models`, role)
+}
+
+export async function updateUserModelAccess(
+  role: AdminRole,
+  userId: string,
+  modelServiceId: string,
+  input: { enabled?: boolean; dailyTokenLimit?: number | null; monthlyCostLimitCents?: number | null },
+): Promise<{ access: AdminUserModelAccess; audit: AuditLog }> {
+  return patchJson(`/api/admin/users/${encodeURIComponent(userId)}/models/${encodeURIComponent(modelServiceId)}`, role, input)
+}
+
 export async function getAuditLogs(role: AdminRole): Promise<AuditLogsResponse> {
   return getJson('/api/admin/audit-logs', role)
 }
@@ -237,6 +305,19 @@ async function getJson<T>(path: string, role: AdminRole): Promise<T> {
 async function postJson<T>(path: string, role: AdminRole, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...adminHeaders(role),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await errorMessage(res))
+  return res.json() as Promise<T>
+}
+
+async function patchJson<T>(path: string, role: AdminRole, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
     headers: {
       'content-type': 'application/json',
       ...adminHeaders(role),

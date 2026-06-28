@@ -5,14 +5,20 @@ import {
   cancelJob,
   getAdminArtifacts,
   getAdminJobs,
+  getAdminModels,
   getAuditLogs,
   getCostSummary,
   getRuntimeHealth,
+  getUserModelAccess,
   getUserSupport,
   retryJob,
+  updateAdminModel,
+  updateUserModelAccess,
   type AdminArtifact,
   type AdminJob,
+  type AdminModel,
   type AdminRole,
+  type AdminUserModelAccess,
   type AdminUserSupportResponse,
   type AuditLog,
   type CostSummaryResponse,
@@ -25,12 +31,15 @@ export default function AdminHomePage(): React.JSX.Element {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [jobs, setJobs] = useState<AdminJob[]>([])
   const [artifacts, setArtifacts] = useState<AdminArtifact[]>([])
+  const [models, setModels] = useState<AdminModel[]>([])
+  const [modelAccess, setModelAccess] = useState<AdminUserModelAccess[]>([])
   const [supportUsers, setSupportUsers] = useState<AdminUserSupportResponse['users']>([])
   const [costs, setCosts] = useState<CostSummaryResponse | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [artifactJobFilter, setArtifactJobFilter] = useState('')
   const [artifactKindFilter, setArtifactKindFilter] = useState('')
   const [supportQuery, setSupportQuery] = useState('usr_dev')
+  const [modelUserId, setModelUserId] = useState('usr_dev')
   const [jobId, setJobId] = useState('')
   const [reason, setReason] = useState('Operator requested cancellation from admin console.')
   const [loading, setLoading] = useState(false)
@@ -62,7 +71,7 @@ export default function AdminHomePage(): React.JSX.Element {
       ])
       setRuntime(health)
       setAuditLogs(audits.auditLogs)
-      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport()])
+      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshModels(), refreshModelAccess()])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -102,6 +111,70 @@ export default function AdminHomePage(): React.JSX.Element {
       setSupportUsers(support.users)
     } catch (err) {
       setError((err as Error).message)
+    }
+  }
+
+  async function refreshModels(): Promise<void> {
+    try {
+      const modelData = await getAdminModels(role)
+      setModels(modelData.models)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function refreshModelAccess(): Promise<void> {
+    try {
+      const userId = modelUserId.trim() || 'usr_dev'
+      const access = await getUserModelAccess(role, userId)
+      setModelAccess(access.access)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function toggleModel(model: AdminModel, enabled: boolean): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await updateAdminModel(role, model.id, { enabled })
+      setNotice(`${enabled ? 'Enabled' : 'Disabled'} ${model.displayName}`)
+      await refreshModels()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function setDefaultModel(model: AdminModel): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await updateAdminModel(role, model.id, { isDefault: true, enabled: true })
+      setNotice(`Set ${model.displayName} as default`)
+      await refreshModels()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function toggleUserModelAccess(access: AdminUserModelAccess, enabled: boolean): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await updateUserModelAccess(role, access.userId, access.modelServiceId, { enabled })
+      setNotice(`${enabled ? 'Enabled' : 'Disabled'} ${access.modelServiceId} for ${access.userId}`)
+      await refreshModelAccess()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -166,6 +239,7 @@ export default function AdminHomePage(): React.JSX.Element {
         </div>
         <nav className="nav-stack" aria-label="Admin sections">
           <button className="nav-item active">Runtime Health</button>
+          <button className="nav-item active">Model Services</button>
           <button className="nav-item active">Job Controls</button>
           <button className="nav-item active">Artifacts</button>
           <button className="nav-item active">User Support</button>
@@ -218,6 +292,113 @@ export default function AdminHomePage(): React.JSX.Element {
                 <strong>{mappedEventCount}</strong>
               </div>
             </div>
+          </section>
+
+          <section className="panel wide-panel">
+            <div className="panel-header">
+              <h2>Model Services</h2>
+              <button className="secondary-button" onClick={() => void refreshModels()} disabled={loading}>
+                Refresh models
+              </button>
+            </div>
+            {models.length === 0 ? (
+              <p className="muted">No model services are configured.</p>
+            ) : (
+              <div className="model-table">
+                <div className="model-table-head">
+                  <span>Model</span>
+                  <span>Status</span>
+                  <span>Capabilities</span>
+                  <span>Cost</span>
+                  <span>Actions</span>
+                </div>
+                {models.map(model => (
+                  <article className="model-row" key={model.id}>
+                    <div>
+                      <strong>{model.displayName}</strong>
+                      <p>{model.provider} · {model.modelId}</p>
+                      <small>{model.description ?? 'No description'}</small>
+                    </div>
+                    <div className="compact-metrics">
+                      <span className={`status-pill ${model.enabled ? 'compatible' : 'unavailable'}`}>
+                        {model.enabled ? 'enabled' : 'disabled'}
+                      </span>
+                      {model.isDefault ? <span className="status-pill compatible">default</span> : null}
+                    </div>
+                    <div className="compact-metrics">
+                      <span>{model.capabilities.join(', ')}</span>
+                      <span>{model.contextWindow ? `${model.contextWindow.toLocaleString()} ctx` : 'no ctx limit'}</span>
+                    </div>
+                    <div className="compact-metrics">
+                      <span>in {model.inputTokenCostCents}c</span>
+                      <span>out {model.outputTokenCostCents}c</span>
+                    </div>
+                    <div className="row-actions">
+                      <button className="secondary-button" onClick={() => void toggleModel(model, !model.enabled)} disabled={loading}>
+                        {model.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                      <button className="secondary-button" onClick={() => void setDefaultModel(model)} disabled={loading || model.isDefault}>
+                        Make default
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="panel wide-panel">
+            <div className="panel-header">
+              <h2>User Model Access</h2>
+              <div className="filter-row">
+                <input
+                  className="compact-input"
+                  value={modelUserId}
+                  onChange={event => setModelUserId(event.target.value)}
+                  placeholder="user id"
+                />
+                <button className="secondary-button" onClick={() => void refreshModelAccess()} disabled={loading}>
+                  Load access
+                </button>
+              </div>
+            </div>
+            {modelAccess.length === 0 ? (
+              <p className="muted">No model access records loaded.</p>
+            ) : (
+              <div className="model-table">
+                <div className="model-table-head">
+                  <span>User model</span>
+                  <span>Status</span>
+                  <span>Limits</span>
+                  <span>Usage</span>
+                  <span>Actions</span>
+                </div>
+                {modelAccess.map(access => (
+                  <article className="model-row" key={access.id}>
+                    <div>
+                      <strong>{modelName(models, access.modelServiceId)}</strong>
+                      <p>{access.userId} · {access.modelServiceId}</p>
+                    </div>
+                    <span className={`status-pill ${access.enabled ? 'compatible' : 'unavailable'}`}>
+                      {access.enabled ? 'allowed' : 'blocked'}
+                    </span>
+                    <div className="compact-metrics">
+                      <span>{access.dailyTokenLimit ? `${access.dailyTokenLimit.toLocaleString()} daily tok` : 'no daily token limit'}</span>
+                      <span>{access.monthlyCostLimitCents ? `$${(access.monthlyCostLimitCents / 100).toFixed(2)} monthly` : 'no monthly cap'}</span>
+                    </div>
+                    <div className="compact-metrics">
+                      <span>{access.usage.inputTokens + access.usage.outputTokens} tok</span>
+                      <span>${(access.usage.costCents / 100).toFixed(2)} · {access.usage.usageEventCount} events</span>
+                    </div>
+                    <div className="row-actions">
+                      <button className="secondary-button" onClick={() => void toggleUserModelAccess(access, !access.enabled)} disabled={loading}>
+                        {access.enabled ? 'Block' : 'Allow'}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="panel wide-panel">
@@ -520,4 +701,8 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function modelName(models: AdminModel[], modelServiceId: string): string {
+  return models.find(model => model.id === modelServiceId)?.displayName ?? modelServiceId
 }

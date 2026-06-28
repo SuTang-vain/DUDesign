@@ -29,6 +29,23 @@ export type BootstrapResponse = {
     name: string
     storageKey: string
   }
+  models: ModelsResponse
+}
+
+export type ModelOption = {
+  id: string
+  modelId: string
+  displayName: string
+  description: string | null
+  provider: string
+  isDefault: boolean
+  capabilities: string[]
+  contextWindow: number | null
+}
+
+export type ModelsResponse = {
+  models: ModelOption[]
+  defaultModelId: string | null
 }
 
 export type JobSnapshot = {
@@ -103,6 +120,10 @@ function normalizeApiBase(value: string | undefined): string {
 
 export async function getBootstrap(): Promise<BootstrapResponse> {
   return getJson('/api/dev/bootstrap')
+}
+
+export async function listModels(): Promise<ModelsResponse> {
+  return getJson('/api/models')
 }
 
 export async function createSession(input: CreateSessionRequest): Promise<CreateSessionResponse> {

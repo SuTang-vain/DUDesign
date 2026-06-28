@@ -40,7 +40,13 @@ export class ApplicationService {
     const user = await this.requireUser(ctx.userId)
     const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-    return { user, workspace }
+    const models = await this.store.listUserModelOptions(user.id)
+    return { user, workspace, models }
+  }
+
+  async listUserModels(ctx: RequestContext) {
+    const user = await this.requireUser(ctx.userId)
+    return this.store.listUserModelOptions(user.id)
   }
 
   async createSession(ctx: RequestContext, input: CreateSessionRequest) {
@@ -129,6 +135,7 @@ export class ApplicationService {
     const { session, workspace } = context
     await this.requireSessionAccess(session.id, ctx.userId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
+    const selectedModel = await this.resolveUserModel(ctx.userId, input.modelServiceId ?? null)
     await this.store.appendMessage({
       sessionId: session.id,
       role: 'user',
@@ -137,6 +144,7 @@ export class ApplicationService {
         sourceMode: input.sourceMode,
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
+        modelServiceId: selectedModel.id,
       },
     })
     const job = await this.store.createJob({
@@ -144,7 +152,12 @@ export class ApplicationService {
       prompt: input.prompt,
       sourceMode: input.sourceMode,
       variationCount: input.variationCount,
-      templateRequirements: input.templateRequirements ?? {},
+      templateRequirements: {
+        ...(input.templateRequirements ?? {}),
+        modelServiceId: selectedModel.id,
+        modelId: selectedModel.modelId,
+        modelProvider: selectedModel.provider,
+      },
     })
     const variations = await this.store.createVariations({ job, count: input.variationCount })
 
@@ -158,6 +171,9 @@ export class ApplicationService {
       sourceArtifactId: input.sourceArtifactId ?? null,
       variationCount: input.variationCount,
       templateRequirements: input.templateRequirements,
+      modelServiceId: selectedModel.id,
+      modelId: selectedModel.modelId,
+      modelProvider: selectedModel.provider,
       variationIdsByIndex: new Map(variations.map(variation => [variation.index, variation.id])),
     })
 
@@ -223,6 +239,7 @@ export class ApplicationService {
     if (!input.prompt.trim()) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
     if (!baseArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.baseArtifactId}`)
     const baseArtifactHtml = await this.readArtifactHtml(baseArtifact.storageKey)
+    const modelContext = modelContextFromTemplateRequirements(job.templateRequirements)
 
     await this.store.appendMessage({
       sessionId: session.id,
@@ -251,6 +268,9 @@ export class ApplicationService {
       annotationPromptSuffix: input.annotationPromptSuffix,
       workspaceRoot: workspace.storageKey,
       deviceContext: input.deviceContext,
+      modelServiceId: modelContext.modelServiceId,
+      modelId: modelContext.modelId,
+      modelProvider: modelContext.modelProvider,
     })) {
       await this.applyEventSideEffects(event)
       this.events.publish(event)
@@ -570,6 +590,62 @@ export class ApplicationService {
     return this.store.getAdminCostSummary()
   }
 
+  async listAdminModels(ctx: RequestContext) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    return this.store.listAdminModels()
+  }
+
+  async updateAdminModel(ctx: RequestContext, modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const model = await this.store.updateAdminModel(modelServiceId, input)
+    if (!model) throw createHttpError(404, 'MODEL_NOT_FOUND', `Model service not found: ${modelServiceId}`)
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'model.update',
+      targetType: 'model_service',
+      targetId: modelServiceId,
+      reason: null,
+      metadata: input,
+    })
+    return { model, audit }
+  }
+
+  async getAdminUserModelAccess(ctx: RequestContext, userId: string) {
+    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    await this.requireUser(userId)
+    return this.store.getAdminUserModelAccess(userId)
+  }
+
+  async updateUserModelAccess(
+    ctx: RequestContext,
+    userId: string,
+    modelServiceId: string,
+    input: { enabled?: boolean; dailyTokenLimit?: number | null; monthlyCostLimitCents?: number | null },
+  ) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    await this.requireUser(userId)
+    const model = await this.store.getModelServiceById(modelServiceId)
+    if (!model) throw createHttpError(404, 'MODEL_NOT_FOUND', `Model service not found: ${modelServiceId}`)
+    const access = await this.store.updateUserModelAccess(userId, modelServiceId, input)
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'user_model_access.update',
+      targetType: 'user_model_access',
+      targetId: access.id,
+      reason: null,
+      metadata: {
+        userId,
+        modelServiceId,
+        ...input,
+      },
+    })
+    return { access, audit }
+  }
+
   async cancelJobAsAdmin(ctx: RequestContext, jobId: string, input: { reason?: string }) {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
     const snapshot = await this.store.getJobSnapshot(jobId)
@@ -628,6 +704,7 @@ export class ApplicationService {
         sourceMode: original.sourceMode,
         variationCount: original.variationCount,
         templateRequirements: normalizeTemplateRequirements(original.templateRequirements),
+        modelServiceId: stringValue(original.templateRequirements.modelServiceId) ?? undefined,
       },
     )
     const audit = await this.store.createAuditLog({
@@ -705,6 +782,17 @@ export class ApplicationService {
     await this.requireJobAccess(variation.jobId, userId)
   }
 
+  private async resolveUserModel(userId: string, requestedModelServiceId: string | null) {
+    const options = await this.store.listUserModelOptions(userId)
+    const modelServiceId = requestedModelServiceId ?? options.defaultModelId
+    if (!modelServiceId) throw createHttpError(409, 'NO_MODEL_AVAILABLE', 'No model service is available for this user.')
+    const allowed = await this.store.canUserUseModel(userId, modelServiceId)
+    if (!allowed) throw createHttpError(403, 'MODEL_FORBIDDEN', 'This model is not enabled for this user.')
+    const model = await this.store.getModelServiceById(modelServiceId)
+    if (!model || !model.enabled) throw createHttpError(404, 'MODEL_NOT_FOUND', `Model service not found: ${modelServiceId}`)
+    return model
+  }
+
   private async runMockJob(input: {
     jobId: string
     sessionId: string
@@ -715,6 +803,9 @@ export class ApplicationService {
     sourceArtifactId: string | null
     variationCount: number
     templateRequirements: CreateDesignJobRequest['templateRequirements']
+    modelServiceId: string
+    modelId: string
+    modelProvider: string
     variationIdsByIndex: Map<number, string>
   }): Promise<void> {
     await this.store.setJobStatus(input.jobId, 'running')
@@ -732,6 +823,9 @@ export class ApplicationService {
         workspaceRoot: input.workspaceRoot,
         memoryNamespace: runtimeContext?.user?.memoryNamespace ?? this.store.devUser.memoryNamespace,
         templateRequirements: input.templateRequirements,
+        modelServiceId: input.modelServiceId,
+        modelId: input.modelId,
+        modelProvider: input.modelProvider,
       })) {
         const normalized = this.rewriteRuntimeVariationId(event, input.variationIdsByIndex)
         await this.applyEventSideEffects(normalized)
@@ -870,6 +964,9 @@ export class ApplicationService {
               metadata: {
                 artifactVersion: artifact.version,
                 parentArtifactId: artifact.parentArtifactId,
+                modelServiceId: stringValue(job.templateRequirements.modelServiceId),
+                modelId: stringValue(job.templateRequirements.modelId),
+                modelProvider: stringValue(job.templateRequirements.modelProvider),
               },
             })
           }
@@ -1261,6 +1358,25 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
       : undefined,
     notes: typeof value.notes === 'string' ? value.notes : undefined,
   }
+}
+
+function modelContextFromTemplateRequirements(value: Record<string, unknown>): {
+  modelServiceId?: string
+  modelId?: string
+  modelProvider?: string
+} {
+  const modelServiceId = stringValue(value.modelServiceId)
+  const modelId = stringValue(value.modelId)
+  const modelProvider = stringValue(value.modelProvider)
+  return {
+    ...(modelServiceId && { modelServiceId }),
+    ...(modelId && { modelId }),
+    ...(modelProvider && { modelProvider }),
+  }
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function variationIndexFromRuntimeId(variationId: string | undefined): number | null {

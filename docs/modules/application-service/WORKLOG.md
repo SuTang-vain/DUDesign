@@ -3,6 +3,41 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-06-28 Model Governance PostgreSQL and Runtime Context
+
+### 已完成
+
+- 确认 `Runtime unavailable` 降级测试已实现并通过；修正 application-service TODO 中 Phase APP-7 的残留未勾选项。
+- 新增 `0004_model_governance.sql`，为 `model_services` 和 `user_model_access` 建立 PostgreSQL migration。
+- `PostgresRepository` 增加 SQL-native 模型治理方法：
+  - 用户可选模型列表与默认模型解析。
+  - 模型服务基础查找和用户权限判定。
+  - 管理端模型列表、启停、默认模型设置。
+  - 用户级模型访问配置与 usage 聚合。
+- PostgreSQL seed/hydrate 覆盖模型服务和用户模型访问映射。
+- Postgres opt-in integration smoke 增加模型治理断言，覆盖 migration、hydrate、SQL query、default model 切换、用户禁用模型。
+- `ApplicationService` 将 `modelServiceId/modelId/modelProvider` 从 create job 传入 Runtime Gateway；refine 会从 job 快照恢复同一模型上下文。
+- admin retry 会保留原 job 的 `modelServiceId`，避免重试回落到当前默认模型。
+- Runtime Gateway 的 generation/refine payload 增加模型上下文字段。
+- BabeL-O runtime adapter 将模型上下文写入 Nexus agent metadata，并注入 prompt 的 Model selection 段；同时保留可选顶层 `modelId/modelProvider` 字段，为未来 BabeL-O per-agent model contract 做兼容入口。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- 临时本地 PostgreSQL：`DUDESIGN_POSTGRES_TEST_URL=... npm --workspace @dudesign/api run test`
+
+### 决策
+
+- DUDesign 不通过全局 runtime config mutation 临时切换 BabeL-O 默认模型，避免 SaaS 并发下不同用户/任务互相串模型。
+- 当前 BabeL-O `/v1/agents` contract 未正式声明 per-agent `modelId`；DUDesign 先以 metadata/prompt 透传并保留 adapter 字段，后续需要 BabeL-O 内核提供稳定的 per-request model contract 才能强制真实 provider 切换。
+
+### 下一步
+
+- 推进 BabeL-O runtime contract：正式定义 agent spawn/refine 的 `modelId/providerId` 字段及 contract test。
+- 在 DUDesign 管理端继续补模型服务新增/编辑密钥引用、provider health 和用户 usage limit enforcement。
+- 将用户侧模型选择与 job/detail 页面联动展示，便于回看每个 variation 使用的模型。
+
 ## 2026-06-26
 
 ### 已完成
@@ -1081,3 +1116,70 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 可以收口提交 M23-M29 后端服务层数据底座改动。
 - 下一阶段建议转入 runtime gateway contract adapter / BabeL-O 兼容层联调。
+
+## 2026-06-28 M30 Model Governance Foundation
+
+### 已完成
+
+- 领域模型新增：
+  - `ModelService`
+  - `UserModelAccess`
+  - `ModelCapability`
+  - `ModelServiceProvider`
+- API contract 新增：
+  - 用户可选模型列表响应。
+  - 管理员模型服务响应。
+  - 用户模型访问权限响应。
+  - `CreateDesignJobRequest.modelServiceId`。
+- Repository interface 新增模型治理方法：
+  - `listUserModelOptions()`
+  - `getModelServiceById()`
+  - `canUserUseModel()`
+  - `listAdminModels()`
+  - `updateAdminModel()`
+  - `getAdminUserModelAccess()`
+  - `updateUserModelAccess()`
+- InMemoryStore 新增 seed model services：
+  - `mdl_babelo_default`
+  - `mdl_babelo_fast`
+  - `mdl_mock_design`
+- 用户 API 新增：
+  - `GET /api/models`
+  - `GET /api/dev/bootstrap` 返回当前用户可用模型。
+- 创建 design job 时：
+  - 校验用户是否可使用请求的 `modelServiceId`。
+  - 未传 model 时使用用户可用默认模型。
+  - 将 `modelServiceId`、`modelId`、`modelProvider` 写入 `templateRequirements`。
+  - usage event metadata 写入模型标识，供后续成本/用量治理聚合。
+- Admin API 新增：
+  - `GET /api/admin/models`
+  - `PATCH /api/admin/models/:modelServiceId`
+  - `GET /api/admin/users/:userId/models`
+  - `PATCH /api/admin/users/:userId/models/:modelServiceId`
+- 管理端模型写操作写入 audit log：
+  - `model.update`
+  - `user_model_access.update`
+- 新增 `model-governance.test.ts`：
+  - 用户可获取模型列表。
+  - 禁用用户某模型后，使用该模型创建 job 返回 `MODEL_FORBIDDEN`。
+  - operator 可启停模型并设置默认模型。
+  - admin 可查看用户模型访问和 usage 摘要。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 模型配置和用户授权属于后端业务服务层事实来源，用户端只消费可用模型列表。
+- 当前 MVP 不在前端暴露 provider secret/API key；这些敏感配置后续应由安全配置系统或服务端 env 管理。
+- 本轮先用 InMemoryStore 建立产品和 API 契约；PostgreSQL migration / SQL-native query methods 作为下一阶段收口。
+
+### 下一步
+
+- 增加 `model_services`、`user_model_access` PostgreSQL migration。
+- 为 PostgresRepository 实现 SQL-first model governance methods。
+- 将 `modelServiceId` 传入 Runtime Gateway/Adapter，使 BabeL-O child session 真正按选择模型执行。
+- 增加 Admin/User 前端 E2E 覆盖模型选择和模型开关。

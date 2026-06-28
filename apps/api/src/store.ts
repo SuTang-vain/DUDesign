@@ -3,9 +3,11 @@ import type {
   DesignJob,
   DesignSession,
   DesignVariation,
+  ModelService,
   Share,
   UsageEvent,
   User,
+  UserModelAccess,
   Workspace,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
@@ -15,7 +17,9 @@ import type {
   AdminCostSummary,
   AdminJobSummary,
   AdminJobsFilter,
+  AdminModelSummary,
   AdminSupportSession,
+  AdminUserModelAccess,
   AdminUserSupport,
   AdminUserSupportFilter,
   ApplicationRepository,
@@ -71,6 +75,8 @@ export class InMemoryStore implements ApplicationRepository {
   readonly variations = new Map<string, DesignVariation>()
   readonly artifacts = new Map<string, Artifact>()
   readonly shares = new Map<string, Share>()
+  readonly modelServices = new Map<string, ModelService>()
+  readonly userModelAccess = new Map<string, UserModelAccess>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
   readonly auditLogs: AuditLog[] = []
   readonly usageEvents: UsageEvent[] = []
@@ -102,6 +108,7 @@ export class InMemoryStore implements ApplicationRepository {
     this.devWorkspace = primary.workspace
     this.altUser = alternate.user
     this.altWorkspace = alternate.workspace
+    this.seedModelServices(now)
   }
 
   getUserById(userId: string): MaybePromise<User | null> {
@@ -114,6 +121,44 @@ export class InMemoryStore implements ApplicationRepository {
 
   getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null> {
     return [...this.workspaces.values()].find(candidate => candidate.ownerId === userId) ?? null
+  }
+
+  listUserModelOptions(userId: string): MaybePromise<{ models: Array<{
+    id: string
+    provider: ModelService['provider']
+    modelId: string
+    displayName: string
+    description: string | null
+    isDefault: boolean
+    capabilities: ModelService['capabilities']
+    contextWindow: number | null
+  }>; defaultModelId: string | null }> {
+    const models = [...this.modelServices.values()]
+      .filter(model => model.enabled && this.isUserModelEnabled(userId, model.id))
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.displayName.localeCompare(b.displayName))
+      .map(model => ({
+        id: model.id,
+        provider: model.provider,
+        modelId: model.modelId,
+        displayName: model.displayName,
+        description: model.description,
+        isDefault: model.isDefault,
+        capabilities: model.capabilities,
+        contextWindow: model.contextWindow,
+      }))
+    return {
+      models,
+      defaultModelId: models.find(model => model.isDefault)?.id ?? models[0]?.id ?? null,
+    }
+  }
+
+  getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null> {
+    return this.modelServices.get(modelServiceId) ?? null
+  }
+
+  canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean> {
+    const model = this.modelServices.get(modelServiceId)
+    return Boolean(model?.enabled && this.isUserModelEnabled(userId, modelServiceId))
   }
 
   getSessionById(sessionId: string): MaybePromise<DesignSession | null> {
@@ -249,6 +294,60 @@ export class InMemoryStore implements ApplicationRepository {
     this.users.set(user.id, user)
     this.workspaces.set(workspace.id, workspace)
     return { user, workspace }
+  }
+
+  private seedModelServices(now: string): void {
+    const models: ModelService[] = [
+      {
+        id: 'mdl_babelo_default',
+        provider: 'babel-o',
+        modelId: 'babel-o-default',
+        displayName: 'BabeL-O Default',
+        description: 'Default BabeL-O runtime model for HTML generation and refinement.',
+        enabled: true,
+        isDefault: true,
+        capabilities: ['html_generation', 'html_refine', 'long_context'],
+        contextWindow: 128000,
+        inputTokenCostCents: 0,
+        outputTokenCostCents: 0,
+        metadata: { source: 'seed' },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'mdl_babelo_fast',
+        provider: 'babel-o',
+        modelId: 'babel-o-fast',
+        displayName: 'BabeL-O Fast',
+        description: 'Lower-latency option for quick drafts and short refinement loops.',
+        enabled: true,
+        isDefault: false,
+        capabilities: ['html_generation', 'html_refine'],
+        contextWindow: 64000,
+        inputTokenCostCents: 0,
+        outputTokenCostCents: 0,
+        metadata: { source: 'seed' },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'mdl_mock_design',
+        provider: 'mock',
+        modelId: 'mock-design',
+        displayName: 'Mock Design Runtime',
+        description: 'Development-only model option backed by DUDesign mock runtime.',
+        enabled: false,
+        isDefault: false,
+        capabilities: ['html_generation', 'html_refine'],
+        contextWindow: 16000,
+        inputTokenCostCents: 0,
+        outputTokenCostCents: 0,
+        metadata: { source: 'seed', developmentOnly: true },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]
+    for (const model of models) this.modelServices.set(model.id, model)
   }
 
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage> {
@@ -809,6 +908,90 @@ export class InMemoryStore implements ApplicationRepository {
     }
   }
 
+  listAdminModels(): MaybePromise<{ models: AdminModelSummary[] }> {
+    return {
+      models: [...this.modelServices.values()]
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.displayName.localeCompare(b.displayName))
+        .map(model => ({
+          id: model.id,
+          provider: model.provider,
+          modelId: model.modelId,
+          displayName: model.displayName,
+          description: model.description,
+          enabled: model.enabled,
+          isDefault: model.isDefault,
+          capabilities: model.capabilities,
+          contextWindow: model.contextWindow,
+          inputTokenCostCents: model.inputTokenCostCents,
+          outputTokenCostCents: model.outputTokenCostCents,
+          metadata: model.metadata,
+          createdAt: model.createdAt,
+          updatedAt: model.updatedAt,
+        })),
+    }
+  }
+
+  updateAdminModel(modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }): MaybePromise<ModelService | null> {
+    const model = this.modelServices.get(modelServiceId)
+    if (!model) return null
+    const now = nowIso()
+    if (input.isDefault === true) {
+      for (const candidate of this.modelServices.values()) {
+        if (candidate.id !== modelServiceId && candidate.isDefault) {
+          this.modelServices.set(candidate.id, {
+            ...candidate,
+            isDefault: false,
+            updatedAt: now,
+          })
+        }
+      }
+    }
+    const updated: ModelService = {
+      ...model,
+      ...(typeof input.enabled === 'boolean' && { enabled: input.enabled }),
+      ...(typeof input.isDefault === 'boolean' && { isDefault: input.isDefault }),
+      updatedAt: now,
+    }
+    this.modelServices.set(updated.id, updated)
+    return updated
+  }
+
+  getAdminUserModelAccess(userId: string): MaybePromise<{ userId: string; access: AdminUserModelAccess[] }> {
+    return {
+      userId,
+      access: [...this.modelServices.values()]
+        .sort((a, b) => a.displayName.localeCompare(b.displayName))
+        .map(model => {
+          const access = this.getOrCreateUserModelAccess(userId, model.id)
+          return {
+            ...access,
+            usage: this.getUserModelUsage(userId, model.id),
+          }
+        }),
+    }
+  }
+
+  updateUserModelAccess(
+    userId: string,
+    modelServiceId: string,
+    input: {
+      enabled?: boolean
+      dailyTokenLimit?: number | null
+      monthlyCostLimitCents?: number | null
+    },
+  ): MaybePromise<UserModelAccess> {
+    const access = this.getOrCreateUserModelAccess(userId, modelServiceId)
+    const updated: UserModelAccess = {
+      ...access,
+      ...(typeof input.enabled === 'boolean' && { enabled: input.enabled }),
+      ...(input.dailyTokenLimit !== undefined && { dailyTokenLimit: input.dailyTokenLimit }),
+      ...(input.monthlyCostLimitCents !== undefined && { monthlyCostLimitCents: input.monthlyCostLimitCents }),
+      updatedAt: nowIso(),
+    }
+    this.userModelAccess.set(userModelAccessKey(userId, modelServiceId), updated)
+    return updated
+  }
+
   getAdminCostSummary(): MaybePromise<AdminCostSummary> {
     const jobs = [...this.jobs.values()]
     const usageEvents = this.listUsageEvents()
@@ -858,6 +1041,49 @@ export class InMemoryStore implements ApplicationRepository {
       byUser: [...byUser.values()].sort((a, b) => b.costCents - a.costCents || a.userId.localeCompare(b.userId)),
     }
   }
+
+  private isUserModelEnabled(userId: string, modelServiceId: string): boolean {
+    return this.userModelAccess.get(userModelAccessKey(userId, modelServiceId))?.enabled ?? true
+  }
+
+  private getOrCreateUserModelAccess(userId: string, modelServiceId: string): UserModelAccess {
+    const key = userModelAccessKey(userId, modelServiceId)
+    const existing = this.userModelAccess.get(key)
+    if (existing) return existing
+    const now = nowIso()
+    const access: UserModelAccess = {
+      id: createId('uma'),
+      userId,
+      modelServiceId,
+      enabled: true,
+      dailyTokenLimit: null,
+      monthlyCostLimitCents: null,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.userModelAccess.set(key, access)
+    return access
+  }
+
+  private getUserModelUsage(userId: string, modelServiceId: string): AdminUserModelAccess['usage'] {
+    const events = this.listUsageEvents({ userId })
+      .filter(event => event.metadata.modelServiceId === modelServiceId)
+    return events.reduce(
+      (acc, event) => {
+        acc.inputTokens += event.inputTokens
+        acc.outputTokens += event.outputTokens
+        acc.costCents += event.costCents
+        acc.usageEventCount += 1
+        return acc
+      },
+      { inputTokens: 0, outputTokens: 0, costCents: 0, usageEventCount: 0 },
+    )
+  }
+}
+
+function userModelAccessKey(userId: string, modelServiceId: string): string {
+  return `${userId}:${modelServiceId}`
 }
 
 function previewText(value: string | null, maxLength: number): string | null {

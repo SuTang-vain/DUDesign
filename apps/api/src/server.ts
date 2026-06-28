@@ -54,8 +54,45 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/models') {
+    sendJson(res, 200, await service.listUserModels(ctx))
+    return
+  }
+
   if (method === 'GET' && url.pathname === '/api/admin/runtime/health') {
     sendJson(res, 200, await service.getAdminRuntimeHealth(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/models') {
+    sendJson(res, 200, await service.listAdminModels(ctx))
+    return
+  }
+
+  const adminModelMatch = url.pathname.match(/^\/api\/admin\/models\/([^/]+)$/)
+  if (method === 'PATCH' && adminModelMatch) {
+    sendJson(res, 200, await service.updateAdminModel(ctx, decodeURIComponent(adminModelMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const adminUserModelAccessMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/models$/)
+  if (method === 'GET' && adminUserModelAccessMatch) {
+    sendJson(res, 200, await service.getAdminUserModelAccess(ctx, decodeURIComponent(adminUserModelAccessMatch[1]!)))
+    return
+  }
+
+  const adminUserModelAccessUpdateMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/models\/([^/]+)$/)
+  if (method === 'PATCH' && adminUserModelAccessUpdateMatch) {
+    sendJson(
+      res,
+      200,
+      await service.updateUserModelAccess(
+        ctx,
+        decodeURIComponent(adminUserModelAccessUpdateMatch[1]!),
+        decodeURIComponent(adminUserModelAccessUpdateMatch[2]!),
+        await readJson(req),
+      ),
+    )
     return
   }
 

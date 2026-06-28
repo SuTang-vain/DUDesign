@@ -293,3 +293,28 @@
 
 - 后续 share 页面需要接入更严格 iframe sandbox 策略和 CSP。
 - password/private share UI 接入前，继续遵守后端 `SHARE_FORBIDDEN` 行为。
+
+## 2026-06-28 UX-M3 Model Selection
+
+### 已完成
+
+- 用户端 bootstrap 响应增加 `models`。
+- 新增 `GET /api/models` API client。
+- 首页 composer 增加模型选择下拉框。
+- 创建 design job 时会把 `modelServiceId` 传给业务服务层。
+- 模型描述展示 provider、model id 和 capability，避免用户只看到内部 id。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 用户端只展示当前用户可用且已启用的模型，不展示管理员关闭或用户无权使用的模型。
+- 模型列表来自业务服务层，不在前端写死；后续真实 provider 接入只需要更新后端配置和权限。
+
+### 下一步
+
+- 增加用户端模型选择的浏览器 E2E。
+- 在 job/variation 页面展示本次任务使用的模型摘要。

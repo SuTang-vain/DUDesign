@@ -42,7 +42,7 @@
 - [x] 实现 `GET /api/sessions`。
 - [x] 实现 `POST /api/sessions/:id/resume`。
 - [x] 实现 M1 内存版 session messages 持久化。
-- [ ] 实现 runtime unavailable 时的业务快照恢复。
+- [x] 实现 runtime unavailable 时的业务快照恢复。
 
 验收：
 
@@ -100,6 +100,8 @@
 - [x] 实现 M1 Admin API 权限中间件。
 - [x] 实现 M1 audit log。
 - [x] 实现 job cancel/retry。
+- [x] 实现模型服务列表、启停、默认模型治理 API。
+- [x] 实现用户级模型访问权限治理 API。
 - [ ] 实现 artifact repair/rebuild preview。
 - [x] 实现 runtime health 读取代理。
 - [x] 实现 cost 聚合接口。
@@ -118,7 +120,7 @@
 - [x] Owner 权限测试。
 - [x] Share token 权限测试。
 - [ ] Queue worker 测试。
-- [ ] Runtime unavailable 降级测试。
+- [x] Runtime unavailable 降级测试。
 - [x] LocalArtifactStore 单元测试。
 
 验收：
@@ -149,6 +151,7 @@
 - [x] 梳理 production repository mode：支持关闭 startup hydrate，并验证 no-hydrate API smoke。
 - [x] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
 - [x] 增加 Runtime unavailable 降级测试。
+- [x] 为 model_services / user_model_access 增加 PostgreSQL migration 和 SQL-native Repository methods。
 
 验收：
 

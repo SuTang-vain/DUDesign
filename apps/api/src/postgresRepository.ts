@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
-import type { Artifact, DesignJob, DesignSession, DesignVariation, Share, UsageEvent, User, Workspace } from '@dudesign/domain'
+import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace } from '@dudesign/domain'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
 import type {
@@ -11,7 +11,9 @@ import type {
   AdminCostSummary,
   AdminJobsFilter,
   AdminJobSummary,
+  AdminModelSummary,
   AdminSupportSession,
+  AdminUserModelAccess,
   AdminUserSupport,
   AdminUserSupportFilter,
   ApplyVariationEventInput,
@@ -31,6 +33,7 @@ import type {
   VariationDetailSnapshot,
   VariationJobContext,
   VariationRefineContext,
+  UserModelOption,
 } from './repository.js'
 
 export type PostgresRepositoryOptions = {
@@ -142,6 +145,9 @@ export class PostgresRepository extends InMemoryStore {
         workspace.updatedAt,
       ])
     }
+    for (const model of this.modelServices.values()) {
+      await this.persistModelService(model)
+    }
   }
 
   async hydrate(): Promise<void> {
@@ -153,6 +159,8 @@ export class PostgresRepository extends InMemoryStore {
     this.variations.clear()
     this.artifacts.clear()
     this.shares.clear()
+    this.modelServices.clear()
+    this.userModelAccess.clear()
     this.annotationBatches.clear()
     this.auditLogs.splice(0, this.auditLogs.length)
     this.usageEvents.splice(0, this.usageEvents.length)
@@ -174,6 +182,11 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from design_variations')).rows) this.variations.set(row.id, mapVariation(row))
     for (const row of (await this.pool.query('select * from artifacts')).rows) this.artifacts.set(row.id, mapArtifact(row))
     for (const row of (await this.pool.query('select * from shares')).rows) this.shares.set(row.token, mapShare(row))
+    for (const row of (await this.pool.query('select * from model_services')).rows) this.modelServices.set(row.id, mapModelService(row))
+    for (const row of (await this.pool.query('select * from user_model_access')).rows) {
+      const access = mapUserModelAccess(row)
+      this.userModelAccess.set(userModelAccessKey(access.userId, access.modelServiceId), access)
+    }
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
     for (const row of (await this.pool.query('select * from usage_events order by created_at')).rows) this.usageEvents.push(mapUsageEvent(row))
@@ -450,6 +463,44 @@ export class PostgresRepository extends InMemoryStore {
       limit 1
     `, [userId])).rows[0]
     return row ? mapWorkspace(row) : null
+  }
+
+  override async listUserModelOptions(userId: string): Promise<{ models: UserModelOption[]; defaultModelId: string | null }> {
+    await this.flush()
+    const rows = (await this.pool.query(`
+      select ms.*
+      from model_services ms
+      left join user_model_access uma
+        on uma.model_service_id = ms.id
+        and uma.user_id = $1
+      where ms.enabled = true
+        and coalesce(uma.enabled, true) = true
+      order by ms.is_default desc, ms.display_name asc
+    `, [userId])).rows
+    const models = rows.map(row => toUserModelOption(mapModelService(row)))
+    return {
+      models,
+      defaultModelId: models.find(model => model.isDefault)?.id ?? models[0]?.id ?? null,
+    }
+  }
+
+  override async getModelServiceById(modelServiceId: string): Promise<ModelService | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from model_services where id = $1', [modelServiceId])).rows[0]
+    return row ? mapModelService(row) : null
+  }
+
+  override async canUserUseModel(userId: string, modelServiceId: string): Promise<boolean> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select ms.enabled as model_enabled, coalesce(uma.enabled, true) as access_enabled
+      from model_services ms
+      left join user_model_access uma
+        on uma.model_service_id = ms.id
+        and uma.user_id = $1
+      where ms.id = $2
+    `, [userId, modelServiceId])).rows[0]
+    return Boolean(row?.model_enabled && row.access_enabled)
   }
 
   override async getSessionById(sessionId: string): Promise<DesignSession | null> {
@@ -1103,6 +1154,117 @@ export class PostgresRepository extends InMemoryStore {
     }
   }
 
+  override async listAdminModels(): Promise<{ models: AdminModelSummary[] }> {
+    await this.flush()
+    const rows = (await this.pool.query(`
+      select *
+      from model_services
+      order by is_default desc, display_name asc
+    `)).rows
+    return {
+      models: rows.map(row => toAdminModelSummary(mapModelService(row))),
+    }
+  }
+
+  override async updateAdminModel(modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }): Promise<ModelService | null> {
+    await this.flush()
+    const existing = await this.getModelServiceById(modelServiceId)
+    if (!existing) return null
+    const now = nowIso()
+    if (input.isDefault === true) {
+      await this.pool.query(`
+        update model_services
+        set is_default = false, updated_at = $1
+        where id <> $2 and is_default = true
+      `, [now, modelServiceId])
+      for (const candidate of this.modelServices.values()) {
+        if (candidate.id !== modelServiceId && candidate.isDefault) {
+          this.modelServices.set(candidate.id, { ...candidate, isDefault: false, updatedAt: now })
+        }
+      }
+    }
+    const updated: ModelService = {
+      ...existing,
+      ...(typeof input.enabled === 'boolean' && { enabled: input.enabled }),
+      ...(typeof input.isDefault === 'boolean' && { isDefault: input.isDefault }),
+      updatedAt: now,
+    }
+    await this.persistModelService(updated)
+    this.modelServices.set(updated.id, updated)
+    return updated
+  }
+
+  override async getAdminUserModelAccess(userId: string): Promise<{ userId: string; access: AdminUserModelAccess[] }> {
+    await this.flush()
+    await this.ensureUserModelAccessRows(userId)
+    const rows = (await this.pool.query(`
+      with usage_by_model as (
+        select
+          metadata->>'modelServiceId' as model_service_id,
+          coalesce(sum(input_tokens), 0)::int as input_tokens,
+          coalesce(sum(output_tokens), 0)::int as output_tokens,
+          coalesce(sum(cost_cents), 0)::int as cost_cents,
+          count(*)::int as usage_event_count
+        from usage_events
+        where user_id = $1
+          and metadata ? 'modelServiceId'
+        group by metadata->>'modelServiceId'
+      )
+      select
+        uma.*,
+        coalesce(ubm.input_tokens, 0)::int as usage_input_tokens,
+        coalesce(ubm.output_tokens, 0)::int as usage_output_tokens,
+        coalesce(ubm.cost_cents, 0)::int as usage_cost_cents,
+        coalesce(ubm.usage_event_count, 0)::int as usage_event_count,
+        ms.display_name
+      from user_model_access uma
+      join model_services ms on ms.id = uma.model_service_id
+      left join usage_by_model ubm on ubm.model_service_id = uma.model_service_id
+      where uma.user_id = $1
+      order by ms.display_name asc
+    `, [userId])).rows
+    return {
+      userId,
+      access: rows.map(row => ({
+        ...mapUserModelAccess(row),
+        usage: {
+          inputTokens: row.usage_input_tokens,
+          outputTokens: row.usage_output_tokens,
+          costCents: row.usage_cost_cents,
+          usageEventCount: row.usage_event_count,
+        },
+      })),
+    }
+  }
+
+  override async updateUserModelAccess(
+    userId: string,
+    modelServiceId: string,
+    input: {
+      enabled?: boolean
+      dailyTokenLimit?: number | null
+      monthlyCostLimitCents?: number | null
+    },
+  ): Promise<UserModelAccess> {
+    await this.flush()
+    const now = nowIso()
+    const existing = await this.getUserModelAccess(userId, modelServiceId)
+    const access: UserModelAccess = {
+      id: existing?.id ?? createId('uma'),
+      userId,
+      modelServiceId,
+      enabled: typeof input.enabled === 'boolean' ? input.enabled : existing?.enabled ?? true,
+      dailyTokenLimit: input.dailyTokenLimit !== undefined ? input.dailyTokenLimit : existing?.dailyTokenLimit ?? null,
+      monthlyCostLimitCents: input.monthlyCostLimitCents !== undefined ? input.monthlyCostLimitCents : existing?.monthlyCostLimitCents ?? null,
+      metadata: existing?.metadata ?? {},
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await this.persistUserModelAccess(access)
+    this.userModelAccess.set(userModelAccessKey(userId, modelServiceId), access)
+    return access
+  }
+
   private async getSqlSupportSession(session: DesignSession): Promise<AdminSupportSession> {
     const jobs = (await this.pool.query(`
       select *
@@ -1310,6 +1472,77 @@ export class PostgresRepository extends InMemoryStore {
       audit.targetId, audit.reason, JSON.stringify(audit.metadata), audit.createdAt,
     ])
   }
+
+  private async persistModelService(model: ModelService): Promise<void> {
+    await this.pool.query(`
+      insert into model_services (id, provider, model_id, display_name, description, enabled, is_default, capabilities, context_window, input_token_cost_cents, output_token_cost_cents, metadata, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb,$13,$14)
+      on conflict (id) do update set
+        provider = excluded.provider,
+        model_id = excluded.model_id,
+        display_name = excluded.display_name,
+        description = excluded.description,
+        enabled = excluded.enabled,
+        is_default = excluded.is_default,
+        capabilities = excluded.capabilities,
+        context_window = excluded.context_window,
+        input_token_cost_cents = excluded.input_token_cost_cents,
+        output_token_cost_cents = excluded.output_token_cost_cents,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      model.id, model.provider, model.modelId, model.displayName, model.description, model.enabled, model.isDefault,
+      JSON.stringify(model.capabilities), model.contextWindow, model.inputTokenCostCents, model.outputTokenCostCents,
+      JSON.stringify(model.metadata), model.createdAt, model.updatedAt,
+    ])
+  }
+
+  private async persistUserModelAccess(access: UserModelAccess): Promise<void> {
+    await this.pool.query(`
+      insert into user_model_access (id, user_id, model_service_id, enabled, daily_token_limit, monthly_cost_limit_cents, metadata, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+      on conflict (user_id, model_service_id) do update set
+        enabled = excluded.enabled,
+        daily_token_limit = excluded.daily_token_limit,
+        monthly_cost_limit_cents = excluded.monthly_cost_limit_cents,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      access.id, access.userId, access.modelServiceId, access.enabled, access.dailyTokenLimit,
+      access.monthlyCostLimitCents, JSON.stringify(access.metadata), access.createdAt, access.updatedAt,
+    ])
+  }
+
+  private async getUserModelAccess(userId: string, modelServiceId: string): Promise<UserModelAccess | null> {
+    const row = (await this.pool.query(`
+      select *
+      from user_model_access
+      where user_id = $1 and model_service_id = $2
+    `, [userId, modelServiceId])).rows[0]
+    return row ? mapUserModelAccess(row) : null
+  }
+
+  private async ensureUserModelAccessRows(userId: string): Promise<void> {
+    const models = (await this.pool.query('select id from model_services')).rows as Array<{ id: string }>
+    for (const model of models) {
+      const existing = await this.getUserModelAccess(userId, model.id)
+      if (existing) continue
+      const now = nowIso()
+      const access: UserModelAccess = {
+        id: createId('uma'),
+        userId,
+        modelServiceId: model.id,
+        enabled: true,
+        dailyTokenLimit: null,
+        monthlyCostLimitCents: null,
+        metadata: {},
+        createdAt: now,
+        updatedAt: now,
+      }
+      await this.persistUserModelAccess(access)
+      this.userModelAccess.set(userModelAccessKey(userId, model.id), access)
+    }
+  }
 }
 
 async function ensureSchema(connectionString: string, schema: string): Promise<void> {
@@ -1502,6 +1735,64 @@ function mapShare(row: any): Share {
   }
 }
 
+function mapModelService(row: any): ModelService {
+  return {
+    id: row.id,
+    provider: row.provider,
+    modelId: row.model_id,
+    displayName: row.display_name,
+    description: row.description,
+    enabled: row.enabled,
+    isDefault: row.is_default,
+    capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+    contextWindow: row.context_window,
+    inputTokenCostCents: row.input_token_cost_cents,
+    outputTokenCostCents: row.output_token_cost_cents,
+    metadata: row.metadata ?? {},
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapUserModelAccess(row: any): UserModelAccess {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    modelServiceId: row.model_service_id,
+    enabled: row.enabled,
+    dailyTokenLimit: row.daily_token_limit,
+    monthlyCostLimitCents: row.monthly_cost_limit_cents,
+    metadata: row.metadata ?? {},
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function toUserModelOption(model: ModelService): UserModelOption {
+  return {
+    id: model.id,
+    provider: model.provider,
+    modelId: model.modelId,
+    displayName: model.displayName,
+    description: model.description,
+    isDefault: model.isDefault,
+    capabilities: model.capabilities,
+    contextWindow: model.contextWindow,
+  }
+}
+
+function toAdminModelSummary(model: ModelService): AdminModelSummary {
+  return {
+    ...toUserModelOption(model),
+    enabled: model.enabled,
+    inputTokenCostCents: model.inputTokenCostCents,
+    outputTokenCostCents: model.outputTokenCostCents,
+    metadata: model.metadata,
+    createdAt: model.createdAt,
+    updatedAt: model.updatedAt,
+  }
+}
+
 function mapAnnotationBatch(row: any): AnnotationBatch {
   return {
     id: row.id,
@@ -1605,6 +1896,10 @@ function toFailureExample(variation: DesignVariation) {
     errorCode: variation.errorCode,
     message: previewText(variation.errorMessage, 120),
   }
+}
+
+function userModelAccessKey(userId: string, modelServiceId: string): string {
+  return `${userId}:${modelServiceId}`
 }
 
 function toIso(value: Date | string): string {

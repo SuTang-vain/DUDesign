@@ -3,8 +3,10 @@ import type {
   DesignJob,
   DesignSession,
   DesignVariation,
+  ModelService,
   Share,
   UsageEvent,
+  UserModelAccess,
   User,
   Workspace,
 } from '@dudesign/domain'
@@ -278,6 +280,35 @@ export type AdminCostSummary = {
   byUser: AdminCostByUser[]
 }
 
+export type UserModelOption = {
+  id: string
+  provider: ModelService['provider']
+  modelId: string
+  displayName: string
+  description: string | null
+  isDefault: boolean
+  capabilities: ModelService['capabilities']
+  contextWindow: number | null
+}
+
+export type AdminModelSummary = UserModelOption & {
+  enabled: boolean
+  inputTokenCostCents: number
+  outputTokenCostCents: number
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminUserModelAccess = UserModelAccess & {
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    costCents: number
+    usageEventCount: number
+  }
+}
+
 export type ApplicationRepository = {
   readonly users: Map<string, User>
   readonly workspaces: Map<string, Workspace>
@@ -287,6 +318,8 @@ export type ApplicationRepository = {
   readonly variations: Map<string, DesignVariation>
   readonly artifacts: Map<string, Artifact>
   readonly shares: Map<string, Share>
+  readonly modelServices: Map<string, ModelService>
+  readonly userModelAccess: Map<string, UserModelAccess>
   readonly annotationBatches: Map<string, AnnotationBatch>
   readonly auditLogs: AuditLog[]
   readonly usageEvents: UsageEvent[]
@@ -297,6 +330,9 @@ export type ApplicationRepository = {
   getUserById(userId: string): MaybePromise<User | null>
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null>
   getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null>
+  listUserModelOptions(userId: string): MaybePromise<{ models: UserModelOption[]; defaultModelId: string | null }>
+  getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
+  canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>
   getJobById(jobId: string): MaybePromise<DesignJob | null>
   getVariationById(variationId: string): MaybePromise<DesignVariation | null>
@@ -347,4 +383,12 @@ export type ApplicationRepository = {
     users: AdminUserSupport[]
   } | Promise<{ users: AdminUserSupport[] }>
   getAdminCostSummary(): MaybePromise<AdminCostSummary>
+  listAdminModels(): MaybePromise<{ models: AdminModelSummary[] }>
+  updateAdminModel(modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }): MaybePromise<ModelService | null>
+  getAdminUserModelAccess(userId: string): MaybePromise<{ userId: string; access: AdminUserModelAccess[] }>
+  updateUserModelAccess(userId: string, modelServiceId: string, input: {
+    enabled?: boolean
+    dailyTokenLimit?: number | null
+    monthlyCostLimitCents?: number | null
+  }): MaybePromise<UserModelAccess>
 }
