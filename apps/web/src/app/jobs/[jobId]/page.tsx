@@ -50,8 +50,25 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
 
+  useEffect(() => {
+    if (!jobId) return
+    if (snapshot?.job.status === 'completed' || snapshot?.job.status === 'failed' || snapshot?.job.status === 'cancelled') return
+    const interval = window.setInterval(() => {
+      getDesignJob(jobId)
+        .then(data => {
+          setSnapshot(data)
+          if (data.job.status === 'completed' || data.job.status === 'failed' || data.job.status === 'cancelled') {
+            setStreamState('closed')
+          }
+        })
+        .catch(err => setError((err as Error).message))
+    }, 3000)
+    return () => window.clearInterval(interval)
+  }, [jobId, snapshot?.job.status])
+
   const variations = snapshot?.variations ?? []
   const completedCount = variations.filter(variation => variation.status === 'completed').length
+  const failedCount = variations.filter(variation => variation.status === 'failed').length
 
   function applyEvent(event: DesignEvent): void {
     if (event.type === 'design.variation_streaming') {
@@ -89,7 +106,11 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
         <div>
           <span className="eyebrow">Building from</span>
           <h1>{pageTitle}</h1>
-          <p>{completedCount} of {variations.length || snapshot?.job.variationCount || 0} variations completed · stream {streamState}</p>
+          <p>
+            {completedCount} of {variations.length || snapshot?.job.variationCount || 0} variations completed
+            {failedCount > 0 ? ` · ${failedCount} failed` : ''}
+            {' '}· stream {streamState}
+          </p>
         </div>
       </header>
 
@@ -111,7 +132,11 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                   sandbox=""
                 />
               ) : (
-                <div className="preview-placeholder">Waiting for preview</div>
+                <div className="preview-placeholder">
+                  {variation.status === 'failed'
+                    ? (variation.errorMessage ?? 'Generation failed')
+                    : 'Waiting for preview'}
+                </div>
               )}
             </div>
             <div className="variation-meta">

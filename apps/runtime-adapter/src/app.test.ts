@@ -205,6 +205,41 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('persists concurrently spawned streams without losing state', async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-concurrent-'))
+    const stateFile = join(stateRoot, 'state.json')
+    const concurrentHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+      stateStore: new FileRuntimeAdapterStateStore(stateFile),
+    }))
+    try {
+      const bodies = [1, 2, 3].map(index => ({
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_1',
+        jobId: 'job_concurrent',
+        prompt: `Build concurrent page ${index}`,
+        sourceMode: 'new_html',
+        variationCount: 3,
+        variationIndex: index,
+        workspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      }))
+      const spawned = await Promise.all(
+        bodies.map(body => postJsonWithBase<{ streamId: string }>(concurrentHarness.baseUrl, '/v1/agents', body)),
+      )
+      const snapshot = JSON.parse(await readFile(stateFile, 'utf8')) as { streams?: Record<string, unknown> }
+
+      assert.equal(Object.keys(snapshot.streams ?? {}).length, 3)
+      for (const spawn of spawned) {
+        assert.ok(snapshot.streams?.[spawn.streamId])
+      }
+    } finally {
+      await concurrentHarness.close()
+    }
+  })
+
   it('lets BabeL-O resolve its configured default model for the DUDesign placeholder model', async () => {
     const executeBodies: Array<Record<string, unknown>> = []
     const defaultModelHarness = await startHarness(createRuntimeAdapterServer({

@@ -18,6 +18,7 @@ type JobSnapshot = {
   variations: Array<{
     id: string
     status: string
+    previewUrl: string | null
     runtimeChildSessionId: string | null
     runtimeAgentJobId: string | null
   }>
@@ -211,6 +212,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
 	    assert.equal(jobSnapshot.job.status, 'completed')
 	    assert.equal(jobSnapshot.variations.length, 2)
 	    assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
+	    assert.ok(jobSnapshot.variations.every(variation => variation.previewUrl === `/api/variations/${variation.id}/preview`))
 	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeChildSessionId), ['rt_child_1', 'rt_child_2'])
 	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeAgentJobId), ['agent_1', 'agent_2'])
 	    assert.equal(jobSnapshot.artifacts.length, 10)

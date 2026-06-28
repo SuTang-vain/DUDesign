@@ -338,7 +338,7 @@ export class BabelORuntimeClient {
         signal: controller.signal,
       })
       if (!response.ok) {
-        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', `BabeL-O runtime returned HTTP ${response.status}.`)
+        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', await runtimeHttpErrorMessage(response))
       }
       const payload = await response.json()
       if (!payload || typeof payload !== 'object') {
@@ -384,7 +384,7 @@ export class BabelORuntimeClient {
       if (connectTimeout) clearTimeout(connectTimeout)
       connectTimeout = undefined
       if (!response.ok) {
-        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', `BabeL-O runtime returned HTTP ${response.status}.`)
+        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', await runtimeHttpErrorMessage(response))
       }
       if (!response.body) {
         throw new RuntimeGatewayError('RUNTIME_BAD_RESPONSE', 'BabeL-O runtime stream did not include a response body.')
@@ -490,6 +490,16 @@ function statusMessage(status: RuntimeContractStatus): string {
   if (status === 'degraded') return 'BabeL-O runtime is degraded.'
   if (status === 'contract_mismatch') return 'BabeL-O runtime contract does not match DUDesign expectations.'
   return 'BabeL-O runtime is unavailable.'
+}
+
+async function runtimeHttpErrorMessage(response: Response): Promise<string> {
+  const fallback = `BabeL-O runtime returned HTTP ${response.status}.`
+  const payload = await response.json().catch(() => null)
+  if (!payload || typeof payload !== 'object') return fallback
+  const code = optionalString((payload as Record<string, unknown>).code)
+  const message = optionalString((payload as Record<string, unknown>).message)
+  if (!message) return fallback
+  return code ? `${fallback} ${code}: ${message}` : `${fallback} ${message}`
 }
 
 function isAbortError(error: unknown): boolean {

@@ -70,6 +70,7 @@ class RuntimeAdapterApp {
   private readonly sessions = new Map<string, string>()
   private readonly stateStore: RuntimeAdapterStateStore
   private readonly ready: Promise<void>
+  private persistQueue: Promise<void> = Promise.resolve()
   private sequence = 1
 
   constructor(private readonly options: RuntimeAdapterOptions) {
@@ -326,7 +327,7 @@ class RuntimeAdapterApp {
   }
 
   private async persistState(): Promise<void> {
-    await this.stateStore.save({
+    const snapshot = {
       version: 1,
       sessions: Object.fromEntries(this.sessions),
       streams: Object.fromEntries(
@@ -345,7 +346,9 @@ class RuntimeAdapterApp {
       ),
       sequence: this.sequence,
       updatedAt: new Date().toISOString(),
-    } satisfies RuntimeAdapterStateSnapshot)
+    } satisfies RuntimeAdapterStateSnapshot
+    this.persistQueue = this.persistQueue.then(() => this.stateStore.save(snapshot))
+    await this.persistQueue
   }
 }
 

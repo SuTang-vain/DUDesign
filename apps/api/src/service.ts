@@ -946,13 +946,14 @@ export class ApplicationService {
               })
             : undefined)
           await this.store.applyVariationEvent({
-          variationId: event.variationId,
-          status: 'completed',
-          artifactId: artifact?.id ?? event.payload.artifactId,
-          inputTokens: event.payload.inputTokens,
-          outputTokens: event.payload.outputTokens,
-          costCents: event.payload.costCents,
-        })
+            variationId: event.variationId,
+            status: 'completed',
+            artifactId: artifact?.id ?? event.payload.artifactId,
+            previewUrl: artifact ? `/api/variations/${event.variationId}/preview` : undefined,
+            inputTokens: event.payload.inputTokens,
+            outputTokens: event.payload.outputTokens,
+            costCents: event.payload.costCents,
+          })
           if (variation && job && artifact) {
             const isRefine = Boolean(artifact.parentArtifactId)
             await this.recordUsageEvent({
