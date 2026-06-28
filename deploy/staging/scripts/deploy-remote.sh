@@ -34,6 +34,9 @@ if grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$
   fi
 fi
 docker compose \$compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
+sudo cp deploy/staging/nginx.conf /etc/nginx/sites-available/dudesign-staging
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo ln -sfn /etc/nginx/sites-available/dudesign-staging /etc/nginx/sites-enabled/dudesign-staging
 sudo nginx -t
 sudo systemctl reload nginx
 "

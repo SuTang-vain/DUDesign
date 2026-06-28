@@ -11,13 +11,13 @@ retry_curl() {
   local url="$3"
 
   for attempt in 1 2 3 4 5; do
-    if curl -fsS -o "$output" -w "${label}:%{http_code}\n" "$url"; then
+    if curl -fsSL -o "$output" -w "${label}:%{http_code}\n" "$url"; then
       return 0
     fi
     sleep "$attempt"
   done
 
-  curl -fsS -o "$output" -w "${label}:%{http_code}\n" "$url"
+  curl -fsSL -o "$output" -w "${label}:%{http_code}\n" "$url"
 }
 
 ssh "$remote" "set -e
@@ -57,7 +57,7 @@ fi
 for attempt in 1 2 3 4 5; do
   if curl -fsS -o /tmp/dudesign-local-web.html -w 'local-web:%{http_code}\n' http://127.0.0.1/ \
     && curl -fsS -o /tmp/dudesign-local-api.json -w 'local-api:%{http_code}\n' http://127.0.0.1/api/dev/bootstrap \
-    && curl -fsS -o /tmp/dudesign-local-admin.html -w 'local-admin:%{http_code}\n' http://127.0.0.1/admin/ \
+    && curl -fsSL -o /tmp/dudesign-local-admin.html -w 'local-admin:%{http_code}\n' http://127.0.0.1/admin/ \
     && curl -fsS -o /tmp/dudesign-runtime-health.json -H 'x-dudesign-admin-role: support' -w 'local-runtime-health:%{http_code}\n' http://127.0.0.1/api/admin/runtime/health; then
     cat /tmp/dudesign-runtime-health.json
     echo
@@ -73,7 +73,7 @@ for attempt in 1 2 3 4 5; do
 done
 curl -fsS -o /tmp/dudesign-local-web.html -w 'local-web:%{http_code}\n' http://127.0.0.1/
 curl -fsS -o /tmp/dudesign-local-api.json -w 'local-api:%{http_code}\n' http://127.0.0.1/api/dev/bootstrap
-curl -fsS -o /tmp/dudesign-local-admin.html -w 'local-admin:%{http_code}\n' http://127.0.0.1/admin/
+curl -fsSL -o /tmp/dudesign-local-admin.html -w 'local-admin:%{http_code}\n' http://127.0.0.1/admin/
 curl -fsS -o /tmp/dudesign-runtime-health.json -H 'x-dudesign-admin-role: support' -w 'local-runtime-health:%{http_code}\n' http://127.0.0.1/api/admin/runtime/health
 "
 
