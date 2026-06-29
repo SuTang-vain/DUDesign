@@ -76,6 +76,7 @@ export type RefineVariationInput = {
   sessionId: ID
   jobId?: ID
   variationId: ID
+  variationIndex?: number
   runtimeChildSessionId: string | null
   baseArtifactId: ID
   baseArtifactHtml: string

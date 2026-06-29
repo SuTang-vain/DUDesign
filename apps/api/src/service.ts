@@ -416,6 +416,7 @@ export class ApplicationService {
       sessionId: session.id,
       jobId: job.id,
       variationId,
+      variationIndex: variation.index,
       runtimeChildSessionId: variation.runtimeChildSessionId,
       baseArtifactId: input.baseArtifactId,
       baseArtifactHtml,

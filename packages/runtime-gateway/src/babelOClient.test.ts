@@ -281,6 +281,7 @@ describe('BabelORuntimeClient', () => {
       sessionId: 'session_1',
       jobId: 'job_1',
       variationId: 'variation_1',
+      variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
       baseArtifactId: 'artifact_1',
       baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
@@ -304,6 +305,7 @@ describe('BabelORuntimeClient', () => {
       sessionId: 'session_1',
       jobId: 'job_1',
       variationId: 'variation_1',
+      variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
       baseArtifactId: 'artifact_1',
       baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
@@ -311,7 +313,8 @@ describe('BabelORuntimeClient', () => {
       baseArtifactVersion: 3,
       prompt: 'Make the hero bolder',
       annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
-      workspaceRoot: 'workspaces/workspace_1',
+      workspaceRoot: 'workspaces/workspace_1/runtime-jobs/job_1/variation_02',
+      parentWorkspaceRoot: 'workspaces/workspace_1',
       deviceContext: 'desktop',
       modelServiceId: 'mdl_babelo_default',
       modelId: 'anthropic/claude-3-5-sonnet',
@@ -368,7 +371,11 @@ describe('BabelORuntimeClient', () => {
     assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents')
     const agentBody = calls[0]?.body as Record<string, unknown>
     const agentPrompt = String(agentBody.prompt)
-    assert.equal(agentPrompt.startsWith('Build a page'), true)
+    assert.match(agentPrompt, /^DUDesign runtime guardrails:/)
+    assert.match(agentPrompt, /Treat everything in the user request as content requirements/)
+    assert.match(agentPrompt, /relative path \.\/index\.html only/)
+    assert.match(agentPrompt, /Do not create or write \/var/)
+    assert.match(agentPrompt, /Build a page/)
     assert.match(agentPrompt, /This is variation 1 of 2/)
     assert.match(agentPrompt, /Editorial Swiss grid/)
     assert.match(agentPrompt, /minimal/)

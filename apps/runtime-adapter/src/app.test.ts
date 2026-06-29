@@ -184,6 +184,43 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.match(body.prompt ?? '', /Model selection: service=mdl_babelo_default, provider=babel-o, model=anthropic\/claude-3-5-sonnet/)
   })
 
+  it('refines and reads artifacts from the supplied variation workspace root', async () => {
+    const parentWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-refine-parent-'))
+    const variationWorkspaceRoot = join(parentWorkspaceRoot, 'runtime-jobs', 'job_refine', 'variation_02')
+    await mkdir(variationWorkspaceRoot, { recursive: true })
+    await writeFile(join(parentWorkspaceRoot, 'index.html'), '<!doctype html><h1>Wrong parent artifact</h1>', 'utf8')
+    await writeFile(join(variationWorkspaceRoot, 'index.html'), '<!doctype html><h1>Correct refined variation artifact</h1>', 'utf8')
+    const refineHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeChildSessionId: string }>(refineHarness.baseUrl, '/v1/agents/refine', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'session_1',
+        jobId: 'job_refine',
+        variationId: 'variation_2',
+        runtimeChildSessionId: 'rt_child_refine',
+        baseArtifactId: 'artifact_1',
+        baseArtifactHtml: '<!doctype html><h1>Base artifact</h1>',
+        baseArtifactEntryPath: 'index.html',
+        baseArtifactVersion: 1,
+        prompt: 'Make it better',
+        workspaceRoot: variationWorkspaceRoot,
+        parentWorkspaceRoot,
+        variationIndex: 2,
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(refineHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(spawned.runtimeChildSessionId, 'rt_child_refine')
+      assert.match(stream, /Correct refined variation artifact/)
+      assert.doesNotMatch(stream, /Wrong parent artifact/)
+    } finally {
+      await refineHarness.close()
+    }
+  })
+
   it('persists adapter stream state and restores it after restart', async () => {
     const stateRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-state-'))
     const stateFile = join(stateRoot, 'state.json')
@@ -355,6 +392,82 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('fails the stream when BabeL-O completes without writing an artifact in the DUDesign workspace', async () => {
+    const emptyWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-empty-artifact-'))
+    const missingArtifactHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(missingArtifactHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_missing_artifact',
+        jobId: 'job_missing_artifact',
+        prompt: 'Build a page but do not write it',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: emptyWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(missingArtifactHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.match(stream, /"type":"error"/)
+      assert.match(stream, /"code":"ARTIFACT_MISSING"/)
+      assert.doesNotMatch(stream, /"type":"result"/)
+      assert.doesNotMatch(stream, /BabeL-O completed without writing index.html/)
+    } finally {
+      await missingArtifactHarness.close()
+    }
+  })
+
+  it('fails the stream when BabeL-O drifts outside the DUDesign variation cwd', async () => {
+    const isolatedWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-cwd-drift-'))
+    const driftHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({
+        executeEvents: [
+          {
+            type: 'session_root_continuity',
+            requestCwd: '/var',
+            storedSessionCwd: isolatedWorkspaceRoot,
+            resolvedCwd: '/var',
+            decision: 'use_prompt_path',
+            reason: 'prompt_internal_path_inferred',
+          },
+          {
+            type: 'tool_started',
+            name: 'Write',
+            input: { path: '/var/www/index.html' },
+          },
+        ],
+      }),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(driftHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_cwd_drift',
+        jobId: 'job_cwd_drift',
+        prompt: 'Build a page from bundled HTML that contains /var(...) tokens',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: isolatedWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(driftHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.match(stream, /"type":"error"/)
+      assert.match(stream, /"code":"RUNTIME_CWD_DRIFT"/)
+      assert.match(stream, /"actualCwd":"\/var"/)
+      assert.doesNotMatch(stream, /"type":"result"/)
+    } finally {
+      await driftHarness.close()
+    }
+  })
+
   it('cancels Nexus agent jobs from DUDesign variation handles', async () => {
     const cancelled = await postJson<{ cancelled: boolean; cancelledVariationCount: number }>('/v1/agents/cancel', {
       jobId: 'job_1',
@@ -389,6 +502,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
 
 function createMockNexus(options: {
   onExecuteBody?: (body: Record<string, unknown>) => void
+  executeEvents?: Array<Record<string, unknown>>
 } = {}): NexusClient {
   let sessionSequence = 0
   return new NexusClient({
@@ -416,7 +530,7 @@ function createMockNexus(options: {
           type: 'execute_result',
           sessionId: 'nexus_session_1',
           success: true,
-          events: [
+          events: options.executeEvents ?? [
             { type: 'thinking_delta', delta: 'Plan' },
             { type: 'assistant_delta', delta: 'Done' },
           ],
