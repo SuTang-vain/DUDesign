@@ -241,6 +241,7 @@ export class BabelORuntimeClient {
 
   async spawnVariationAgent(input: SpawnVariationAgentsInput & { variationIndex: number }): Promise<BabelORuntimeAgentResponse> {
     const variationRuntimeWorkspaceRoot = runtimeVariationWorkspaceRoot(input.workspaceRoot, input.jobId, input.variationIndex)
+    const styleDirection = variationStyleDirection(input.variationIndex, input.templateRequirements)
     return this.requestJson<BabelORuntimeAgentResponse>('/v1/agents', {
       method: 'POST',
       body: {
@@ -248,7 +249,7 @@ export class BabelORuntimeClient {
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,
         jobId: input.jobId,
-        prompt: input.prompt,
+        prompt: buildVariationRuntimePrompt(input, styleDirection),
         sourceMode: input.sourceMode,
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
@@ -259,7 +260,10 @@ export class BabelORuntimeClient {
         modelServiceId: input.modelServiceId ?? null,
         modelId: input.modelId ?? null,
         modelProvider: input.modelProvider ?? null,
-        templateRequirements: input.templateRequirements ?? null,
+        templateRequirements: {
+          ...(input.templateRequirements ?? {}),
+          variationStyleDirection: styleDirection,
+        },
       },
     })
   }
@@ -452,6 +456,40 @@ function pathSegment(value: string): string {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
+}
+
+const DEFAULT_VARIATION_STYLE_DIRECTIONS = [
+  'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent.',
+  'Bold conversion-focused SaaS: direct headline, vivid CTA rhythm, strong proof blocks, and high-contrast sections.',
+  'Warm product story: softer palette, human copy, social proof, and approachable visual pacing.',
+  'Premium minimal launch page: refined type scale, quiet depth, polished spacing, and concise high-value messaging.',
+  'Operational dashboard landing: denser information, metrics, comparison blocks, and practical workflow framing.',
+  'Expressive visual concept: distinctive composition, memorable graphic moments, and energetic section transitions.',
+] as const
+
+function variationStyleDirection(
+  variationIndex: number,
+  templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
+): string {
+  const baseDirection = DEFAULT_VARIATION_STYLE_DIRECTIONS[(Math.max(variationIndex, 1) - 1) % DEFAULT_VARIATION_STYLE_DIRECTIONS.length]
+  const userStyles = templateRequirements?.styles?.map(style => style.trim()).filter(style => style.length > 0) ?? []
+  if (userStyles.length === 0) return baseDirection
+  return `${baseDirection} Interpret the user-requested style tags through this direction: ${userStyles.join(', ')}.`
+}
+
+function buildVariationRuntimePrompt(
+  input: SpawnVariationAgentsInput & { variationIndex: number },
+  styleDirection: string,
+): string {
+  return [
+    input.prompt,
+    '',
+    'DUDesign variation directive:',
+    `- This is variation ${input.variationIndex} of ${input.variationCount}.`,
+    `- Distinct style direction: ${styleDirection}`,
+    '- Keep the same product/user goal, but make the visual direction clearly different from sibling variations.',
+    '- Produce a complete static HTML page and avoid depending on assets that are not included in the artifact bundle.',
+  ].join('\n')
 }
 
 function optionalString(value: unknown): string | undefined {

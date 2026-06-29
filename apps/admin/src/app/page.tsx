@@ -8,6 +8,7 @@ import {
   getAdminModels,
   getAuditLogs,
   getCostSummary,
+  getMemoryGovernance,
   getRuntimeHealth,
   getUserModelAccess,
   getUserSupport,
@@ -18,6 +19,7 @@ import {
   type AdminJob,
   type AdminModel,
   type AdminRole,
+  type AdminMemoryGovernanceResponse,
   type AdminUserModelAccess,
   type AdminUserSupportResponse,
   type AuditLog,
@@ -33,12 +35,14 @@ export default function AdminHomePage(): React.JSX.Element {
   const [artifacts, setArtifacts] = useState<AdminArtifact[]>([])
   const [models, setModels] = useState<AdminModel[]>([])
   const [modelAccess, setModelAccess] = useState<AdminUserModelAccess[]>([])
+  const [memoryGovernance, setMemoryGovernance] = useState<AdminMemoryGovernanceResponse | null>(null)
   const [supportUsers, setSupportUsers] = useState<AdminUserSupportResponse['users']>([])
   const [costs, setCosts] = useState<CostSummaryResponse | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [artifactJobFilter, setArtifactJobFilter] = useState('')
   const [artifactKindFilter, setArtifactKindFilter] = useState('')
   const [supportQuery, setSupportQuery] = useState('usr_dev')
+  const [memoryQuery, setMemoryQuery] = useState('')
   const [modelUserId, setModelUserId] = useState('usr_dev')
   const [jobId, setJobId] = useState('')
   const [reason, setReason] = useState('Operator requested cancellation from admin console.')
@@ -71,7 +75,7 @@ export default function AdminHomePage(): React.JSX.Element {
       ])
       setRuntime(health)
       setAuditLogs(audits.auditLogs)
-      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshModels(), refreshModelAccess()])
+      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess()])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -109,6 +113,16 @@ export default function AdminHomePage(): React.JSX.Element {
       const query = supportQuery.trim()
       const support = await getUserSupport(role, query.includes('@') ? { email: query } : { userId: query || undefined })
       setSupportUsers(support.users)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function refreshMemory(): Promise<void> {
+    try {
+      const query = memoryQuery.trim()
+      const memory = await getMemoryGovernance(role, query.includes('@') ? { email: query } : { userId: query || undefined })
+      setMemoryGovernance(memory)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -243,6 +257,7 @@ export default function AdminHomePage(): React.JSX.Element {
           <button className="nav-item active">Job Controls</button>
           <button className="nav-item active">Artifacts</button>
           <button className="nav-item active">User Support</button>
+          <button className="nav-item active">Memory</button>
           <button className="nav-item active">Audit Log</button>
         </nav>
       </aside>
@@ -647,6 +662,80 @@ export default function AdminHomePage(): React.JSX.Element {
             )}
           </section>
 
+          <section className="panel wide-panel">
+            <div className="panel-header">
+              <h2>Memory Governance</h2>
+              <div className="filter-row">
+                <input
+                  className="compact-input"
+                  value={memoryQuery}
+                  onChange={event => setMemoryQuery(event.target.value)}
+                  placeholder="user id or email"
+                />
+                <button className="secondary-button" onClick={() => void refreshMemory()} disabled={loading}>
+                  Load memory
+                </button>
+              </div>
+            </div>
+            <div className="metric-grid memory-metrics">
+              <div className="metric">
+                <span>Users</span>
+                <strong>{memoryGovernance?.totals.userCount ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Isolated</span>
+                <strong>{memoryGovernance?.totals.isolatedUserCount ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Conflicts</span>
+                <strong>{memoryGovernance?.totals.conflictUserCount ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Memory refs</span>
+                <strong>{memoryGovernance?.totals.memoryRefCount ?? 0}</strong>
+              </div>
+            </div>
+            <div className="capability-strip">
+              <span>notes: {memoryGovernance?.capabilities.memoryNotes ?? 'unknown'}</span>
+              <span>refs: {memoryGovernance?.capabilities.memoryRefs ?? 'unknown'}</span>
+            </div>
+            {!memoryGovernance || memoryGovernance.users.length === 0 ? (
+              <p className="muted">No memory namespaces match the current filter.</p>
+            ) : (
+              <div className="memory-table">
+                <div className="memory-table-head">
+                  <span>User</span>
+                  <span>Namespace</span>
+                  <span>Runtime</span>
+                  <span>Notes</span>
+                </div>
+                {memoryGovernance.users.map(user => (
+                  <article className="memory-row" key={user.userId}>
+                    <div>
+                      <strong>{user.email}</strong>
+                      <p>{user.userId} · {user.workspaceCount} workspace(s)</p>
+                      <small>{user.lastSessionAt ? formatTime(user.lastSessionAt) : 'No sessions yet'}</small>
+                    </div>
+                    <div className="compact-metrics">
+                      <span className={`status-pill ${memoryStatusClass(user.isolationStatus)}`}>
+                        {user.isolationStatus}
+                      </span>
+                      <span>{user.memoryNamespace}</span>
+                    </div>
+                    <div className="compact-metrics">
+                      <span>{user.runtimeSessionCount}/{user.sessionCount} sessions attached</span>
+                      <span>{user.jobCount} jobs · {user.memoryRefCount} refs</span>
+                    </div>
+                    <div className="compact-metrics">
+                      <span>{user.pendingMemoryNoteCount} pending</span>
+                      <span>{user.approvedMemoryNoteCount} approved · {user.rejectedMemoryNoteCount} rejected</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
           <section className="panel">
             <div className="panel-header">
               <h2>Required Endpoints</h2>
@@ -705,4 +794,10 @@ function formatBytes(value: number): string {
 
 function modelName(models: AdminModel[], modelServiceId: string): string {
   return models.find(model => model.id === modelServiceId)?.displayName ?? modelServiceId
+}
+
+function memoryStatusClass(status: AdminMemoryGovernanceResponse['users'][number]['isolationStatus']): string {
+  if (status === 'isolated') return 'compatible'
+  if (status === 'namespace_conflict') return 'unavailable'
+  return 'degraded'
 }

@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
-import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, shareVariation } from '@/lib/api'
-import type { AnnotationShape, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
+import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, shareVariation } from '@/lib/api'
+import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'text'
 type DraftRect = { startX: number; startY: number; currentX: number; currentY: number }
 type EditorViewMode = 'preview' | 'code'
+type ArtifactQuality = NonNullable<NonNullable<VariationDetailResponse['currentArtifact']>['quality']>
+type ExportArtifactSummary = NonNullable<ExportVariationResponse['exportArtifact']>
 
 export default function VariationPage(props: { params: Promise<{ variationId: string }> }): React.JSX.Element {
   const [variationId, setVariationId] = useState<string | null>(null)
@@ -28,7 +30,12 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [draftRect, setDraftRect] = useState<DraftRect | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [exportStatus, setExportStatus] = useState<'idle' | 'exporting'>('idle')
+  const [lastExport, setLastExport] = useState<ExportArtifactSummary | null>(null)
+  const [shareStatus, setShareStatus] = useState<'idle' | 'creating'>('idle')
+  const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
+  const selectedArtifactQuality = qualityForArtifact(detail, selectedArtifactId)
 
   useEffect(() => {
     props.params.then(params => setVariationId(params.variationId)).catch(err => {
@@ -44,7 +51,12 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       .then(data => {
         if (!cancelled) {
           setDetail(data)
-          setSelectedArtifactId(current => current ?? data.currentArtifact?.id ?? null)
+          setSelectedArtifactId(current => {
+            if (!current) return data.currentArtifact?.id ?? null
+            return data.artifacts.some(artifact => artifact.id === current && artifact.kind === 'html')
+              ? current
+              : data.currentArtifact?.id ?? null
+          })
           setStatus('idle')
         }
       })
@@ -136,7 +148,8 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   }
 
   async function downloadZip(): Promise<void> {
-    if (!variationId) return
+    if (!variationId || exportStatus === 'exporting') return
+    setExportStatus('exporting')
     setError(null)
     setNotice(null)
     try {
@@ -151,14 +164,18 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       anchor.click()
       anchor.remove()
       URL.revokeObjectURL(url)
+      setLastExport(exported.exportArtifact)
       setNotice(`Downloaded ${exported.exportArtifact.filename}`)
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setExportStatus('idle')
     }
   }
 
   async function createShareLink(): Promise<void> {
-    if (!variationId) return
+    if (!variationId || shareStatus === 'creating') return
+    setShareStatus('creating')
     setError(null)
     setNotice(null)
     try {
@@ -168,6 +185,26 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       setNotice('Share link created.')
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setShareStatus('idle')
+    }
+  }
+
+  async function restoreVersion(artifactId: string): Promise<void> {
+    if (!variationId || restoringArtifactId) return
+    setRestoringArtifactId(artifactId)
+    setError(null)
+    setNotice(null)
+    try {
+      const restored = await restoreVariationVersion(variationId, artifactId)
+      setSelectedArtifactId(restored.artifact.id)
+      setViewMode('preview')
+      setPreviewVersion(version => version + 1)
+      setNotice(`Restored v${restored.artifact.version} as the current artifact.`)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setRestoringArtifactId(null)
     }
   }
 
@@ -227,11 +264,19 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           <p>{detail?.job.prompt ?? 'Loading variation context...'}</p>
         </div>
         <div className="editor-command-bar" aria-label="Variation actions">
-          <button data-testid="download-html-button" onClick={() => void downloadZip()} disabled={!detail?.variation.currentArtifactId}>
-            ZIP
+          <button
+            data-testid="download-html-button"
+            onClick={() => void downloadZip()}
+            disabled={!detail?.variation.currentArtifactId || exportStatus === 'exporting'}
+          >
+            {exportStatus === 'exporting' ? 'Exporting' : 'ZIP'}
           </button>
-          <button data-testid="share-button" onClick={() => void createShareLink()} disabled={!detail?.variation.currentArtifactId}>
-            Share
+          <button
+            data-testid="share-button"
+            onClick={() => void createShareLink()}
+            disabled={!detail?.variation.currentArtifactId || shareStatus === 'creating'}
+          >
+            {shareStatus === 'creating' ? 'Sharing' : 'Share'}
           </button>
           <button onClick={() => setNotice('This variation is marked as the selected direction for the current session.')}>
             Lock this one
@@ -243,6 +288,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       {notice ? (
         <p data-testid="variation-notice" className="notice-text">
           {notice}
+          {lastExport ? <> <span>{formatExportSummary(lastExport)}</span></> : null}
           {shareUrl ? <> <a data-testid="share-link" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
         </p>
       ) : null}
@@ -354,21 +400,65 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             <p data-testid="current-artifact-version">
               {detail?.currentArtifact ? `v${detail.currentArtifact.version} · ${detail.currentArtifact.id}` : 'No artifact yet'}
             </p>
+            {selectedArtifactQuality && selectedArtifactQuality.status !== 'pass' ? (
+              <div className={`quality-banner artifact-quality-summary ${selectedArtifactQuality.status}`} data-testid="artifact-quality-summary">
+                <strong>{selectedArtifactQuality.status === 'fail' ? 'Quality failed' : 'Quality warning'}</strong>
+                <span>{selectedArtifactQuality.issues[0] ?? 'Generated artifact needs attention.'}</span>
+              </div>
+            ) : null}
+            {lastExport ? (
+              <div className="export-summary" data-testid="export-summary">
+                <strong>Latest ZIP</strong>
+                <p>{lastExport.filename}</p>
+                <dl>
+                  <div>
+                    <dt>Files</dt>
+                    <dd>{lastExport.files.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Size</dt>
+                    <dd>{formatBytes(lastExport.sizeBytes)}</dd>
+                  </div>
+                  <div>
+                    <dt>Hash</dt>
+                    <dd title={lastExport.contentHash}>{shortHash(lastExport.contentHash)}</dd>
+                  </div>
+                </dl>
+                <span>{lastExport.reused ? 'Reused existing package' : 'Created from current version'}</span>
+              </div>
+            ) : null}
             <strong>Versions</strong>
             {detail?.artifacts.map(artifact => (
-              <button
-                key={artifact.id}
-                type="button"
-                data-testid="artifact-version-button"
-                className={artifact.id === selectedArtifactId ? 'active' : ''}
-                onClick={() => {
-                  setSelectedArtifactId(artifact.id)
-                  setViewMode('code')
-                }}
-              >
-                <span>v{artifact.version}</span>
-                <span>{artifact.entryPath ?? 'index.html'}</span>
-              </button>
+              <div key={artifact.id} className={`artifact-version-row ${artifact.id === selectedArtifactId ? 'active' : ''}`}>
+                <button
+                  type="button"
+                  data-testid="artifact-version-button"
+                  disabled={artifact.kind !== 'html'}
+                  onClick={() => {
+                    if (artifact.kind !== 'html') return
+                    setSelectedArtifactId(artifact.id)
+                    setViewMode('code')
+                  }}
+                >
+                  <span>{artifact.kind === 'html' ? `v${artifact.version}` : artifactKindLabel(artifact.kind)}</span>
+                  <span>
+                    {artifact.entryPath ?? artifact.id}
+                    {artifact.isCurrent ? ' · current' : ''}
+                    {artifact.exportedFromArtifactId ? ` · from ${shortArtifactId(artifact.exportedFromArtifactId)}` : ''}
+                  </span>
+                </button>
+                {artifact.kind === 'html' && !artifact.isCurrent ? (
+                  <button
+                    type="button"
+                    className="restore-version-button"
+                    data-testid="restore-version-button"
+                    disabled={Boolean(restoringArtifactId)}
+                    onClick={() => void restoreVersion(artifact.id)}
+                  >
+                    {restoringArtifactId === artifact.id ? 'Restoring' : 'Restore'}
+                  </button>
+                ) : null}
+              </div>
             ))}
           </section>
         </aside>
@@ -430,6 +520,44 @@ function filesForViewer(files: VariationFilesResponse['files']): CodeFile[] {
     content: file.content,
     isFinal: true,
   }))
+}
+
+function qualityForArtifact(detail: VariationDetailResponse | null, artifactId: string | null): ArtifactQuality | null {
+  if (!detail) return null
+  const artifact = artifactId
+    ? detail.artifacts.find(item => item.id === artifactId) ?? detail.currentArtifact
+    : detail.currentArtifact
+  return artifact?.quality ?? null
+}
+
+function formatExportSummary(exportArtifact: ExportArtifactSummary): string {
+  const fileLabel = `${exportArtifact.files.length} file${exportArtifact.files.length === 1 ? '' : 's'}`
+  return `${fileLabel} · ${formatBytes(exportArtifact.sizeBytes)} · ${shortHash(exportArtifact.contentHash)}`
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  return `${size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1)} ${units[unitIndex]}`
+}
+
+function shortHash(value: string): string {
+  return value.replace(/^sha256:/, '').slice(0, 12)
+}
+
+function shortArtifactId(value: string): string {
+  return value.length > 12 ? `${value.slice(0, 12)}...` : value
+}
+
+function artifactKindLabel(kind: VariationDetailResponse['artifacts'][number]['kind']): string {
+  if (kind === 'export_zip') return 'zip'
+  return kind
 }
 
 function clamp(value: number): number {

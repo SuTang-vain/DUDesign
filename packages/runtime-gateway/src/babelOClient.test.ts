@@ -366,12 +366,18 @@ describe('BabelORuntimeClient', () => {
 
     assert.equal(agent.streamId, 'stream_1')
     assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents')
-    assert.deepEqual(calls[0]?.body, {
+    const agentBody = calls[0]?.body as Record<string, unknown>
+    const agentPrompt = String(agentBody.prompt)
+    assert.equal(agentPrompt.startsWith('Build a page'), true)
+    assert.match(agentPrompt, /This is variation 1 of 2/)
+    assert.match(agentPrompt, /Editorial Swiss grid/)
+    assert.match(agentPrompt, /minimal/)
+    assert.deepEqual(agentBody, {
       userId: 'user_1',
       workspaceId: 'workspace_1',
       sessionId: 'session_1',
       jobId: 'job_1',
-      prompt: 'Build a page',
+      prompt: agentPrompt,
       sourceMode: 'new_html',
       sourceArtifactId: null,
       variationCount: 2,
@@ -384,6 +390,7 @@ describe('BabelORuntimeClient', () => {
       modelProvider: 'babel-o',
       templateRequirements: {
         styles: ['minimal'],
+        variationStyleDirection: 'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent. Interpret the user-requested style tags through this direction: minimal.',
       },
     })
     assert.equal(calls[1]?.url, 'https://runtime.example.test/v1/stream?streamId=stream_1')
@@ -391,6 +398,47 @@ describe('BabelORuntimeClient', () => {
       { type: 'assistant_delta', delta: 'hello' },
       { type: 'result', artifactId: 'artifact_1' },
     ])
+  })
+
+  it('injects distinct deterministic style directions for sibling variations', async () => {
+    const prompts: string[] = []
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompts.push(body.prompt)
+        return jsonResponse({
+          streamId: `stream_${prompts.length}`,
+          agentJobId: `agent_job_${prompts.length}`,
+          runtimeChildSessionId: `rt_child_${prompts.length}`,
+        })
+      },
+    })
+
+    for (const variationIndex of [1, 2, 3]) {
+      await client.spawnVariationAgent({
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'session_1',
+        jobId: 'job_1',
+        prompt: 'Build a pricing page',
+        sourceMode: 'new_html',
+        sourceArtifactId: null,
+        variationCount: 3,
+        variationIndex,
+        workspaceRoot: 'workspaces/workspace_1',
+        memoryNamespace: 'memory:user:user_1',
+        templateRequirements: {
+          styles: ['trustworthy'],
+        },
+      })
+    }
+
+    assert.equal(new Set(prompts).size, 3)
+    assert.match(prompts[0] ?? '', /Editorial Swiss grid/)
+    assert.match(prompts[1] ?? '', /Bold conversion-focused SaaS/)
+    assert.match(prompts[2] ?? '', /Warm product story/)
+    assert.ok(prompts.every(prompt => prompt.includes('trustworthy')))
   })
 
 	  it('streams SSE runtime events', async () => {

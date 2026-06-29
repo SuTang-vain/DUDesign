@@ -9,10 +9,23 @@
 
 - [x] 建立 M1 阶段 Node 原生 HTTP API 服务；后续再确认生产框架是 Fastify 还是 Next.js Route Handlers。
 - [x] 建立 PostgreSQL schema 草案。
-- [ ] 建立 PostgreSQL 连接和迁移机制。
+- [x] 建立 PostgreSQL 连接和迁移机制。
+  - [x] `PostgresRepository.connect()` 支持 `DATABASE_URL` 连接。
+  - [x] `schema_migrations` 记录已应用 SQL migration。
+  - [x] `apps/api/db/migrations/*.sql` 作为 SQL-first migration source。
+  - [x] `DUDESIGN_REPOSITORY=postgres` 接入应用服务工厂。
+  - [x] `DUDESIGN_REPOSITORY_HYDRATE=false` 支持 production no-hydrate mode。
+  - [x] 真实 PostgreSQL opt-in smoke 覆盖 hydrate / no-hydrate 双路径。
 - [x] 建立对象存储抽象。
 - [x] 实现本地 `LocalArtifactStore`，用于 MVP/dev 环境 artifact body 存储。
 - [ ] 建立 Redis/Queue 抽象。
+  - [ ] 定义 `DesignJobQueue` 接口：`enqueueDesignJob`、`enqueueRefineJob`、`cancelJob`、`getJobState`。
+  - [ ] 定义 queue payload schema：`jobId`、`sessionId`、`variationIds`、`sourceArtifactId`、`runtimeSessionId`、`modelServiceId`、`idempotencyKey`。
+  - [ ] 实现 dev/test `InMemoryDesignJobQueue`，保持无外部依赖的默认测试门禁。
+  - [ ] 实现 production `RedisDesignJobQueue` 或 BullMQ adapter。
+  - [ ] 建立 worker entrypoint，统一从队列调用 `ApplicationService` / Runtime Gateway。
+  - [ ] 增加 queue retry、dedupe、timeout、dead-letter 策略。
+  - [ ] 增加 queue worker 测试和 runtime unavailable 降级测试。
 - [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
 - [x] 建立 M1 request id 传递；trace id 后续接观测系统。
 - [x] 支持 User API CORS preflight。
@@ -25,11 +38,20 @@
 ## Phase APP-1：Auth、User、Workspace
 
 - [x] 定义用户、workspace、session、job、variation、artifact、share 领域模型。
-- [ ] 实现用户表。
+- [x] 实现用户表。
+  - [x] `users` migration 覆盖 `id`、`email`、`name`、`avatar_url`、`status`、`memory_namespace`、`created_at`、`updated_at`。
+  - [x] PostgreSQL seed 写入 dev/alt 用户。
+  - [x] `getUserById()` 已提供 SQL-native lookup。
+  - [x] `memory_namespace` 唯一约束用于用户级 memory 隔离。
 - [x] 实现 M1 header-based dev user context。
 - [x] 实现个人 hosted workspace 默认创建。
 - [x] 实现 workspace owner 校验。
-- [ ] 预留 `team_id`、workspace member、role。
+- [x] 预留 `team_id`、workspace member、role。
+  - [x] `workspaces.team_id` 已在 baseline migration 中预留。
+  - [x] `workspace_members` 表已在 baseline migration 中预留。
+  - [x] `workspace_members.role` 已预留 `owner` / `admin` / `editor` / `viewer`。
+  - [x] MVP 仍以 owner workspace guard 为主，不开放团队协作 UI。
+  - [ ] 后续团队协作阶段再实现 workspace member 写入、邀请、移除和 role-based access guard。
 
 验收：
 
@@ -55,6 +77,9 @@
 - [x] 实现 `GET /api/design-jobs/:id`。
 - [x] 实现 M1 内存版 job/variation 状态机。
 - [ ] 实现队列入队。
+  - [ ] `POST /api/design-jobs` 从直接执行 runtime 改为创建 job 后 enqueue。
+  - [ ] worker 消费队列并驱动 variation runtime sessions。
+  - [ ] SSE 继续通过 persisted events / event bus 聚合状态。
 - [x] 实现 `GET /api/design-jobs/:id/stream`。
 - [ ] 实现部分失败状态。
 
@@ -70,9 +95,18 @@
 - [x] 将 mock HTML artifact body 写入 `ArtifactStore`，metadata 继续由业务 store 管理。
 - [x] 实现 artifact version。
 - [x] 实现 mock preview URL 和 HTML preview endpoint。
-- [ ] 实现 screenshot artifact。
+- [x] 实现 screenshot artifact。
+  - [x] HTML artifact 完成后异步生成 desktop / tablet / mobile PNG screenshot artifacts。
+  - [x] `design_variations.screenshot_artifact_id` 指向 desktop screenshot，结果墙优先使用。
+  - [x] screenshot artifact 通过 `/api/variations/:id/screenshots/:artifactId` 读取。
+  - [x] screenshot 生成失败不阻断 job/refine 主流程，错误写入 HTML artifact metadata。
+  - [ ] 将当前进程内异步截图生成迁移到 queue worker。
 - [x] 实现 mock HTML export。
 - [x] 实现 mock `export_zip` artifact。
+- [x] variation detail 返回完整 artifact snapshot，并区分 `html` / `asset` / `export_zip`。
+- [x] export/share 明确绑定当前 HTML artifact version，避免后续 refine 漂移。
+- [x] 支持恢复历史 HTML artifact 为当前版本：`POST /api/variations/:id/versions/:artifactId/restore`。
+- [ ] 支持历史 artifact preview URL 显式绑定 `artifactId`。
 - [x] 实现 share token。
 - [x] 实现 share revoke。
 - [x] 实现 share expiresAt 测试。
@@ -121,6 +155,7 @@
 - [ ] Repository 单元测试。
 - [ ] Service 状态机测试。
 - [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
+- [x] API 集成 smoke 覆盖 artifact snapshot、ZIP export、share 不漂移、历史版本 restore。
 - [x] Owner 权限测试。
 - [x] Share token 权限测试。
 - [ ] Queue worker 测试。

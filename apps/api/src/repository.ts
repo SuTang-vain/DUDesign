@@ -100,6 +100,7 @@ export type ApplyVariationEventInput = {
   status?: DesignVariation['status']
   artifactId?: string
   previewUrl?: string
+  screenshotArtifactId?: string | null
   runtimeChildSessionId?: string
   runtimeAgentJobId?: string
   inputTokens?: number
@@ -309,6 +310,38 @@ export type AdminUserModelAccess = UserModelAccess & {
   }
 }
 
+export type AdminMemoryUserSummary = {
+  userId: string
+  email: string
+  memoryNamespace: string
+  isolationStatus: 'isolated' | 'namespace_conflict' | 'missing_namespace'
+  workspaceCount: number
+  sessionCount: number
+  runtimeSessionCount: number
+  jobCount: number
+  memoryRefCount: number
+  pendingMemoryNoteCount: number
+  approvedMemoryNoteCount: number
+  rejectedMemoryNoteCount: number
+  lastSessionAt: string | null
+}
+
+export type AdminMemoryGovernance = {
+  users: AdminMemoryUserSummary[]
+  totals: {
+    userCount: number
+    isolatedUserCount: number
+    conflictUserCount: number
+    missingNamespaceUserCount: number
+    memoryRefCount: number
+    pendingMemoryNoteCount: number
+  }
+  capabilities: {
+    memoryNotes: 'not_configured' | 'available'
+    memoryRefs: 'event_stream_only' | 'available'
+  }
+}
+
 export type ApplicationRepository = {
   readonly users: Map<string, User>
   readonly workspaces: Map<string, Workspace>
@@ -356,6 +389,7 @@ export type ApplicationRepository = {
   getVariationAssetArtifact(variationId: string, parentArtifactId: string, assetPath: string): MaybePromise<Artifact | null>
   getExportArtifactForSource(variationId: string, sourceArtifactId: string): MaybePromise<Artifact | null>
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void>
+  setVariationCurrentArtifact(variationId: string, artifactId: string, previewUrl: string | null): MaybePromise<DesignVariation | null>
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): MaybePromise<AuditLog>
   listAuditLogs(options?: { limit?: number }): AuditLog[]
   createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): MaybePromise<UsageEvent>
@@ -392,4 +426,5 @@ export type ApplicationRepository = {
     dailyTokenLimit?: number | null
     monthlyCostLimitCents?: number | null
   }): MaybePromise<UserModelAccess>
+  getAdminMemoryGovernance(filter?: AdminUserSupportFilter): MaybePromise<AdminMemoryGovernance>
 }

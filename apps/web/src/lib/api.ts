@@ -3,12 +3,16 @@ import type {
   CreateDesignJobResponse,
   CreateAnnotationBatchRequest,
   CreateAnnotationBatchResponse,
+  CreateSourceArtifactRequest,
+  CreateSourceArtifactResponse,
   CreateSessionRequest,
   CreateSessionResponse,
+  DesignJobSnapshotResponse,
   DesignEvent,
   ExportVariationResponse,
   RefineVariationRequest,
   RefineVariationResponse,
+  RestoreVariationVersionResponse,
   SharedVariationResponse,
   ShareVariationRequest,
   ShareVariationResponse,
@@ -30,6 +34,11 @@ export type BootstrapResponse = {
     name: string
     storageKey: string
   }
+  workspaces: Array<{
+    id: string
+    name: string
+    storageKey: string
+  }>
   models: ModelsResponse
 }
 
@@ -49,20 +58,7 @@ export type ModelsResponse = {
   defaultModelId: string | null
 }
 
-export type JobSnapshot = {
-  job: {
-    id: string
-    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
-    prompt: string
-    variationCount: number
-  }
-  variations: VariationSnapshot[]
-  artifacts: Array<{
-    id: string
-    variationId: string | null
-    entryPath: string | null
-  }>
-}
+export type JobSnapshot = DesignJobSnapshotResponse
 
 export type SessionSnapshot = {
   id: string
@@ -101,6 +97,7 @@ export type VariationSnapshot = {
   status: 'queued' | 'running' | 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
   currentArtifactId: string | null
   previewUrl: string | null
+  screenshotUrl: string | null
   inputTokens: number
   outputTokens: number
   costCents: number
@@ -143,6 +140,10 @@ export async function createDesignJob(input: CreateDesignJobRequest): Promise<Cr
   return postJson('/api/design-jobs', input)
 }
 
+export async function createSourceArtifact(input: CreateSourceArtifactRequest): Promise<CreateSourceArtifactResponse> {
+  return postJson('/api/source-artifacts', input)
+}
+
 export async function getDesignJob(jobId: string): Promise<JobSnapshot> {
   return getJson(`/api/design-jobs/${encodeURIComponent(jobId)}`)
 }
@@ -161,6 +162,13 @@ export async function refineVariation(
   input: RefineVariationRequest,
 ): Promise<RefineVariationResponse> {
   return postJson(`/api/variations/${encodeURIComponent(variationId)}/refine`, input)
+}
+
+export async function restoreVariationVersion(variationId: string, artifactId: string): Promise<RestoreVariationVersionResponse> {
+  return postJson(
+    `/api/variations/${encodeURIComponent(variationId)}/versions/${encodeURIComponent(artifactId)}/restore`,
+    {},
+  )
 }
 
 export async function createAnnotationBatch(

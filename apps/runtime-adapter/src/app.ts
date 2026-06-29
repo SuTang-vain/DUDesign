@@ -3,7 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
-import { NexusClient } from './nexusClient.js'
+import { NexusClient, NexusClientError, type NexusExecuteResponse } from './nexusClient.js'
 import { NoopRuntimeAdapterStateStore, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
 
 export type RuntimeAdapterOptions = {
@@ -11,6 +11,8 @@ export type RuntimeAdapterOptions = {
   runtimeVersion?: string
   workspaceBase?: string
   stateStore?: RuntimeAdapterStateStore
+  executeRetryAttempts?: number
+  executeRetryBaseDelayMs?: number
 }
 
 type RuntimeStream = {
@@ -72,12 +74,16 @@ class RuntimeAdapterApp {
   private readonly streams = new Map<string, RuntimeStream>()
   private readonly sessions = new Map<string, string>()
   private readonly stateStore: RuntimeAdapterStateStore
+  private readonly executeRetryAttempts: number
+  private readonly executeRetryBaseDelayMs: number
   private readonly ready: Promise<void>
   private persistQueue: Promise<void> = Promise.resolve()
   private sequence = 1
 
   constructor(private readonly options: RuntimeAdapterOptions) {
     this.stateStore = options.stateStore ?? new NoopRuntimeAdapterStateStore()
+    this.executeRetryAttempts = nonNegativeInteger(options.executeRetryAttempts, 2)
+    this.executeRetryBaseDelayMs = nonNegativeInteger(options.executeRetryBaseDelayMs, 750)
     this.ready = this.restoreState()
   }
 
@@ -263,7 +269,7 @@ class RuntimeAdapterApp {
     })
     try {
       writeNdjson(res, { type: 'assistant_delta', delta: 'BabeL-O execution started.' })
-      const executed = await this.options.nexus.execute({
+      const executed = await this.executeWithCapacityRetry({
         sessionId: stream.runtimeSessionId,
         prompt: stream.prompt,
         cwd: stream.workspaceRoot,
@@ -349,6 +355,24 @@ class RuntimeAdapterApp {
     return runtimeSessionId
   }
 
+  private async executeWithCapacityRetry(input: {
+    sessionId: string
+    prompt: string
+    cwd: string
+    modelId?: string
+  }): Promise<NexusExecuteResponse> {
+    let attempt = 0
+    while (true) {
+      try {
+        return await this.options.nexus.execute(input)
+      } catch (error) {
+        if (!isCapacityError(error) || attempt >= this.executeRetryAttempts) throw error
+        attempt += 1
+        await delay(this.executeRetryBaseDelayMs * attempt)
+      }
+    }
+  }
+
   private async restoreState(): Promise<void> {
     const snapshot = await this.stateStore.load()
     for (const [sessionId, runtimeSessionId] of Object.entries(snapshot.sessions)) {
@@ -398,6 +422,18 @@ function nextSequenceFromStreams(streams: Map<string, RuntimeStream>): number {
     sequence = Math.max(sequence, Number(match[1]) + 1)
   }
   return sequence
+}
+
+function isCapacityError(error: unknown): boolean {
+  return error instanceof NexusClientError && error.status === 429
+}
+
+function nonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : fallback
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export function resolveRuntimeWorkspaceRoot(workspaceRoot: string, workspaceBase?: string): string {

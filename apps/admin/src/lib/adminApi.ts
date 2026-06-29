@@ -227,6 +227,36 @@ export type AdminUserSupportResponse = {
   }>
 }
 
+export type AdminMemoryGovernanceResponse = {
+  users: Array<{
+    userId: string
+    email: string
+    memoryNamespace: string
+    isolationStatus: 'isolated' | 'namespace_conflict' | 'missing_namespace'
+    workspaceCount: number
+    sessionCount: number
+    runtimeSessionCount: number
+    jobCount: number
+    memoryRefCount: number
+    pendingMemoryNoteCount: number
+    approvedMemoryNoteCount: number
+    rejectedMemoryNoteCount: number
+    lastSessionAt: string | null
+  }>
+  totals: {
+    userCount: number
+    isolatedUserCount: number
+    conflictUserCount: number
+    missingNamespaceUserCount: number
+    memoryRefCount: number
+    pendingMemoryNoteCount: number
+  }
+  capabilities: {
+    memoryNotes: 'not_configured' | 'available'
+    memoryRefs: 'event_stream_only' | 'available'
+  }
+}
+
 export async function getRuntimeHealth(role: AdminRole): Promise<RuntimeHealthResponse> {
   return getJson('/api/admin/runtime/health', role)
 }
@@ -283,6 +313,13 @@ export async function getUserSupport(role: AdminRole, filter: { userId?: string;
   if (filter.userId) params.set('userId', filter.userId)
   if (filter.email) params.set('email', filter.email)
   return getJson(`/api/admin/support/users${params.size ? `?${params.toString()}` : ''}`, role)
+}
+
+export async function getMemoryGovernance(role: AdminRole, filter: { userId?: string; email?: string } = {}): Promise<AdminMemoryGovernanceResponse> {
+  const params = new URLSearchParams()
+  if (filter.userId) params.set('userId', filter.userId)
+  if (filter.email) params.set('email', filter.email)
+  return getJson(`/api/admin/memory${params.size ? `?${params.toString()}` : ''}`, role)
 }
 
 export async function cancelJob(role: AdminRole, jobId: string, reason: string): Promise<CancelJobResponse> {

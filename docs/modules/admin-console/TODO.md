@@ -11,7 +11,7 @@
 - [x] 定义 admin roles：support、operator、developer。
 - [x] 定义 Admin API client。
 - [x] 定义 M1 管理操作审计字段：operator、action、target、reason、created_at。
-- [ ] 定义敏感信息脱敏规则。
+- [x] 定义敏感信息脱敏规则。
 
 验收：
 
@@ -61,7 +61,7 @@
 - [x] 支持查看 session resume 状态。
 - [x] 支持查看 job/variation 失败摘要。
 - [ ] 支持生成用户可理解的问题说明。
-- [ ] 严格控制 HTML 全文查看权限。
+- [x] 严格控制 HTML 全文查看权限。
 
 验收：
 
@@ -81,8 +81,8 @@
 - [ ] 展示模型发现差异：新增、缺失、已停用、成本/上下文窗口变化。
 - [ ] 展示模型同步审计记录和最近同步时间。
 - [ ] 按 workspace、模型、时间范围筛选成本。
-- [ ] 展示 memory namespace。
-- [ ] 展示 memory hit 和 candidate 状态。
+- [x] 展示 memory namespace。
+- [x] 展示 memory ref 观测能力状态。
 - [ ] 支持查看 memory 审批记录。
 
 验收：
@@ -97,7 +97,8 @@
 - [x] 管理端页面 smoke test。
 - [x] Admin artifact metadata listing 测试。
 - [x] Admin user support summary 测试。
-- [ ] 敏感字段脱敏测试。
+- [x] 敏感字段脱敏测试。
+- [x] Admin memory namespace isolation 测试。
 - [ ] runtime contract mismatch 展示测试。
 
 验收：

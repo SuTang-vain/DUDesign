@@ -11,4 +11,6 @@ dist
 coverage
 *.log
 .DS_Store
+._*
+**/._*
 deploy/staging/.env

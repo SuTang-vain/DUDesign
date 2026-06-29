@@ -260,6 +260,17 @@ DUDESIGN_STAGING_PUBLIC_BASE=http://49.233.190.201 \
 deploy/staging/scripts/smoke-remote.sh
 ```
 
+真实 BabeL-O 多变体 smoke：
+
+```bash
+DUDESIGN_STAGING_REMOTE=tyy \
+DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=3 \
+DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS=420 \
+deploy/staging/scripts/smoke-babelo-prompt-remote.sh
+```
+
+`DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT` 可设为 `1..6`。常规 smoke 默认仍为 1，避免每次部署都触发高成本真实内核并发生成。
+
 服务器上手动启动：
 
 ```bash

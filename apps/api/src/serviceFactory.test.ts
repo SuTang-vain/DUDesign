@@ -14,6 +14,7 @@ const envKeys = [
   'BABELO_STREAM_IDLE_TIMEOUT_MS',
   'BABELO_STREAM_RECONNECT_ATTEMPTS',
   'BABELO_CONTRACT_VERSION',
+  'DUDESIGN_RUNTIME_VARIATION_CONCURRENCY',
   'DUDESIGN_BABELO_BASE_URL',
   'DUDESIGN_BABELO_API_KEY',
   'DUDESIGN_BABELO_AUTH_HEADER',
@@ -54,6 +55,15 @@ describe('createRuntimeGatewayFromEnv', () => {
     const runtime = createRuntimeGatewayFromEnv()
 
     assert.ok(runtime instanceof BabelORuntimeGateway)
+  })
+
+  it('passes runtime variation concurrency into the BabeL-O gateway', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'babel-o'
+    process.env.BABELO_BASE_URL = 'https://runtime.example.test'
+    process.env.DUDESIGN_RUNTIME_VARIATION_CONCURRENCY = '1'
+    const runtime = createRuntimeGatewayFromEnv() as BabelORuntimeGateway
+
+    assert.equal(Reflect.get(runtime, 'variationConcurrency'), 1)
   })
 
   it('keeps legacy DUDESIGN_BABELO env names working', () => {

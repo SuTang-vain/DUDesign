@@ -294,6 +294,67 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('retries raw Nexus execute once when runtime capacity returns HTTP 429', async () => {
+    let executeAttempts = 0
+    const retryHarness = await startHarness(createRuntimeAdapterServer({
+      executeRetryAttempts: 1,
+      executeRetryBaseDelayMs: 1,
+      nexus: new NexusClient({
+        baseUrl: 'https://nexus.example.test',
+        fetch: async (url) => {
+          const href = String(url)
+          if (href.endsWith('/v1/sessions')) {
+            return jsonResponse({
+              type: 'session_created',
+              sessionId: 'nexus_retry_session',
+            }, 201)
+          }
+          if (href.endsWith('/v1/execute')) {
+            executeAttempts += 1
+            if (executeAttempts === 1) {
+              return jsonResponse({
+                type: 'error',
+                code: 'EXECUTION_BUSY',
+                message: 'Nexus execution capacity is full. Try again shortly.',
+              }, 429)
+            }
+            return jsonResponse({
+              type: 'execute_result',
+              sessionId: 'nexus_retry_session',
+              success: true,
+              events: [
+                { type: 'assistant_delta', delta: 'Retried successfully' },
+              ],
+            })
+          }
+          return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+        },
+      }),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(retryHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_retry',
+        jobId: 'job_retry',
+        prompt: 'Build a page after capacity frees up',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(retryHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(executeAttempts, 2)
+      assert.match(stream, /Retried successfully/)
+      assert.match(stream, /"type":"result"/)
+    } finally {
+      await retryHarness.close()
+    }
+  })
+
   it('cancels Nexus agent jobs from DUDesign variation handles', async () => {
     const cancelled = await postJson<{ cancelled: boolean; cancelledVariationCount: number }>('/v1/agents/cancel', {
       jobId: 'job_1',

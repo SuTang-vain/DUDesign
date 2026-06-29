@@ -19,6 +19,8 @@ services:
       context: ../..
       dockerfile: deploy/staging/Dockerfile
       target: api
+      args:
+        INSTALL_PLAYWRIGHT_DEPS: ${INSTALL_PLAYWRIGHT_DEPS:-false}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -39,6 +41,7 @@ services:
       BABELO_STREAM_IDLE_TIMEOUT_MS: ${BABELO_STREAM_IDLE_TIMEOUT_MS:-}
       BABELO_STREAM_RECONNECT_ATTEMPTS: ${BABELO_STREAM_RECONNECT_ATTEMPTS:-}
       BABELO_CONTRACT_VERSION: ${BABELO_CONTRACT_VERSION:-}
+      DUDESIGN_RUNTIME_VARIATION_CONCURRENCY: ${DUDESIGN_RUNTIME_VARIATION_CONCURRENCY:-3}
     volumes:
       - artifact-data:/app/.dudesign/artifacts
     ports:
@@ -59,6 +62,8 @@ services:
       BABELO_NEXUS_AUTH_HEADER: ${BABELO_NEXUS_AUTH_HEADER:-}
       RUNTIME_ADAPTER_STATE_FILE: ${RUNTIME_ADAPTER_STATE_FILE:-/app/.dudesign/runtime-adapter/state.json}
       RUNTIME_ADAPTER_WORKSPACE_BASE: ${RUNTIME_ADAPTER_WORKSPACE_BASE:-/workspace}
+      RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS: ${RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS:-2}
+      RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS: ${RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS:-750}
     depends_on:
       babel-o-nexus:
         condition: service_started

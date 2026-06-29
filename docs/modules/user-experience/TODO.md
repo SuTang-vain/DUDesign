@@ -22,11 +22,11 @@
 
 ## Phase UX-1：登录后工作台与会话列表
 
-- [ ] 实现登录后工作台页面。
+- [x] 实现登录后工作台页面。
 - [x] 展示最近会话。
 - [x] 支持创建新会话。
 - [x] 支持恢复历史会话。
-- [ ] 支持 workspace 选择，MVP 默认个人 hosted workspace。
+- [x] 支持 workspace 选择，MVP 默认个人 hosted workspace。
 
 验收：
 
@@ -37,16 +37,17 @@
 
 - [x] 实现 prompt composer。
 - [x] 实现新建 HTML / 基于已有 HTML 模式选择。
-- [ ] 实现已有 HTML 上传或历史 artifact 选择入口。
+- [x] 实现已有 HTML 上传或历史 artifact 选择入口。
 - [x] 实现变体数量选择，MVP 上限默认 6。
 - [x] 实现模板风格/要求输入。
 - [x] 展示用户可用模型列表并支持选择生成模型。
+- [x] 胶囊下拉菜单支持向下展开、切换互斥、点击外部/Esc 自动收起。
 - [x] 调用 `POST /api/design-jobs` 创建生成任务。
 
 验收：
 
 - 用户可以从空白需求创建 design job。
-- 用户可以基于已有 artifact 创建 design job。
+- 用户可以基于上传的已有 HTML artifact 创建 design job。
 - 请求体中不包含本地 cwd，只包含 workspace/session/artifact 引用。
 
 ## Phase UX-3：并行生成页
@@ -60,6 +61,8 @@
 - [x] 支持 Code / Preview 手动切换，允许用户在结果墙阶段展开查看完整代码。
 - [x] Code 视图支持多文件列表，覆盖 `index.html`、`styles.css`、`script.js`、`assets.json`。
 - [ ] 对长代码流做更严格的虚拟滚动或 tail buffer 策略。
+- [ ] 将 Runtime stream 从原始 delta 列表升级为结构化 Activity Stream，明确展示每个 variation agent 的阶段、动作和文件。
+- [ ] 默认隐藏 raw assistant delta，仅在 debug/详情模式中展示。
 - [x] 支持单个 variation 先完成先预览。
 - [ ] 支持 job 失败和部分失败状态。
 
@@ -68,12 +71,14 @@
 - 3 个和 6 个 variation 的 mock stream 都能正确渲染。
 - 每个 variation 的代码流只显示自身内容，不和其他 variation 混流。
 - 代码展示作为文本渲染，不执行生成代码；真实预览继续使用 sandbox iframe。
+- Runtime stream 能直接说明“第几个画面的 agent 做了什么”，而不是展示模型碎片文本。
 - 单个 variation 失败不阻断其他 variation 的结果展示。
 
 ## Phase UX-4：结果墙
 
 - [x] 实现多变体结果墙。
 - [x] 展示 preview iframe。
+- [x] 结果墙优先展示 screenshot artifact，缺失时 fallback 到 preview iframe。
 - [x] 支持进入单变体编辑。
 - [ ] 支持锁定当前版本。
 - [x] 支持导出入口。
@@ -91,10 +96,17 @@
 - [x] 支持 Preview / Code 切换，Code 视图可从当前 artifact 恢复文件内容。
 - [x] 实现 refine panel。
 - [x] 实现 artifact version menu。
+- [x] version menu 展示 artifact kind、current 标记和 export source。
+- [x] 支持将历史 HTML artifact 恢复为当前版本。
+- [x] 非 HTML artifact 在 version menu 中只读展示，避免误选 `asset` / `export_zip` 作为页面预览入口。
 - [ ] 实现 cost/runtime summary panel。
-- [x] 实现 mock HTML 导出。
+- [x] 实现 artifact-backed ZIP 导出。
+- [x] 导出按钮支持 loading、success、error 状态。
+- [x] 导出后展示 ZIP 文件数量、大小、hash 摘要。
 - [x] 实现 mock share link 创建。
 - [x] 实现只读分享页。
+- [x] 分享页展示 preview asset 加载状态。
+- [x] 分享页预留只读 ZIP 入口，MVP 暂不开放下载。
 
 验收：
 
@@ -123,6 +135,7 @@
 - [x] 建立 annotation browser E2E。
 - [x] 建立 annotation serialization unit test。
 - [x] 建立 preview iframe sandbox test。
+- [ ] 建立 artifact preview 可见性检查，识别全黑/空白/加载壳页面。
 - [ ] 建立用户端可访问性基础检查。
 
 验收：

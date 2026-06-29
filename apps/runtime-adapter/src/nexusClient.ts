@@ -5,6 +5,17 @@ export type NexusClientConfig = {
   fetch?: typeof fetch
 }
 
+export class NexusClientError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly path: string,
+  ) {
+    super(message)
+    this.name = 'NexusClientError'
+  }
+}
+
 export type NexusSessionResponse = {
   type?: string
   sessionId?: string
@@ -173,7 +184,7 @@ export class NexusClient {
       ...(options.body !== undefined && { body: JSON.stringify(options.body) }),
     })
     if (!response.ok) {
-      throw new Error(`BabeL-O Nexus returned HTTP ${response.status} for ${path}.`)
+      throw new NexusClientError(`BabeL-O Nexus returned HTTP ${response.status} for ${path}.`, response.status, path)
     }
     const payload = await response.json()
     if (!payload || typeof payload !== 'object') {

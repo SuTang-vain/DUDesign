@@ -232,6 +232,7 @@ button {
 .job-table,
 .artifact-table,
 .model-table,
+.memory-table,
 .support-list,
 .support-session-table {
   display: grid;
@@ -244,6 +245,8 @@ button {
 .artifact-row,
 .model-table-head,
 .model-row,
+.memory-table-head,
+.memory-row,
 .support-session-head,
 .support-session-row {
   display: grid;
@@ -254,6 +257,7 @@ button {
 .job-table-head,
 .artifact-table-head,
 .model-table-head,
+.memory-table-head,
 .support-session-head {
   color: var(--muted);
   font-size: 12px;
@@ -277,6 +281,11 @@ button {
   grid-template-columns: minmax(280px, 1fr) 140px minmax(180px, 0.9fr) 110px 170px;
 }
 
+.memory-table-head,
+.memory-row {
+  grid-template-columns: minmax(240px, 0.9fr) minmax(260px, 1fr) 180px 180px;
+}
+
 .support-session-head,
 .support-session-row {
   grid-template-columns: minmax(280px, 1fr) 150px 170px minmax(220px, 0.9fr);
@@ -285,6 +294,7 @@ button {
 .job-row,
 .artifact-row,
 .model-row,
+.memory-row,
 .support-user,
 .support-session-row {
   border: 1px solid var(--line);
@@ -296,6 +306,7 @@ button {
 .job-row p,
 .artifact-row p,
 .model-row p,
+.memory-row p,
 .support-user p,
 .support-session-row p {
   color: var(--muted);
@@ -308,9 +319,32 @@ button {
 .job-row small,
 .artifact-row small,
 .model-row small,
+.memory-row small,
 .support-session-row small {
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.memory-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.capability-strip span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fbfcfe;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 10px;
 }
 
 .support-user-header {
@@ -447,6 +481,7 @@ button {
   .job-table-head,
   .artifact-table-head,
   .model-table-head,
+  .memory-table-head,
   .support-session-head {
     display: none;
   }
@@ -454,8 +489,13 @@ button {
   .job-row,
   .artifact-row,
   .model-row,
+  .memory-row,
   .support-session-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .memory-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

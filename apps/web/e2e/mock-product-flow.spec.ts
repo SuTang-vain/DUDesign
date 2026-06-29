@@ -23,3 +23,34 @@ test('UX-M1 mock product flow works through browser clicks', async ({ page }) =>
   await expect(sharePage.getByRole('heading', { name: /Variation 01/i })).toBeVisible()
   await expect(sharePage.getByTestId('share-preview')).toBeVisible()
 })
+
+test('workbench can start from uploaded HTML', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Existing HTML', exact: true }).click()
+  await page.getByTestId('source-html-input').setInputFiles({
+    name: 'existing-source.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from('<!doctype html><html><body><main><h1>Existing source</h1><p>Improve this page.</p></main></body></html>'),
+  })
+  await expect(page.getByTestId('source-artifact-status')).toContainText('existing-source.html')
+  await page.getByTestId('prompt-input').fill('Improve the uploaded HTML with a clearer SaaS landing page structure')
+  await page.getByTestId('generate-button').click()
+  await expect(page).toHaveURL(/\/jobs\/job_/)
+  await expect(page.getByTestId('variation-grid')).toBeVisible()
+})
+
+test('composer menus close on outside click and do not stack', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByRole('button', { name: /Type New HTML/ }).click()
+  await expect(page.getByText('Generate a fresh standalone page.')).toBeVisible()
+
+  await page.getByRole('button', { name: /Styles minimal, trustworthy/ }).click()
+  await expect(page.getByText('Generate a fresh standalone page.')).toBeHidden()
+  await expect(page.getByText('Style direction')).toBeVisible()
+
+  await page.getByTestId('prompt-input').click()
+  await expect(page.getByText('Style direction')).toBeHidden()
+})

@@ -1,6 +1,8 @@
+import { createDesignEvent } from '@dudesign/contracts'
 import type {
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
+  CreateSourceArtifactRequest,
   CreateSessionRequest,
   DesignEvent,
   RefineVariationRequest,
@@ -11,16 +13,24 @@ import { MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gatew
 import type { Artifact, DesignVariation, DesignVariationStatus } from '@dudesign/domain'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
+import {
+  analyzeHtmlArtifactQuality,
+  analyzeHtmlArtifactQualityWithPixelGate,
+  type ArtifactQualityReport,
+} from './artifactQuality.js'
+import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
 import type { ApplicationRepository } from './repository.js'
 import type { RequestContext } from './auth.js'
+import { createId } from './id.js'
 
 export class ApplicationService {
   readonly store: ApplicationRepository
   readonly events: JobEventBus
   readonly runtime: RuntimeGateway
   readonly artifacts: ArtifactStore
+  private readonly backgroundTasks = new Set<Promise<unknown>>()
 
   constructor(options: {
     store?: ApplicationRepository
@@ -36,17 +46,85 @@ export class ApplicationService {
     })
   }
 
+  async flushBackgroundTasks(): Promise<void> {
+    while (this.backgroundTasks.size > 0) {
+      await Promise.allSettled([...this.backgroundTasks])
+    }
+  }
+
   async getBootstrap(ctx: RequestContext) {
     const user = await this.requireUser(ctx.userId)
     const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
     const models = await this.store.listUserModelOptions(user.id)
-    return { user, workspace, models }
+    return { user, workspace, workspaces: [workspace], models }
   }
 
   async listUserModels(ctx: RequestContext) {
     const user = await this.requireUser(ctx.userId)
     return this.store.listUserModelOptions(user.id)
+  }
+
+  async createSourceArtifact(ctx: RequestContext, input: CreateSourceArtifactRequest) {
+    const user = await this.requireUser(ctx.userId)
+    const workspace = await this.store.getWorkspaceById(input.workspaceId)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
+    await this.requireWorkspaceAccess(workspace.id, user.id)
+    const entryPath = normalizeUploadedHtmlFilename(input.filename)
+    const html = validateUploadedHtml(input.html)
+    const quality = await this.analyzeArtifactQuality(html)
+    const artifactId = createId('src')
+    const sourceSession = await this.store.createSession({
+      userId: user.id,
+      workspaceId: workspace.id,
+      mode: 'from_existing_html',
+      title: `Source upload: ${entryPath}`,
+      sourceArtifactId: null,
+      runtimeSessionId: null,
+    })
+    const stored = await this.artifacts.put({
+      workspaceId: workspace.id,
+      artifactId,
+      relativePath: entryPath,
+      contentType: 'text/html; charset=utf-8',
+      body: html,
+      metadata: {
+        kind: 'source_html',
+        userId: user.id,
+        qualityStatus: quality.status,
+        qualityIssues: quality.issues.join('\n'),
+      },
+    })
+    const artifact = await this.store.createArtifact({
+      workspaceId: workspace.id,
+      sessionId: sourceSession.id,
+      variationId: null,
+      parentArtifactId: null,
+      kind: 'html',
+      version: 1,
+      storageKey: stored.storageKey,
+      entryPath,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        source: 'user-upload',
+        filename: input.filename,
+        uploadedByUserId: user.id,
+        quality,
+      },
+    })
+    return {
+      artifact: {
+        id: artifact.id,
+        workspaceId: artifact.workspaceId,
+        kind: 'html' as const,
+        version: artifact.version,
+        entryPath: artifact.entryPath ?? entryPath,
+        sizeBytes: artifact.sizeBytes,
+        contentHash: artifact.contentHash,
+        quality: artifactQualitySummary(artifact.metadata.quality),
+      },
+    }
   }
 
   async createSession(ctx: RequestContext, input: CreateSessionRequest) {
@@ -199,7 +277,24 @@ export class ApplicationService {
     const snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     await this.requireJobAccess(snapshot.job.id, ctx.userId)
-    return snapshot
+    return {
+      job: snapshot.job,
+      variations: snapshot.variations.map(variation => ({
+        ...variation,
+        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+      })),
+      artifacts: snapshot.artifacts.map(artifact => ({
+        id: artifact.id,
+        variationId: artifact.variationId,
+        version: artifact.version,
+        kind: artifact.kind,
+        entryPath: artifact.entryPath,
+        parentArtifactId: artifact.parentArtifactId,
+        screenshotDevice: artifact.kind === 'screenshot' ? screenshotDeviceFromArtifact(artifact) : null,
+        url: artifact.kind === 'screenshot' ? screenshotUrlForArtifact(artifact) : null,
+        quality: artifactQualitySummary(artifact.metadata.quality),
+      })),
+    }
   }
 
   async getVariationDetail(ctx: RequestContext, variationId: string) {
@@ -209,7 +304,10 @@ export class ApplicationService {
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
     await this.requireJobAccess(job.id, ctx.userId)
     return {
-      variation,
+      variation: {
+        ...variation,
+        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+      },
       job: {
         id: job.id,
         prompt: job.prompt,
@@ -217,18 +315,73 @@ export class ApplicationService {
       },
       currentArtifact: currentArtifact
         ? {
-            id: currentArtifact.id,
-            version: currentArtifact.version,
-            entryPath: currentArtifact.entryPath,
-            createdAt: currentArtifact.createdAt,
-          }
+          id: currentArtifact.id,
+          kind: currentArtifact.kind,
+          version: currentArtifact.version,
+          entryPath: currentArtifact.entryPath,
+          parentArtifactId: currentArtifact.parentArtifactId,
+          screenshotDevice: currentArtifact.kind === 'screenshot' ? screenshotDeviceFromArtifact(currentArtifact) : null,
+          url: currentArtifact.kind === 'screenshot' ? screenshotUrlForArtifact(currentArtifact) : null,
+          createdAt: currentArtifact.createdAt,
+          quality: artifactQualitySummary(currentArtifact.metadata.quality),
+        }
         : null,
       artifacts: artifacts.map(artifact => ({
         id: artifact.id,
+        kind: artifact.kind,
+        version: artifact.version,
+        entryPath: artifact.entryPath,
+        parentArtifactId: artifact.parentArtifactId,
+        isCurrent: artifact.id === variation.currentArtifactId,
+        exportedFromArtifactId: artifact.kind === 'export_zip' ? artifact.parentArtifactId : null,
+        screenshotDevice: artifact.kind === 'screenshot' ? screenshotDeviceFromArtifact(artifact) : null,
+        url: artifact.kind === 'screenshot' ? screenshotUrlForArtifact(artifact) : null,
+        createdAt: artifact.createdAt,
+        quality: artifactQualitySummary(artifact.metadata.quality),
+      })),
+    }
+  }
+
+  async restoreVariationVersion(ctx: RequestContext, variationId: string, artifactId: string) {
+    const context = await this.store.getVariationArtifactContext(variationId, artifactId)
+    const variation = context.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId)
+    const artifact = context.artifact
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    if (context.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    if (artifact.kind !== 'html') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Only HTML artifact versions can be restored.')
+    }
+    const previewUrl = `/api/variations/${variationId}/preview`
+    const updated = await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
+    if (!updated) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.store.appendMessage({
+      sessionId: variation.sessionId,
+      role: 'system',
+      content: `Restored ${variation.title ?? variation.id} to artifact v${artifact.version}.`,
+      metadata: {
+        kind: 'variation_restore',
+        variationId,
+        artifactId: artifact.id,
+        artifactVersion: artifact.version,
+      },
+    })
+    return {
+      variation: {
+        id: updated.id,
+        currentArtifactId: artifact.id,
+        previewUrl: updated.previewUrl,
+      },
+      artifact: {
+        id: artifact.id,
+        kind: 'html' as const,
         version: artifact.version,
         entryPath: artifact.entryPath,
         createdAt: artifact.createdAt,
-      })),
+      },
     }
   }
 
@@ -289,6 +442,7 @@ export class ApplicationService {
         status: updated.status,
         currentArtifactId: updated.currentArtifactId,
         previewUrl: updated.previewUrl,
+        screenshotUrl: screenshotUrlForArtifactId(updated.screenshotArtifactId, updated.id),
       },
       ...(artifact && {
         artifact: {
@@ -364,6 +518,29 @@ export class ApplicationService {
     const stored = await this.artifacts.get(asset.storageKey)
     return {
       contentType: stored.contentType || contentTypeForPath(normalizedPath),
+      body: stored.body,
+    }
+  }
+
+  async getVariationScreenshot(ctx: RequestContext, variationId: string, screenshotArtifactId: string): Promise<{
+    contentType: string
+    body: Uint8Array
+  }> {
+    const context = await this.store.getVariationArtifactContext(variationId, screenshotArtifactId)
+    const variation = context.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId)
+    if (context.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    const artifact = context.artifact
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${screenshotArtifactId}`)
+    if (artifact.kind !== 'screenshot') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Only screenshot artifacts can be read through this endpoint.')
+    }
+    const stored = await this.artifacts.get(artifact.storageKey)
+    return {
+      contentType: stored.contentType || 'image/png',
       body: stored.body,
     }
   }
@@ -641,6 +818,11 @@ export class ApplicationService {
   async getAdminUserSupport(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.getAdminUserSupport(filter)
+  }
+
+  async getAdminMemoryGovernance(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
+    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    return this.store.getAdminMemoryGovernance(filter)
   }
 
   async getAdminCostSummary(ctx: RequestContext) {
@@ -1075,6 +1257,21 @@ export class ApplicationService {
         storedBy: 'LocalArtifactStore',
       },
     })
+    if (artifact.kind === 'html' && variation) {
+      this.trackBackgroundTask(this.createScreenshotArtifacts({
+        workspaceId: artifact.workspaceId,
+        sessionId: artifact.sessionId,
+        variation,
+        htmlArtifact: {
+          ...artifact,
+          storageKey: stored.storageKey,
+          contentHash: stored.contentHash,
+          sizeBytes: stored.sizeBytes,
+        },
+        html: renderMockVariationHtml(variation, artifact),
+        source: 'mock-runtime',
+      }))
+    }
   }
 
   private async materializeArtifactFromRuntimePayload(input: {
@@ -1090,6 +1287,7 @@ export class ApplicationService {
         sessionId: input.sessionId,
         variation: input.variation,
         runtimeArtifactId: input.event.payload.artifactId,
+        jobId: input.event.jobId,
         files: input.event.payload.files,
         entryPath: input.event.payload.entryPath ?? 'index.html',
         sourceEventType: input.sourceEventType,
@@ -1101,6 +1299,7 @@ export class ApplicationService {
         sessionId: input.sessionId,
         variation: input.variation,
         runtimeArtifactId: input.event.payload.artifactId,
+        jobId: input.event.jobId,
         html: input.event.payload.html,
         entryPath: input.event.payload.entryPath ?? 'index.html',
         changedPaths: input.event.payload.changedPaths ?? [],
@@ -1127,6 +1326,7 @@ export class ApplicationService {
     sessionId: string
     variation: DesignVariation
     runtimeArtifactId?: string
+    jobId?: string
     html: string
     entryPath: string
     changedPaths: string[]
@@ -1134,6 +1334,7 @@ export class ApplicationService {
   }): Promise<Artifact> {
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const artifactId = input.runtimeArtifactId?.startsWith('art_') ? input.runtimeArtifactId : `art_${input.variation.id}_runtime_${version}`
+    const quality = await this.analyzeArtifactQuality(input.html)
     const stored = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId,
@@ -1146,9 +1347,11 @@ export class ApplicationService {
         sessionId: input.sessionId,
         variationId: input.variation.id,
         runtimeArtifactId: input.runtimeArtifactId ?? '',
+        qualityStatus: quality.status,
+        qualityIssues: quality.issues.join('\n'),
       },
     })
-    return await this.store.createArtifact({
+    const artifact = await this.store.createArtifact({
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
       variationId: input.variation.id,
@@ -1164,8 +1367,19 @@ export class ApplicationService {
         sourceEventType: input.sourceEventType,
         runtimeArtifactId: input.runtimeArtifactId ?? null,
         changedPaths: input.changedPaths,
+        quality,
       },
     })
+    this.publishArtifactQualityWarnings(input.sessionId, input.jobId, input.variation.id, artifact, quality)
+    this.trackBackgroundTask(this.createScreenshotArtifacts({
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variation: input.variation,
+      htmlArtifact: artifact,
+      html: input.html,
+      source: 'babel-o-runtime',
+    }))
+    return artifact
   }
 
   private async createRuntimeWorkspaceArtifacts(input: {
@@ -1173,6 +1387,7 @@ export class ApplicationService {
     sessionId: string
     variation: DesignVariation
     runtimeArtifactId?: string
+    jobId?: string
     files: Array<{ path: string; content: string; contentType?: string }>
     entryPath: string
     sourceEventType: 'artifact_updated' | 'completed'
@@ -1185,6 +1400,7 @@ export class ApplicationService {
     }
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const htmlArtifactId = `art_${input.variation.id}_workspace_${version}`
+    const quality = await this.analyzeArtifactQuality(entry.content)
     const storedEntry = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId: htmlArtifactId,
@@ -1197,6 +1413,8 @@ export class ApplicationService {
         sessionId: input.sessionId,
         variationId: input.variation.id,
         runtimeArtifactId: input.runtimeArtifactId ?? '',
+        qualityStatus: quality.status,
+        qualityIssues: quality.issues.join('\n'),
       },
     })
     const htmlArtifact = await this.store.createArtifact({
@@ -1215,8 +1433,10 @@ export class ApplicationService {
         sourceEventType: input.sourceEventType,
         runtimeArtifactId: input.runtimeArtifactId ?? null,
         fileCount: files.length,
+        quality,
       },
     })
+    this.publishArtifactQualityWarnings(input.sessionId, input.jobId, input.variation.id, htmlArtifact, quality)
 
     for (const file of files.filter(file => file.path !== entry.path)) {
       const assetArtifactId = `asset_${input.variation.id}_${version}_${stablePathId(file.path)}`
@@ -1252,7 +1472,126 @@ export class ApplicationService {
       })
     }
 
+    this.trackBackgroundTask(this.createScreenshotArtifacts({
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      variation: input.variation,
+      htmlArtifact,
+      html: entry.content,
+      source: 'babel-o-workspace',
+    }))
+
     return htmlArtifact
+  }
+
+  private async createScreenshotArtifacts(input: {
+    workspaceId: string
+    sessionId: string
+    variation: DesignVariation
+    htmlArtifact: Artifact
+    html: string
+    source: string
+  }): Promise<Artifact[]> {
+    try {
+      const screenshotHtml = await this.inlineArtifactAssetsForRendering(input.variation.id, input.htmlArtifact, input.html)
+      const screenshots = await renderHtmlScreenshots(screenshotHtml)
+      const artifacts: Artifact[] = []
+      for (const screenshot of screenshots) {
+        const artifactId = `shot_${input.variation.id}_${input.htmlArtifact.version}_${screenshot.device}`
+        const entryPath = `screenshots/${screenshot.device}.png`
+        const stored = await this.artifacts.put({
+          workspaceId: input.workspaceId,
+          artifactId,
+          relativePath: `v${input.htmlArtifact.version}/${entryPath}`,
+          contentType: 'image/png',
+          body: screenshot.body,
+          metadata: {
+            kind: 'screenshot',
+            source: input.source,
+            sessionId: input.sessionId,
+            variationId: input.variation.id,
+            htmlArtifactId: input.htmlArtifact.id,
+            device: screenshot.device,
+            width: String(screenshot.width),
+            height: String(screenshot.height),
+          },
+        })
+        artifacts.push(await this.store.createArtifact({
+          workspaceId: input.workspaceId,
+          sessionId: input.sessionId,
+          variationId: input.variation.id,
+          parentArtifactId: input.htmlArtifact.id,
+          kind: 'screenshot',
+          version: input.htmlArtifact.version,
+          storageKey: stored.storageKey,
+          entryPath,
+          contentHash: stored.contentHash,
+          sizeBytes: stored.sizeBytes,
+          metadata: {
+            source: input.source,
+            htmlArtifactId: input.htmlArtifact.id,
+            device: screenshot.device,
+            width: screenshot.width,
+            height: screenshot.height,
+          },
+        }))
+      }
+      const desktop = artifacts.find(artifact => artifact.metadata.device === 'desktop') ?? artifacts[0]
+      if (desktop) {
+        await this.store.applyVariationEvent({
+          variationId: input.variation.id,
+          screenshotArtifactId: desktop.id,
+        })
+      }
+      return artifacts
+    } catch (error) {
+      await this.store.saveArtifact({
+        ...input.htmlArtifact,
+        metadata: {
+          ...input.htmlArtifact.metadata,
+          screenshotStatus: 'failed',
+          screenshotError: error instanceof Error ? error.message : 'unknown screenshot render error',
+        },
+      })
+      return []
+    }
+  }
+
+  private trackBackgroundTask(task: Promise<unknown>): void {
+    this.backgroundTasks.add(task)
+    task
+      .catch(() => undefined)
+      .finally(() => {
+        this.backgroundTasks.delete(task)
+      })
+  }
+
+  private publishArtifactQualityWarnings(
+    sessionId: string,
+    jobId: string | undefined,
+    variationId: string,
+    artifact: Artifact,
+    quality: ArtifactQualityReport,
+  ): void {
+    if (quality.status === 'pass') return
+    this.events.publish(createDesignEvent({
+      type: 'design.runtime_warning',
+      sessionId,
+      jobId,
+      variationId,
+      payload: {
+        severity: quality.status === 'fail' ? 'error' : 'warn',
+        code: 'ARTIFACT_QUALITY_GATE',
+        message: `Artifact v${artifact.version} needs attention: ${quality.issues.join('; ')}`,
+      },
+    }))
+  }
+
+  private async analyzeArtifactQuality(html: string): Promise<ArtifactQualityReport> {
+    return analyzeHtmlArtifactQualityWithPixelGate(html, {
+      enabled: pixelQualityGateEnabled(),
+      timeoutMs: pixelQualityGateTimeoutMs(),
+    })
   }
 
   private async nextHtmlArtifactVersion(variationId: string): Promise<number> {
@@ -1284,6 +1623,28 @@ export class ApplicationService {
       const resolved = resolveHtmlAssetPath(value, baseDir)
       if (!resolved || !assetPaths.has(resolved)) return value
       return toAssetUrl(resolved)
+    })
+  }
+
+  private async inlineArtifactAssetsForRendering(
+    variationId: string,
+    htmlArtifact: Artifact,
+    html: string,
+  ): Promise<string> {
+    const assets = await this.store.getVariationAssetArtifacts(variationId, htmlArtifact.id)
+    if (assets.length === 0) return html
+    const dataUrls = new Map<string, string>()
+    for (const asset of assets) {
+      if (!asset.entryPath) continue
+      const stored = await this.artifacts.get(asset.storageKey)
+      dataUrls.set(asset.entryPath, dataUrl(stored.contentType || contentTypeForPath(asset.entryPath), stored.body))
+    }
+    const baseDir = htmlArtifact.entryPath?.includes('/')
+      ? htmlArtifact.entryPath.split('/').slice(0, -1).join('/')
+      : ''
+    return rewriteHtmlAssetUrls(html, value => {
+      const resolved = resolveHtmlAssetPath(value, baseDir)
+      return resolved ? dataUrls.get(resolved) ?? value : value
     })
   }
 
@@ -1442,6 +1803,47 @@ function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+function artifactQualitySummary(value: unknown): ArtifactQualityReport | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const status = record.status
+  const issues = record.issues
+  if (status !== 'pass' && status !== 'warn' && status !== 'fail') return null
+  if (!Array.isArray(issues) || !issues.every(issue => typeof issue === 'string')) return null
+  return { status, issues }
+}
+
+function screenshotUrlForArtifact(artifact: Artifact): string | null {
+  if (!artifact.variationId || artifact.kind !== 'screenshot') return null
+  return screenshotUrlForArtifactId(artifact.id, artifact.variationId)
+}
+
+function screenshotUrlForArtifactId(artifactId: string | null, variationId?: string | null): string | null {
+  if (!artifactId) return null
+  const inferredVariationId = variationId ?? artifactId.match(/^shot_(var_[^_]+(?:_[^_]+)*)_\d+_/i)?.[1] ?? null
+  if (!inferredVariationId) return null
+  return `/api/variations/${encodeURIComponent(inferredVariationId)}/screenshots/${encodeURIComponent(artifactId)}`
+}
+
+function screenshotDeviceFromArtifact(artifact: Artifact): 'desktop' | 'tablet' | 'mobile' | null {
+  const device = artifact.metadata.device
+  return device === 'desktop' || device === 'tablet' || device === 'mobile' ? device : null
+}
+
+function dataUrl(contentType: string, body: Uint8Array): string {
+  return `data:${contentType};base64,${Buffer.from(body).toString('base64')}`
+}
+
+function pixelQualityGateEnabled(): boolean {
+  return process.env.DUDESIGN_ARTIFACT_PIXEL_GATE === '1'
+    || process.env.DUDESIGN_ARTIFACT_PIXEL_GATE?.toLowerCase() === 'true'
+}
+
+function pixelQualityGateTimeoutMs(): number | undefined {
+  const value = Number(process.env.DUDESIGN_ARTIFACT_PIXEL_GATE_TIMEOUT_MS)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 function variationIndexFromRuntimeId(variationId: string | undefined): number | null {
   if (!variationId) return null
   const match = variationId.match(/^(?:mock|runtime)_variation_(\d+)$/)
@@ -1483,6 +1885,28 @@ function normalizeRuntimeArtifactPath(path: string): string {
     throw createHttpError(400, 'RUNTIME_ARTIFACT_INVALID_PATH', `Invalid runtime artifact path: ${path}`)
   }
   return clean
+}
+
+function normalizeUploadedHtmlFilename(filename: string): string {
+  const normalized = normalizeRuntimeArtifactPath(filename || 'index.html')
+  if (!/\.html?$/i.test(normalized)) {
+    throw createHttpError(400, 'SOURCE_ARTIFACT_UNSUPPORTED_TYPE', 'Only .html files can be used as source artifacts in the MVP.')
+  }
+  return normalized
+}
+
+function validateUploadedHtml(html: string): string {
+  if (typeof html !== 'string' || html.trim().length === 0) {
+    throw createHttpError(400, 'SOURCE_ARTIFACT_EMPTY', 'Uploaded HTML is empty.')
+  }
+  const sizeBytes = new TextEncoder().encode(html).byteLength
+  if (sizeBytes > 2_000_000) {
+    throw createHttpError(413, 'SOURCE_ARTIFACT_TOO_LARGE', 'Uploaded HTML must be 2 MB or smaller.')
+  }
+  if (!/<html[\s>]/i.test(html) && !/<body[\s>]/i.test(html)) {
+    throw createHttpError(400, 'SOURCE_ARTIFACT_INVALID_HTML', 'Uploaded source must look like an HTML document.')
+  }
+  return html
 }
 
 function contentTypeForPath(path: string): string {

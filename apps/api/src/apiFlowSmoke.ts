@@ -4,21 +4,21 @@ import type {
   CreateAnnotationBatchResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
+  CreateSourceArtifactResponse,
+  DesignJobSnapshotResponse,
   ExportVariationResponse,
   RefineVariationResponse,
+  RestoreVariationVersionResponse,
   SharedVariationResponse,
   ShareVariationResponse,
   VariationDetailResponse,
+  VariationFilesResponse,
 } from '@dudesign/contracts'
 import type { Artifact } from '@dudesign/domain'
 import { ApplicationService } from './service.js'
 import { createApiServer } from './server.js'
 
-type JobSnapshot = {
-  job: { id: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' }
-  variations: Array<{ id: string; status: string }>
-  artifacts: unknown[]
-}
+type JobSnapshot = DesignJobSnapshotResponse
 
 export type ApiFlowHarness = {
   service: ApplicationService
@@ -35,17 +35,26 @@ export async function startApiFlowHarness(service: ApplicationService): Promise<
   return {
     service,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close(error => {
-        if (error) reject(error)
-        else resolve()
+    close: async () => {
+      await service.flushBackgroundTasks()
+      await new Promise<void>((resolve, reject) => {
+        server.close(error => {
+          if (error) reject(error)
+          else resolve()
+        })
       })
-    }),
+    },
   }
 }
 
 export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const { baseUrl } = harness
+  const sensitivePrompt = [
+    'A landing page for a freelancer invoicing app',
+    'Contact owner@example.com',
+    'api_key=sk-test-admin-redaction-123456789',
+    'Use local screenshot /Users/tangyaoyue/Desktop/private/mock.png',
+  ].join(' ')
 
   async function waitForJob(jobId: string): Promise<JobSnapshot> {
     const startedAt = Date.now()
@@ -55,6 +64,27 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     throw new Error(`Timed out waiting for job ${jobId}`)
+  }
+
+  async function waitForScreenshot(
+    jobId: string,
+    variationId: string,
+    parentArtifactId?: string | null,
+  ): Promise<JobSnapshot['artifacts'][number]> {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < 5000) {
+      const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
+      const screenshot = snapshot.artifacts.find(artifact =>
+        artifact.kind === 'screenshot'
+        && artifact.variationId === variationId
+        && artifact.screenshotDevice === 'desktop'
+        && (!parentArtifactId || artifact.parentArtifactId === parentArtifactId)
+      )
+      const variation = snapshot.variations.find(candidate => candidate.id === variationId)
+      if (screenshot?.url && variation?.screenshotUrl === screenshot.url) return screenshot
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error(`Timed out waiting for screenshot for ${variationId}`)
   }
 
   async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -92,6 +122,39 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const bootstrap = await bootstrapResponse.json() as { workspace: { id: string } }
   assert.equal(bootstrap.workspace.id, 'ws_dev')
 
+  const sourceArtifact = await postJson<CreateSourceArtifactResponse>('/api/source-artifacts', {
+    workspaceId: bootstrap.workspace.id,
+    filename: 'uploaded-source.html',
+    html: '<!doctype html><html><body><main><h1>Uploaded source page</h1><p>Base layout.</p></main></body></html>',
+  })
+  assert.ok(sourceArtifact.artifact.id.startsWith('art_'))
+  assert.equal(sourceArtifact.artifact.entryPath, 'uploaded-source.html')
+  assert.equal(sourceArtifact.artifact.kind, 'html')
+
+  const existingSession = await postJson<CreateSessionResponse>('/api/sessions', {
+    workspaceId: bootstrap.workspace.id,
+    mode: 'from_existing_html',
+    sourceArtifactId: sourceArtifact.artifact.id,
+    title: 'Existing HTML source smoke',
+  })
+  const existingJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+    sessionId: existingSession.session.id,
+    prompt: 'Improve the uploaded source page without changing its product promise.',
+    sourceMode: 'from_existing_html',
+    sourceArtifactId: sourceArtifact.artifact.id,
+    variationCount: 1,
+    templateRequirements: {
+      styles: ['existing-source'],
+      deviceTargets: ['desktop'],
+    },
+  })
+  const existingSnapshot = await waitForJob(existingJob.job.id)
+  assert.equal(existingSnapshot.job.status, 'completed')
+  const existingStoredSession = await harness.service.store.getSessionById(existingSession.session.id)
+  assert.equal(existingStoredSession?.sourceArtifactId, sourceArtifact.artifact.id)
+  const existingStoredJob = await harness.service.store.getJobById(existingJob.job.id)
+  assert.equal(existingStoredJob?.sourceMode, 'from_existing_html')
+
   const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
     workspaceId: bootstrap.workspace.id,
     mode: 'new_html',
@@ -101,7 +164,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
 
   const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
-    prompt: 'A landing page for a freelancer invoicing app',
+    prompt: sensitivePrompt,
     sourceMode: 'new_html',
     variationCount: 3,
     templateRequirements: {
@@ -115,7 +178,14 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(jobSnapshot.job.status, 'completed')
   assert.equal(jobSnapshot.variations.length, 3)
   assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
-  assert.equal(jobSnapshot.artifacts.length, 3)
+  assert.equal(jobSnapshot.artifacts.filter(artifact => artifact.kind === 'html').length, 3)
+  const firstScreenshot = await waitForScreenshot(createdJob.job.id, jobSnapshot.variations[0]!.id)
+  const snapshotWithScreenshot = await getJson<JobSnapshot>(`/api/design-jobs/${createdJob.job.id}`)
+  assert.equal(snapshotWithScreenshot.variations[0]!.screenshotUrl, firstScreenshot.url)
+  const screenshotResponse = await fetch(`${baseUrl}${firstScreenshot.url}`)
+  assert.equal(screenshotResponse.ok, true)
+  assert.equal(screenshotResponse.headers.get('content-type'), 'image/png')
+  assert.equal(new Uint8Array(await screenshotResponse.arrayBuffer()).slice(0, 4).join(','), '137,80,78,71')
 
   const sseReplay = await getText(`/api/design-jobs/${createdJob.job.id}/stream`)
   assert.match(sseReplay, /event: design\.variation_streaming/)
@@ -135,7 +205,16 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
 
   const afterRefine = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
   assert.equal(afterRefine.currentArtifact?.version, 2)
-  assert.deepEqual(afterRefine.artifacts.map(artifact => artifact.version), [2, 1])
+  assert.deepEqual(afterRefine.artifacts.filter(artifact => artifact.kind === 'html').map(artifact => artifact.version), [2, 1])
+  await waitForScreenshot(createdJob.job.id, variationId, afterRefine.currentArtifact?.id)
+  const afterRefineWithScreenshot = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+  assert.equal(afterRefineWithScreenshot.artifacts.some(artifact =>
+    artifact.kind === 'screenshot'
+    && artifact.parentArtifactId === afterRefine.currentArtifact?.id
+    && artifact.screenshotDevice === 'desktop'
+    && artifact.url?.includes('/screenshots/'),
+  ), true)
+  assert.equal(afterRefine.artifacts.find(artifact => artifact.id === afterRefine.currentArtifact?.id)?.isCurrent, true)
 
   const annotated = await postJson<CreateAnnotationBatchResponse>(`/api/variations/${variationId}/annotations`, {
     artifactId: afterRefine.currentArtifact!.id,
@@ -155,6 +234,24 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.match(annotated.annotationBatch.promptSuffix, /rectangle at x=0\.120/)
   assert.equal(annotated.artifact?.version, 3)
   await attachAssetBackedHtml(harness, variationId, annotated.artifact!.id)
+
+  const historicalFiles = await getJson<VariationFilesResponse>(
+    `/api/variations/${variationId}/files?artifactId=${beforeRefine.currentArtifact!.id}`,
+  )
+  const currentFiles = await getJson<VariationFilesResponse>(
+    `/api/variations/${variationId}/files?artifactId=${annotated.artifact!.id}`,
+  )
+  const historicalIndex = findFile(historicalFiles, 'index.html')
+  const currentIndex = findFile(currentFiles, 'index.html')
+  assert.equal(historicalFiles.artifact.id, beforeRefine.currentArtifact!.id)
+  assert.equal(historicalFiles.artifact.version, 1)
+  assert.equal(currentFiles.artifact.id, annotated.artifact!.id)
+  assert.equal(currentFiles.artifact.version, 3)
+  assert.equal(historicalIndex.kind, 'html')
+  assert.match(historicalIndex.content, /version 1/)
+  assert.doesNotMatch(historicalIndex.content, /iframe-ready HTML version 3/)
+  assert.match(currentIndex.content, /iframe-ready HTML version 3/)
+  assert.equal(findFile(currentFiles, 'styles/share-preview.css').kind, 'asset')
 
   const preview = await getText(`/api/variations/${variationId}/preview`)
   assert.match(preview, /version 3/)
@@ -185,6 +282,17 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     'styles/share-preview.css',
     'dudesign-export.json',
   ])
+  const detailWithExport = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+  assert.ok(detailWithExport.artifacts.some(artifact =>
+    artifact.kind === 'asset'
+    && artifact.parentArtifactId === annotated.artifact!.id
+    && artifact.entryPath === 'styles/share-preview.css',
+  ))
+  assert.ok(detailWithExport.artifacts.some(artifact =>
+    artifact.kind === 'export_zip'
+    && artifact.exportedFromArtifactId === annotated.artifact!.id
+    && artifact.entryPath === exported.exportArtifact!.filename,
+  ))
 
   const shared = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
     visibility: 'public',
@@ -216,6 +324,25 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(stableShareDetail.artifact.version, 3)
   assert.match(stableShareDetail.artifact.html ?? '', /version 3/)
   assert.doesNotMatch(stableShareDetail.artifact.html ?? '', /version 4/)
+
+  const restored = await postJson<RestoreVariationVersionResponse>(
+    `/api/variations/${variationId}/versions/${beforeRefine.currentArtifact!.id}/restore`,
+    {},
+  )
+  assert.equal(restored.artifact.version, 1)
+  assert.equal(restored.variation.currentArtifactId, beforeRefine.currentArtifact!.id)
+  const restoredDetail = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+  assert.equal(restoredDetail.currentArtifact?.id, beforeRefine.currentArtifact!.id)
+  assert.equal(restoredDetail.artifacts.find(artifact => artifact.id === beforeRefine.currentArtifact!.id)?.isCurrent, true)
+  const restoredPreview = await getText(`/api/variations/${variationId}/preview`)
+  assert.match(restoredPreview, /version 1/)
+  const restoredExport = await postJson<ExportVariationResponse>(`/api/variations/${variationId}/export`, {})
+  assert.equal(restoredExport.artifact.version, 1)
+  assert.match(restoredExport.artifact.filename, /variation-01-v1\.html/)
+  const postRestoreShareDetail = await getJson<SharedVariationResponse>(`/api/shares/${shared.share.token}`)
+  assert.equal(postRestoreShareDetail.artifact.id, shareDetail.artifact.id)
+  assert.equal(postRestoreShareDetail.artifact.version, 3)
+  assert.match(postRestoreShareDetail.artifact.html ?? '', /version 3/)
 
   const expiredShare = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
     visibility: 'public',
@@ -277,10 +404,18 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(runtimeHealth.runtime.status, 'compatible')
   assert.equal(runtimeHealth.contract.status, 'compatible')
 
-  const adminJobs = await getJson<{ jobs: Array<{ id: string; status: string; completedVariationCount: number }> }>('/api/admin/jobs', {
+  const adminJobs = await getJson<{ jobs: Array<{ id: string; status: string; prompt: string; completedVariationCount: number }> }>('/api/admin/jobs', {
     headers: { 'x-dudesign-admin-role': 'support' },
   })
   assert.ok(adminJobs.jobs.some(job => job.id === createdJob.job.id && job.completedVariationCount === 3))
+  const adminJob = adminJobs.jobs.find(job => job.id === createdJob.job.id)
+  assert.ok(adminJob)
+  assert.match(adminJob.prompt, /\[redacted-email\]/)
+  assert.match(adminJob.prompt, /\[redacted-secret\]/)
+  assert.match(adminJob.prompt, /\[redacted-path\]/)
+  assert.doesNotMatch(adminJob.prompt, /owner@example\.com/)
+  assert.doesNotMatch(adminJob.prompt, /sk-test-admin-redaction/)
+  assert.doesNotMatch(adminJob.prompt, /\/Users\/tangyaoyue/)
 
   const adminArtifacts = await getJson<{
     artifacts: Array<{
@@ -326,6 +461,78 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(supportSession?.latestJob?.id, createdJob.job.id)
   assert.equal(supportSession?.failureSummary.severity, 'ok')
   assert.ok(typeof supportSession?.lastPromptPreview === 'string' || supportSession?.lastPromptPreview === null)
+  assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-email\]/)
+  assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-secret\]/)
+  assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-path\]/)
+
+  const sessionForFailure = await harness.service.store.getSessionById(createdSession.session.id)
+  assert.ok(sessionForFailure)
+  const failedJob = await harness.service.store.createJob({
+    session: sessionForFailure,
+    prompt: 'Failure summary redaction smoke',
+    sourceMode: 'new_html',
+    variationCount: 1,
+    templateRequirements: {},
+  })
+  const [failedVariation] = await harness.service.store.createVariations({ job: failedJob, count: 1 })
+  assert.ok(failedVariation)
+  await harness.service.store.applyVariationEvent({
+    variationId: failedVariation.id,
+    status: 'failed',
+    errorCode: 'RUNTIME_FAILED',
+    errorMessage: 'Failed for owner@example.com with token=ghp_admin_redaction_123456789 at /Users/tangyaoyue/Desktop/private/input.html',
+  })
+  await harness.service.store.setJobStatus(failedJob.id, 'failed')
+
+  const failedSupportLookup = await getJson<{
+    users: Array<{
+      sessions: Array<{
+        id: string
+        latestJob: { id: string; status: string } | null
+        failureSummary: {
+          severity: string
+          examples: Array<{ message: string | null }>
+        }
+      }>
+    }>
+  }>('/api/admin/support/users?userId=usr_dev', {
+    headers: { 'x-dudesign-admin-role': 'support' },
+  })
+  const failedSupportSession = failedSupportLookup.users[0]?.sessions.find(session => session.id === createdSession.session.id)
+  const failureExampleMessage = failedSupportSession?.failureSummary.examples[0]?.message ?? ''
+  assert.equal(failedSupportSession?.latestJob?.id, failedJob.id)
+  assert.equal(failedSupportSession?.failureSummary.severity, 'blocked')
+  assert.match(failureExampleMessage, /\[redacted-email\]/)
+  assert.match(failureExampleMessage, /\[redacted-secret\]/)
+  assert.match(failureExampleMessage, /\[redacted-path\]/)
+  assert.doesNotMatch(failureExampleMessage, /owner@example\.com/)
+  assert.doesNotMatch(failureExampleMessage, /ghp_admin_redaction/)
+  assert.doesNotMatch(failureExampleMessage, /\/Users\/tangyaoyue/)
+
+  const memoryGovernance = await getJson<{
+    users: Array<{
+      userId: string
+      memoryNamespace: string
+      isolationStatus: string
+      sessionCount: number
+      runtimeSessionCount: number
+      memoryRefCount: number
+    }>
+    totals: { userCount: number; isolatedUserCount: number; conflictUserCount: number }
+    capabilities: { memoryNotes: string; memoryRefs: string }
+  }>('/api/admin/memory', {
+    headers: { 'x-dudesign-admin-role': 'support' },
+  })
+  const devMemory = memoryGovernance.users.find(user => user.userId === 'usr_dev')
+  const altMemory = memoryGovernance.users.find(user => user.userId === 'usr_alt')
+  assert.equal(devMemory?.memoryNamespace, 'memory:user:usr_dev')
+  assert.equal(altMemory?.memoryNamespace, 'memory:user:usr_alt')
+  assert.equal(devMemory?.isolationStatus, 'isolated')
+  assert.equal(altMemory?.isolationStatus, 'isolated')
+  assert.equal(memoryGovernance.totals.conflictUserCount, 0)
+  assert.equal(memoryGovernance.totals.isolatedUserCount >= 2, true)
+  assert.equal(memoryGovernance.capabilities.memoryNotes, 'not_configured')
+  assert.equal(memoryGovernance.capabilities.memoryRefs, 'event_stream_only')
 
   const cancellableJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
@@ -469,6 +676,12 @@ async function createAssetArtifact(
     sizeBytes: stored.sizeBytes,
     metadata: { test: 'share-assets', htmlArtifactId: htmlArtifact.id },
   })
+}
+
+function findFile(files: VariationFilesResponse, path: string): VariationFilesResponse['files'][number] {
+  const file = files.files.find(item => item.path === path)
+  assert.ok(file, `Expected variation files to include ${path}`)
+  return file
 }
 
 function listZipEntries(zip: Uint8Array): string[] {

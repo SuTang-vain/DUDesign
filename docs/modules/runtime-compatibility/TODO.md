@@ -59,7 +59,8 @@
 - [x] 对 unknown event 做 debug 记录，不影响主流程。
 - [x] 将真实 Babel-O adapter service 的最终 workspace artifact bundle 输出为多条 `file_delta`。
 - [ ] 将真实 Babel-O adapter service 的 transcript/workspace 文件变化升级为近实时 `code_delta`。
-- [ ] 为 `variation_code_delta` 增加 golden replay 覆盖真实文件增量和恢复场景。
+- [ ] 将 raw assistant/thinking transcript 归一化为可读 activity 摘要，避免用户端直接展示碎片文本。
+- [x] 为 `variation_code_delta` 增加 golden replay 覆盖真实文件增量和恢复场景。
 
 验收：
 
@@ -71,14 +72,18 @@
 - [x] 实现 `spawnVariationAgents` 最小真实 stream 适配。
 - [x] 为每个 variation 创建独立 child session。
 - [x] 为每个并行 variation 派生独立 runtime workspace root，避免多个子任务同时写同一个 `index.html`。
-- [ ] 注入 variation index 和风格差异 prompt。
+- [x] 注入 variation index 和风格差异 prompt。
 - [x] 聚合多个 child session 的事件。
 - [x] 支持单个 child failed，不影响其他 child。
 - [x] 返回并持久化每个 variation 的 runtime_child_session_id / runtime_agent_job_id。
+- [x] 增加 Gateway 侧 variation 并发阀：`DUDESIGN_RUNTIME_VARIATION_CONCURRENCY`。
+- [x] 增加 raw BabeL-O `/v1/execute` HTTP 429 retry/backoff。
+- [ ] 在 staging 以受控并发重新验证 6 variation 上限。
 
 验收：
 
-- 3/6 variation 并发 smoke test 通过。
+- 3 variation 真实并发 smoke test 通过。
+- 6 variation 在受控并发和 429 retry/backoff 下 smoke test 通过。
 
 ## Phase RTC-4：Artifact Bridge
 
@@ -90,6 +95,9 @@
 - [x] 通过 DUDesign API 提供 workspace asset serving。
 - [x] preview HTML 相对资源 URL 改写到稳定 asset endpoint。
 - [x] `artifact_updated` 事件落成增量 artifact snapshot。
+- [x] 增加最小静态 artifact quality gate，识别空 body、纯加载壳、外部脚本依赖、大面积全黑/空白风险等不合格产物。
+- [x] 增加可选 Playwright screenshot pixel gate，识别真实渲染后的全黑/空白页面。
+- [ ] 将 Playwright pixel gate 池化或拆到 preview quality worker，避免生成链路被浏览器启动成本拖慢。
 - [x] 防止 path traversal。
 - [ ] 防止 symlink escape。
 
@@ -113,7 +121,7 @@
 ## Phase RTC-6：Contract Tests 与升级治理
 
 - [x] 建立 runtime contract manifest 初稿。
-- [ ] 建立 contract tests。
+- [x] 建立 contract tests。
 - [ ] 将 model discovery 能力纳入 contract manifest 和 contract tests。
 - [x] 建立 golden event replay。
 - [x] 建立 mock parallel generation smoke test。

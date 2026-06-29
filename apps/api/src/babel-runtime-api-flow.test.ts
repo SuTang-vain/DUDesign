@@ -22,7 +22,11 @@ type JobSnapshot = {
     runtimeChildSessionId: string | null
     runtimeAgentJobId: string | null
   }>
-  artifacts: unknown[]
+  artifacts: Array<{
+    id: string
+    variationId: string | null
+    quality: { status: 'pass' | 'warn' | 'fail'; issues: string[] } | null
+  }>
 }
 
 describe('DUDesign API flow with BabeL-O runtime gateway', () => {
@@ -30,6 +34,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
   let activeStreams = 0
   let maxActiveStreams = 0
   let unsafeBundle = false
+  let qualityShell = false
   let sessionCreateCount = 0
   let resumeMode: 'resumed' | 'fail_then_rebuild' = 'resumed'
   const refineBodies: unknown[] = []
@@ -114,6 +119,20 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
                   { path: '../escape.html', content: '<!doctype html><p>escape</p>' },
                 ],
               }) + '\n')
+            }
+            if (qualityShell) {
+              return streamResponse([
+                JSON.stringify({ type: 'assistant_delta', delta: `Streaming ${streamId}` }),
+                JSON.stringify({
+                  type: 'result',
+                  artifactId: `runtime_quality_shell_${streamId}`,
+                  entryPath: 'index.html',
+                  html: '<!doctype html><html><head><style>body{background:#000}</style><script src="https://cdn.example.com/app.js"></script></head><body><div id="root"></div></body></html>',
+                  inputTokens: 10,
+                  outputTokens: 20,
+                  costCents: 1,
+                }),
+              ].join('\n') + '\n')
             }
             return streamResponse([
               JSON.stringify({ type: 'assistant_delta', delta: `Streaming ${streamId}` }),
@@ -290,6 +309,73 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     assert.match(preview, /Runtime refined from annotation/)
   })
 
+  it('emits artifact quality warnings for black-screen shell HTML', async () => {
+    qualityShell = true
+    try {
+      const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+      const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+        workspaceId: bootstrap.workspace.id,
+        mode: 'new_html',
+        title: 'BabeL-O quality gate smoke',
+      })
+      const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+        sessionId: createdSession.session.id,
+        prompt: 'A runtime page that accidentally renders as a black shell',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        templateRequirements: {},
+      })
+      const jobSnapshot = await waitForJob(createdJob.job.id)
+      const variationId = jobSnapshot.variations[0]!.id
+      const detail = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+      const replay = await getText(`/api/design-jobs/${createdJob.job.id}/stream`)
+
+      assert.equal(jobSnapshot.job.status, 'completed')
+      assert.equal(detail.currentArtifact?.version, 1)
+      assert.equal(detail.currentArtifact?.quality?.status, 'fail')
+      const artifact = jobSnapshot.artifacts.find(item => item.id === detail.currentArtifact?.id)
+      assert.equal(artifact?.quality?.status, 'fail')
+      assert.ok(artifact?.quality?.issues.some(issue => /black-screen|hydration|External scripts/.test(issue)))
+      assert.match(replay, /event: design\.runtime_warning/)
+      assert.match(replay, /ARTIFACT_QUALITY_GATE/)
+      assert.match(replay, /black-screen risk|client-side hydration|External scripts/)
+    } finally {
+      qualityShell = false
+    }
+  })
+
+  it('can run the Playwright pixel gate for visually blank HTML', async () => {
+    const previous = process.env.DUDESIGN_ARTIFACT_PIXEL_GATE
+    process.env.DUDESIGN_ARTIFACT_PIXEL_GATE = '1'
+    qualityShell = true
+    try {
+      const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+      const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+        workspaceId: bootstrap.workspace.id,
+        mode: 'new_html',
+        title: 'BabeL-O pixel quality gate smoke',
+      })
+      const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+        sessionId: createdSession.session.id,
+        prompt: 'A runtime page that renders as a visually blank shell',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        templateRequirements: {},
+      })
+      const jobSnapshot = await waitForJob(createdJob.job.id)
+      const variationId = jobSnapshot.variations[0]!.id
+      const detail = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
+
+      assert.equal(jobSnapshot.job.status, 'completed')
+      assert.equal(detail.currentArtifact?.quality?.status, 'fail')
+      assert.ok(detail.currentArtifact?.quality?.issues.some(issue => /blank black|low visual variation|black-screen/.test(issue)))
+    } finally {
+      qualityShell = false
+      if (previous === undefined) delete process.env.DUDESIGN_ARTIFACT_PIXEL_GATE
+      else process.env.DUDESIGN_ARTIFACT_PIXEL_GATE = previous
+    }
+  })
+
   it('resumes runtime sessions and persists rebuilt runtime ids', async () => {
     resumeBodies.length = 0
     resumeMode = 'resumed'
@@ -351,7 +437,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
 
 	  async function waitForJob(jobId: string): Promise<JobSnapshot> {
     const startedAt = Date.now()
-    while (Date.now() - startedAt < 2000) {
+    while (Date.now() - startedAt < 8000) {
       const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
       if (snapshot.job.status === 'completed' || snapshot.job.status === 'failed') return snapshot
       await new Promise(resolve => setTimeout(resolve, 20))
@@ -361,7 +447,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
 
   async function waitForJobStatus(jobId: string, variationStatus: string): Promise<JobSnapshot> {
     const startedAt = Date.now()
-    while (Date.now() - startedAt < 2000) {
+    while (Date.now() - startedAt < 8000) {
       const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
       if (snapshot.variations.some(variation => variation.status === variationStatus)) return snapshot
       await new Promise(resolve => setTimeout(resolve, 10))

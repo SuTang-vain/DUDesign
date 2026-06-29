@@ -32,6 +32,7 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
     throw new Error('BABELO_BASE_URL or DUDESIGN_BABELO_BASE_URL is required when DUDESIGN_RUNTIME_PROVIDER=babel-o.')
   }
   return new BabelORuntimeGateway({
+    variationConcurrency: optionalPositiveInteger(process.env.DUDESIGN_RUNTIME_VARIATION_CONCURRENCY),
     clientConfig: {
       baseUrl,
       apiKey: process.env.BABELO_API_KEY ?? process.env.DUDESIGN_BABELO_API_KEY,

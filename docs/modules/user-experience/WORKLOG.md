@@ -502,7 +502,220 @@
 
 - 首次 E2E 失败是因为本地 4000 端口仍运行旧 API 进程，`artifactId` 查询参数未生效；已重启 API/Web 服务后复跑通过。
 
+### 后续
+
+- `GET /api/variations/:id/files?artifactId=...` 的 API 层 smoke 已在后端业务服务层补齐，覆盖历史版本不漂移和同版本 code asset。
+- 后续可进一步支持历史版本 Preview，以便 Preview / Code 都严格绑定同一 artifact。
+
+## 2026-06-29 UX-M1 Runtime Activity Stream
+
+### 问题定位
+
+- 远端实时运行画面中 Runtime stream 直接展示 raw assistant delta，出现大量碎片文本，用户无法判断第几个画面的 agent 正在做什么。
+- 结果墙已经有 per-variation 状态与 code stream，但底部 runtime stream 没有按 variation/阶段组织信息。
+- 全黑 preview 与 Runtime stream 可读性是两个问题：前者属于 artifact quality gate，后者属于用户端活动叙事。
+
+### 本轮目标
+
+- 将结果页底部 Runtime stream 从原始文本列表升级为结构化 Activity Stream。
+- 每条 activity 显示 variation 标签、阶段、动作摘要、文件名或状态。
+- raw delta 不再作为默认用户文案；只保留经过压缩的人类可读摘要。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm test`
+
+### 发现与修复
+
+- E2E 暴露 SSE activity 事件可能早于 job snapshot 返回，导致 variation label 退化为 `Variation`；已增加基于 `variation_01` / `runtime_variation_1` / delta 文本的编号推断，保证活动流能稳定显示 `Variation 01/02/03`。
+
 ### 下一步
 
-- 为 `GET /api/variations/:id/files?artifactId=...` 增加 API 层 smoke test，覆盖 artifact mismatch 和历史版本 asset 列表。
-- 后续可进一步支持历史版本 Preview，以便 Preview / Code 都严格绑定同一 artifact。
+- 继续推进 artifact quality gate：识别全黑/空白/外部脚本依赖页面，避免不合格 artifact 被当作成功预览。
+
+## 2026-06-29 UX-M1 Variation Quality Banner
+
+### 已完成
+
+- 结果墙 variation card 增加 artifact quality banner。
+- 单变体编辑页的 Current artifact 面板增加 artifact quality summary，用户从结果墙进入精修页后仍能看到当前预览的质量风险。
+- 当当前 artifact 的质量状态为 `warn` 或 `fail` 时，卡片头部下方直接展示：
+  - `Quality warning`
+  - `Quality failed`
+  - 第一条质量问题摘要。
+- Runtime warning 到达但 job snapshot 尚未刷新时，前端会先用 SSE warning 临时更新对应 variation 的质量状态。
+- job snapshot 刷新后，卡片从 artifact quality metadata 读取稳定状态。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm test`
+
+### 下一步
+
+- 后续将质量问题接入一键修复 prompt，例如“修复黑屏/移除外部脚本依赖”。
+
+## 2026-06-29 UX-M19 Export / Share Frontend Polish
+
+### 已完成
+
+- 单变体编辑页的 ZIP 导出按钮增加 loading 状态，导出中禁用重复点击。
+- 导出成功后保留 `Downloaded ...` 用户反馈，并追加 ZIP 摘要：
+  - 文件数量。
+  - zip 大小。
+  - content hash 短摘要。
+- Current artifact 面板新增 Latest ZIP 区块，展示文件名、文件数、大小、hash，以及 reused / created 状态。
+- Share 按钮增加 creating 状态，创建分享链接时禁用重复点击。
+- 分享页新增只读 ZIP 预留按钮，明确 MVP 暂不开放共享下载。
+- 分享页增加 preview asset 加载健康提示：
+  - loading。
+  - ready。
+  - error。
+- 分享页会把 `srcDoc` 中的 `/api/shares/:token/assets/...` 资源路径补成 API 绝对 URL，避免前端和 API 分域部署时 CSS/图片从错误 origin 加载。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+
+### 决策
+
+- 保留 `download-html-button` test id，避免既有 E2E 因“HTML -> ZIP”的产品文案变化产生无意义断裂。
+- 分享页本轮只做只读下载入口预留，不直接开放 ZIP 下载；真实共享下载需要后端明确 share-token scoped export download contract。
+
+### 下一步
+
+- 若要开放分享页 ZIP 下载，优先在后端增加 `GET /api/shares/:token/export` 或 share-scoped artifact download，避免复用需要登录权限的 `/api/artifacts/:id/download`。
+- 继续推进 M20 Artifact Snapshot / Version 管理：让 preview、code、share、export 都显式绑定 artifact version。
+
+## 2026-06-29 UX-M20 Logged-in Workbench Shell
+
+### 已完成
+
+- 将首页从 landing/hero 形态调整为登录后工作台页面：
+  - 左侧固定最近会话栏。
+  - 右侧主交互区域。
+  - 顶部 hosted workspace 选择器。
+- 输入框配置区从独立表单字段改为底部胶囊下拉：
+  - Type：New HTML / Existing HTML。
+  - Variations：1-6 个并行草稿。
+  - Styles：自定义风格与 preset。
+  - Model：用户可用模型列表。
+- MVP workspace 选择默认使用个人 hosted workspace；`bootstrap` 已返回 `workspaces` 列表入口，后续团队 workspace 可直接扩展列表来源。
+- 创建 session/job 时使用当前选中的 workspace id。
+- 保留 `prompt-input`、`generate-button`、`variation-count-input` 测试契约，并更新浏览器 E2E 点击路径。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 增加真实 workspace 列表 API，替换 bootstrap 内的单 workspace 占位列表。
+- Existing HTML 模式补充上传/选择 artifact 的完整入口。
+- 最近会话栏增加按 workspace 过滤与搜索。
+
+## 2026-06-29 UX-M21 Existing HTML Source Upload
+
+### 已完成
+
+- 新增用户端 source artifact 上传闭环：
+  - `POST /api/source-artifacts`
+  - 请求体：`workspaceId`、`filename`、`html`
+  - 响应：HTML artifact id、大小、hash、quality summary。
+- 后端将上传的 HTML 写入 artifact store，并创建 `kind=html` 的 source artifact。
+- 上传入口限制为 `.html/.htm`，MVP 上限 2 MB，并做基础 HTML 结构校验。
+- 工作台 Existing HTML 模式增加 HTML 文件选择胶囊。
+- 上传成功后，创建 session/job 时会传入 `sourceArtifactId`，让 from-existing-html 模式具备真实数据来源。
+- 浏览器 E2E 增加“上传 HTML -> 生成 job”的真实点击覆盖。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 增加历史 artifact 选择器，让用户可以从既有 session/export 中选择 HTML，而不必须重新上传。
+- 让 Runtime Gateway 在 from-existing-html 模式下显式读取 source artifact HTML，注入到 BabeL-O prompt/context。
+- 后续支持 zip/html bundle 上传，补齐 CSS/JS/assets 依赖。
+
+## 2026-06-29 UX-M22 Composer Dropdown Behavior
+
+### 已完成
+
+- 将工作台 composer 底部胶囊菜单从原生 `details/summary` 调整为受控菜单状态。
+- 统一 `workspace`、`type`、`variations`、`styles`、`model` 的打开状态，保证同一时间只展示一个菜单。
+- 点击菜单外部区域会自动收起当前菜单。
+- 按 Escape 会自动收起当前菜单。
+- 选择菜单项后自动收起，避免弹层停留遮挡后续操作。
+- 胶囊菜单弹层改为向下展开，符合输入框底部控制区的视觉预期。
+- 增加浏览器 E2E 覆盖“菜单不堆叠、点击输入框自动收起”。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/api run test`
+
+### 下一步
+
+- 在真实多 workspace 列表接入后，复用同一受控菜单机制，避免 workspace selector 和 composer 菜单产生弹层冲突。
+- 后续可增加键盘方向键选择与焦点回收，提升可访问性。
+
+## 2026-06-29 UX-M20 Artifact Version Restore
+
+### 已完成
+
+- 单变体编辑页的 version menu 从“HTML 历史版本列表”升级为完整 artifact snapshot：
+  - HTML 页面版本。
+  - code/image asset。
+  - ZIP export artifact。
+- 每个 artifact row 展示 kind、version、当前版本标记，以及 ZIP 的来源 artifact 短 id。
+- HTML artifact 支持选择并恢复为当前版本。
+- 非 HTML artifact 只读展示，不进入 Preview/Code 选择，避免 asset 或 ZIP 被误当作页面入口。
+- restore 成功后自动刷新 variation detail、切回 Preview 模式，并重新加载 iframe。
+- 导出按钮继续基于当前 artifact；恢复历史版本后再导出会拿到对应版本的 ZIP。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+- 真实 PostgreSQL integration smoke 覆盖 restore / export / share artifact-lock 组合路径。
+
+### 下一步
+
+- 增加历史 artifact preview URL，让用户可以先预览历史版本再决定是否 restore。
+- 结果墙接 screenshot artifact 后，version menu 可展示 desktop / tablet / mobile 缩略图。
+
+## 2026-06-29 UX-M21.1 Result Wall Screenshot Preview
+
+### 已完成
+
+- 结果墙 variation card 在 Preview 模式下优先展示 screenshot artifact。
+- screenshot 缺失时继续 fallback 到 sandbox iframe preview。
+- 保留 `variation-card-preview-frame` 测试契约，避免 E2E 只因为 iframe -> image 变化产生无意义断裂。
+- 截图使用 `object-fit: cover` 和 top-center 对齐，更接近结果墙缩略图体验。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+
+### 下一步
+
+- 单变体页继续基于 iframe 做交互编辑，结果墙承担轻量浏览职责。
+- version menu 后续可展示 desktop / tablet / mobile screenshot 缩略图。

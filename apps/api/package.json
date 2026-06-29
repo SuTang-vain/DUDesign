@@ -16,5 +16,8 @@
     "@dudesign/runtime-gateway": "0.1.0",
     "@types/pg": "^8.20.0",
     "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

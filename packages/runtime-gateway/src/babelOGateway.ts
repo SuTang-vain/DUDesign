@@ -23,11 +23,13 @@ export type BabelORuntimeGatewayOptions = {
   client?: BabelORuntimeClient
   clientConfig?: BabelORuntimeClientConfig
   adapter?: BabelONexusEventAdapter
+  variationConcurrency?: number
 }
 
 export class BabelORuntimeGateway implements RuntimeGateway {
   private readonly client: BabelORuntimeClient
   private readonly adapter: BabelONexusEventAdapter
+  private readonly variationConcurrency: number
 
   constructor(options: BabelORuntimeGatewayOptions = {}) {
     if (!options.client && !options.clientConfig) {
@@ -35,6 +37,7 @@ export class BabelORuntimeGateway implements RuntimeGateway {
     }
     this.client = options.client ?? new BabelORuntimeClient(options.clientConfig!)
     this.adapter = options.adapter ?? new BabelONexusEventAdapter()
+    this.variationConcurrency = resolveVariationConcurrency(options.variationConcurrency)
   }
 
   getRuntimeHealth(): Promise<RuntimeHealth> {
@@ -85,7 +88,7 @@ export class BabelORuntimeGateway implements RuntimeGateway {
 
     let completedVariationCount = 0
     let failedVariationCount = 0
-    for await (const event of mergeAsyncIterables(streams)) {
+    for await (const event of mergeAsyncIterables(streams, this.variationConcurrency)) {
       if (event.type === 'design.variation_completed') completedVariationCount += 1
       if (event.type === 'design.variation_failed') failedVariationCount += 1
       yield event
@@ -205,20 +208,37 @@ export class BabelORuntimeGateway implements RuntimeGateway {
   }
 }
 
-async function* mergeAsyncIterables<T>(iterables: Array<AsyncIterable<T>>): AsyncIterable<T> {
+async function* mergeAsyncIterables<T>(iterables: Array<AsyncIterable<T>>, concurrency = Number.POSITIVE_INFINITY): AsyncIterable<T> {
   const iterators = iterables.map(iterable => iterable[Symbol.asyncIterator]())
   const pending = new Map<number, Promise<{ index: number; result: IteratorResult<T> }>>()
   const readNext = (index: number) => iterators[index]!.next().then(result => ({ index, result }))
+  const maxActive = Math.max(1, Math.min(iterators.length, Number.isFinite(concurrency) ? Math.floor(concurrency) : iterators.length))
+  let nextIndex = 0
 
-  for (const index of iterators.keys()) {
+  while (nextIndex < iterators.length && pending.size < maxActive) {
+    const index = nextIndex
+    nextIndex += 1
     pending.set(index, readNext(index))
   }
 
   while (pending.size > 0) {
     const { index, result } = await Promise.race(pending.values())
     pending.delete(index)
-    if (result.done) continue
+    if (result.done) {
+      if (nextIndex < iterators.length) {
+        const queuedIndex = nextIndex
+        nextIndex += 1
+        pending.set(queuedIndex, readNext(queuedIndex))
+      }
+      continue
+    }
     yield result.value
     pending.set(index, readNext(index))
   }
+}
+
+function resolveVariationConcurrency(value: unknown): number {
+  const explicit = typeof value === 'number' ? value : Number(process.env.DUDESIGN_RUNTIME_VARIATION_CONCURRENCY)
+  if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit)
+  return Number.POSITIVE_INFINITY
 }

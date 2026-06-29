@@ -5,12 +5,15 @@ import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace } from '@dudesign/domain'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
+import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import type {
   AdminArtifactsFilter,
   AdminArtifactSummary,
   AdminCostSummary,
   AdminJobsFilter,
   AdminJobSummary,
+  AdminMemoryGovernance,
+  AdminMemoryUserSummary,
   AdminModelSummary,
   AdminSupportSession,
   AdminUserModelAccess,
@@ -87,7 +90,7 @@ export class PostgresRepository extends InMemoryStore {
     `)
     await mkdir(this.migrationsDir, { recursive: true })
     const files = (await readdir(this.migrationsDir))
-      .filter(file => file.endsWith('.sql'))
+      .filter(file => /^\d+.*\.sql$/.test(file))
       .sort()
     for (const file of files) {
       const version = file.replace(/\.sql$/, '')
@@ -345,6 +348,7 @@ export class PostgresRepository extends InMemoryStore {
       status: input.status ?? existing.status,
       currentArtifactId: input.artifactId ?? existing.currentArtifactId,
       previewUrl: input.previewUrl ?? existing.previewUrl,
+      screenshotArtifactId: input.screenshotArtifactId ?? existing.screenshotArtifactId,
       runtimeChildSessionId: input.runtimeChildSessionId ?? existing.runtimeChildSessionId,
       runtimeAgentJobId: input.runtimeAgentJobId ?? existing.runtimeAgentJobId,
       inputTokens: input.inputTokens ?? existing.inputTokens,
@@ -356,6 +360,20 @@ export class PostgresRepository extends InMemoryStore {
     }
     await this.persistVariation(variation)
     this.variations.set(input.variationId, variation)
+  }
+
+  override async setVariationCurrentArtifact(variationId: string, artifactId: string, previewUrl: string | null): Promise<DesignVariation | null> {
+    const existing = await this.getVariationById(variationId)
+    if (!existing) return null
+    const variation: DesignVariation = {
+      ...existing,
+      currentArtifactId: artifactId,
+      previewUrl,
+      updatedAt: nowIso(),
+    }
+    await this.persistVariation(variation)
+    this.variations.set(variationId, variation)
+    return variation
   }
 
   override async createMockArtifact(input: CreateHtmlArtifactInput): Promise<Artifact> {
@@ -562,13 +580,21 @@ export class PostgresRepository extends InMemoryStore {
     const jobRow = (await this.pool.query('select * from design_jobs where id = $1', [variation.jobId])).rows[0]
     const artifactRows = (await this.pool.query(`
       select * from artifacts
-      where variation_id = $1 and kind = 'html'
-      order by version desc, created_at desc
+      where variation_id = $1
+      order by version desc,
+        case kind
+          when 'html' then 0
+          when 'asset' then 1
+          when 'export_zip' then 2
+          else 3
+        end asc,
+        coalesce(entry_path, id) asc,
+        created_at desc
     `, [variationId])).rows
     const artifacts = artifactRows.map(mapArtifact)
     let currentArtifact = variation.currentArtifactId
       ? artifacts.find(artifact => artifact.id === variation.currentArtifactId) ?? null
-      : artifacts[0] ?? null
+      : artifacts.find(artifact => artifact.kind === 'html') ?? null
     if (variation.currentArtifactId && !currentArtifact) {
       const currentArtifactRow = (await this.pool.query('select * from artifacts where id = $1', [variation.currentArtifactId])).rows[0]
       currentArtifact = currentArtifactRow ? mapArtifact(currentArtifactRow) : null
@@ -990,7 +1016,7 @@ export class PostgresRepository extends InMemoryStore {
         userId: row.user_id,
         workspaceId: row.workspace_id,
         sessionId: row.session_id,
-        prompt: row.prompt,
+        prompt: adminPreviewText(row.prompt, 180) ?? '',
         status: row.status,
         variationCount: row.variation_count,
         completedVariationCount: row.completed_variation_count,
@@ -1040,7 +1066,7 @@ export class PostgresRepository extends InMemoryStore {
           parentArtifactId: artifact.parentArtifactId,
           kind: artifact.kind,
           version: artifact.version,
-          storageKey: artifact.storageKey,
+          storageKey: redactAdminStorageKey(artifact.storageKey),
           entryPath: artifact.entryPath,
           contentHash: artifact.contentHash,
           sizeBytes: artifact.sizeBytes,
@@ -1103,6 +1129,76 @@ export class PostgresRepository extends InMemoryStore {
       })
     }
     return { users: supportUsers }
+  }
+
+  override async getAdminMemoryGovernance(filter: AdminUserSupportFilter = {}): Promise<AdminMemoryGovernance> {
+    await this.flush()
+    const userId = filter.userId?.trim() || null
+    const email = filter.email?.trim().toLowerCase() || null
+    const rows = (await this.pool.query(`
+      with namespace_counts as (
+        select memory_namespace, count(*)::int as namespace_count
+        from users
+        where coalesce(memory_namespace, '') <> ''
+        group by memory_namespace
+      ),
+      workspace_summary as (
+        select owner_id as user_id, count(*)::int as workspace_count
+        from workspaces
+        group by owner_id
+      ),
+      session_summary as (
+        select
+          user_id,
+          count(*)::int as session_count,
+          count(*) filter (where runtime_session_id is not null)::int as runtime_session_count,
+          max(updated_at) as last_session_at
+        from design_sessions
+        group by user_id
+      ),
+      job_summary as (
+        select user_id, count(*)::int as job_count
+        from design_jobs
+        group by user_id
+      )
+      select
+        u.id,
+        u.email,
+        u.memory_namespace,
+        coalesce(ns.namespace_count, 0)::int as namespace_count,
+        coalesce(ws.workspace_count, 0)::int as workspace_count,
+        coalesce(ss.session_count, 0)::int as session_count,
+        coalesce(ss.runtime_session_count, 0)::int as runtime_session_count,
+        coalesce(js.job_count, 0)::int as job_count,
+        ss.last_session_at
+      from users u
+      left join namespace_counts ns on ns.memory_namespace = u.memory_namespace
+      left join workspace_summary ws on ws.user_id = u.id
+      left join session_summary ss on ss.user_id = u.id
+      left join job_summary js on js.user_id = u.id
+      where ($1::text is null or u.id = $1)
+        and ($2::text is null or lower(u.email) like '%' || $2 || '%')
+      order by u.email asc
+      limit 100
+    `, [userId, email])).rows
+
+    const users: AdminMemoryUserSummary[] = rows.map(row => ({
+      userId: row.id,
+      email: row.email,
+      memoryNamespace: row.memory_namespace,
+      isolationStatus: sqlMemoryIsolationStatus(row.memory_namespace, row.namespace_count),
+      workspaceCount: row.workspace_count,
+      sessionCount: row.session_count,
+      runtimeSessionCount: row.runtime_session_count,
+      jobCount: row.job_count,
+      memoryRefCount: 0,
+      pendingMemoryNoteCount: 0,
+      approvedMemoryNoteCount: 0,
+      rejectedMemoryNoteCount: 0,
+      lastSessionAt: row.last_session_at ? toIso(row.last_session_at) : null,
+    }))
+
+    return buildSqlMemoryGovernanceResponse(users)
   }
 
   override async getAdminCostSummary(): Promise<AdminCostSummary> {
@@ -1316,7 +1412,7 @@ export class PostgresRepository extends InMemoryStore {
       mode: session.mode,
       status: session.status,
       resumeState: session.runtimeSessionId ? 'runtime_session_available' : 'runtime_session_missing',
-      lastPromptPreview: previewText(session.lastPrompt, 140),
+      lastPromptPreview: adminPreviewText(session.lastPrompt, 140),
       jobCount: jobs.length,
       latestJob: latestJob
         ? {
@@ -1335,7 +1431,7 @@ export class PostgresRepository extends InMemoryStore {
         failed: variationSummaryRow.failed,
         cancelled: variationSummaryRow.cancelled,
       },
-      failureSummary: summarizeSupportIssue(latestJob, failedVariations),
+      failureSummary: summarizeAdminSupportIssue(latestJob, failedVariations),
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     }
@@ -1853,67 +1949,31 @@ function mapUsageEvent(row: any): UsageEvent {
   }
 }
 
-function previewText(value: string | null, maxLength: number): string | null {
-  if (!value) return null
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (compact.length <= maxLength) return compact
-  return `${compact.slice(0, maxLength - 1)}…`
-}
-
-function summarizeSupportIssue(
-  latestJob: DesignJob | null,
-  failedVariations: DesignVariation[],
-): { severity: 'ok' | 'warning' | 'blocked'; message: string; failedVariationCount: number; examples: Array<{ variationId: string; errorCode: string | null; message: string | null }> } {
-  if (!latestJob) {
-    return {
-      severity: 'warning',
-      message: 'No jobs have been created for this session.',
-      failedVariationCount: 0,
-      examples: [],
-    }
-  }
-  if (latestJob.status === 'failed') {
-    return {
-      severity: 'blocked',
-      message: `Latest job ${latestJob.id} failed.`,
-      failedVariationCount: failedVariations.length,
-      examples: failedVariations.slice(0, 3).map(toFailureExample),
-    }
-  }
-  if (failedVariations.length > 0) {
-    return {
-      severity: 'warning',
-      message: `${failedVariations.length} variation(s) reported errors.`,
-      failedVariationCount: failedVariations.length,
-      examples: failedVariations.slice(0, 3).map(toFailureExample),
-    }
-  }
-  if (latestJob.status === 'queued' || latestJob.status === 'running') {
-    return {
-      severity: 'warning',
-      message: `Latest job ${latestJob.id} is still ${latestJob.status}.`,
-      failedVariationCount: 0,
-      examples: [],
-    }
-  }
-  return {
-    severity: 'ok',
-    message: 'No job or variation failures detected.',
-    failedVariationCount: 0,
-    examples: [],
-  }
-}
-
-function toFailureExample(variation: DesignVariation) {
-  return {
-    variationId: variation.id,
-    errorCode: variation.errorCode,
-    message: previewText(variation.errorMessage, 120),
-  }
-}
-
 function userModelAccessKey(userId: string, modelServiceId: string): string {
   return `${userId}:${modelServiceId}`
+}
+
+function sqlMemoryIsolationStatus(memoryNamespace: string | null, namespaceCount: number): AdminMemoryUserSummary['isolationStatus'] {
+  if (!memoryNamespace?.trim()) return 'missing_namespace'
+  return namespaceCount > 1 ? 'namespace_conflict' : 'isolated'
+}
+
+function buildSqlMemoryGovernanceResponse(users: AdminMemoryUserSummary[]): AdminMemoryGovernance {
+  return {
+    users,
+    totals: {
+      userCount: users.length,
+      isolatedUserCount: users.filter(user => user.isolationStatus === 'isolated').length,
+      conflictUserCount: users.filter(user => user.isolationStatus === 'namespace_conflict').length,
+      missingNamespaceUserCount: users.filter(user => user.isolationStatus === 'missing_namespace').length,
+      memoryRefCount: users.reduce((sum, user) => sum + user.memoryRefCount, 0),
+      pendingMemoryNoteCount: users.reduce((sum, user) => sum + user.pendingMemoryNoteCount, 0),
+    },
+    capabilities: {
+      memoryNotes: 'not_configured',
+      memoryRefs: 'event_stream_only',
+    },
+  }
 }
 
 function toIso(value: Date | string): string {

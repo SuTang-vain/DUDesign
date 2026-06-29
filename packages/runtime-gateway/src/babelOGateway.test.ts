@@ -329,6 +329,62 @@ describe('BabelORuntimeGateway', () => {
       'workspaces/workspace_1',
     ])
   })
+
+  it('limits active variation streams when runtime variation concurrency is configured', async () => {
+    let activeStreams = 0
+    let maxActiveStreams = 0
+    const gateway = new BabelORuntimeGateway({
+      variationConcurrency: 2,
+      client: new BabelORuntimeClient({
+        baseUrl: 'https://runtime.example.test',
+        fetch: async (url, init) => {
+          const href = String(url)
+          if (href.endsWith('/v1/contract')) {
+            return jsonResponse({
+              contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+              runtimeVersion: '1.2.3',
+            })
+          }
+          if (href.endsWith('/v1/agents')) {
+            const body = JSON.parse(String(init?.body)) as { variationIndex: number }
+            return jsonResponse({
+              streamId: `stream_${body.variationIndex}`,
+              agentJobId: `agent_${body.variationIndex}`,
+              runtimeChildSessionId: `rt_child_${body.variationIndex}`,
+            })
+          }
+          activeStreams += 1
+          maxActiveStreams = Math.max(maxActiveStreams, activeStreams)
+          return delayedStreamResponse('{"type":"result","artifactId":"artifact"}\n', 20, () => {
+            activeStreams -= 1
+          })
+        },
+      }),
+    })
+
+    const events = []
+    for await (const event of gateway.spawnVariationAgents({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a page',
+      sourceMode: 'new_html',
+      sourceArtifactId: null,
+      variationCount: 4,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+    })) {
+      events.push(event)
+    }
+
+    assert.equal(maxActiveStreams, 2)
+    assert.equal(events.filter(event => event.type === 'design.variation_completed').length, 4)
+    assert.deepEqual(events.at(-1)?.payload, {
+      completedVariationCount: 4,
+      failedVariationCount: 0,
+    })
+  })
 })
 
 function jsonResponse(payload: unknown): Response {
@@ -354,12 +410,13 @@ function streamResponse(body: string): Response {
   })
 }
 
-function delayedStreamResponse(body: string, delayMs: number): Response {
+function delayedStreamResponse(body: string, delayMs: number, onClose?: () => void): Response {
   return new Response(new ReadableStream({
     async start(controller) {
       await new Promise(resolve => setTimeout(resolve, delayMs))
       controller.enqueue(new TextEncoder().encode(body))
       controller.close()
+      onClose?.()
     },
   }), {
     status: 200,

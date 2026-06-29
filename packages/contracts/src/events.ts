@@ -94,6 +94,7 @@ export type DesignVariationCompletedEvent = DesignEventEnvelope<
     changedPaths?: string[]
     html?: string
     files?: RuntimeArtifactFile[]
+    screenshotUrl?: string
     inputTokens?: number
     outputTokens?: number
     costCents?: number

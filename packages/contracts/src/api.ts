@@ -26,6 +26,12 @@ export type ListUserModelsResponse = {
   defaultModelId: ID | null
 }
 
+export type WorkspaceOption = {
+  id: ID
+  name: string
+  storageKey: string
+}
+
 export type AdminModelService = UserModelOption & {
   enabled: boolean
   inputTokenCostCents: number
@@ -128,6 +134,64 @@ export type CreateDesignJobResponse = {
   }>
 }
 
+export type CreateSourceArtifactRequest = {
+  workspaceId: ID
+  filename: string
+  html: string
+}
+
+export type CreateSourceArtifactResponse = {
+  artifact: {
+    id: ID
+    workspaceId: ID
+    kind: 'html'
+    version: number
+    entryPath: string
+    sizeBytes: number
+    contentHash: string
+    quality: ArtifactQualitySummary | null
+  }
+}
+
+export type ArtifactQualitySummary = {
+  status: 'pass' | 'warn' | 'fail'
+  issues: string[]
+}
+
+export type DesignJobSnapshotResponse = {
+  job: {
+    id: ID
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+    prompt: string
+    variationCount: number
+  }
+  variations: Array<{
+    id: ID
+    index: number
+    title: string | null
+    status: 'queued' | 'running' | 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
+    currentArtifactId: ID | null
+    previewUrl: string | null
+    screenshotUrl: string | null
+    inputTokens: number
+    outputTokens: number
+    costCents: number
+    errorCode: string | null
+    errorMessage: string | null
+  }>
+  artifacts: Array<{
+    id: ID
+    variationId: ID | null
+    version: number
+    kind: 'html' | 'asset' | 'screenshot' | 'export_zip'
+    entryPath: string | null
+    parentArtifactId: ID | null
+    screenshotDevice: DeviceTarget | null
+    url: string | null
+    quality: ArtifactQualitySummary | null
+  }>
+}
+
 export type RefineVariationRequest = {
   prompt: string
   baseArtifactId: ID
@@ -141,6 +205,7 @@ export type RefineVariationResponse = {
     status: 'streaming' | 'rendering_preview' | 'completed' | 'failed'
     currentArtifactId: ID | null
     previewUrl: string | null
+    screenshotUrl: string | null
   }
   artifact?: {
     id: ID
@@ -159,6 +224,7 @@ export type VariationDetailResponse = {
     status: 'queued' | 'running' | 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
     currentArtifactId: ID | null
     previewUrl: string | null
+    screenshotUrl: string | null
     inputTokens: number
     outputTokens: number
     costCents: number
@@ -172,16 +238,43 @@ export type VariationDetailResponse = {
   }
   currentArtifact: {
     id: ID
+    kind: 'html' | 'asset' | 'screenshot' | 'export_zip'
     version: number
     entryPath: string | null
+    parentArtifactId: ID | null
+    screenshotDevice: DeviceTarget | null
+    url: string | null
     createdAt: string
+    quality: ArtifactQualitySummary | null
   } | null
   artifacts: Array<{
     id: ID
+    kind: 'html' | 'asset' | 'screenshot' | 'export_zip'
+    version: number
+    entryPath: string | null
+    parentArtifactId: ID | null
+    isCurrent: boolean
+    exportedFromArtifactId: ID | null
+    screenshotDevice: DeviceTarget | null
+    url: string | null
+    createdAt: string
+    quality: ArtifactQualitySummary | null
+  }>
+}
+
+export type RestoreVariationVersionResponse = {
+  variation: {
+    id: ID
+    currentArtifactId: ID
+    previewUrl: string | null
+  }
+  artifact: {
+    id: ID
+    kind: 'html'
     version: number
     entryPath: string | null
     createdAt: string
-  }>
+  }
 }
 
 export type VariationFilesResponse = {

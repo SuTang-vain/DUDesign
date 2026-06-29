@@ -3,6 +3,89 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-06-29 APP-M21 Screenshot Artifact Rendering
+
+### 已完成
+
+- 新增 `screenshotRenderer`，基于 Playwright 为 HTML artifact 渲染 desktop / tablet / mobile PNG。
+- HTML artifact 固化后异步生成 screenshot artifacts，避免截图耗时阻塞 job/refine 主状态机。
+- screenshot artifact 使用 `parentArtifactId` 绑定来源 HTML artifact version，后续 refine 不会污染旧版本截图。
+- variation 的 `screenshotArtifactId` 指向 desktop screenshot。
+- `DesignJobSnapshotResponse` / `VariationDetailResponse` 暴露：
+  - `screenshotUrl`
+  - `screenshotDevice`
+  - screenshot artifact `url`
+  - artifact `parentArtifactId`
+- 新增读取端点：`GET /api/variations/:id/screenshots/:artifactId`。
+- 多文件 runtime artifact 截图前会把同版本 asset 内联成 data URL，保证 CSS/图片参与截图渲染。
+- 截图生成失败不阻断主流程，错误落入 HTML artifact metadata，后续可接 Admin repair。
+- `ApplicationService` 增加 background task tracking 和 `flushBackgroundTasks()`，避免测试/进程关闭时截断异步截图写入。
+- source artifact 上传改为创建内部 source session，满足 PostgreSQL `artifacts.session_id` 外键约束。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+- 真实 PostgreSQL integration smoke：`DUDESIGN_POSTGRES_TEST_URL=... npm --workspace @dudesign/api run test`
+
+### 决策
+
+- MVP 先用进程内异步截图任务建立数据契约和 UI 路径。
+- 后续 Redis/Queue 建好后，将截图生成迁移到 worker；API contract 和 artifact schema 不变。
+
+## 2026-06-29 APP-M20 Artifact Snapshot Version Restore
+
+### 已完成
+
+- `VariationDetailResponse` 扩展 artifact snapshot 字段：
+  - `kind`
+  - `parentArtifactId`
+  - `isCurrent`
+  - `exportedFromArtifactId`
+- `getVariationDetailSnapshot()` 从只返回 HTML artifact 升级为返回同 variation 下的 `html` / `asset` / `export_zip` artifact 列表。
+- 新增 Repository mutation：`setVariationCurrentArtifact()`。
+- 新增恢复历史版本接口：`POST /api/variations/:id/versions/:artifactId/restore`。
+- restore 仅允许 HTML artifact，并更新 variation 当前 artifact 与 preview URL。
+- restore 写入系统 session message，metadata 标记 `variation_restore`，便于后续审计和会话回放。
+- export/share 继续基于当前 HTML artifact，历史 restore 后导出会回到被恢复的版本；已有 share 仍锁定原 artifact，不随 restore/refine 漂移。
+- PostgreSQL Repository 增加 SQL-first `setVariationCurrentArtifact()`，真实 PostgreSQL smoke 覆盖 hydrate / no-hydrate 双路径。
+
+### 验证
+
+- `npm run typecheck`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+- 真实 PostgreSQL integration smoke：`DUDESIGN_POSTGRES_TEST_URL=... npm --workspace @dudesign/api run test`
+
+### 决策
+
+- 当前只允许恢复 `html` artifact；`asset` 和 `export_zip` 作为版本上下文展示，不可设为 variation 当前预览入口。
+- share token 保持 artifact-lock 语义；restore/refine 不会改变已生成分享链接指向的 artifact。
+- 历史 preview URL 显式绑定 `artifactId` 暂不在本轮实现，下一步可和 screenshot/version preview 一起收口。
+
+## 2026-06-29 APP API Variation Files Artifact Smoke
+
+### 已完成
+
+- `runApiFlowSmoke()` 增加 `GET /api/variations/:id/files?artifactId=...` 覆盖。
+- Smoke 在 annotation 生成 v3 后分别读取：
+  - v1 历史 artifact files
+  - v3 当前 artifact files
+- 验证历史 `index.html` 保持 version 1，不被当前 v3 artifact 或后续 share/refine 流程污染。
+- 验证当前 v3 files 包含入口 HTML 与同版本 CSS code asset。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- `VariationFilesResponse` 只服务 Code view，因此继续过滤 SVG/图片等非代码 asset；图片类资源仍由 preview/share asset serving smoke 覆盖。
+
 ## 2026-06-28 Model Governance PostgreSQL and Runtime Context
 
 ### 已完成

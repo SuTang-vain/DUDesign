@@ -235,3 +235,79 @@
 - 等后端提供 `/api/admin/models/sync` 后，把按钮语义从本地 refresh 改成同步真实模型。
 - 在模型行中展示 `source`、`lastSyncedAt`、`runtimeStatus`、`drift`。
 - 增加模型同步成功、失败、权限不足的管理端 E2E。
+
+## 2026-06-29 ADM-M6 Admin Redaction Guardrails
+
+### 已完成
+
+- 新增共享脱敏模块 `apps/api/src/adminRedaction.ts`：
+  - 邮箱替换为 `[redacted-email]`。
+  - `api_key`、`secret`、`token`、`password`、Bearer token、常见 key 前缀替换为 `[redacted-secret]`。
+  - 本地绝对路径替换为 `[redacted-path]`。
+- Admin API 输出接入脱敏：
+  - Job Monitor 的 prompt 摘要脱敏。
+  - User Support 的 `lastPromptPreview` 脱敏。
+  - User Support 的失败示例 error message 脱敏。
+  - Artifact Explorer 的 `storageKey` 统一经过路径脱敏。
+- InMemoryStore 和 PostgresRepository 两条 repository 路径都接入同一套脱敏 helper，避免 mock 与生产路径行为分叉。
+- API flow smoke 增加端到端脱敏断言，覆盖邮箱、secret token、本地绝对路径。
+
+### 验证
+
+- `npm run test:api`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- 管理端只展示排障摘要，不展示用户聊天全文和 HTML 全文。
+- 脱敏放在 Admin API 输出路径，而不是前端展示层，避免非浏览器消费者绕过保护。
+- 当前规则优先覆盖高风险明文：邮箱、密钥样式值、本地路径。后续可以继续扩充手机号、URL query secret、公司内部域名等规则。
+
+### 风险
+
+- 正则脱敏无法证明覆盖所有隐私数据，后续需要引入结构化敏感字段标记和审计采样。
+- prompt preview 仍是用户内容摘要，真实 RBAC 接入后应进一步限制 support/operator/developer 字段可见性。
+
+### 下一步
+
+- 增加 Memory Governance 只读视图，验证每个用户的 memory namespace 隔离。
+- 增加 runtime contract mismatch 展示测试，补齐管理端兼容性质量门禁。
+
+## 2026-06-29 ADM-M7 Memory Governance Readonly
+
+### 已完成
+
+- 后端新增 `GET /api/admin/memory`：
+  - 支持按 `userId` 或 `email` 过滤。
+  - 返回用户 memory namespace。
+  - 返回 `isolated`、`namespace_conflict`、`missing_namespace` 隔离状态。
+  - 返回 workspace、session、runtime session、job 关联计数。
+  - 返回 memory refs / memory notes 能力状态，不伪造未落库的 memory note 数据。
+- `ApplicationRepository` 新增 `getAdminMemoryGovernance()`。
+- InMemoryStore 和 PostgresRepository 均实现 memory governance 只读查询。
+- 管理端新增 Memory Governance 面板：
+  - 展示用户级 namespace。
+  - 展示全局 isolated/conflict/missing 统计。
+  - 展示 runtime session 覆盖率和 memory refs/notes capability。
+- API flow smoke 增加 memory namespace isolation 断言，覆盖 `usr_dev` 与 `usr_alt` 独立 namespace。
+
+### 验证
+
+- `npm run test:api`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- MVP 阶段先做“可观测隔离”，不展示 memory 正文。
+- 当前系统还没有 memory note 表，因此 approval record 明确保留为 `not_configured`，避免管理端展示虚假的审批数据。
+- memory refs 目前主要来自 runtime event stream，治理面先标记为 `event_stream_only`。
+
+### 风险
+
+- 如果 BabeL-O 后续返回 memoryRefs 但事件不带 jobId，当前 JobEventBus 不会持久缓存，需要补 session-level memory event sink。
+- 真正的 memory hit/candidate、审批记录、跨用户泄漏检测，需要落 memory_notes / memory_events 表后再完善。
+
+### 下一步
+
+- 增加 runtime contract mismatch 展示测试，补齐管理端兼容性质量门禁。
+- 设计 memory_notes / memory_events 持久化 schema，再升级 Memory Governance 面板的 hit/candidate/approval 视图。

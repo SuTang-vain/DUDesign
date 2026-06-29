@@ -17,6 +17,8 @@ import type {
   AdminCostSummary,
   AdminJobSummary,
   AdminJobsFilter,
+  AdminMemoryGovernance,
+  AdminMemoryUserSummary,
   AdminModelSummary,
   AdminSupportSession,
   AdminUserModelAccess,
@@ -33,6 +35,7 @@ import type {
   VariationJobContext,
   VariationRefineContext,
 } from './repository.js'
+import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 
 export type SessionMessage = {
   id: string
@@ -476,11 +479,11 @@ export class InMemoryStore implements ApplicationRepository {
     if (!variation) return null
     const job = this.jobs.get(variation.jobId) ?? null
     const artifacts = [...this.artifacts.values()]
-      .filter(artifact => artifact.variationId === variationId && artifact.kind === 'html')
-      .sort((a, b) => b.version - a.version)
+      .filter(artifact => artifact.variationId === variationId)
+      .sort((a, b) => artifactSortKey(a).localeCompare(artifactSortKey(b)))
     const currentArtifact = variation.currentArtifactId
       ? this.artifacts.get(variation.currentArtifactId) ?? null
-      : artifacts[0] ?? null
+      : artifacts.find(artifact => artifact.kind === 'html') ?? null
     return {
       variation,
       job,
@@ -593,9 +596,10 @@ export class InMemoryStore implements ApplicationRepository {
     status?: DesignVariation['status']
 	    artifactId?: string
 	    previewUrl?: string
-	    runtimeChildSessionId?: string
-	    runtimeAgentJobId?: string
-	    inputTokens?: number
+    runtimeChildSessionId?: string
+    runtimeAgentJobId?: string
+    screenshotArtifactId?: string | null
+    inputTokens?: number
     outputTokens?: number
     costCents?: number
     errorCode?: string
@@ -608,6 +612,7 @@ export class InMemoryStore implements ApplicationRepository {
       status: input.status ?? variation.status,
 	      currentArtifactId: input.artifactId ?? variation.currentArtifactId,
 	      previewUrl: input.previewUrl ?? variation.previewUrl,
+	      screenshotArtifactId: input.screenshotArtifactId ?? variation.screenshotArtifactId,
 	      runtimeChildSessionId: input.runtimeChildSessionId ?? variation.runtimeChildSessionId,
 	      runtimeAgentJobId: input.runtimeAgentJobId ?? variation.runtimeAgentJobId,
 	      inputTokens: input.inputTokens ?? variation.inputTokens,
@@ -617,6 +622,19 @@ export class InMemoryStore implements ApplicationRepository {
       errorMessage: input.errorMessage ?? variation.errorMessage,
       updatedAt: nowIso(),
     })
+  }
+
+  setVariationCurrentArtifact(variationId: string, artifactId: string, previewUrl: string | null): MaybePromise<DesignVariation | null> {
+    const variation = this.variations.get(variationId)
+    if (!variation) return null
+    const updated: DesignVariation = {
+      ...variation,
+      currentArtifactId: artifactId,
+      previewUrl,
+      updatedAt: nowIso(),
+    }
+    this.variations.set(variationId, updated)
+    return updated
   }
 
   createMockArtifact(input: {
@@ -776,7 +794,7 @@ export class InMemoryStore implements ApplicationRepository {
           userId: job.userId,
           workspaceId: job.workspaceId,
           sessionId: job.sessionId,
-          prompt: job.prompt,
+          prompt: adminPreviewText(job.prompt, 180) ?? '',
           status: job.status,
           variationCount: job.variationCount,
           completedVariationCount: counts.completed ?? 0,
@@ -819,7 +837,7 @@ export class InMemoryStore implements ApplicationRepository {
           parentArtifactId: artifact.parentArtifactId,
           kind: artifact.kind,
           version: artifact.version,
-          storageKey: artifact.storageKey,
+          storageKey: redactAdminStorageKey(artifact.storageKey),
           entryPath: artifact.entryPath,
           contentHash: artifact.contentHash,
           sizeBytes: artifact.sizeBytes,
@@ -888,7 +906,7 @@ export class InMemoryStore implements ApplicationRepository {
               mode: session.mode,
               status: session.status,
               resumeState: session.runtimeSessionId ? 'runtime_session_available' : 'runtime_session_missing',
-              lastPromptPreview: previewText(session.lastPrompt, 140),
+              lastPromptPreview: adminPreviewText(session.lastPrompt, 140),
               jobCount: jobs.length,
               latestJob: latestJob
                 ? {
@@ -907,7 +925,7 @@ export class InMemoryStore implements ApplicationRepository {
                 failed: variationSummary.failed ?? 0,
                 cancelled: variationSummary.cancelled ?? 0,
               },
-              failureSummary: summarizeSupportIssue(latestJob, failedVariations),
+              failureSummary: summarizeAdminSupportIssue(latestJob, failedVariations),
               createdAt: session.createdAt,
               updatedAt: session.updatedAt,
             }
@@ -1000,6 +1018,38 @@ export class InMemoryStore implements ApplicationRepository {
     }
     this.userModelAccess.set(userModelAccessKey(userId, modelServiceId), updated)
     return updated
+  }
+
+  getAdminMemoryGovernance(filter: AdminUserSupportFilter = {}): MaybePromise<AdminMemoryGovernance> {
+    const userId = filter.userId?.trim()
+    const email = filter.email?.trim().toLowerCase()
+    const users = [...this.users.values()]
+      .filter(user => !userId || user.id === userId)
+      .filter(user => !email || user.email.toLowerCase().includes(email))
+      .sort((a, b) => a.email.localeCompare(b.email))
+    const namespaceCounts = countMemoryNamespaces([...this.users.values()])
+    const summaries: AdminMemoryUserSummary[] = users.map(user => {
+      const workspaces = [...this.workspaces.values()].filter(workspace => workspace.ownerId === user.id)
+      const sessions = [...this.sessions.values()].filter(session => session.userId === user.id)
+      const sessionIds = new Set(sessions.map(session => session.id))
+      const jobs = [...this.jobs.values()].filter(job => job.userId === user.id || sessionIds.has(job.sessionId))
+      return {
+        userId: user.id,
+        email: user.email,
+        memoryNamespace: user.memoryNamespace,
+        isolationStatus: memoryIsolationStatus(user.memoryNamespace, namespaceCounts),
+        workspaceCount: workspaces.length,
+        sessionCount: sessions.length,
+        runtimeSessionCount: sessions.filter(session => Boolean(session.runtimeSessionId)).length,
+        jobCount: jobs.length,
+        memoryRefCount: 0,
+        pendingMemoryNoteCount: 0,
+        approvedMemoryNoteCount: 0,
+        rejectedMemoryNoteCount: 0,
+        lastSessionAt: sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.updatedAt ?? null,
+      }
+    })
+    return buildMemoryGovernanceResponse(summaries)
   }
 
   getAdminCostSummary(): MaybePromise<AdminCostSummary> {
@@ -1096,61 +1146,47 @@ function userModelAccessKey(userId: string, modelServiceId: string): string {
   return `${userId}:${modelServiceId}`
 }
 
-function previewText(value: string | null, maxLength: number): string | null {
-  if (!value) return null
-  const compact = value.replace(/\s+/g, ' ').trim()
-  if (compact.length <= maxLength) return compact
-  return `${compact.slice(0, maxLength - 1)}…`
+function artifactSortKey(artifact: Artifact): string {
+  const kindRank = artifact.kind === 'html'
+    ? '0'
+    : artifact.kind === 'asset'
+      ? '1'
+      : artifact.kind === 'export_zip'
+        ? '2'
+        : '3'
+  return `${String(999999 - artifact.version).padStart(6, '0')}:${kindRank}:${artifact.entryPath ?? artifact.id}`
 }
 
-function summarizeSupportIssue(
-  latestJob: { status: string; id: string } | null,
-  failedVariations: Array<{ id: string; errorCode: string | null; errorMessage: string | null }>,
-): { severity: 'ok' | 'warning' | 'blocked'; message: string; failedVariationCount: number; examples: Array<{ variationId: string; errorCode: string | null; message: string | null }> } {
-  if (!latestJob) {
-    return {
-      severity: 'warning',
-      message: 'No jobs have been created for this session.',
-      failedVariationCount: 0,
-      examples: [],
-    }
+function countMemoryNamespaces(users: User[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const user of users) {
+    const namespace = user.memoryNamespace.trim()
+    if (!namespace) continue
+    counts.set(namespace, (counts.get(namespace) ?? 0) + 1)
   }
-  if (latestJob.status === 'failed') {
-    return {
-      severity: 'blocked',
-      message: `Latest job ${latestJob.id} failed.`,
-      failedVariationCount: failedVariations.length,
-      examples: failedVariations.slice(0, 3).map(toFailureExample),
-    }
-  }
-  if (failedVariations.length > 0) {
-    return {
-      severity: 'warning',
-      message: `${failedVariations.length} variation(s) reported errors.`,
-      failedVariationCount: failedVariations.length,
-      examples: failedVariations.slice(0, 3).map(toFailureExample),
-    }
-  }
-  if (latestJob.status === 'queued' || latestJob.status === 'running') {
-    return {
-      severity: 'warning',
-      message: `Latest job ${latestJob.id} is still ${latestJob.status}.`,
-      failedVariationCount: 0,
-      examples: [],
-    }
-  }
-  return {
-    severity: 'ok',
-    message: 'No job or variation failures detected.',
-    failedVariationCount: 0,
-    examples: [],
-  }
+  return counts
 }
 
-function toFailureExample(variation: { id: string; errorCode: string | null; errorMessage: string | null }) {
+function memoryIsolationStatus(memoryNamespace: string, counts: Map<string, number>): AdminMemoryUserSummary['isolationStatus'] {
+  const namespace = memoryNamespace.trim()
+  if (!namespace) return 'missing_namespace'
+  return (counts.get(namespace) ?? 0) > 1 ? 'namespace_conflict' : 'isolated'
+}
+
+function buildMemoryGovernanceResponse(users: AdminMemoryUserSummary[]): AdminMemoryGovernance {
   return {
-    variationId: variation.id,
-    errorCode: variation.errorCode,
-    message: previewText(variation.errorMessage, 120),
+    users,
+    totals: {
+      userCount: users.length,
+      isolatedUserCount: users.filter(user => user.isolationStatus === 'isolated').length,
+      conflictUserCount: users.filter(user => user.isolationStatus === 'namespace_conflict').length,
+      missingNamespaceUserCount: users.filter(user => user.isolationStatus === 'missing_namespace').length,
+      memoryRefCount: users.reduce((sum, user) => sum + user.memoryRefCount, 0),
+      pendingMemoryNoteCount: users.reduce((sum, user) => sum + user.pendingMemoryNoteCount, 0),
+    },
+    capabilities: {
+      memoryNotes: 'not_configured',
+      memoryRefs: 'event_stream_only',
+    },
   }
 }

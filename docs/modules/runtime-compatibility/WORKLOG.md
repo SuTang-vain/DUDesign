@@ -1161,3 +1161,226 @@
 
 - 将候选文件列表升级为 artifact manifest 或安全目录扫描。
 - 对 CSS/JS/assets 与 API artifact asset serving 的版本关系做一次端到端校验。
+
+## 2026-06-29 M25.6 Runtime Artifact Quality Gate Planning
+
+### 问题定位
+
+- 远端已生成文件但 preview 全黑，说明“文件存在”不等于“产物可用”。
+- 当前 Adapter/API artifact bridge 主要检查文件路径和可读取性，缺少静态页面质量门禁。
+- 如果 BabeL-O 生成依赖外部脚本、CDN、JS hydration、纯 loading shell 或空 body 的页面，DUDesign 仍可能把它当作成功 artifact。
+
+### 治理方向
+
+- 在 artifact bridge 增加质量检查：
+  - HTML 是否完整。
+  - body 是否有可见内容。
+  - 是否依赖外部 script/CDN 才能渲染。
+  - 是否存在 loading-only/root-only shell。
+  - 后续通过 Playwright screenshot 做全黑/空白像素检查。
+- 对不合格 artifact 输出 runtime warning 或 failed/degraded 状态，并生成可读修复提示。
+- 近实时 workspace watch 输出 `file_delta/workspace_dirty` 时，也应携带 artifact quality 摘要，方便用户端解释当前状态。
+
+### 下一步
+
+- 先完成用户端 Activity Stream，让用户知道每个 variation agent 的动作。
+- 再实现最小 HTML 静态质量检查，阻止明显空壳/外部脚本依赖页面被标记为高质量预览。
+
+## 2026-06-29 M25.7 Minimal Artifact Quality Gate
+
+### 已完成
+
+- API artifact bridge 增加最小静态 HTML 质量检查。
+- 检查范围包括：
+  - HTML 是否完整。
+  - body 是否为空。
+  - 是否缺少可见内容和基本页面结构。
+  - 是否是 `#root/#app` hydration-only 空壳。
+  - 是否是 loading-only shell。
+  - 是否依赖外部 script / stylesheet。
+  - 是否存在黑屏风险。
+- 质量结果写入 artifact metadata：
+  - `quality.status`
+  - `quality.issues`
+- 对 warn/fail 结果发布 `design.runtime_warning`，并带上 `jobId/variationId`，保证 SSE replay 和用户端 Activity Stream 可见。
+- `GET /api/design-jobs/:id` 现在返回 artifact quality 摘要，支持结果墙直接标记问题预览。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm test`
+
+### 下一步
+
+- 将 Playwright screenshot pixel gate 池化或拆到 preview quality worker，避免生成链路被浏览器启动成本拖慢。
+- 在 staging/prod 需要渲染级检查时显式启用 `DUDESIGN_ARTIFACT_PIXEL_GATE=1`。
+
+## 2026-06-29 M25.8 Real Runtime Contract Golden And Variation Style Injection
+
+### 已完成
+
+- 将 `BabelONexusEventAdapter` golden replay 从概念事件扩展为贴近真实 BabeL-O `/v1/execute` 的事件基线：
+  - `variation_code_delta`
+  - `file_delta`
+  - `workspace_dirty_detected` 多文件 artifact bundle
+  - `result` 最终 artifact bundle
+  - resume transcript 中的未知漂移事件
+- 确认未知 BabeL-O event drift 只归一化为 `design.runtime_warning`，不会泄露私有事件，也不会破坏 DUDesign 标准事件流。
+- `BabelORuntimeClient.spawnVariationAgent()` 在 Gateway 层注入 per-variation style directive：
+  - variation index/count
+  - 确定性风格方向
+  - 用户 style tags 的解释约束
+  - 静态 artifact bundle 约束
+- 每个 variation 请求继续保持独立 runtime workspace root，同时 prompt 与 `templateRequirements.variationStyleDirection` 也具备差异化。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 风格差异化放在 Runtime Gateway 层实现，业务 API 仍只表达用户需求和模板偏好，避免用户端绑定 BabeL-O 内部 prompt 结构。
+- Golden replay 覆盖的是 DUDesign 标准事件稳定性；真实 BabeL-O 新事件可以先降级为 warning，再按需要升级 adapter 映射。
+
+### 下一步
+
+- 在 staging 真实 3/6 variation 并发任务中观察差异化 prompt 的产物质量。
+- 继续推进 artifact quality gate，避免真实内核生成黑屏、空壳或强依赖外部脚本的 artifact 被当成高质量结果。
+
+## 2026-06-29 M25.9 Staging Multi-Variation BabeL-O Smoke
+
+### 已完成
+
+- `deploy/staging/scripts/smoke-babelo-prompt-remote.sh` 支持参数化 variation 数量：
+  - `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=1..6`
+  - 默认仍为 1，避免常规 smoke 成本突然放大。
+- 真实 BabeL-O prompt smoke 现在会校验：
+  - job 完成。
+  - variation 数量等于期望值。
+  - 每个 variation 状态为 `completed`。
+  - 每个 variation 有 preview URL。
+  - 每个 variation 都有 HTML artifact。
+  - HTML artifact quality 不能是 `fail`。
+  - 每个 variation preview 都不是 mock/fallback HTML。
+- 已在 staging 真实运行 3 variation 并发 smoke：
+  - `job_83409a0c75fc4c9a`
+  - `variations=3`
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-babelo-prompt-remote.sh deploy/staging/scripts/smoke-remote.sh`
+- `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=3 DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS=420 deploy/staging/scripts/smoke-babelo-prompt-remote.sh`
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- `npm test`
+
+### 决策
+
+- 常规 staging smoke 继续默认 1 variation；需要验证并发时通过环境变量提升到 3 或 6，避免每次部署都触发高成本真实内核运行。
+- 质量门禁先以静态 HTML 检查阻断明显不合格 artifact；真实渲染级别的全黑/空白判断进入下一阶段 Playwright pixel gate。
+
+### 下一步
+
+- 在预算允许时运行一次 `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=6`，作为 6 variation 上限验证。
+- 将 staging smoke 的 variation count、quality status、runtime cost 输出为结构化摘要，方便管理端和部署日志追踪。
+
+## 2026-06-29 M25.10 Playwright Pixel Quality Gate And 6-Way Limit Probe
+
+### 已完成
+
+- 新增 `apps/api/src/artifactQuality.ts`，将 artifact quality 分为两层：
+  - 默认静态 HTML 检查。
+  - 可选 Playwright screenshot pixel gate。
+- Pixel gate 通过 `DUDESIGN_ARTIFACT_PIXEL_GATE=1` 开启，默认关闭。
+- Pixel gate 渲染 HTML 后截图，并解析 PNG 像素：
+  - 识别透明/黑/白占比过高。
+  - 识别极低视觉变化。
+  - 将真实渲染全黑/全白/空白页升级为 `quality.status=fail`。
+- API 测试增加 pixel gate smoke，确认 visually blank HTML 会被标记为 fail。
+- Staging API 镜像安装 Playwright Chromium，保证启用 pixel gate 时容器内可运行浏览器。
+- Staging 多变体 smoke 增加 HTTP 429 限流诊断。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+
+### Staging 6 路验证结果
+
+- 执行：
+  - `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=6`
+  - `DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS=720`
+- 结果：失败。
+- 失败 job：
+  - `job_e8de4b0def4b4253`
+- 失败原因：
+  - Variation 02 和 Variation 06 收到 `ADAPTER_STREAM_FAILED`。
+  - BabeL-O Nexus 对 `/v1/execute` 返回 HTTP 429。
+- 结论：
+  - 当前 staging 真实 provider/runtime 能稳定通过 3 variation 并发。
+  - 6 variation 上限验证暴露 provider/runtime 并发限流，需要 Runtime Gateway 增加 concurrency throttle 或 retry/backoff 后再作为稳定验收。
+
+### 决策
+
+- 不把 6 variation 429 视为 artifact bridge 或 workspace isolation 回归；它属于真实 runtime/provider capacity 边界。
+- Pixel gate 默认关闭，避免每次 artifact materialize 都启动浏览器；需要强质量验收的 staging/prod 环境显式开启。
+
+### 下一步
+
+- 为 Babel-O runtime gateway 增加并发上限配置，例如 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=3`。
+- 对 HTTP 429 增加 retry/backoff，并在用户端展示“runtime capacity limited”的可理解状态。
+- 将 pixel gate 的浏览器启动改为复用 browser instance 或独立 worker。
+
+## 2026-06-29 M25.11 BabeL-O Subagent Review And Capacity Control
+
+### 已完成
+
+- 检查 BabeL-O 内核 subagent/agent scheduler 能力：
+  - `ExploreAgentScheduler` 会创建 child session、parent-child channel 和 agent job。
+  - 默认 `maxConcurrentAgents=4`。
+  - 支持 `/v1/agents`、`/v1/agents/:jobId/wait`、`/v1/agents/:jobId/cancel`、transcript 读取。
+  - 超出 scheduler 容量时返回 `AGENT_SCHEDULER_CAPACITY_EXCEEDED` / HTTP 429。
+- 确认当前 BabeL-O scheduler 主要面向 `explore`、`review`、`test`：
+  - 默认工具偏只读/验证。
+  - `implement/debug/general` 仅在类型层预留，当前 scheduler 会拒绝。
+  - 该能力不适合作为 DUDesign HTML variation 生成的直接执行器。
+- 确认 DUDesign 当前真实生成链路：
+  - DUDesign Gateway 负责 fan-out variation。
+  - Runtime adapter 对上游暴露 DUDesign 语义的 `/v1/agents`。
+  - Adapter 内部最终调用 raw BabeL-O `/v1/execute`。
+  - raw `/v1/execute` 共享 BabeL-O `ExecutionGate`，容量满时返回 `EXECUTION_BUSY` / HTTP 429。
+- 新增 `BabelORuntimeGateway` variation 并发阀：
+  - 支持构造参数 `variationConcurrency`。
+  - 支持环境变量 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY`。
+  - 默认保持原行为，不主动限流。
+- 新增 runtime adapter 对 raw BabeL-O `/v1/execute` 的 HTTP 429 retry/backoff：
+  - 仅包裹 execute 数据面调用，不影响 session/cancel 等控制面 API。
+  - 默认最多重试 2 次。
+  - 支持 `RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS`。
+  - 支持 `RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS`。
+
+### 验证
+
+- 新增 Gateway 单测：4 个 variation、并发阀为 2 时，最大活跃 stream 不超过 2，最终 4 个 variation 均完成。
+- 新增 runtime adapter 单测：raw Nexus 第一次 `/v1/execute` 返回 429，adapter 退避后重试成功并输出 result。
+
+### 决策
+
+- 短期不直接复用 BabeL-O 内部 subagent scheduler 做 DUDesign 多变体生成。
+- 短期由 DUDesign Gateway 管 variation 级并发，由 runtime adapter 处理 raw `/v1/execute` 的瞬时容量退避。
+- 中期如果要利用 BabeL-O subagent，需要 BabeL-O 提供稳定 contract：
+  - `dudesign-html-generation` 或可用 `implement` profile。
+  - 受控写入工具权限。
+  - queue mode，而不是容量满时直接 429。
+  - artifact bundle 输出契约。
+  - contract manifest 声明 `supportsAgentScheduler`、`supportedAgentProfiles`、`maxConcurrentAgents`、`queueMode`。
+
+### 下一步
+
+- 在 staging 设置 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=3` 后重新运行 6 variation smoke。
+- 根据 6 variation 结果决定是否将 staging/prod 默认并发固定为 3，或按模型服务配置差异化并发。
+- 将 runtime capacity limited 状态进一步透出到用户端 Activity Stream 和管理端 runtime health/metrics。

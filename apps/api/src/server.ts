@@ -59,6 +59,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'POST' && url.pathname === '/api/source-artifacts') {
+    sendJson(res, 201, await service.createSourceArtifact(ctx, await readJson(req)))
+    return
+  }
+
   if (method === 'GET' && url.pathname === '/api/admin/runtime/health') {
     sendJson(res, 200, await service.getAdminRuntimeHealth(ctx))
     return
@@ -120,6 +125,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (method === 'GET' && url.pathname === '/api/admin/support/users') {
     sendJson(res, 200, await service.getAdminUserSupport(ctx, {
+      userId: url.searchParams.get('userId'),
+      email: url.searchParams.get('email'),
+    }))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/admin/memory') {
+    sendJson(res, 200, await service.getAdminMemoryGovernance(ctx, {
       userId: url.searchParams.get('userId'),
       email: url.searchParams.get('email'),
     }))
@@ -195,6 +208,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const variationScreenshotMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/screenshots\/([^/]+)$/)
+  if (method === 'GET' && variationScreenshotMatch) {
+    const screenshot = await service.getVariationScreenshot(
+      ctx,
+      decodeURIComponent(variationScreenshotMatch[1]!),
+      decodeURIComponent(variationScreenshotMatch[2]!),
+    )
+    sendAsset(res, 200, screenshot, 'private, max-age=300')
+    return
+  }
+
   const variationRefineMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine$/)
   if (method === 'POST' && variationRefineMatch) {
     sendJson(res, 200, await service.refineVariation(ctx, decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
@@ -204,6 +228,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const variationAnnotationMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/annotations$/)
   if (method === 'POST' && variationAnnotationMatch) {
     sendJson(res, 200, await service.annotateVariation(ctx, decodeURIComponent(variationAnnotationMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const variationRestoreMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/versions\/([^/]+)\/restore$/)
+  if (method === 'POST' && variationRestoreMatch) {
+    sendJson(res, 200, await service.restoreVariationVersion(
+      ctx,
+      decodeURIComponent(variationRestoreMatch[1]!),
+      decodeURIComponent(variationRestoreMatch[2]!),
+    ))
     return
   }
 

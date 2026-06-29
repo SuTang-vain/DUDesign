@@ -29,6 +29,8 @@ COPY --from=build /app ./
 RUN mkdir -p /app/.dudesign/artifacts
 
 FROM runtime AS api
+ARG INSTALL_PLAYWRIGHT_DEPS=false
+RUN if [ "$INSTALL_PLAYWRIGHT_DEPS" = "true" ]; then npx playwright install --with-deps chromium; fi
 EXPOSE 4000
 CMD ["npm", "--workspace", "@dudesign/api", "run", "start"]
 
