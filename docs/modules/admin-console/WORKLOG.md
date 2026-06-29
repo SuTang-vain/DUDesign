@@ -213,3 +213,25 @@
 - 增加模型治理管理端 E2E。
 - 在真实 RBAC 接入后拆分 support/operator/developer 对模型治理字段的权限。
 - 后续补模型成本按时间范围、workspace、model 的聚合过滤。
+
+## 2026-06-28 ADM-M5.1 Model Discovery Planning
+
+### 现状确认
+
+- 当前 Model Services 面板展示的是 DUDesign 后端 `model_services` 治理配置。
+- 现有 `BabeL-O Default`、`BabeL-O Fast`、`Mock Design Runtime` 来自 seed/config，并不是从 BabeL-O 或模型供应商动态发现的真实模型列表。
+- `Refresh models` 当前语义是重新读取 Admin API 的模型治理表，不会触发 runtime/provider 模型同步。
+
+### 规划调整
+
+- Model Services 后续需要同时展示两类信息：
+  - DUDesign 治理配置：enabled/default、用户访问权限、限额、成本配置。
+  - 真实模型发现结果：runtime/provider 返回的 model id、上下文窗口、能力、价格、可用状态、最近同步时间。
+- 管理端需要把 `source` 显示出来，避免把 seed/config 模型误认为真实 provider 模型。
+- `Refresh models` 后续应升级为显式同步动作，调用 Admin API 触发 runtime/provider discovery，并写入 audit log。
+
+### 下一步
+
+- 等后端提供 `/api/admin/models/sync` 后，把按钮语义从本地 refresh 改成同步真实模型。
+- 在模型行中展示 `source`、`lastSyncedAt`、`runtimeStatus`、`drift`。
+- 增加模型同步成功、失败、权限不足的管理端 E2E。

@@ -55,12 +55,19 @@
 - [x] 实现 variation generation grid。
 - [x] 展示 queued、running、streaming、rendering_preview、completed、failed、cancelled 状态。
 - [x] 展示每个 variation 的流式摘要、token、成本估算。
+- [x] 在 preview 尚未 ready 时，卡片内展示 per-variation `index.html` 代码流。
+- [x] preview ready 后保留轻量 code trace，方便用户确认刚才的生成过程。
+- [x] 支持 Code / Preview 手动切换，允许用户在结果墙阶段展开查看完整代码。
+- [x] Code 视图支持多文件列表，覆盖 `index.html`、`styles.css`、`script.js`、`assets.json`。
+- [ ] 对长代码流做更严格的虚拟滚动或 tail buffer 策略。
 - [x] 支持单个 variation 先完成先预览。
 - [ ] 支持 job 失败和部分失败状态。
 
 验收：
 
 - 3 个和 6 个 variation 的 mock stream 都能正确渲染。
+- 每个 variation 的代码流只显示自身内容，不和其他 variation 混流。
+- 代码展示作为文本渲染，不执行生成代码；真实预览继续使用 sandbox iframe。
 - 单个 variation 失败不阻断其他 variation 的结果展示。
 
 ## Phase UX-4：结果墙
@@ -81,6 +88,7 @@
 
 - [x] 实现 `DevicePreviewFrame`，支持 Desktop、Tablet、Mobile。
 - [x] 实现 iframe sandbox preview。
+- [x] 支持 Preview / Code 切换，Code 视图可从当前 artifact 恢复文件内容。
 - [x] 实现 refine panel。
 - [x] 实现 artifact version menu。
 - [ ] 实现 cost/runtime summary panel。

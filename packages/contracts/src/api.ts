@@ -184,6 +184,22 @@ export type VariationDetailResponse = {
   }>
 }
 
+export type VariationFilesResponse = {
+  artifact: {
+    id: ID
+    version: number
+    entryPath: string | null
+    createdAt: string
+  }
+  files: Array<{
+    path: string
+    language: 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text'
+    content: string
+    artifactId: ID
+    kind: 'html' | 'asset'
+  }>
+}
+
 export type AnnotationShape =
   | {
       type: 'rect'

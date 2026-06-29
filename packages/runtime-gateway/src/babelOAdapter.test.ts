@@ -32,6 +32,13 @@ describe('BabelONexusEventAdapter', () => {
         timestamp: '2026-06-27T00:00:02.000Z',
       },
       {
+        type: 'code_delta',
+        path: 'index.html',
+        delta: '<main>',
+        sequence: 1,
+        timestamp: '2026-06-27T00:00:02.500Z',
+      },
+      {
         type: 'workspace_dirty',
         artifactId: 'art_runtime_1',
         path: 'index.html',
@@ -79,6 +86,7 @@ describe('BabelONexusEventAdapter', () => {
       'design.session_started',
       'design.variation_streaming',
       'design.variation_streaming',
+      'design.variation_code_delta',
       'design.variation_artifact_updated',
       'design.permission_required',
       'design.variation_completed',
@@ -88,15 +96,18 @@ describe('BabelONexusEventAdapter', () => {
     assert.equal(asEvent(output[0], 'design.session_started').payload.runtimeSessionRef, 'runtime_ses_1')
     assert.equal(asEvent(output[1], 'design.variation_streaming').payload.channel, 'assistant')
     assert.equal(asEvent(output[2], 'design.variation_streaming').payload.channel, 'thinking')
-    assert.deepEqual(asEvent(output[3], 'design.variation_artifact_updated').payload.changedPaths, ['index.html'])
-    assert.equal(asEvent(output[4], 'design.permission_required').payload.permissionRequestId, 'perm_1')
-    assert.equal(asEvent(output[5], 'design.variation_completed').payload.artifactId, 'art_runtime_1')
-    assert.equal(asEvent(output[5], 'design.variation_completed').payload.entryPath, 'index.html')
-    assert.match(asEvent(output[5], 'design.variation_completed').payload.html ?? '', /Runtime HTML/)
-    assert.equal(asEvent(output[5], 'design.variation_completed').payload.files?.length, 2)
-    assert.equal(asEvent(output[6], 'design.variation_failed').payload.errorCode, 'RUNTIME_TIMEOUT')
-    assert.equal(asEvent(output[6], 'design.variation_failed').payload.recoverable, true)
-    assert.equal(asEvent(output[7], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
+    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.path, 'index.html')
+    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.language, 'html')
+    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.sequence, 1)
+    assert.deepEqual(asEvent(output[4], 'design.variation_artifact_updated').payload.changedPaths, ['index.html'])
+    assert.equal(asEvent(output[5], 'design.permission_required').payload.permissionRequestId, 'perm_1')
+    assert.equal(asEvent(output[6], 'design.variation_completed').payload.artifactId, 'art_runtime_1')
+    assert.equal(asEvent(output[6], 'design.variation_completed').payload.entryPath, 'index.html')
+    assert.match(asEvent(output[6], 'design.variation_completed').payload.html ?? '', /Runtime HTML/)
+    assert.equal(asEvent(output[6], 'design.variation_completed').payload.files?.length, 2)
+    assert.equal(asEvent(output[7], 'design.variation_failed').payload.errorCode, 'RUNTIME_TIMEOUT')
+    assert.equal(asEvent(output[7], 'design.variation_failed').payload.recoverable, true)
+    assert.equal(asEvent(output[8], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
     assert.ok(output.every(event => event.sessionId === context.sessionId))
     assert.ok(output.every(event => event.jobId === context.jobId))
     assert.ok(output.every(event => event.variationId === context.variationId))

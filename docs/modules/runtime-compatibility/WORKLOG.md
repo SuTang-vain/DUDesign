@@ -1006,3 +1006,158 @@
 - 补齐真实 runtime contract tests，把当前 staging 通过的事件流固化为 golden baseline。
 - 注入 variation index 和风格差异 prompt，验证 3/6 variation 真实并发。
 - 继续收紧 workspace root 与 symlink escape 安全策略。
+
+## 2026-06-28 M25.1 Runtime Model Discovery Planning
+
+### 现状确认
+
+- Runtime Adapter 目前已经支持 health、contract、session、agent、stream、cancel、artifact bridge。
+- 模型上下文已经可以从 DUDesign 业务服务层传到 adapter，再透传/注入给 BabeL-O。
+- 但 adapter 尚未提供真实模型发现能力，无法确认 `babel-o-default`、`babel-o-fast` 是否对应 BabeL-O/provider 当前可用模型。
+
+### 规划调整
+
+- 在 Runtime Compatibility Layer 增加模型发现 contract：
+  - 首选 adapter 暴露 `GET /v1/models`。
+  - 如果 raw BabeL-O 后续有自身模型列表端点，adapter 做归一化透出。
+  - 如果 raw BabeL-O 不支持，adapter 可从受控配置读取 provider/model metadata，并返回 `source=config`。
+- 归一化字段建议：
+  - `runtimeModelId`
+  - `provider`
+  - `providerModelId`
+  - `displayName`
+  - `capabilities`
+  - `contextWindow`
+  - `inputTokenCostCents`
+  - `outputTokenCostCents`
+  - `status`
+  - `source`
+  - `raw`
+
+### 待实现
+
+- 扩展 runtime contract manifest，声明是否支持 model discovery。
+- 为 `GET /v1/models` 增加 adapter 单元测试和 staging smoke。
+- 在不支持发现时返回明确 unsupported/degraded，而不是伪造真实 provider 列表。
+
+## 2026-06-28 M25.3 Parallel Variation Workspace Isolation
+
+### 问题定位
+
+- 远端最新复杂生成任务 `job_939cc3306a254ecd` 出现 4 个 variation 中 1 个成功、3 个失败。
+- BabeL-O Nexus SQLite 事件显示失败原因为 `Execution timed out.`，运行窗口约 5 分钟。
+- 失败前模型持续修复同一个 `/workspace/workspaces/ws_dev/index.html`，并在结果摘要中提到文件内容被混合、旧内容残留、需要 clean rewrite。
+- 根因是并行 variation 共用同一个 runtime session/workspace/output path，多个执行流竞争写 `index.html`。
+
+### 已完成
+
+- Gateway 在 `spawnVariationAgent()` 时为每个 variation 派生独立 runtime workspace root：
+  - `workspaceRoot/runtime-jobs/{jobId}/variation_01`
+  - `workspaceRoot/runtime-jobs/{jobId}/variation_02`
+  - 以此类推。
+- Runtime Adapter 在 spawn 模式下为每个 variation workspace 创建独立 BabeL-O runtime session。
+- Runtime Adapter 会在执行前创建 variation workspace 目录。
+- 保留 DUDesign 业务层 workspace/artifact 模型不变，隔离只发生在 runtime 执行目录。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 决策
+
+- 并行生成不能依赖同一个 runtime cwd 写同名 `index.html`。
+- Refine 仍绑定单个 variation 的 runtime session/context，不走并行 workspace 派生。
+- 远端服务器只有重新部署包含该源码的版本后，才会应用这项隔离修复。
+
+## 2026-06-28 M25.2 Variation Code Delta Contract
+
+### 已完成
+
+- DUDesign 标准事件契约新增 `design.variation_code_delta`：
+  - `path`
+  - `language`
+  - `delta`
+  - `sequence`
+  - `isFinal`
+- `BabelONexusEventAdapter` 支持将 `code_delta` / `file_delta` 归一化为 `design.variation_code_delta`。
+- `MockRuntimeGateway` 在每个 variation 生成期间输出 `index.html` 分段代码流，用于用户端 UX-M1 可视化和浏览器 E2E。
+- runtime contract mapping 允许声明：
+  - `code_delta -> design.variation_code_delta`
+  - `file_delta -> design.variation_code_delta`
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 决策
+
+- `design.variation_streaming` 继续表示 assistant/thinking/tool/system 日志。
+- `design.variation_code_delta` 专门表示可展示为文件内容的代码增量，避免把日志误认为最终文件。
+- 旧 BabeL-O 版本只输出 `workspace_dirty/result` 时仍按原 artifact bridge 工作；`code_delta` 是增强能力，不是硬依赖。
+
+### 下一步
+
+- 在 runtime adapter service 中把真实 workspace 文件变化拆成近实时 `code_delta`。
+- 增加 contract test：缺少 `code_delta` 能力时前端仍能展示 preview，存在能力时 card 内显示真实文件代码。
+- 评估是否增加 `design.variation_file_snapshot`，用于 resume 后恢复完整代码窗口。
+
+## 2026-06-28 M25.4 Runtime Adapter Final File Delta
+
+### 已完成
+
+- Runtime Adapter contract 增加 `file_delta -> design.variation_code_delta` 映射声明。
+- `/v1/stream` 在读取最终 workspace artifact 后、输出 `result` 前，先输出一条 `file_delta`：
+  - `path`
+  - `language`
+  - `delta`
+  - `sequence`
+  - `isFinal`
+- Adapter 测试覆盖：
+  - `/v1/contract` 声明 `file_delta`。
+  - stream 输出中包含 `file_delta` 和 `index.html`。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 决策
+
+- 本轮先接“最终文件 delta”，让真实 BabeL-O 链路可进入用户端 Code tab。
+- 近实时文件变化仍需要后续基于 raw Nexus transcript/workspace watch 或更细粒度事件能力实现。
+- `file_delta` 不替代 `result`；`result` 仍是 artifact bridge 的最终产物事实来源。
+
+### 下一步
+
+- 为 Runtime Adapter 增加 workspace watch 或 polling 策略，在执行期间发现 `index.html` 变化就输出增量 `file_delta`。
+- 增加 sequence/cursor 持久化，支持 adapter 重启后避免重复发送大段代码。
+
+## 2026-06-28 M25.5 Runtime Adapter Multi-file Delta
+
+### 已完成
+
+- Runtime Adapter 的 artifact reader 从单一 `index.html` 扩展为常见 bundle 文件：
+  - `index.html`
+  - `styles.css`
+  - `script.js`
+  - `assets.json`
+  - `dist/*` 同名文件
+- `/v1/stream` 会为读取到的每个文件输出一条 `file_delta`，再输出最终 `result`。
+- `languageForPath()` 支持 `json`，便于前端正确标识 assets manifest。
+- Adapter 测试覆盖 `styles.css`、`script.js`、`assets.json` 的 stream 输出。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm test`
+
+### 决策
+
+- `result.html` 仍只承载入口 HTML；多文件展示依赖 `file_delta`。
+- 当前只读取受控候选文件，不扫描整个 workspace，先降低 path/security 风险。
+
+### 下一步
+
+- 将候选文件列表升级为 artifact manifest 或安全目录扫描。
+- 对 CSS/JS/assets 与 API artifact asset serving 的版本关系做一次端到端校验。

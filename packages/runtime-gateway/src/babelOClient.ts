@@ -240,6 +240,7 @@ export class BabelORuntimeClient {
   }
 
   async spawnVariationAgent(input: SpawnVariationAgentsInput & { variationIndex: number }): Promise<BabelORuntimeAgentResponse> {
+    const variationRuntimeWorkspaceRoot = runtimeVariationWorkspaceRoot(input.workspaceRoot, input.jobId, input.variationIndex)
     return this.requestJson<BabelORuntimeAgentResponse>('/v1/agents', {
       method: 'POST',
       body: {
@@ -252,7 +253,8 @@ export class BabelORuntimeClient {
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
         variationIndex: input.variationIndex,
-        workspaceRoot: input.workspaceRoot,
+        workspaceRoot: variationRuntimeWorkspaceRoot,
+        parentWorkspaceRoot: input.workspaceRoot,
         memoryNamespace: input.memoryNamespace,
         modelServiceId: input.modelServiceId ?? null,
         modelId: input.modelId ?? null,
@@ -436,6 +438,18 @@ export class BabelORuntimeClient {
   }
 }
 
+export function runtimeVariationWorkspaceRoot(workspaceRoot: string, jobId: string, variationIndex: number): string {
+  const normalizedRoot = workspaceRoot.replace(/\/+$/, '')
+  const safeJobId = pathSegment(jobId)
+  const safeVariation = `variation_${String(variationIndex).padStart(2, '0')}`
+  return `${normalizedRoot}/runtime-jobs/${safeJobId}/${safeVariation}`
+}
+
+function pathSegment(value: string): string {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9_-]/g, '_')
+  return normalized.length > 0 ? normalized : 'unknown'
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }
@@ -475,6 +489,7 @@ function isDesignEventType(value: unknown): value is RuntimeContract['eventMappi
     value === 'design.job_started' ||
     value === 'design.variation_queued' ||
     value === 'design.variation_streaming' ||
+    value === 'design.variation_code_delta' ||
     value === 'design.variation_artifact_updated' ||
     value === 'design.variation_preview_ready' ||
     value === 'design.variation_completed' ||

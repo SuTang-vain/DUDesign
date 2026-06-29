@@ -16,6 +16,16 @@ export type BabelONexusEvent =
       timestamp?: string
     }
   | {
+      type: 'code_delta' | 'file_delta'
+      path?: string
+      language?: string
+      delta?: string
+      text?: string
+      sequence?: number
+      isFinal?: boolean
+      timestamp?: string
+    }
+  | {
       type: 'workspace_dirty' | 'workspace_dirty_detected'
       artifactId?: string
       entryPath?: string
@@ -102,6 +112,19 @@ export class BabelONexusEventAdapter {
             delta: optionalString(raw.delta) ?? optionalString(raw.text) ?? '',
           },
         })
+      case 'code_delta':
+      case 'file_delta':
+        return createDesignEvent({
+          ...base,
+          type: 'design.variation_code_delta',
+          payload: {
+            path: optionalString(raw.path) ?? 'index.html',
+            language: language(raw.language) ?? languageForPath(optionalString(raw.path)) ?? 'text',
+            delta: optionalString(raw.delta) ?? optionalString(raw.text) ?? '',
+            sequence: optionalNumber(raw.sequence) ?? 0,
+            isFinal: optionalBoolean(raw.isFinal),
+          },
+        })
       case 'workspace_dirty':
       case 'workspace_dirty_detected':
         return createDesignEvent({
@@ -184,6 +207,22 @@ function stringArray(value: unknown): string[] | undefined {
 
 function channel(value: unknown): 'assistant' | 'thinking' | 'tool' | 'system' | undefined {
   return value === 'assistant' || value === 'thinking' || value === 'tool' || value === 'system' ? value : undefined
+}
+
+function language(value: unknown): 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text' | undefined {
+  return value === 'html' || value === 'css' || value === 'javascript' || value === 'typescript' || value === 'json' || value === 'text'
+    ? value
+    : undefined
+}
+
+function languageForPath(path: string | undefined): 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text' | undefined {
+  if (!path) return undefined
+  if (path.endsWith('.html') || path.endsWith('.htm')) return 'html'
+  if (path.endsWith('.css')) return 'css'
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'javascript'
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript'
+  if (path.endsWith('.json')) return 'json'
+  return 'text'
 }
 
 function risk(value: unknown): 'read' | 'write' | 'execute' | 'task' | undefined {

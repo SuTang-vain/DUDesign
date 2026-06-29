@@ -368,6 +368,58 @@ export class ApplicationService {
     }
   }
 
+  async getVariationFiles(ctx: RequestContext, variationId: string, options: { artifactId?: string | null } = {}) {
+    const snapshot = options.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId)
+    if (snapshot.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    const htmlArtifact = snapshot.artifact
+    if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
+    if (htmlArtifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation files can only be read from HTML artifacts.')
+    const files: Array<{
+      path: string
+      language: 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text'
+      content: string
+      artifactId: string
+      kind: 'html' | 'asset'
+    }> = [
+      {
+        path: htmlArtifact.entryPath ?? 'index.html',
+        language: languageForPath(htmlArtifact.entryPath ?? 'index.html'),
+        content: await this.readArtifactHtml(htmlArtifact.storageKey),
+        artifactId: htmlArtifact.id,
+        kind: 'html' as const,
+      },
+    ]
+    const assets = await this.store.getVariationAssetArtifacts(variationId, htmlArtifact.id)
+    for (const asset of assets) {
+      if (!asset.entryPath) continue
+      if (!isCodeFilePath(asset.entryPath)) continue
+      const stored = await this.artifacts.get(asset.storageKey)
+      files.push({
+        path: asset.entryPath,
+        language: languageForPath(asset.entryPath),
+        content: new TextDecoder().decode(stored.body),
+        artifactId: asset.id,
+        kind: 'asset' as const,
+      })
+    }
+    return {
+      artifact: {
+        id: htmlArtifact.id,
+        version: htmlArtifact.version,
+        entryPath: htmlArtifact.entryPath,
+        createdAt: htmlArtifact.createdAt,
+      },
+      files: files.sort((a, b) => fileSortKey(a.path).localeCompare(fileSortKey(b.path))),
+    }
+  }
+
   async getSharedVariationAsset(token: string, assetPath: string): Promise<{
     contentType: string
     body: Uint8Array
@@ -1442,6 +1494,23 @@ function contentTypeForPath(path: string): string {
   if (path.endsWith('.png')) return 'image/png'
   if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg'
   return 'application/octet-stream'
+}
+
+function languageForPath(path: string): 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text' {
+  if (path.endsWith('.html') || path.endsWith('.htm')) return 'html'
+  if (path.endsWith('.css')) return 'css'
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'javascript'
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript'
+  if (path.endsWith('.json')) return 'json'
+  return 'text'
+}
+
+function fileSortKey(path: string): string {
+  return path === 'index.html' ? `0:${path}` : `1:${path}`
+}
+
+function isCodeFilePath(path: string): boolean {
+  return /\.(html?|css|m?js|tsx?|json|txt|md)$/i.test(path)
 }
 
 function stablePathId(path: string): string {

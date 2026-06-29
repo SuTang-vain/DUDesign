@@ -52,6 +52,8 @@ export class MockRuntimeGateway implements RuntimeGateway {
       eventMappings: {
         session_started: 'design.session_started',
         assistant_delta: 'design.variation_streaming',
+        code_delta: 'design.variation_code_delta',
+        file_delta: 'design.variation_code_delta',
         workspace_dirty: 'design.variation_artifact_updated',
         workspace_dirty_detected: 'design.variation_artifact_updated',
         result: 'design.variation_completed',
@@ -107,6 +109,23 @@ export class MockRuntimeGateway implements RuntimeGateway {
           delta: `Creating variation ${index} for: ${input.prompt}`,
         },
       })
+      const files = mockGeneratedFiles(index, input.prompt)
+      for (const file of files) {
+        yield createDesignEvent({
+          type: 'design.variation_code_delta',
+          sessionId: input.sessionId,
+          jobId: input.jobId,
+          variationId,
+          payload: {
+            path: file.path,
+            language: file.language,
+            delta: file.content,
+            sequence: 1,
+            isFinal: true,
+          },
+        })
+        await delay(35)
+      }
       yield createDesignEvent({
         type: 'design.variation_preview_ready',
         sessionId: input.sessionId,
@@ -180,4 +199,70 @@ export class MockRuntimeGateway implements RuntimeGateway {
 	      failedVariationCount: 0,
 	    }
 	  }
+}
+
+function mockGeneratedFiles(
+  index: number,
+  prompt: string,
+): Array<{ path: string; language: 'html' | 'css' | 'javascript' | 'json'; content: string }> {
+  const accent = ['#4f46e5', '#dc2626', '#0891b2', '#c2410c', '#111827', '#65a30d'][index - 1] ?? '#4f46e5'
+  const title = prompt.length > 52 ? `${prompt.slice(0, 52)}...` : prompt
+  return [
+    {
+      path: 'index.html',
+      language: 'html',
+      content: [
+        '<!doctype html>',
+        '<html lang="en">',
+        '<head>',
+        '  <meta charset="utf-8" />',
+        `  <title>Variation ${String(index).padStart(2, '0')}</title>`,
+        '  <link rel="stylesheet" href="./styles.css" />',
+        '</head>',
+        '<body>',
+        '  <main class="hero">',
+        `    <h1>${escapeHtml(title)}</h1>`,
+        `    <p>Generated direction ${index} for DUDesign.</p>`,
+        '  </main>',
+        '  <script src="./script.js"></script>',
+        '</body>',
+        '</html>',
+        '',
+      ].join('\n'),
+    },
+    {
+      path: 'styles.css',
+      language: 'css',
+      content: [
+        `:root { --accent: ${accent}; }`,
+        'body { margin: 0; font-family: Inter, sans-serif; background: #fffefa; }',
+        '.hero { min-height: 100vh; display: grid; place-items: center; padding: 48px; }',
+        '.hero h1 { max-width: 760px; color: var(--accent); }',
+        '',
+      ].join('\n'),
+    },
+    {
+      path: 'script.js',
+      language: 'javascript',
+      content: `document.documentElement.dataset.variation = "${index}";\n`,
+    },
+    {
+      path: 'assets.json',
+      language: 'json',
+      content: JSON.stringify({ entry: 'index.html', styles: ['styles.css'], scripts: ['script.js'] }, null, 2),
+    },
+  ]
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }

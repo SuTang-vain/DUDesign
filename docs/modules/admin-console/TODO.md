@@ -76,6 +76,10 @@
 - [x] 支持设置默认模型。
 - [x] 支持查看和调整单用户模型访问权限。
 - [x] 展示单用户按模型的使用摘要。
+- [ ] 在 Model Services 中明确标识 `source=seed/config/runtime_discovery/provider_discovery`。
+- [ ] 支持管理员触发模型发现同步 `Refresh models`，而不是只刷新当前治理表。
+- [ ] 展示模型发现差异：新增、缺失、已停用、成本/上下文窗口变化。
+- [ ] 展示模型同步审计记录和最近同步时间。
 - [ ] 按 workspace、模型、时间范围筛选成本。
 - [ ] 展示 memory namespace。
 - [ ] 展示 memory hit 和 candidate 状态。

@@ -263,6 +263,7 @@ describe('BabelORuntimeGateway', () => {
 	  })
 
   it('merges variation streams and lets one child fail without stopping the others', async () => {
+    const agentBodies: Array<{ variationIndex: number; workspaceRoot: string; parentWorkspaceRoot?: string }> = []
     const gateway = new BabelORuntimeGateway({
       client: new BabelORuntimeClient({
         baseUrl: 'https://runtime.example.test',
@@ -275,7 +276,8 @@ describe('BabelORuntimeGateway', () => {
             })
           }
           if (href.endsWith('/v1/agents')) {
-            const body = JSON.parse(String(init?.body)) as { variationIndex: number }
+            const body = JSON.parse(String(init?.body)) as { variationIndex: number; workspaceRoot: string; parentWorkspaceRoot?: string }
+            agentBodies.push(body)
             return jsonResponse({
               streamId: `stream_${body.variationIndex}`,
               agentJobId: `agent_${body.variationIndex}`,
@@ -318,6 +320,14 @@ describe('BabelORuntimeGateway', () => {
       completedVariationCount: 1,
       failedVariationCount: 1,
     })
+    assert.deepEqual(agentBodies.map(body => body.workspaceRoot), [
+      'workspaces/workspace_1/runtime-jobs/job_1/variation_01',
+      'workspaces/workspace_1/runtime-jobs/job_1/variation_02',
+    ])
+    assert.deepEqual(agentBodies.map(body => body.parentWorkspaceRoot), [
+      'workspaces/workspace_1',
+      'workspaces/workspace_1',
+    ])
   })
 })
 

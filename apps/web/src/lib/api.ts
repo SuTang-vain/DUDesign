@@ -13,6 +13,7 @@ import type {
   ShareVariationRequest,
   ShareVariationResponse,
   VariationDetailResponse,
+  VariationFilesResponse,
 } from '@dudesign/contracts'
 
 const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_DUDESIGN_API_URL)
@@ -150,6 +151,11 @@ export async function getVariation(variationId: string): Promise<VariationDetail
   return getJson(`/api/variations/${encodeURIComponent(variationId)}`)
 }
 
+export async function getVariationFiles(variationId: string, artifactId?: string | null): Promise<VariationFilesResponse> {
+  const query = artifactId ? `?artifactId=${encodeURIComponent(artifactId)}` : ''
+  return getJson(`/api/variations/${encodeURIComponent(variationId)}/files${query}`)
+}
+
 export async function refineVariation(
   variationId: string,
   input: RefineVariationRequest,
@@ -200,6 +206,7 @@ export function subscribeToJob(
     'design.job_started',
     'design.variation_queued',
     'design.variation_streaming',
+    'design.variation_code_delta',
     'design.variation_artifact_updated',
     'design.variation_preview_ready',
     'design.variation_completed',

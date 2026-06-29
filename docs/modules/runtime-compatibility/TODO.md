@@ -23,6 +23,9 @@
 ## Phase RTC-1：BabeL-O Adapter 基础连接
 
 - [x] 实现 runtime health check。
+- [ ] 定义并实现 runtime model discovery contract：`GET /v1/models` 或等价 adapter 端点。
+- [ ] 从 BabeL-O/provider 真实模型列表归一化为 DUDesign `RuntimeModel`。
+- [ ] 对不支持模型发现的 BabeL-O 版本返回明确 `unsupported`，由业务层保留 seed/config 模型。
 - [x] 实现 `/v1/sessions` 创建。
 - [x] 实现 `/v1/sessions/:id/resume`。
 - [x] 实现 `/v1/stream` 最小 NDJSON/SSE client。
@@ -48,20 +51,26 @@
 
 - [x] 映射 `session_started` -> `design.session_started`。
 - [x] 映射 `assistant_delta` / `thinking_delta` -> `design.variation_streaming`。
+- [x] 映射 `code_delta` / `file_delta` -> `design.variation_code_delta`。
 - [x] 映射 `workspace_dirty` / `workspace_dirty_detected` -> `design.variation_artifact_updated`。
 - [x] 映射 `permission_request` -> `design.permission_required`。
 - [x] 映射 `result` -> `design.variation_completed`。
 - [x] 映射 `error` -> `design.variation_failed`。
 - [x] 对 unknown event 做 debug 记录，不影响主流程。
+- [x] 将真实 Babel-O adapter service 的最终 workspace artifact bundle 输出为多条 `file_delta`。
+- [ ] 将真实 Babel-O adapter service 的 transcript/workspace 文件变化升级为近实时 `code_delta`。
+- [ ] 为 `variation_code_delta` 增加 golden replay 覆盖真实文件增量和恢复场景。
 
 验收：
 
 - 业务服务层不需要判断任何 `NexusEvent.type`。
+- 用户前端不消费 Babel-O 私有代码流事件，只消费 DUDesign 标准事件。
 
 ## Phase RTC-3：并行 Variation Orchestration
 
 - [x] 实现 `spawnVariationAgents` 最小真实 stream 适配。
 - [x] 为每个 variation 创建独立 child session。
+- [x] 为每个并行 variation 派生独立 runtime workspace root，避免多个子任务同时写同一个 `index.html`。
 - [ ] 注入 variation index 和风格差异 prompt。
 - [x] 聚合多个 child session 的事件。
 - [x] 支持单个 child failed，不影响其他 child。
@@ -105,6 +114,7 @@
 
 - [x] 建立 runtime contract manifest 初稿。
 - [ ] 建立 contract tests。
+- [ ] 将 model discovery 能力纳入 contract manifest 和 contract tests。
 - [x] 建立 golden event replay。
 - [x] 建立 mock parallel generation smoke test。
 - [x] 建立 resume smoke test。

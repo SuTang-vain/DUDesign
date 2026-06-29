@@ -1,20 +1,27 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, refineVariation, shareVariation } from '@/lib/api'
-import type { AnnotationShape, VariationDetailResponse } from '@dudesign/contracts'
+import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
+import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, shareVariation } from '@/lib/api'
+import type { AnnotationShape, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'text'
 type DraftRect = { startX: number; startY: number; currentX: number; currentY: number }
+type EditorViewMode = 'preview' | 'code'
 
 export default function VariationPage(props: { params: Promise<{ variationId: string }> }): React.JSX.Element {
   const [variationId, setVariationId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VariationDetailResponse | null>(null)
   const [prompt, setPrompt] = useState('Make the hero bolder and switch the accent color to teal.')
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop')
+  const [viewMode, setViewMode] = useState<EditorViewMode>('preview')
   const [status, setStatus] = useState<'loading' | 'idle' | 'refining' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [previewVersion, setPreviewVersion] = useState(0)
+  const [files, setFiles] = useState<VariationFilesResponse['files']>([])
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
+  const [selectedArtifact, setSelectedArtifact] = useState<VariationFilesResponse['artifact'] | null>(null)
+  const [activeFilePath, setActiveFilePath] = useState<string>('index.html')
   const [annotationMode, setAnnotationMode] = useState(false)
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>('rect')
   const [annotations, setAnnotations] = useState<AnnotationShape[]>([])
@@ -37,6 +44,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       .then(data => {
         if (!cancelled) {
           setDetail(data)
+          setSelectedArtifactId(current => current ?? data.currentArtifact?.id ?? null)
           setStatus('idle')
         }
       })
@@ -50,6 +58,34 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       cancelled = true
     }
   }, [variationId, previewVersion])
+
+  useEffect(() => {
+    if (!variationId || !selectedArtifactId) {
+      setFiles([])
+      setSelectedArtifact(null)
+      return
+    }
+    let cancelled = false
+    getVariationFiles(variationId, selectedArtifactId)
+      .then(fileData => {
+        if (!cancelled) {
+          setFiles(fileData.files)
+          setSelectedArtifact(fileData.artifact)
+          setActiveFilePath(current => fileData.files.some(file => file.path === current)
+            ? current
+            : fileData.files[0]?.path ?? 'index.html')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFiles([])
+          setSelectedArtifact(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [variationId, selectedArtifactId, previewVersion])
 
   const previewUrl = useMemo(() => {
     const url = detail?.variation.previewUrl
@@ -68,6 +104,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         baseArtifactId: detail.variation.currentArtifactId,
         deviceContext: device,
       })
+      setSelectedArtifactId(null)
       setPreviewVersion(version => version + 1)
       setStatus('idle')
     } catch (err) {
@@ -89,6 +126,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       })
       setAnnotations([])
       setAnnotationMode(false)
+      setSelectedArtifactId(null)
       setPreviewVersion(version => version + 1)
       setStatus('idle')
     } catch (err) {
@@ -211,7 +249,25 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
       <section className="variation-editor-grid">
         <div className={`device-preview ${device}`}>
-          {previewUrl ? (
+          <div className="editor-view-tabs" role="tablist" aria-label="Editor view">
+            <button className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}>
+              Preview
+            </button>
+            <button className={viewMode === 'code' ? 'active' : ''} onClick={() => setViewMode('code')} disabled={files.length === 0}>
+              Code
+            </button>
+          </div>
+          {viewMode === 'code' ? (
+            <div className="editor-code-view">
+              <CodeFileViewer
+                files={filesForViewer(files)}
+                activePath={activeFilePath}
+                testId="variation-code-view"
+                statusLabel={selectedArtifact ? `v${selectedArtifact.version}` : undefined}
+                onSelectPath={setActiveFilePath}
+              />
+            </div>
+          ) : previewUrl ? (
             <div data-testid="variation-preview" className="annotated-preview-wrap">
               <iframe
                 data-testid="variation-preview-frame"
@@ -300,7 +356,19 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             </p>
             <strong>Versions</strong>
             {detail?.artifacts.map(artifact => (
-              <p key={artifact.id}>v{artifact.version} · {artifact.entryPath ?? 'index.html'}</p>
+              <button
+                key={artifact.id}
+                type="button"
+                data-testid="artifact-version-button"
+                className={artifact.id === selectedArtifactId ? 'active' : ''}
+                onClick={() => {
+                  setSelectedArtifactId(artifact.id)
+                  setViewMode('code')
+                }}
+              >
+                <span>v{artifact.version}</span>
+                <span>{artifact.entryPath ?? 'index.html'}</span>
+              </button>
             ))}
           </section>
         </aside>
@@ -353,6 +421,15 @@ function DraftRectView(props: { rect: DraftRect }): React.JSX.Element {
       }}
     />
   )
+}
+
+function filesForViewer(files: VariationFilesResponse['files']): CodeFile[] {
+  return files.map(file => ({
+    path: file.path,
+    language: file.language,
+    content: file.content,
+    isFinal: true,
+  }))
 }
 
 function clamp(value: number): number {

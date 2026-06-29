@@ -25,4 +25,10 @@ test('annotation rect can refine the current variation', async ({ page }) => {
   await page.getByTestId('apply-annotations-button').click()
   await expect(page.getByTestId('current-artifact-version')).toContainText('v2')
   await expect(page.getByText('0 annotations staged.')).toBeVisible()
+
+  await expect(page.getByTestId('artifact-version-button')).toHaveCount(2)
+  await page.getByTestId('artifact-version-button').filter({ hasText: 'v1' }).click()
+  await expect(page.getByTestId('variation-code-view')).toContainText('version 1')
+  await page.getByTestId('artifact-version-button').filter({ hasText: 'v2' }).click()
+  await expect(page.getByTestId('variation-code-view')).toContainText('version 2')
 })

@@ -1,5 +1,5 @@
 import http from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
@@ -38,6 +38,7 @@ const REQUIRED_ENDPOINTS = [
 const REQUIRED_EVENTS = [
   'session_started',
   'assistant_delta',
+  'file_delta',
   'workspace_dirty',
   'workspace_dirty_detected',
   'result',
@@ -48,6 +49,8 @@ const EVENT_MAPPINGS = {
   session_started: 'design.session_started',
   assistant_delta: 'design.variation_streaming',
   thinking_delta: 'design.variation_streaming',
+  code_delta: 'design.variation_code_delta',
+  file_delta: 'design.variation_code_delta',
   workspace_dirty: 'design.variation_artifact_updated',
   workspace_dirty_detected: 'design.variation_artifact_updated',
   result: 'design.variation_completed',
@@ -182,7 +185,11 @@ class RuntimeAdapterApp {
     mode: 'spawn' | 'refine',
   ): Promise<void> {
     const body = await readJson(req)
-    const runtimeSessionId = this.resolveRuntimeSessionId(body)
+    const workspaceRoot = this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot'))
+    await mkdir(workspaceRoot, { recursive: true })
+    const runtimeSessionId = mode === 'spawn'
+      ? await this.resolveVariationRuntimeSessionId(body, workspaceRoot)
+      : this.resolveRuntimeSessionId(body)
     const prompt = mode === 'refine'
       ? buildRefinePrompt(body)
       : buildVariationPrompt(body)
@@ -194,7 +201,7 @@ class RuntimeAdapterApp {
       runtimeSessionId,
       agentJobId,
       variationId: stringField(body, 'variationId'),
-      workspaceRoot: this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot')),
+      workspaceRoot,
       prompt,
       ...(modelContext.modelId && { modelId: modelContext.modelId }),
       waitStarted: false,
@@ -275,6 +282,16 @@ class RuntimeAdapterApp {
         return
       }
       const artifact = await readWorkspaceArtifact(stream.workspaceRoot)
+      for (const [index, file] of artifact.files.entries()) {
+        writeNdjson(res, {
+          type: 'file_delta',
+          path: file.path,
+          language: languageForPath(file.path),
+          delta: file.content,
+          sequence: index + 1,
+          isFinal: true,
+        })
+      }
       writeNdjson(res, {
         type: 'result',
         artifactId: `babel_o_${stream.agentJobId}`,
@@ -309,6 +326,27 @@ class RuntimeAdapterApp {
     if (directRuntimeSessionId) return directRuntimeSessionId
     const sessionId = requiredString(body.sessionId, 'sessionId')
     return this.sessions.get(sessionId) ?? sessionId
+  }
+
+  private async resolveVariationRuntimeSessionId(body: Record<string, unknown>, workspaceRoot: string): Promise<string> {
+    const directRuntimeSessionId = stringField(body, 'runtimeSessionId') ?? stringField(body, 'runtimeChildSessionId')
+    if (directRuntimeSessionId) return directRuntimeSessionId
+    const sessionId = requiredString(body.sessionId, 'sessionId')
+    const variationIndex = numberField(body, 'variationIndex')
+    const variationSessionKey = variationIndex ? `${sessionId}:variation:${variationIndex}` : sessionId
+    const existing = this.sessions.get(variationSessionKey)
+    if (existing) return existing
+    const created = await this.options.nexus.createSession({
+      userId: requiredString(body.userId, 'userId'),
+      workspaceId: requiredString(body.workspaceId, 'workspaceId'),
+      sessionId: variationSessionKey,
+      workspaceRoot,
+      memoryNamespace: stringField(body, 'memoryNamespace') ?? `memory:session:${sessionId}`,
+    })
+    const runtimeSessionId = requiredString(created.sessionId, 'sessionId')
+    this.sessions.set(variationSessionKey, runtimeSessionId)
+    await this.persistState()
+    return runtimeSessionId
   }
 
   private async restoreState(): Promise<void> {
@@ -456,24 +494,52 @@ function normalizeTranscriptEvent(event: Record<string, unknown>): Record<string
   return null
 }
 
-async function readWorkspaceArtifact(workspaceRoot: string): Promise<{ entryPath: string; html: string }> {
+function languageForPath(path: string): string {
+  if (path.endsWith('.html') || path.endsWith('.htm')) return 'html'
+  if (path.endsWith('.css')) return 'css'
+  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'javascript'
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript'
+  if (path.endsWith('.json')) return 'json'
+  return 'text'
+}
+
+async function readWorkspaceArtifact(workspaceRoot: string): Promise<{
+  entryPath: string
+  html: string
+  files: Array<{ path: string; content: string }>
+}> {
   const root = resolve(workspaceRoot)
-  const candidates = ['index.html', 'dist/index.html', 'public/index.html']
-  for (const entryPath of candidates) {
-    const fullPath = resolve(root, entryPath)
-    if (!fullPath.startsWith(root)) continue
-    try {
-      return {
-        entryPath,
-        html: await readFile(fullPath, 'utf8'),
-      }
-    } catch {
-      // Try the next conventional artifact path.
+  const entryCandidates = ['index.html', 'dist/index.html', 'public/index.html']
+  for (const entryPath of entryCandidates) {
+    const html = await readWorkspaceFile(root, entryPath)
+    if (html === null) continue
+    const files = [{ path: entryPath, content: html }]
+    for (const path of ['styles.css', 'script.js', 'assets.json', 'dist/styles.css', 'dist/script.js', 'dist/assets.json']) {
+      if (path === entryPath) continue
+      const content = await readWorkspaceFile(root, path)
+      if (content !== null) files.push({ path, content })
+    }
+    return {
+      entryPath,
+      html,
+      files,
     }
   }
+  const fallbackHtml = '<!doctype html><html><body><h1>BabeL-O completed without writing index.html</h1></body></html>'
   return {
     entryPath: 'index.html',
-    html: '<!doctype html><html><body><h1>BabeL-O completed without writing index.html</h1></body></html>',
+    html: fallbackHtml,
+    files: [{ path: 'index.html', content: fallbackHtml }],
+  }
+}
+
+async function readWorkspaceFile(root: string, entryPath: string): Promise<string | null> {
+  const fullPath = resolve(root, entryPath)
+  if (!fullPath.startsWith(root)) return null
+  try {
+    return await readFile(fullPath, 'utf8')
+  } catch {
+    return null
   }
 }
 

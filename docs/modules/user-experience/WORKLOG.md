@@ -318,3 +318,191 @@
 
 - 增加用户端模型选择的浏览器 E2E。
 - 在 job/variation 页面展示本次任务使用的模型摘要。
+
+## 2026-06-28 UX-M1 Generation Code Stream Preview
+
+### 已完成
+
+- 并行生成页的 variation card 增加代码流展示：
+  - preview ready 前，主区域显示 `index.html` 代码逐段写入效果。
+  - preview ready 后，主区域切换回 sandbox iframe，并保留轻量 code trace。
+- 用户端 SSE client 订阅新增 DUDesign 标准事件 `design.variation_code_delta`。
+- 前端按 `variationId` 维护独立 code buffer，避免多个并行 variation 的代码混流。
+- 代码窗口使用纯文本渲染和固定高度区域，不执行生成代码，也不改变 preview iframe sandbox 策略。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm test`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+
+### 决策
+
+- 代码生成可视化不直接消费 BabeL-O 私有事件；用户端只认 DUDesign 标准事件。
+- MVP 先展示 tail buffer，避免 3/6 个并行卡片同时渲染完整大文件导致页面卡顿。
+- 后续可在结果墙增加 `Code / Preview` 手动切换，再进入单变体页查看完整代码和文件列表。
+
+### 下一步
+
+- 增加单独 E2E case：job 页面在 preview 前或 preview 后都能观察到 `index.html` 代码生成痕迹。
+- 接入真实 Babel-O adapter service 的文件增量事件后，将 `workspace_dirty` 中的文件快照拆分为 `variation_code_delta` 或 `file_snapshot`。
+
+## 2026-06-28 UX-M1 Result Wall Code Toggle
+
+### 已完成
+
+- 并行生成结果卡片增加 `Preview / Code` 手动切换。
+- preview ready 后默认展示 sandbox iframe，用户可切到 Code 查看完整 `index.html` code buffer。
+- 切回 Preview 后仍保留轻量 code trace。
+- 浏览器 E2E 增加 Code tab 点击断言，确认结果墙阶段可以看到完整代码开头。
+
+### 验证
+
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+
+### 决策
+
+- 结果墙默认仍以 Preview 为主，避免非技术用户被代码打断。
+- Code tab 使用同一份 `design.variation_code_delta` buffer，不额外请求 Babel-O 或 runtime 私有 endpoint。
+
+### 下一步
+
+- 将 Code tab 扩展为文件列表视图，支持 `index.html`、`styles.css`、`script.js` 多文件切换。
+- 进入单变体编辑页后复用同一代码查看组件，支持 artifact version 的代码查看。
+
+## 2026-06-28 UX-M1 Multi-file Code View
+
+### 已完成
+
+- 结果墙 Code tab 从单文件 buffer 升级为多文件视图。
+- 前端按 `variationId + path` 聚合 `design.variation_code_delta`，每个文件独立累积内容。
+- Code tab 增加文件 pill 列表，支持切换：
+  - `index.html`
+  - `styles.css`
+  - `script.js`
+  - `assets.json`
+- Mock runtime 输出多文件代码流，模拟真实 artifact bundle。
+- E2E 覆盖 Code tab 内切换到 `styles.css` 并确认 CSS 内容。
+
+### 验证
+
+- `npm run typecheck`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+
+### 决策
+
+- Code tab 的文件列表继续基于 DUDesign 标准事件，不从前端访问 runtime workspace。
+- `index.html` 默认排序第一，其余文件按 path 排序，方便用户快速扫视入口文件。
+
+### 下一步
+
+- 在单变体编辑页复用多文件代码视图。
+- 后续 artifact detail API 可返回完整文件列表，用于刷新页面后恢复 Code tab。
+
+## 2026-06-28 UX-M1 Variation Editor Code View
+
+### 已完成
+
+- 单变体编辑页增加 `Preview / Code` 切换。
+- 新增用户 API `GET /api/variations/:id/files`，从当前 artifact 恢复入口 HTML 和同版本 code asset。
+- 编辑页 Code 视图支持文件列表切换，复用结果墙的多文件阅读体验。
+- Code 视图只读取 DUDesign artifact store，不访问 runtime workspace 或 Babel-O 私有 endpoint。
+- E2E 覆盖进入 variation 编辑页后切到 Code，再切回 Preview。
+
+### 验证
+
+- `npm run typecheck`
+- `npm run test:ux:e2e`
+- `npm test`
+- `npm --workspace @dudesign/web run build`
+
+### 决策
+
+- Preview 仍是编辑页默认模式，避免影响圈画批改主流程。
+- 当前 mock artifact 主要恢复 HTML；真实 runtime bundle 或后续 mock asset 落库后，会自动显示 CSS/JS/manifest。
+
+### 下一步
+
+- 将结果墙和编辑页的代码查看器提取为共享组件。
+- 为 `GET /api/variations/:id/files` 增加 API smoke 覆盖真实 runtime bundle 文件。
+
+## 2026-06-28 UX-M1 Shared Code File Viewer
+
+### 已完成
+
+- 新增共享组件 `apps/web/src/components/CodeFileViewer.tsx`。
+- 结果墙 Code tab 和单变体编辑页 Code tab 统一使用同一个代码查看器。
+- 共享组件集中维护：
+  - 文件排序。
+  - active file 选择。
+  - 空态。
+  - code trace tail 展示。
+  - streaming cursor 展示。
+- 删除页面内重复的代码查看器实现，减少后续分叉风险。
+
+### 验证
+
+- `npm run typecheck`
+- `npm run test:ux:e2e`
+- `npm --workspace @dudesign/web run build`
+- `npm test`
+
+### 下一步
+
+- 给共享组件增加只读复制按钮和文件大小/行数摘要。
+- 后续把单变体编辑页的 artifact version 切换与代码文件列表联动。
+
+## 2026-06-28 UX-M1 Code Viewer Utilities
+
+### 已完成
+
+- 共享 Code viewer 增加当前文件摘要：
+  - 行数。
+  - UTF-8 字节大小。
+- 增加只读复制按钮，复制当前文件内容。
+- 复制成功后按钮短暂显示 `Copied`。
+- Clipboard API 不可用时提供 textarea fallback。
+- 复制被浏览器权限或环境限制拦截时，按钮短暂显示 `Copy failed`，避免静默失败。
+- E2E 覆盖 Code tab 的摘要展示和复制成功/失败反馈。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm test`
+
+### 下一步
+
+- 给 artifact version 切换接入同一 Code viewer。
+
+## 2026-06-29 UX-M1 Artifact Version Code View
+
+### 已完成
+
+- `GET /api/variations/:id/files` 增加可选 `artifactId` 查询参数，支持读取指定历史 HTML artifact 的文件列表。
+- `VariationFilesResponse` 增加 artifact 摘要，前端可明确知道当前 Code viewer 对应的 artifact version。
+- 单变体编辑页将 artifact 版本列表从纯文本改为可点击版本选择器。
+- 点击历史版本后自动切换到 Code 视图，并复用共享 `CodeFileViewer` 展示该版本文件。
+- refine 或 annotation 生成新版本后，版本选择回到最新 current artifact，避免继续停留在旧版本。
+- E2E 覆盖 v2 生成后切换 v1/v2，并验证 Code viewer 展示对应版本内容。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+- `npm test`
+
+### 发现与修复
+
+- 首次 E2E 失败是因为本地 4000 端口仍运行旧 API 进程，`artifactId` 查询参数未生效；已重启 API/Web 服务后复跑通过。
+
+### 下一步
+
+- 为 `GET /api/variations/:id/files?artifactId=...` 增加 API 层 smoke test，覆盖 artifact mismatch 和历史版本 asset 列表。
+- 后续可进一步支持历史版本 Preview，以便 Preview / Code 都严格绑定同一 artifact。

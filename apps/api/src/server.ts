@@ -176,6 +176,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const variationFilesMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/files$/)
+  if (method === 'GET' && variationFilesMatch) {
+    sendJson(res, 200, await service.getVariationFiles(ctx, decodeURIComponent(variationFilesMatch[1]!), {
+      artifactId: url.searchParams.get('artifactId'),
+    }))
+    return
+  }
+
   const variationAssetMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/assets\/(.+)$/)
   if (method === 'GET' && variationAssetMatch) {
     const asset = await service.getVariationAsset(

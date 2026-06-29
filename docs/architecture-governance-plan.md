@@ -168,6 +168,8 @@ error
 - 任务取消、重试、重新生成预览。
 - artifact 审计和修复。
 - token、成本、调用量统计。
+- 模型服务治理：展示 DUDesign 已登记的模型服务、启停状态、默认模型和用户访问权限。
+- 模型发现同步：触发后端从 runtime/provider 拉取真实可用模型，并查看同步状态与差异。
 - memory 命中、候选、审批状态观察。
 - share revoke。
 - staging / production runtime 版本切换记录。
@@ -199,6 +201,7 @@ error
 - `Artifact Explorer`：artifact、截图、导出包。
 - `User Support`：用户会话查询与恢复辅助。
 - `Cost Dashboard`：token、成本、模型调用。
+- `Model Services`：模型治理配置、真实模型发现同步、用户模型访问权限。
 - `Memory Governance`：memory namespace、候选、命中情况。
 - `Audit Log`：管理操作审计。
 
@@ -219,6 +222,8 @@ error
 - 预览、导出、分享。
 - 队列调度。
 - 用量统计。
+- 模型服务治理配置，包括 enabled/default、用户访问权限、配额和成本配置。
+- 真实模型发现结果的持久化同步，但不直接保存 provider secret 明文。
 - memory namespace 管理。
 - 前端 API 和事件流。
 - 管理端 API 和审计。
@@ -226,6 +231,13 @@ error
 ### 5.2 业务事实原则
 
 后端业务服务层必须保存足够的稳定快照，使系统在 BabeL-O 不可用时仍可读取和展示已完成结果。
+
+模型治理需要区分两个事实层：
+
+- `model_services` 是 DUDesign 的业务治理配置，决定某个模型服务是否可被用户选择、是否默认、成本口径、用户级授权和限额。
+- runtime/provider 的真实模型列表是外部发现结果，只能通过内核兼容层或供应商适配层同步进来；不能让管理端或用户前端直接把外部模型列表当作业务事实。
+
+当前 MVP 的 `BabeL-O Default`、`BabeL-O Fast`、`Mock Design Runtime` 是 seed 出来的治理配置，不代表已经动态映射 BabeL-O 或模型供应商的真实模型清单。后续应引入 model discovery/sync 流程，把真实模型发现结果与 DUDesign 治理配置合并展示。
 
 每次生成或精修至少保存：
 
@@ -284,6 +296,7 @@ BabeL-O id 只能作为外部引用：
 - 连接 BabeL-O `/v1/stream`。
 - 连接 BabeL-O `/v1/sessions`。
 - 连接 BabeL-O `/v1/agents`。
+- 发现 runtime/provider 支持的真实模型列表，并归一化为 DUDesign 可消费的模型发现结果。
 - 处理 session resume。
 - 处理子 session / child agent。
 - 适配 memory 接口。
@@ -302,6 +315,7 @@ BabeL-O id 只能作为外部引用：
 type RuntimeGateway = {
   getRuntimeHealth(): Promise<RuntimeHealth>
   getRuntimeContract(): Promise<RuntimeContract>
+  listRuntimeModels(): Promise<RuntimeModelDiscoveryResult>
   createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef>
   resumeSession(input: ResumeRuntimeSessionInput): Promise<RuntimeResumeResult>
   spawnVariationAgents(input: SpawnVariationAgentsInput): AsyncIterable<DesignRuntimeEvent>

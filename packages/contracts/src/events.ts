@@ -49,6 +49,17 @@ export type DesignVariationStreamingEvent = DesignEventEnvelope<
   }
 >
 
+export type DesignVariationCodeDeltaEvent = DesignEventEnvelope<
+  'design.variation_code_delta',
+  {
+    path: string
+    language: 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text'
+    delta: string
+    sequence: number
+    isFinal?: boolean
+  }
+>
+
 export type RuntimeArtifactFile = {
   path: string
   content: string
@@ -131,6 +142,7 @@ export type DesignEvent =
   | DesignJobStartedEvent
   | DesignVariationQueuedEvent
   | DesignVariationStreamingEvent
+  | DesignVariationCodeDeltaEvent
   | DesignVariationArtifactUpdatedEvent
   | DesignVariationPreviewReadyEvent
   | DesignVariationCompletedEvent

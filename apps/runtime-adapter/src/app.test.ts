@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -16,6 +16,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
   before(async () => {
     workspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-'))
     await writeFile(join(workspaceRoot, 'index.html'), '<!doctype html><h1>Adapter workspace artifact</h1>', 'utf8')
+    let sessionSequence = 0
     const nexus = new NexusClient({
       baseUrl: 'https://nexus.example.test',
       fetch: async (url, init) => {
@@ -32,9 +33,10 @@ describe('DUDesign BabeL-O runtime adapter', () => {
           return jsonResponse({ type: 'runtime_version', serverVersion: '0.3.9' })
         }
         if (href.endsWith('/v1/sessions')) {
+          sessionSequence += 1
           return jsonResponse({
             type: 'session_created',
-            sessionId: 'nexus_session_1',
+            sessionId: `nexus_session_${sessionSequence}`,
           }, 201)
         }
         if (href.endsWith('/v1/sessions/nexus_session_1/resume')) {
@@ -78,7 +80,13 @@ describe('DUDesign BabeL-O runtime adapter', () => {
 
   it('serves DUDesign runtime health and contract over raw Nexus', async () => {
     const health = await getJson<{ runtimeVersion: string; contractVersion: string; status: string }>('/v1/health')
-    const contract = await getJson<{ contractVersion: string; status: string; requiredEndpoints: string[] }>('/v1/contract')
+    const contract = await getJson<{
+      contractVersion: string
+      status: string
+      requiredEndpoints: string[]
+      requiredEvents: string[]
+      eventMappings: Record<string, string>
+    }>('/v1/contract')
 
     assert.equal(health.runtimeVersion, '0.3.9')
     assert.equal(health.contractVersion, DUDESIGN_RUNTIME_CONTRACT_VERSION)
@@ -86,6 +94,8 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.equal(contract.contractVersion, DUDESIGN_RUNTIME_CONTRACT_VERSION)
     assert.equal(contract.status, 'compatible')
     assert.ok(contract.requiredEndpoints.includes('POST /v1/agents/refine'))
+    assert.ok(contract.requiredEvents.includes('file_delta'))
+    assert.equal(contract.eventMappings.file_delta, 'design.variation_code_delta')
   })
 
   it('falls back to bearer authorization when Nexus auth header name is blank', async () => {
@@ -127,6 +137,12 @@ describe('DUDesign BabeL-O runtime adapter', () => {
   })
 
   it('spawns a Nexus agent and streams DUDesign-compatible runtime events', async () => {
+    const variationWorkspaceRoot = join(workspaceRoot, 'runtime-jobs', 'job_1', 'variation_01')
+    await mkdir(variationWorkspaceRoot, { recursive: true })
+    await writeFile(join(variationWorkspaceRoot, 'index.html'), '<!doctype html><h1>Adapter variation artifact</h1>', 'utf8')
+    await writeFile(join(variationWorkspaceRoot, 'styles.css'), 'body { color: rebeccapurple; }', 'utf8')
+    await writeFile(join(variationWorkspaceRoot, 'script.js'), 'document.body.dataset.ready = "true";', 'utf8')
+    await writeFile(join(variationWorkspaceRoot, 'assets.json'), '{"entry":"index.html"}', 'utf8')
     const spawned = await postJson<{ streamId: string; agentJobId: string; runtimeChildSessionId: string }>('/v1/agents', {
       userId: 'user_1',
       workspaceId: 'workspace_1',
@@ -136,7 +152,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       sourceMode: 'new_html',
       variationCount: 1,
       variationIndex: 1,
-      workspaceRoot,
+      workspaceRoot: variationWorkspaceRoot,
       memoryNamespace: 'memory:user_1',
       modelServiceId: 'mdl_babelo_default',
       modelId: 'anthropic/claude-3-5-sonnet',
@@ -146,11 +162,16 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     const stream = await getText(`/v1/stream?streamId=${spawned.streamId}`)
 
     assert.match(spawned.agentJobId, /^execute_/)
-    assert.equal(spawned.runtimeChildSessionId, 'nexus_session_1')
+    assert.equal(spawned.runtimeChildSessionId, 'nexus_session_2')
     assert.match(stream, /"type":"thinking_delta"/)
     assert.match(stream, /"type":"assistant_delta"/)
+    assert.match(stream, /"type":"file_delta"/)
+    assert.match(stream, /"path":"index.html"/)
+    assert.match(stream, /"path":"styles.css"/)
+    assert.match(stream, /"path":"script.js"/)
+    assert.match(stream, /"path":"assets.json"/)
     assert.match(stream, /"type":"result"/)
-    assert.match(stream, /Adapter workspace artifact/)
+    assert.match(stream, /Adapter variation artifact/)
     const executeCall = nexusCalls.find(call => call.url.endsWith('/v1/execute') && call.method === 'POST')
     assert.ok(executeCall)
     const body = executeCall.body as {
@@ -159,7 +180,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       prompt?: string
     }
     assert.equal(body.model, 'anthropic/claude-3-5-sonnet')
-    assert.equal(body.cwd, workspaceRoot)
+    assert.equal(body.cwd, variationWorkspaceRoot)
     assert.match(body.prompt ?? '', /Model selection: service=mdl_babelo_default, provider=babel-o, model=anthropic\/claude-3-5-sonnet/)
   })
 
@@ -308,6 +329,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
 function createMockNexus(options: {
   onExecuteBody?: (body: Record<string, unknown>) => void
 } = {}): NexusClient {
+  let sessionSequence = 0
   return new NexusClient({
     baseUrl: 'https://nexus.example.test',
     fetch: async (url, init) => {
@@ -317,6 +339,13 @@ function createMockNexus(options: {
       }
       if (href.endsWith('/v1/runtime/version')) {
         return jsonResponse({ type: 'runtime_version', serverVersion: '0.3.9' })
+      }
+      if (href.endsWith('/v1/sessions')) {
+        sessionSequence += 1
+        return jsonResponse({
+          type: 'session_created',
+          sessionId: `nexus_session_${sessionSequence}`,
+        }, 201)
       }
       if (href.endsWith('/v1/execute')) {
         if (init?.body) {

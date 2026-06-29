@@ -62,6 +62,7 @@
 
 - 创建 job 时写入 N 个 variation。
 - 3/6 variation 并发任务可以被正确追踪。
+- 真实 runtime 并行执行时，不同 variation 不共享同一个写入目录。
 
 ## Phase APP-4：Artifact、Preview、Export、Share
 
@@ -102,6 +103,9 @@
 - [x] 实现 job cancel/retry。
 - [x] 实现模型服务列表、启停、默认模型治理 API。
 - [x] 实现用户级模型访问权限治理 API。
+- [ ] 实现模型发现同步 Admin API：`POST /api/admin/models/sync`。
+- [ ] 将 runtime/provider 发现结果合并进 `model_services`，保留本地 enabled/default/access 治理字段。
+- [ ] 记录模型同步审计日志和最近同步快照。
 - [ ] 实现 artifact repair/rebuild preview。
 - [x] 实现 runtime health 读取代理。
 - [x] 实现 cost 聚合接口。

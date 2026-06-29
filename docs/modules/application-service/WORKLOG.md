@@ -1213,3 +1213,58 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 为 PostgresRepository 实现 SQL-first model governance methods。
 - 将 `modelServiceId` 传入 Runtime Gateway/Adapter，使 BabeL-O child session 真正按选择模型执行。
 - 增加 Admin/User 前端 E2E 覆盖模型选择和模型开关。
+
+## 2026-06-28 M30.1 Model Discovery Boundary Planning
+
+### 现状确认
+
+- `model_services` 当前是 DUDesign 业务治理配置表，首批数据来自 seed/config：
+  - `mdl_babelo_default`
+  - `mdl_babelo_fast`
+  - `mdl_mock_design`
+- 这些记录用于控制 enabled/default、用户级访问、usage metadata 和成本治理，不等于 runtime/provider 的真实模型清单。
+- 当前 `GET /api/admin/models` 只返回治理表，不触发 BabeL-O 或供应商模型发现。
+
+### 架构决策
+
+- 后端业务服务层继续作为模型治理事实来源。
+- 真实模型发现不由 Admin UI 直连 runtime/provider，而是通过 Application Service 调用 Runtime Gateway。
+- 模型同步需要保留本地治理字段，不能因为 provider 暂时缺失某模型就直接删除用户配置。
+- provider secret/API key 不进入 Admin API 响应；Admin API 只返回模型元数据、状态和同步摘要。
+
+### 待实现
+
+- 新增 `POST /api/admin/models/sync`：
+  - 权限：`operator` 或 `developer`。
+  - 调用 `runtime.listRuntimeModels()`。
+  - upsert 发现到的模型元数据。
+  - 标记缺失模型为 `metadata.discoveryStatus=missing`，不自动删除。
+  - 写入 `model.sync` audit log。
+- 扩展模型响应字段：
+  - `metadata.source`
+  - `metadata.discoveryStatus`
+  - `metadata.lastSyncedAt`
+  - `metadata.runtimeModelId`
+  - `metadata.providerModelId`
+- 增加测试覆盖：
+  - runtime 返回新增模型时 upsert。
+  - runtime 缺失旧模型时保留治理配置并标记 missing。
+  - sync 失败时不破坏现有默认模型。
+
+## 2026-06-28 M30.2 Parallel Runtime Isolation Boundary
+
+### 现状确认
+
+- 远端复杂 prompt 失败不是业务数据库或 artifact store 故障，而是 runtime 并行执行阶段的 workspace 竞争和超时。
+- 业务服务层仍然正确保存了部分成功结果：同一 job 中成功 variation 的 artifact 可继续预览。
+
+### 边界决策
+
+- Application Service 继续以 job/variation/artifact 作为业务事实来源。
+- Runtime workspace 隔离属于 Runtime Compatibility Layer 的执行细节，不要求新增业务表字段。
+- 业务层接收的仍是标准 `design.variation_*` 事件和 artifact body，不关心 runtime 子目录。
+
+### 后续建议
+
+- Admin Job Monitor 需要展示更准确的 runtime error 摘要，例如 `REQUEST_TIMEOUT: Execution timed out after 300s`。
+- Staging smoke 增加复杂 3/4 variation prompt，用于覆盖并行 workspace 隔离。
