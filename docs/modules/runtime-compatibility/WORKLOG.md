@@ -1384,3 +1384,42 @@
 - 在 staging 设置 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=3` 后重新运行 6 variation smoke。
 - 根据 6 variation 结果决定是否将 staging/prod 默认并发固定为 3，或按模型服务配置差异化并发。
 - 将 runtime capacity limited 状态进一步透出到用户端 Activity Stream 和管理端 runtime health/metrics。
+
+## 2026-06-29 M25.12 Staging 6 Variation Controlled Concurrency Validation
+
+### 已完成
+
+- staging API 已配置 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=3`。
+- staging Runtime Adapter 已配置：
+  - `RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS=2`
+  - `RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS=750`
+- 重新部署 staging 后，基础 health smoke 全部通过：
+  - Web 200。
+  - API 200。
+  - Admin 200。
+  - Runtime health 200。
+  - Runtime contract `babel-o@0.3.9` compatible。
+- 运行真实 BabeL-O 6 variation smoke：
+  - `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT=6`
+  - `DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS=720`
+  - `deploy/staging/scripts/smoke-babelo-prompt-remote.sh`
+- 结果通过：
+  - job：`job_a3cfd72b57dc4c84`
+  - variations：6/6 completed。
+  - 每个 variation 均有独立 `runtime_child_session_id`。
+  - 每个 variation 均有独立 `runtime_agent_job_id`。
+  - 每个 variation 均生成 `current_artifact_id`。
+
+### 决策
+
+- staging/prod 默认将 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY` 固定为 `3`。
+- 用户选择 6 个 variation 时，系统以 3 并发分两批执行；这比直接 6 路打满 raw runtime 更稳定。
+- Runtime Adapter 的 HTTP 429 retry/backoff 继续保留，作为瞬时容量抖动的补偿机制，不作为主并发控制。
+- 后续如接入不同模型服务，应将并发上限进一步下沉到 model service 配置或用户模型访问策略。
+
+### 额外发现
+
+- 本次部署验证中发现 macOS 打包可能把 `._*.sql` AppleDouble 元数据文件带入 Docker context，导致 API migration 把二进制元数据误当 SQL 执行并触发 PostgreSQL `invalid message format`。
+- 已在仓库侧通过 migration 文件过滤和 Docker ignore 策略收口：
+  - migration 只加载数字开头的 `.sql` 文件。
+  - Docker context 排除 `._*` / `**/._*`。

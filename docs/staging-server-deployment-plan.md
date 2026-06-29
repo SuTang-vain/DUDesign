@@ -271,6 +271,16 @@ deploy/staging/scripts/smoke-babelo-prompt-remote.sh
 
 `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT` 可设为 `1..6`。常规 smoke 默认仍为 1，避免每次部署都触发高成本真实内核并发生成。
 
+真实 BabeL-O staging/prod 默认采用：
+
+```env
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=3
+RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS=2
+RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS=750
+```
+
+这意味着用户选择 6 个 variation 时，DUDesign API 会以 3 并发分批调度，Runtime Adapter 只对 raw `/v1/execute` 的瞬时 429 做有限退避重试。
+
 服务器上手动启动：
 
 ```bash

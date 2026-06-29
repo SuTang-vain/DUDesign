@@ -675,6 +675,15 @@ sequenceDiagram
 - 安全约束：不得访问 workspace 外路径。
 - 产物约束：所有引用资源必须落在当前 variation artifact 目录。
 
+### 7.2.1 Variation 并发策略
+
+MVP 允许用户一次选择最多 6 个 variation，但真实 runtime 不应无节制同时打满。DUDesign API 通过 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY` 控制发往 Runtime Adapter 的并发 variation stream。
+
+- staging / production 默认值：`3`。
+- 用户选择 6 个 variation 时，系统按 3 并发分两批执行。
+- Runtime Adapter 对 raw BabeL-O `/v1/execute` 保留 HTTP 429 retry/backoff，用于吸收瞬时 capacity 抖动。
+- 如果未来模型服务能力不同，应把并发上限下沉到 model service 配置，而不是让前端直接决定真实 runtime 并发。
+
 ### 7.3 Artifact 生成
 
 当 runtime 写入 HTML/CSS/JS 后，Worker/Gateway 需要：

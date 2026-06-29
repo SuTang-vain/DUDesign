@@ -78,7 +78,7 @@
 - [x] 返回并持久化每个 variation 的 runtime_child_session_id / runtime_agent_job_id。
 - [x] 增加 Gateway 侧 variation 并发阀：`DUDESIGN_RUNTIME_VARIATION_CONCURRENCY`。
 - [x] 增加 raw BabeL-O `/v1/execute` HTTP 429 retry/backoff。
-- [ ] 在 staging 以受控并发重新验证 6 variation 上限。
+- [x] 在 staging 以受控并发重新验证 6 variation 上限。
 
 验收：
 
