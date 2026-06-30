@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace } from '@dudesign/domain'
+import type { UserCapabilityPreference } from '@dudesign/contracts'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
@@ -28,10 +29,12 @@ import type {
   CreateSessionInput,
   CreateShareInput,
   JobSnapshot,
+  ModelSyncDiffItem,
   RuntimeSessionContext,
   SessionSnapshot,
   SessionWorkspaceContext,
   SharedVariationSnapshot,
+  UpsertDiscoveredModelServicesResult,
   VariationArtifactContext,
   VariationDetailSnapshot,
   VariationJobContext,
@@ -164,6 +167,7 @@ export class PostgresRepository extends InMemoryStore {
     this.shares.clear()
     this.modelServices.clear()
     this.userModelAccess.clear()
+    this.userCapabilityPreferences.clear()
     this.annotationBatches.clear()
     this.auditLogs.splice(0, this.auditLogs.length)
     this.usageEvents.splice(0, this.usageEvents.length)
@@ -189,6 +193,9 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from user_model_access')).rows) {
       const access = mapUserModelAccess(row)
       this.userModelAccess.set(userModelAccessKey(access.userId, access.modelServiceId), access)
+    }
+    for (const row of (await this.pool.query('select * from user_preferences')).rows) {
+      this.userCapabilityPreferences.set(row.user_id, mapUserCapabilityPreference(row))
     }
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
@@ -220,6 +227,24 @@ export class PostgresRepository extends InMemoryStore {
   override async saveSession(session: DesignSession): Promise<void> {
     await this.persistSession(session)
     this.sessions.set(session.id, session)
+  }
+
+  override async saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): Promise<UserCapabilityPreference> {
+    await this.persistUserCapabilityPreference(userId, preference)
+    this.userCapabilityPreferences.set(userId, preference)
+    return preference
+  }
+
+  override async getUserCapabilityPreference(userId: string): Promise<UserCapabilityPreference | null> {
+    const cached = this.userCapabilityPreferences.get(userId)
+    if (cached) return cached
+
+    const row = (await this.pool.query('select * from user_preferences where user_id = $1', [userId])).rows[0]
+    if (!row) return null
+
+    const preference = mapUserCapabilityPreference(row)
+    this.userCapabilityPreferences.set(userId, preference)
+    return preference
   }
 
   override async appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): Promise<SessionMessage> {
@@ -972,6 +997,10 @@ export class PostgresRepository extends InMemoryStore {
     await this.flush()
     const status = filter.status || null
     const userId = filter.userId || null
+    const workspaceId = filter.workspaceId || null
+    const sessionId = filter.sessionId || null
+    const createdFrom = filter.createdFrom || null
+    const createdTo = filter.createdTo || null
     const rows = (await this.pool.query(`
       with variation_summary as (
         select
@@ -1007,9 +1036,43 @@ export class PostgresRepository extends InMemoryStore {
       left join artifact_summary ars on ars.job_id = j.id
       where ($1::text is null or j.status = $1)
         and ($2::text is null or j.user_id = $2)
+        and ($3::text is null or j.workspace_id = $3)
+        and ($4::text is null or j.session_id = $4)
+        and ($5::timestamptz is null or j.created_at >= $5)
+        and ($6::timestamptz is null or j.created_at <= $6)
       order by j.updated_at desc
       limit 100
-    `, [status, userId])).rows
+    `, [status, userId, workspaceId, sessionId, createdFrom, createdTo])).rows
+
+    const jobIds = rows.map(row => row.id)
+    const variationRows = jobIds.length > 0
+      ? (await this.pool.query(`
+        select *
+        from design_variations
+        where job_id = any($1::text[])
+        order by job_id asc, index asc, created_at asc
+      `, [jobIds])).rows
+      : []
+    const variationsByJob = new Map<string, AdminJobSummary['variations']>()
+    for (const row of variationRows) {
+      const list = variationsByJob.get(row.job_id) ?? []
+      list.push({
+        id: row.id,
+        index: row.index,
+        title: row.title,
+        status: row.status,
+        currentArtifactId: row.current_artifact_id,
+        previewUrl: row.preview_url,
+        inputTokens: row.input_tokens,
+        outputTokens: row.output_tokens,
+        costCents: row.cost_cents,
+        errorCode: row.error_code,
+        errorMessage: adminPreviewText(row.error_message, 160),
+        updatedAt: toIso(row.updated_at),
+      })
+      variationsByJob.set(row.job_id, list)
+    }
+
     return {
       jobs: rows.map(row => ({
         id: row.id,
@@ -1027,6 +1090,7 @@ export class PostgresRepository extends InMemoryStore {
         totalOutputTokens: row.total_output_tokens_from_variations,
         totalCostCents: row.total_cost_cents_from_variations,
         errorCount: row.error_count,
+        variations: variationsByJob.get(row.id) ?? [],
         createdAt: toIso(row.created_at),
         updatedAt: toIso(row.updated_at),
       })),
@@ -1273,6 +1337,70 @@ export class PostgresRepository extends InMemoryStore {
     `)).rows
     return {
       models: rows.map(row => toAdminModelSummary(mapModelService(row))),
+    }
+  }
+
+  override async upsertDiscoveredModelServices(models: ModelService[]): Promise<UpsertDiscoveredModelServicesResult> {
+    await this.flush()
+    let createdCount = 0
+    let updatedCount = 0
+    let missingCount = 0
+    let disabledMissingCount = 0
+    const diff: ModelSyncDiffItem[] = []
+    const discoveredIds = new Set(models.map(model => model.id))
+    const syncTime = models[0]?.updatedAt ?? nowIso()
+    for (const model of models) {
+      const existing = await this.getModelServiceById(model.id)
+      if (existing) {
+        updatedCount += 1
+        const merged: ModelService = {
+          ...model,
+          enabled: existing.enabled,
+          isDefault: existing.isDefault,
+          createdAt: existing.createdAt,
+        }
+        if (hasModelServiceRuntimeDiff(existing, merged)) {
+          diff.push(modelSyncDiffItem('updated', existing, merged))
+        }
+        merged.metadata = {
+          ...merged.metadata,
+          runtimeMissingSinceLastSync: false,
+        }
+        await this.persistModelService(merged)
+        this.modelServices.set(merged.id, merged)
+      } else {
+        createdCount += 1
+        diff.push(modelSyncDiffItem('created', null, model))
+        await this.persistModelService(model)
+        this.modelServices.set(model.id, model)
+      }
+    }
+    for (const existing of [...this.modelServices.values()]) {
+      if (existing.metadata.source !== 'runtime_discovery' || discoveredIds.has(existing.id)) continue
+      missingCount += 1
+      if (existing.enabled) disabledMissingCount += 1
+      const missing: ModelService = {
+        ...existing,
+        enabled: false,
+        metadata: {
+          ...existing.metadata,
+          runtimeMissingAt: syncTime,
+          runtimeMissingSinceLastSync: true,
+        },
+        updatedAt: syncTime,
+      }
+      diff.push(modelSyncDiffItem('missing', existing, missing))
+      await this.persistModelService(missing)
+      this.modelServices.set(missing.id, missing)
+    }
+    const { models: summaries } = await this.listAdminModels()
+    return {
+      createdCount,
+      updatedCount,
+      missingCount,
+      disabledMissingCount,
+      diff,
+      models: summaries,
     }
   }
 
@@ -1623,6 +1751,30 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
+  private async persistUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): Promise<void> {
+    const now = nowIso()
+    await this.pool.query(`
+      insert into user_preferences (user_id, domain_template_id, aesthetic_profile_id, color_palette_id, loop_profile_id, metadata, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)
+      on conflict (user_id) do update set
+        domain_template_id = excluded.domain_template_id,
+        aesthetic_profile_id = excluded.aesthetic_profile_id,
+        color_palette_id = excluded.color_palette_id,
+        loop_profile_id = excluded.loop_profile_id,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      userId,
+      preference.domainTemplateId,
+      preference.aestheticProfileId,
+      preference.colorPaletteId,
+      preference.loopProfileId,
+      JSON.stringify({ kind: 'capability_preference' }),
+      now,
+      now,
+    ])
+  }
+
   private async getUserModelAccess(userId: string, modelServiceId: string): Promise<UserModelAccess | null> {
     const row = (await this.pool.query(`
       select *
@@ -1681,6 +1833,15 @@ function mapUser(row: any): User {
     memoryNamespace: row.memory_namespace,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapUserCapabilityPreference(row: any): UserCapabilityPreference {
+  return {
+    domainTemplateId: row.domain_template_id,
+    aestheticProfileId: row.aesthetic_profile_id,
+    colorPaletteId: row.color_palette_id,
+    loopProfileId: row.loop_profile_id,
   }
 }
 
@@ -1951,6 +2112,38 @@ function mapUsageEvent(row: any): UsageEvent {
 
 function userModelAccessKey(userId: string, modelServiceId: string): string {
   return `${userId}:${modelServiceId}`
+}
+
+function hasModelServiceRuntimeDiff(previous: ModelService, next: ModelService): boolean {
+  return previous.displayName !== next.displayName
+    || previous.contextWindow !== next.contextWindow
+    || previous.inputTokenCostCents !== next.inputTokenCostCents
+    || previous.outputTokenCostCents !== next.outputTokenCostCents
+}
+
+function modelSyncDiffItem(
+  changeType: ModelSyncDiffItem['changeType'],
+  previous: ModelService | null,
+  next: ModelService,
+): ModelSyncDiffItem {
+  return {
+    modelServiceId: next.id,
+    modelId: next.modelId,
+    displayName: next.displayName,
+    runtimeProviderId: metadataText(next.metadata, 'runtimeProviderId') ?? metadataText(previous?.metadata, 'runtimeProviderId'),
+    changeType,
+    previousContextWindow: previous?.contextWindow ?? null,
+    nextContextWindow: next.contextWindow,
+    previousInputTokenCostCents: previous?.inputTokenCostCents ?? 0,
+    nextInputTokenCostCents: next.inputTokenCostCents,
+    previousOutputTokenCostCents: previous?.outputTokenCostCents ?? 0,
+    nextOutputTokenCostCents: next.outputTokenCostCents,
+  }
+}
+
+function metadataText(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
 }
 
 function sqlMemoryIsolationStatus(memoryNamespace: string | null, namespaceCount: number): AdminMemoryUserSummary['isolationStatus'] {

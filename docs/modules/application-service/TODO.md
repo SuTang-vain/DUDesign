@@ -19,13 +19,18 @@
 - [x] 建立对象存储抽象。
 - [x] 实现本地 `LocalArtifactStore`，用于 MVP/dev 环境 artifact body 存储。
 - [ ] 建立 Redis/Queue 抽象。
-  - [ ] 定义 `DesignJobQueue` 接口：`enqueueDesignJob`、`enqueueRefineJob`、`cancelJob`、`getJobState`。
-  - [ ] 定义 queue payload schema：`jobId`、`sessionId`、`variationIds`、`sourceArtifactId`、`runtimeSessionId`、`modelServiceId`、`idempotencyKey`。
-  - [ ] 实现 dev/test `InMemoryDesignJobQueue`，保持无外部依赖的默认测试门禁。
-  - [ ] 实现 production `RedisDesignJobQueue` 或 BullMQ adapter。
-  - [ ] 建立 worker entrypoint，统一从队列调用 `ApplicationService` / Runtime Gateway。
+  - [x] 定义 `DesignJobQueue` 接口：`enqueueDesignJob`、`enqueueRefineJob`、`cancelJob`、`getJobState`。
+  - [x] 定义 queue payload schema：`jobId`、`sessionId`、`variationIds`、`sourceArtifactId`、`runtimeSessionId`、`modelServiceId`、`idempotencyKey`。
+  - [x] payload 额外携带 `userId`、`workspaceId`、`createdAt`，方便 worker 审计、隔离和日志。
+  - [x] 实现 dev/test `InMemoryDesignJobQueue`，保持无外部依赖的默认测试门禁。
+  - [x] 抽出 `ApplicationDesignJobWorker` handler boundary，避免 `ApplicationService` 构造函数直接内联 queue consumer。
+  - [x] 实现 production `RedisDesignJobQueue` / BullMQ adapter 初版，支持显式 `DUDESIGN_QUEUE=redis` 启用。
+  - [x] 建立独立 worker process entrypoint，统一从 Redis/BullMQ 调用 `ApplicationService` / Runtime Gateway。
+  - [x] 区分 API / worker / inline process role，生产 API 可只入队不消费。
   - [ ] 增加 queue retry、dedupe、timeout、dead-letter 策略。
-  - [ ] 增加 queue worker 测试和 runtime unavailable 降级测试。
+  - [x] 增加 queue worker handler / Redis adapter configuration 测试。
+  - [x] 增加 Redis queue opt-in integration smoke，验证 API producer-only 与 worker consumer 分离链路。
+  - [ ] 增加 Redis queue runtime unavailable 降级测试。
 - [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
 - [x] 建立 M1 request id 传递；trace id 后续接观测系统。
 - [x] 支持 User API CORS preflight。
@@ -77,8 +82,10 @@
 - [x] 实现 `GET /api/design-jobs/:id`。
 - [x] 实现 M1 内存版 job/variation 状态机。
 - [ ] 实现队列入队。
-  - [ ] `POST /api/design-jobs` 从直接执行 runtime 改为创建 job 后 enqueue。
-  - [ ] worker 消费队列并驱动 variation runtime sessions。
+  - [x] `POST /api/design-jobs` 从直接执行 runtime 改为创建 job 后 enqueue。
+  - [x] `InMemoryDesignJobQueue` 默认立即消费 design job，保持本地/dev/test 行为不变。
+  - [x] dev/test worker handler 消费队列并驱动 variation runtime sessions。
+  - [x] production worker process 可消费 Redis/BullMQ 队列并驱动 variation runtime sessions。
   - [ ] SSE 继续通过 persisted events / event bus 聚合状态。
 - [x] 实现 `GET /api/design-jobs/:id/stream`。
 - [ ] 实现部分失败状态。
@@ -137,9 +144,9 @@
 - [x] 实现 job cancel/retry。
 - [x] 实现模型服务列表、启停、默认模型治理 API。
 - [x] 实现用户级模型访问权限治理 API。
-- [ ] 实现模型发现同步 Admin API：`POST /api/admin/models/sync`。
-- [ ] 将 runtime/provider 发现结果合并进 `model_services`，保留本地 enabled/default/access 治理字段。
-- [ ] 记录模型同步审计日志和最近同步快照。
+- [x] 实现模型发现同步 Admin API：`POST /api/admin/models/sync`。
+- [x] 将 runtime/provider 发现结果合并进 `model_services`，保留本地 enabled/default/access 治理字段。
+- [x] 记录模型同步审计日志和最近同步快照。
 - [ ] 实现 artifact repair/rebuild preview。
 - [x] 实现 runtime health 读取代理。
 - [x] 实现 cost 聚合接口。
@@ -156,9 +163,10 @@
 - [ ] Service 状态机测试。
 - [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
 - [x] API 集成 smoke 覆盖 artifact snapshot、ZIP export、share 不漂移、历史版本 restore。
+- [x] API workspace 默认测试串行执行，避免多 HTTP harness、异步 screenshot 和队列 worker 并发串扰。
 - [x] Owner 权限测试。
 - [x] Share token 权限测试。
-- [ ] Queue worker 测试。
+- [x] Queue worker handler 测试。
 - [x] Runtime unavailable 降级测试。
 - [x] LocalArtifactStore 单元测试。
 
@@ -191,6 +199,7 @@
 - [x] 使用同一套 API smoke 对 InMemoryStore 与 PostgreSQL Repository 跑双实现测试。
 - [x] 增加 Runtime unavailable 降级测试。
 - [x] 为 model_services / user_model_access 增加 PostgreSQL migration 和 SQL-native Repository methods。
+- [x] 为用户 Capability 偏好增加 `user_preferences` PostgreSQL migration 和 Repository 持久化。
 
 验收：
 

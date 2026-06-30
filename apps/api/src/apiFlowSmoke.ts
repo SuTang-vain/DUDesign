@@ -13,6 +13,7 @@ import type {
   ShareVariationResponse,
   VariationDetailResponse,
   VariationFilesResponse,
+  ListCapabilitiesResponse,
 } from '@dudesign/contracts'
 import type { Artifact } from '@dudesign/domain'
 import { ApplicationService } from './service.js'
@@ -114,6 +115,21 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     return response.json() as Promise<T>
   }
 
+  async function putJson<T>(path: string, body: unknown, init?: Omit<RequestInit, 'body' | 'method'>): Promise<T> {
+    const headers = init?.headers as Record<string, string> | undefined
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    })
+    assert.equal(response.ok, true, `${path} failed with ${response.status}`)
+    return response.json() as Promise<T>
+  }
+
   const bootstrapResponse = await fetch(`${baseUrl}/api/dev/bootstrap`, {
     headers: { 'x-request-id': 'req_test_smoke' },
   })
@@ -121,6 +137,34 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(bootstrapResponse.ok, true)
   const bootstrap = await bootstrapResponse.json() as { workspace: { id: string } }
   assert.equal(bootstrap.workspace.id, 'ws_dev')
+
+  const capabilities = await getJson<ListCapabilitiesResponse>('/api/capabilities')
+  assert.equal(capabilities.schemaVersion, '2026-06-30.dudesign-capabilities.v1')
+  assert.ok(capabilities.domainTemplates.some(template => template.id === capabilities.defaults.domainTemplateId))
+  assert.ok(capabilities.aestheticProfiles.some(profile => profile.id === capabilities.defaults.aestheticProfileId))
+  assert.ok(capabilities.colorPalettes.some(palette => palette.id === capabilities.defaults.colorPaletteId))
+  assert.ok(capabilities.automationLoopProfiles.some(profile => profile.id === capabilities.defaults.loopProfileId))
+
+  const defaultPreferences = await getJson<{
+    capabilityPreference: {
+      domainTemplateId: string | null
+      aestheticProfileId: string | null
+      colorPaletteId: string | null
+      loopProfileId: string | null
+    }
+  }>('/api/preferences')
+  assert.equal(defaultPreferences.capabilityPreference.domainTemplateId, capabilities.defaults.domainTemplateId)
+  const updatedPreferences = await putJson<typeof defaultPreferences>('/api/preferences', {
+    capabilityPreference: {
+      domainTemplateId: 'tpl_apple_like_product',
+      aestheticProfileId: 'aes_apple_minimal',
+      colorPaletteId: 'pal_minimal_mono',
+      loopProfileId: 'loop_standard',
+    },
+  })
+  assert.equal(updatedPreferences.capabilityPreference.domainTemplateId, 'tpl_apple_like_product')
+  assert.equal(updatedPreferences.capabilityPreference.aestheticProfileId, 'aes_apple_minimal')
+  assert.equal(updatedPreferences.capabilityPreference.colorPaletteId, 'pal_minimal_mono')
 
   const sourceArtifact = await postJson<CreateSourceArtifactResponse>('/api/source-artifacts', {
     workspaceId: bootstrap.workspace.id,
@@ -167,6 +211,17 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     prompt: sensitivePrompt,
     sourceMode: 'new_html',
     variationCount: 3,
+    capabilityRequirements: {
+      template: {
+        domainTemplateId: 'tpl_fintech_trust',
+        aestheticProfileId: 'aes_trustworthy_saas',
+        colorPaletteId: 'pal_blue_white_trust',
+      },
+      automation: {
+        loopProfileId: 'loop_standard',
+        maxRepairAttempts: 1,
+      },
+    },
     templateRequirements: {
       styles: ['minimal', 'editorial'],
       deviceTargets: ['desktop', 'mobile'],
@@ -176,6 +231,29 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
 
   const jobSnapshot = await waitForJob(createdJob.job.id)
   assert.equal(jobSnapshot.job.status, 'completed')
+  const storedCreatedJob = await harness.service.store.getJobById(createdJob.job.id)
+  const capabilitySnapshot = storedCreatedJob?.templateRequirements.capabilitySnapshot as {
+    schemaVersion?: string
+    template?: {
+      domainTemplate?: { id?: string }
+      aestheticProfile?: { id?: string }
+      colorPalette?: { id?: string }
+    }
+    automation?: {
+      loopProfile?: { id?: string }
+      maxRepairAttempts?: number
+    }
+  } | undefined
+  assert.equal(capabilitySnapshot?.schemaVersion, '2026-06-30.dudesign-capabilities.v1')
+  assert.equal(capabilitySnapshot?.template?.domainTemplate?.id, 'tpl_fintech_trust')
+  assert.equal(capabilitySnapshot?.template?.aestheticProfile?.id, 'aes_trustworthy_saas')
+  assert.equal(capabilitySnapshot?.template?.colorPalette?.id, 'pal_blue_white_trust')
+  assert.equal(capabilitySnapshot?.automation?.loopProfile?.id, 'loop_standard')
+  assert.equal(capabilitySnapshot?.automation?.maxRepairAttempts, 1)
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_fintech_trust')
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.template.aestheticProfile.id, 'aes_trustworthy_saas')
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.template.colorPalette.id, 'pal_blue_white_trust')
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_standard')
   assert.equal(jobSnapshot.variations.length, 3)
   assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
   assert.equal(jobSnapshot.artifacts.filter(artifact => artifact.kind === 'html').length, 3)
@@ -194,6 +272,8 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const variationId = jobSnapshot.variations[0]!.id
   const beforeRefine = await getJson<VariationDetailResponse>(`/api/variations/${variationId}`)
   assert.equal(beforeRefine.currentArtifact?.version, 1)
+  assert.equal(beforeRefine.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_fintech_trust')
+  assert.equal(beforeRefine.job.capabilitySnapshot?.template.aestheticProfile.id, 'aes_trustworthy_saas')
 
   const refined = await postJson<RefineVariationResponse>(`/api/variations/${variationId}/refine`, {
     prompt: 'Make the hero more confident and improve mobile spacing.',
@@ -404,18 +484,43 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(runtimeHealth.runtime.status, 'compatible')
   assert.equal(runtimeHealth.contract.status, 'compatible')
 
-  const adminJobs = await getJson<{ jobs: Array<{ id: string; status: string; prompt: string; completedVariationCount: number }> }>('/api/admin/jobs', {
+  const adminJobs = await getJson<{
+    jobs: Array<{
+      id: string
+      status: string
+      prompt: string
+      userId: string
+      workspaceId: string
+      sessionId: string
+      completedVariationCount: number
+      variations: Array<{ id: string; status: string; errorMessage: string | null }>
+    }>
+  }>('/api/admin/jobs', {
     headers: { 'x-dudesign-admin-role': 'support' },
   })
   assert.ok(adminJobs.jobs.some(job => job.id === createdJob.job.id && job.completedVariationCount === 3))
   const adminJob = adminJobs.jobs.find(job => job.id === createdJob.job.id)
   assert.ok(adminJob)
+  assert.equal(adminJob.variations.length, 3)
+  assert.ok(adminJob.variations.some(variation => variation.id === variationId && variation.status === 'completed'))
   assert.match(adminJob.prompt, /\[redacted-email\]/)
   assert.match(adminJob.prompt, /\[redacted-secret\]/)
   assert.match(adminJob.prompt, /\[redacted-path\]/)
   assert.doesNotMatch(adminJob.prompt, /owner@example\.com/)
   assert.doesNotMatch(adminJob.prompt, /sk-test-admin-redaction/)
   assert.doesNotMatch(adminJob.prompt, /\/Users\/tangyaoyue/)
+
+  const filteredAdminJobs = await getJson<{ jobs: Array<{ id: string }> }>(
+    `/api/admin/jobs?userId=usr_dev&workspaceId=${encodeURIComponent(adminJob.workspaceId)}&sessionId=${encodeURIComponent(adminJob.sessionId)}&status=completed`,
+    { headers: { 'x-dudesign-admin-role': 'support' } },
+  )
+  assert.ok(filteredAdminJobs.jobs.some(job => job.id === createdJob.job.id))
+
+  const timeFilteredAdminJobs = await getJson<{ jobs: Array<{ id: string }> }>(
+    `/api/admin/jobs?createdFrom=${encodeURIComponent('2000-01-01T00:00:00.000Z')}&createdTo=${encodeURIComponent('2999-01-01T00:00:00.000Z')}`,
+    { headers: { 'x-dudesign-admin-role': 'support' } },
+  )
+  assert.ok(timeFilteredAdminJobs.jobs.some(job => job.id === createdJob.job.id))
 
   const adminArtifacts = await getJson<{
     artifacts: Array<{
@@ -458,12 +563,36 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(supportLookup.users[0]?.user.id, 'usr_dev')
   const supportSession = supportLookup.users[0]?.sessions.find(session => session.id === createdSession.session.id)
   assert.equal(supportSession?.resumeState, 'runtime_session_available')
-  assert.equal(supportSession?.latestJob?.id, createdJob.job.id)
+  assert.equal(supportSession?.latestJob?.status, 'completed')
   assert.equal(supportSession?.failureSummary.severity, 'ok')
   assert.ok(typeof supportSession?.lastPromptPreview === 'string' || supportSession?.lastPromptPreview === null)
   assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-email\]/)
   assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-secret\]/)
   assert.match(supportSession?.lastPromptPreview ?? '', /\[redacted-path\]/)
+
+  const retryVariationForbidden = await fetch(`${baseUrl}/api/admin/jobs/${createdJob.job.id}/variations/${variationId}/retry`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-dudesign-admin-role': 'support',
+    },
+    body: JSON.stringify({ reason: 'support cannot retry variation' }),
+  })
+  assert.equal(retryVariationForbidden.status, 403)
+
+  const retriedVariation = await postJson<{
+    retry: { job: { id: string; variationCount: number } }
+    audit: { action: string; targetId: string; metadata: { originalJobId: string; retriedJobId: string } }
+  }>(`/api/admin/jobs/${createdJob.job.id}/variations/${variationId}/retry`, {
+    reason: 'operator retry variation smoke',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'operator' },
+  })
+  assert.equal(retriedVariation.retry.job.variationCount, 1)
+  assert.equal(retriedVariation.audit.action, 'variation.retry')
+  assert.equal(retriedVariation.audit.targetId, variationId)
+  assert.equal(retriedVariation.audit.metadata.originalJobId, createdJob.job.id)
+  assert.equal(retriedVariation.audit.metadata.retriedJobId, retriedVariation.retry.job.id)
 
   const sessionForFailure = await harness.service.store.getSessionById(createdSession.session.id)
   assert.ok(sessionForFailure)
@@ -605,8 +734,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const auditLogs = await getJson<{ auditLogs: Array<{ action: string; targetId: string }> }>('/api/admin/audit-logs', {
     headers: { 'x-dudesign-admin-role': 'operator' },
   })
-  assert.equal(auditLogs.auditLogs[0]?.action, 'job.retry')
-  assert.equal(auditLogs.auditLogs[0]?.targetId, createdJob.job.id)
+  assert.ok(auditLogs.auditLogs.some(audit => audit.action === 'job.retry' && audit.targetId === createdJob.job.id))
 
   const retrySnapshot = await waitForJob(retried.retry.job.id)
   assert.equal(retrySnapshot.job.status, 'completed')

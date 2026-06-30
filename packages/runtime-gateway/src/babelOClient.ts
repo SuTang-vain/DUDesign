@@ -1,3 +1,4 @@
+import type { CapabilitySnapshot } from '@dudesign/contracts'
 import type {
   CancelRuntimeJobInput,
   CancelRuntimeJobResult,
@@ -7,6 +8,7 @@ import type {
   RuntimeContract,
   RuntimeContractStatus,
   RuntimeHealth,
+  RuntimeModels,
   RuntimeResumeResult,
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
@@ -95,6 +97,8 @@ export type BabelORuntimeStreamRequest = {
   agentJobId?: string
 }
 
+export type BabelORuntimeModelsResponse = Record<string, unknown>
+
 export class BabelORuntimeClient {
   private readonly baseUrl: string
   private readonly timeoutMs: number
@@ -163,6 +167,11 @@ export class BabelORuntimeClient {
         eventMappings: {},
       }
     }
+  }
+
+  async listRuntimeModels(): Promise<RuntimeModels> {
+    const response = await this.requestJson<BabelORuntimeModelsResponse>('/v1/runtime/models')
+    return normalizeRuntimeModels(response)
   }
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef> {
@@ -495,12 +504,44 @@ function buildVariationRuntimePrompt(
     '',
     input.prompt,
     '',
+    capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
+    '',
     'DUDesign variation directive:',
     `- This is variation ${input.variationIndex} of ${input.variationCount}.`,
     `- Distinct style direction: ${styleDirection}`,
     '- Keep the same product/user goal, but make the visual direction clearly different from sibling variations.',
     '- Produce a complete static HTML page and avoid depending on assets that are not included in the artifact bundle.',
   ].join('\n')
+}
+
+function capabilityPromptBlock(snapshot: CapabilitySnapshot | undefined): string {
+  if (!snapshot || typeof snapshot !== 'object') return 'DUDesign capability context: use the user prompt and explicit style requirements.'
+  const record = snapshot as {
+    template?: {
+      domainTemplate?: { name?: string; description?: string; constraints?: string[]; structure?: { sections?: string[] }; variationDirections?: string[] }
+      aestheticProfile?: { name?: string; description?: string; negativeRules?: string[]; typographyTone?: string; layoutTone?: string; motionTone?: string }
+      colorPalette?: { name?: string; colors?: string[]; usage?: Record<string, string> }
+    }
+    automation?: { loopProfile?: { name?: string; description?: string }; maxRepairAttempts?: number }
+  }
+  const domain = record.template?.domainTemplate
+  const aesthetic = record.template?.aestheticProfile
+  const palette = record.template?.colorPalette
+  const loop = record.automation?.loopProfile
+  return [
+    'DUDesign capability context:',
+    domain && `- Domain template: ${domain.name ?? 'Unknown'}${domain.description ? ` — ${domain.description}` : ''}`,
+    domain?.structure?.sections?.length ? `- Recommended sections: ${domain.structure.sections.join(', ')}.` : undefined,
+    domain?.constraints?.length ? `- Domain constraints: ${domain.constraints.join(' ')}` : undefined,
+    aesthetic && `- Aesthetic profile: ${aesthetic.name ?? 'Unknown'}${aesthetic.description ? ` — ${aesthetic.description}` : ''}`,
+    aesthetic?.typographyTone ? `- Typography tone: ${aesthetic.typographyTone}.` : undefined,
+    aesthetic?.layoutTone ? `- Layout tone: ${aesthetic.layoutTone}.` : undefined,
+    aesthetic?.motionTone ? `- Motion tone: ${aesthetic.motionTone}.` : undefined,
+    aesthetic?.negativeRules?.length ? `- Avoid: ${aesthetic.negativeRules.join(' ')}` : undefined,
+    palette && `- Color palette: ${palette.name ?? 'Unknown'}${palette.colors?.length ? ` (${palette.colors.join(', ')})` : ''}.`,
+    palette?.usage ? `- Suggested color usage: ${Object.entries(palette.usage).map(([key, value]) => `${key}=${value}`).join(', ')}.` : undefined,
+    loop && `- Automation loop preference: ${loop.name ?? 'Unknown'}${typeof record.automation?.maxRepairAttempts === 'number' ? `, max repair attempts ${record.automation.maxRepairAttempts}` : ''}.`,
+  ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -530,6 +571,53 @@ function designEventMappings(value: unknown): RuntimeContract['eventMappings'] {
       isDesignEventType(entry[1]),
     ),
   )
+}
+
+function normalizeRuntimeModels(value: Record<string, unknown>): RuntimeModels {
+  if (value.type !== 'runtime_models' || !Array.isArray(value.providers)) {
+    throw new RuntimeGatewayError('RUNTIME_BAD_RESPONSE', 'BabeL-O runtime returned an invalid runtime models payload.')
+  }
+  return {
+    type: 'runtime_models',
+    version: optionalString(value.version) ?? optionalNumber(value.version) ?? null,
+    defaultModel: optionalString(value.defaultModel) ?? null,
+    activeProfile: optionalString(value.activeProfile) ?? null,
+    syncedAt: new Date().toISOString(),
+    providers: value.providers
+      .filter((provider): provider is Record<string, unknown> => Boolean(provider && typeof provider === 'object'))
+      .map(provider => ({
+        id: optionalString(provider.id) ?? 'unknown',
+        displayName: optionalString(provider.displayName) ?? optionalString(provider.id) ?? 'Unknown provider',
+        adapter: optionalString(provider.adapter) ?? 'unknown',
+        authMode: optionalString(provider.authMode) ?? 'unknown',
+        defaultBaseUrl: optionalString(provider.defaultBaseUrl),
+        defaultModel: optionalString(provider.defaultModel) ?? '',
+        configured: optionalBoolean(provider.configured) ?? false,
+        authConfigured: optionalBoolean(provider.authConfigured) ?? false,
+        authSource: runtimeAuthSource(provider.authSource),
+        active: optionalBoolean(provider.active) ?? false,
+        models: Array.isArray(provider.models)
+          ? provider.models
+            .filter((model): model is Record<string, unknown> => Boolean(model && typeof model === 'object'))
+            .map(model => ({
+              id: optionalString(model.id) ?? 'unknown',
+              name: optionalString(model.name) ?? optionalString(model.id) ?? 'Unknown model',
+              contextWindow: optionalNumber(model.contextWindow) ?? 0,
+              defaultMaxTokens: optionalNumber(model.defaultMaxTokens) ?? 0,
+              capabilities: {
+                toolCalling: optionalBoolean((model.capabilities as Record<string, unknown> | undefined)?.toolCalling) ?? false,
+                jsonOutput: optionalBoolean((model.capabilities as Record<string, unknown> | undefined)?.jsonOutput) ?? false,
+                streaming: optionalBoolean((model.capabilities as Record<string, unknown> | undefined)?.streaming) ?? false,
+              },
+            }))
+          : [],
+      })),
+  }
+}
+
+function runtimeAuthSource(value: unknown): RuntimeModels['providers'][number]['authSource'] {
+  if (value === 'env' || value === 'profile' || value === 'provider_config') return value
+  return 'none'
 }
 
 function isDesignEventType(value: unknown): value is RuntimeContract['eventMappings'][string] {

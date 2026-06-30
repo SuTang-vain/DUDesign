@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch dist/server.js",
+    "dev:worker": "node --watch dist/worker.js",
     "migrate:postgres": "tsc -b && node -e \"import('./dist/postgresRepository.js').then(async ({ PostgresRepository }) => { if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required'); const repo = await PostgresRepository.connect({ connectionString: process.env.DATABASE_URL }); await repo.close(); })\"",
     "start": "node dist/server.js",
-    "test": "tsc -b && node --test dist/*.test.js"
+    "start:worker": "node dist/worker.js",
+    "test": "tsc -b && node --test --test-concurrency=1 dist/*.test.js",
+    "test:redis": "tsc -b && node --test dist/redisDesignJobQueue.integration.test.js"
   },
   "dependencies": {
     "@dudesign/artifact-store": "0.1.0",
@@ -15,6 +18,8 @@
     "@dudesign/domain": "0.1.0",
     "@dudesign/runtime-gateway": "0.1.0",
     "@types/pg": "^8.20.0",
+    "bullmq": "^5.79.2",
+    "ioredis": "^5.11.1",
     "pg": "^8.22.0"
   },
   "devDependencies": {

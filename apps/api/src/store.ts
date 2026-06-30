@@ -27,14 +27,17 @@ import type {
   ApplicationRepository,
   CurrentVariationArtifactSnapshot,
   MaybePromise,
+  ModelSyncDiffItem,
   RuntimeSessionContext,
   SessionWorkspaceContext,
   SharedVariationSnapshot,
+  UpsertDiscoveredModelServicesResult,
   VariationArtifactContext,
   VariationDetailSnapshot,
   VariationJobContext,
   VariationRefineContext,
 } from './repository.js'
+import type { UserCapabilityPreference } from '@dudesign/contracts'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 
 export type SessionMessage = {
@@ -80,6 +83,7 @@ export class InMemoryStore implements ApplicationRepository {
   readonly shares = new Map<string, Share>()
   readonly modelServices = new Map<string, ModelService>()
   readonly userModelAccess = new Map<string, UserModelAccess>()
+  readonly userCapabilityPreferences = new Map<string, UserCapabilityPreference>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
   readonly auditLogs: AuditLog[] = []
   readonly usageEvents: UsageEvent[] = []
@@ -116,6 +120,15 @@ export class InMemoryStore implements ApplicationRepository {
 
   getUserById(userId: string): MaybePromise<User | null> {
     return this.users.get(userId) ?? null
+  }
+
+  getUserCapabilityPreference(userId: string): MaybePromise<UserCapabilityPreference | null> {
+    return this.userCapabilityPreferences.get(userId) ?? null
+  }
+
+  saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): MaybePromise<UserCapabilityPreference> {
+    this.userCapabilityPreferences.set(userId, preference)
+    return preference
   }
 
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
@@ -773,6 +786,10 @@ export class InMemoryStore implements ApplicationRepository {
     const jobs = [...this.jobs.values()]
       .filter(job => !filter.status || job.status === filter.status)
       .filter(job => !filter.userId || job.userId === filter.userId)
+      .filter(job => !filter.workspaceId || job.workspaceId === filter.workspaceId)
+      .filter(job => !filter.sessionId || job.sessionId === filter.sessionId)
+      .filter(job => !filter.createdFrom || job.createdAt >= filter.createdFrom)
+      .filter(job => !filter.createdTo || job.createdAt <= filter.createdTo)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 100)
 
@@ -805,6 +822,22 @@ export class InMemoryStore implements ApplicationRepository {
           totalOutputTokens: variations.reduce((sum, variation) => sum + variation.outputTokens, 0),
           totalCostCents: variations.reduce((sum, variation) => sum + variation.costCents, 0),
           errorCount: variations.filter(variation => variation.errorCode).length,
+          variations: variations
+            .sort((a, b) => a.index - b.index)
+            .map(variation => ({
+              id: variation.id,
+              index: variation.index,
+              title: variation.title,
+              status: variation.status,
+              currentArtifactId: variation.currentArtifactId,
+              previewUrl: variation.previewUrl,
+              inputTokens: variation.inputTokens,
+              outputTokens: variation.outputTokens,
+              costCents: variation.costCents,
+              errorCode: variation.errorCode,
+              errorMessage: adminPreviewText(variation.errorMessage, 160),
+              updatedAt: variation.updatedAt,
+            })),
           createdAt: job.createdAt,
           updatedAt: job.updatedAt,
         }
@@ -938,6 +971,84 @@ export class InMemoryStore implements ApplicationRepository {
 
   listAdminModels(): MaybePromise<{ models: AdminModelSummary[] }> {
     return {
+      models: [...this.modelServices.values()]
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.displayName.localeCompare(b.displayName))
+        .map(model => ({
+          id: model.id,
+          provider: model.provider,
+          modelId: model.modelId,
+          displayName: model.displayName,
+          description: model.description,
+          enabled: model.enabled,
+          isDefault: model.isDefault,
+          capabilities: model.capabilities,
+          contextWindow: model.contextWindow,
+          inputTokenCostCents: model.inputTokenCostCents,
+          outputTokenCostCents: model.outputTokenCostCents,
+          metadata: model.metadata,
+          createdAt: model.createdAt,
+          updatedAt: model.updatedAt,
+        })),
+    }
+  }
+
+  upsertDiscoveredModelServices(models: ModelService[]): MaybePromise<UpsertDiscoveredModelServicesResult> {
+    let createdCount = 0
+    let updatedCount = 0
+    let missingCount = 0
+    let disabledMissingCount = 0
+    const diff: ModelSyncDiffItem[] = []
+    const discoveredIds = new Set(models.map(model => model.id))
+    const syncTime = models[0]?.updatedAt ?? nowIso()
+    for (const model of models) {
+      const existing = this.modelServices.get(model.id)
+      if (existing) {
+        updatedCount += 1
+        const merged: ModelService = {
+          ...model,
+          enabled: existing.enabled,
+          isDefault: existing.isDefault,
+          createdAt: existing.createdAt,
+        }
+        if (hasModelServiceRuntimeDiff(existing, merged)) {
+          diff.push(modelSyncDiffItem('updated', existing, merged))
+        }
+        this.modelServices.set(model.id, {
+          ...merged,
+          metadata: {
+            ...merged.metadata,
+            runtimeMissingSinceLastSync: false,
+          },
+        })
+      } else {
+        createdCount += 1
+        diff.push(modelSyncDiffItem('created', null, model))
+        this.modelServices.set(model.id, model)
+      }
+    }
+    for (const existing of this.modelServices.values()) {
+      if (existing.metadata.source !== 'runtime_discovery' || discoveredIds.has(existing.id)) continue
+      missingCount += 1
+      if (existing.enabled) disabledMissingCount += 1
+      const missing: ModelService = {
+        ...existing,
+        enabled: false,
+        metadata: {
+          ...existing.metadata,
+          runtimeMissingAt: syncTime,
+          runtimeMissingSinceLastSync: true,
+        },
+        updatedAt: syncTime,
+      }
+      diff.push(modelSyncDiffItem('missing', existing, missing))
+      this.modelServices.set(existing.id, missing)
+    }
+    return {
+      createdCount,
+      updatedCount,
+      missingCount,
+      disabledMissingCount,
+      diff,
       models: [...this.modelServices.values()]
         .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.displayName.localeCompare(b.displayName))
         .map(model => ({
@@ -1144,6 +1255,38 @@ export class InMemoryStore implements ApplicationRepository {
 
 function userModelAccessKey(userId: string, modelServiceId: string): string {
   return `${userId}:${modelServiceId}`
+}
+
+function hasModelServiceRuntimeDiff(previous: ModelService, next: ModelService): boolean {
+  return previous.displayName !== next.displayName
+    || previous.contextWindow !== next.contextWindow
+    || previous.inputTokenCostCents !== next.inputTokenCostCents
+    || previous.outputTokenCostCents !== next.outputTokenCostCents
+}
+
+function modelSyncDiffItem(
+  changeType: ModelSyncDiffItem['changeType'],
+  previous: ModelService | null,
+  next: ModelService,
+): ModelSyncDiffItem {
+  return {
+    modelServiceId: next.id,
+    modelId: next.modelId,
+    displayName: next.displayName,
+    runtimeProviderId: metadataText(next.metadata, 'runtimeProviderId') ?? metadataText(previous?.metadata, 'runtimeProviderId'),
+    changeType,
+    previousContextWindow: previous?.contextWindow ?? null,
+    nextContextWindow: next.contextWindow,
+    previousInputTokenCostCents: previous?.inputTokenCostCents ?? 0,
+    nextInputTokenCostCents: next.inputTokenCostCents,
+    previousOutputTokenCostCents: previous?.outputTokenCostCents ?? 0,
+    nextOutputTokenCostCents: next.outputTokenCostCents,
+  }
+}
+
+function metadataText(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
 }
 
 function artifactSortKey(artifact: Artifact): string {

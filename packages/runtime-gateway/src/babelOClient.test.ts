@@ -83,6 +83,61 @@ describe('BabelORuntimeClient', () => {
     assert.deepEqual(contract.requiredEndpoints, [])
   })
 
+  it('normalizes the BabeL-O runtime model matrix', async () => {
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async url => {
+        assert.equal(String(url), 'https://runtime.example.test/v1/runtime/models')
+        return jsonResponse({
+          type: 'runtime_models',
+          version: 7,
+          defaultModel: 'openai/gpt-5',
+          activeProfile: 'prod',
+          providers: [
+            {
+              id: 'openai',
+              displayName: 'OpenAI-compatible',
+              adapter: 'openai-compatible',
+              authMode: 'bearer',
+              defaultBaseUrl: 'https://api.openai.com/v1',
+              defaultModel: 'openai/gpt-5',
+              configured: false,
+              authConfigured: true,
+              authSource: 'env',
+              active: true,
+              apiKey: 'must-not-leak',
+              models: [
+                {
+                  id: 'openai/gpt-5',
+                  name: 'GPT-5',
+                  contextWindow: 400000,
+                  defaultMaxTokens: 8192,
+                  capabilities: {
+                    toolCalling: true,
+                    jsonOutput: true,
+                    streaming: true,
+                  },
+                },
+              ],
+            },
+          ],
+        })
+      },
+    })
+
+    const models = await client.listRuntimeModels()
+
+    assert.equal(models.type, 'runtime_models')
+    assert.equal(models.version, 7)
+    assert.equal(models.defaultModel, 'openai/gpt-5')
+    assert.equal(models.activeProfile, 'prod')
+    assert.equal(models.providers[0]?.id, 'openai')
+    assert.equal(models.providers[0]?.authSource, 'env')
+    assert.equal(models.providers[0]?.models[0]?.contextWindow, 400000)
+    assert.equal(models.providers[0]?.models[0]?.capabilities.toolCalling, true)
+    assert.doesNotMatch(JSON.stringify(models), /must-not-leak/)
+  })
+
   it('creates a runtime session with isolated workspace and memory context', async () => {
     const calls: Array<{ url: string; method: string; body: unknown; headers: Headers }> = []
     const client = new BabelORuntimeClient({

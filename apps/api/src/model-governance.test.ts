@@ -6,6 +6,7 @@ import type {
   CreateSessionResponse,
   ListUserModelsResponse,
 } from '@dudesign/contracts'
+import type { ModelService } from '@dudesign/domain'
 import { ApplicationService } from './service.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
@@ -78,6 +79,83 @@ describe('Model governance API', () => {
     assert.equal(access.userId, 'usr_dev')
     assert.ok(access.access.some(item => item.modelServiceId === 'mdl_babelo_default'))
     assert.ok(access.access.every(item => item.usage.usageEventCount >= 0))
+  })
+
+  it('syncs runtime-discovered models into model services', async () => {
+    const forbidden = await fetch(`${harness.baseUrl}/api/admin/models/sync`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dudesign-admin-role': 'support',
+      },
+      body: JSON.stringify({}),
+    })
+    assert.equal(forbidden.status, 403)
+
+    const oldRuntimeModel: ModelService = {
+      id: 'mdl_runtime_old_missing',
+      provider: 'babel-o',
+      modelId: 'old/missing-runtime',
+      displayName: 'Old Missing Runtime',
+      description: 'Old runtime-discovered model',
+      enabled: true,
+      isDefault: false,
+      capabilities: ['html_generation'],
+      contextWindow: 8192,
+      inputTokenCostCents: 1,
+      outputTokenCostCents: 2,
+      metadata: {
+        source: 'runtime_discovery',
+        runtimeProviderId: 'old',
+        runtimeSyncedAt: '2026-01-01T00:00:00.000Z',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    await harness.service.store.upsertDiscoveredModelServices([oldRuntimeModel])
+
+    const syncedResponse = await fetch(`${harness.baseUrl}/api/admin/models/sync`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-dudesign-admin-role': 'operator',
+      },
+      body: JSON.stringify({}),
+    })
+    assert.equal(syncedResponse.ok, true, `/api/admin/models/sync failed with ${syncedResponse.status}`)
+    const synced = await syncedResponse.json() as AdminModelsResponse & {
+      createdCount: number
+      updatedCount: number
+      missingCount: number
+      disabledMissingCount: number
+      diff: Array<{ modelServiceId: string; changeType: string }>
+      runtime: { modelCount: number; providerCount: number; defaultModel: string | null }
+      audit: { action: string; metadata: { runtimeModelCount: number; missingCount: number; disabledMissingCount: number } }
+    }
+    assert.equal(synced.createdCount >= 1, true)
+    assert.equal(synced.missingCount, 1)
+    assert.equal(synced.disabledMissingCount, 1)
+    assert.equal(synced.diff.some(item => item.modelServiceId === oldRuntimeModel.id && item.changeType === 'missing'), true)
+    assert.equal(synced.runtime.providerCount, 1)
+    assert.equal(synced.runtime.modelCount, 1)
+    assert.equal(synced.runtime.defaultModel, 'local/coding-runtime')
+    assert.equal(synced.audit.action, 'model.sync')
+    assert.equal(synced.audit.metadata.runtimeModelCount, 1)
+    assert.equal(synced.audit.metadata.missingCount, 1)
+    assert.equal(synced.audit.metadata.disabledMissingCount, 1)
+
+    const runtimeModel = synced.models.find(model => model.modelId === 'local/coding-runtime')
+    assert.ok(runtimeModel)
+    assert.equal(runtimeModel.provider, 'babel-o')
+    assert.equal(runtimeModel.enabled, false)
+    assert.equal(runtimeModel.metadata.source, 'runtime_discovery')
+    assert.equal(runtimeModel.metadata.runtimeProviderId, 'local')
+    assert.equal(runtimeModel.metadata.runtimeProviderAuthSource, 'none')
+
+    const missingModel = synced.models.find(model => model.id === oldRuntimeModel.id)
+    assert.ok(missingModel)
+    assert.equal(missingModel.enabled, false)
+    assert.equal(missingModel.metadata.runtimeMissingSinceLastSync, true)
   })
 
   async function getJson<T>(path: string): Promise<T> {

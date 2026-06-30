@@ -3,12 +3,21 @@ import { BabelORuntimeGateway, MockRuntimeGateway, type RuntimeGateway } from '@
 import { join } from 'node:path'
 import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
+import { InMemoryDesignJobQueue, type DesignJobQueue } from './designJobQueue.js'
+import { createRedisDesignJobQueueFromEnv } from './redisDesignJobQueue.js'
 
-export async function createApplicationServiceFromEnv(): Promise<ApplicationService> {
+export type ApplicationProcessRole = 'api' | 'worker' | 'inline'
+
+export async function createApplicationServiceFromEnv(options: {
+  role?: ApplicationProcessRole
+} = {}): Promise<ApplicationService> {
+  const role = options.role ?? applicationProcessRoleFromEnv()
   const artifacts = new LocalArtifactStore({
     rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
   })
   const runtime = createRuntimeGatewayFromEnv()
+  const queue = createDesignJobQueueFromEnv()
+  const consumeQueue = shouldConsumeQueue(role)
   if (process.env.DUDESIGN_REPOSITORY === 'postgres') {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required when DUDESIGN_REPOSITORY=postgres.')
@@ -17,9 +26,30 @@ export async function createApplicationServiceFromEnv(): Promise<ApplicationServ
       connectionString: process.env.DATABASE_URL,
       hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
-    return new ApplicationService({ store, artifacts, runtime })
+    return new ApplicationService({ store, artifacts, runtime, queue, consumeQueue })
   }
-  return new ApplicationService({ artifacts, runtime })
+  return new ApplicationService({ artifacts, runtime, queue, consumeQueue })
+}
+
+export function applicationProcessRoleFromEnv(env: NodeJS.ProcessEnv = process.env): ApplicationProcessRole {
+  const role = env.DUDESIGN_PROCESS_ROLE ?? env.DUDESIGN_SERVICE_ROLE
+  if (role === 'worker') return 'worker'
+  if (role === 'inline') return 'inline'
+  return 'api'
+}
+
+export function shouldConsumeQueue(role: ApplicationProcessRole, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (role === 'worker' || role === 'inline') return true
+  const queueProvider = env.DUDESIGN_QUEUE ?? env.DUDESIGN_QUEUE_PROVIDER
+  return queueProvider !== 'redis' && queueProvider !== 'bullmq'
+}
+
+export function createDesignJobQueueFromEnv(): DesignJobQueue {
+  const queueProvider = process.env.DUDESIGN_QUEUE ?? process.env.DUDESIGN_QUEUE_PROVIDER
+  if (queueProvider === 'redis' || queueProvider === 'bullmq') {
+    return createRedisDesignJobQueueFromEnv()
+  }
+  return new InMemoryDesignJobQueue()
 }
 
 export function createRuntimeGatewayFromEnv(): RuntimeGateway {

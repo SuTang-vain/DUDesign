@@ -7,10 +7,12 @@ import type {
   DesignEvent,
   RefineVariationRequest,
   ShareVariationRequest,
+  UpdateUserPreferencesRequest,
+  UserCapabilityPreference,
 } from '@dudesign/contracts'
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
-import { MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gateway'
-import type { Artifact, DesignVariation, DesignVariationStatus } from '@dudesign/domain'
+import { MockRuntimeGateway, type RuntimeGateway, type RuntimeModels } from '@dudesign/runtime-gateway'
+import type { Artifact, DesignVariation, DesignVariationStatus, ModelService } from '@dudesign/domain'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import {
@@ -24,12 +26,21 @@ import { InMemoryStore } from './store.js'
 import type { ApplicationRepository } from './repository.js'
 import type { RequestContext } from './auth.js'
 import { createId } from './id.js'
+import { listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
+import {
+  InMemoryDesignJobQueue,
+  type DesignJobQueue,
+  type DesignJobQueuePayload,
+  type RefineJobQueuePayload,
+} from './designJobQueue.js'
+import { attachDesignJobWorker } from './designJobWorker.js'
 
 export class ApplicationService {
   readonly store: ApplicationRepository
   readonly events: JobEventBus
   readonly runtime: RuntimeGateway
   readonly artifacts: ArtifactStore
+  readonly queue: DesignJobQueue
   private readonly backgroundTasks = new Set<Promise<unknown>>()
 
   constructor(options: {
@@ -37,6 +48,8 @@ export class ApplicationService {
     events?: JobEventBus
     runtime?: RuntimeGateway
     artifacts?: ArtifactStore
+    queue?: DesignJobQueue
+    consumeQueue?: boolean
   } = {}) {
     this.store = options.store ?? new InMemoryStore()
     this.events = options.events ?? new JobEventBus()
@@ -44,9 +57,14 @@ export class ApplicationService {
     this.artifacts = options.artifacts ?? new LocalArtifactStore({
       rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
     })
+    this.queue = options.queue ?? new InMemoryDesignJobQueue()
+    if (options.consumeQueue ?? true) {
+      attachDesignJobWorker(this.queue, this)
+    }
   }
 
   async flushBackgroundTasks(): Promise<void> {
+    await this.queue.flush?.()
     while (this.backgroundTasks.size > 0) {
       await Promise.allSettled([...this.backgroundTasks])
     }
@@ -63,6 +81,28 @@ export class ApplicationService {
   async listUserModels(ctx: RequestContext) {
     const user = await this.requireUser(ctx.userId)
     return this.store.listUserModelOptions(user.id)
+  }
+
+  async listCapabilities(ctx: RequestContext) {
+    await this.requireUser(ctx.userId)
+    return listCapabilities()
+  }
+
+  async getUserPreferences(ctx: RequestContext) {
+    const user = await this.requireUser(ctx.userId)
+    const preference = await this.store.getUserCapabilityPreference(user.id)
+    return { capabilityPreference: withCapabilityPreferenceDefaults(preference) }
+  }
+
+  async updateUserPreferences(ctx: RequestContext, input: UpdateUserPreferencesRequest) {
+    const user = await this.requireUser(ctx.userId)
+    const current = withCapabilityPreferenceDefaults(await this.store.getUserCapabilityPreference(user.id))
+    const next = normalizeCapabilityPreference({
+      ...current,
+      ...(input.capabilityPreference ?? {}),
+    })
+    const saved = await this.store.saveUserCapabilityPreference(user.id, next)
+    return { capabilityPreference: saved }
   }
 
   async createSourceArtifact(ctx: RequestContext, input: CreateSourceArtifactRequest) {
@@ -218,6 +258,7 @@ export class ApplicationService {
     await this.requireSessionAccess(session.id, ctx.userId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
     const selectedModel = await this.resolveUserModel(ctx.userId, input.modelServiceId ?? null)
+    const capabilitySnapshot = resolveCapabilitySnapshot(input.capabilityRequirements)
     await this.store.appendMessage({
       sessionId: session.id,
       role: 'user',
@@ -227,6 +268,7 @@ export class ApplicationService {
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
         modelServiceId: selectedModel.id,
+        capabilitySnapshot,
       },
     })
     const job = await this.store.createJob({
@@ -236,6 +278,7 @@ export class ApplicationService {
       variationCount: input.variationCount,
       templateRequirements: {
         ...(input.templateRequirements ?? {}),
+        capabilitySnapshot,
         modelServiceId: selectedModel.id,
         modelId: selectedModel.modelId,
         modelProvider: selectedModel.provider,
@@ -243,20 +286,17 @@ export class ApplicationService {
     })
     const variations = await this.store.createVariations({ job, count: input.variationCount })
 
-    void this.runMockJob({
+    await this.queue.enqueueDesignJob({
       jobId: job.id,
       sessionId: session.id,
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.storageKey,
-      prompt: input.prompt,
-      sourceMode: input.sourceMode,
+      variationIds: variations.map(variation => variation.id),
       sourceArtifactId: input.sourceArtifactId ?? null,
-      variationCount: input.variationCount,
-      templateRequirements: input.templateRequirements,
+      runtimeSessionId: session.runtimeSessionId,
       modelServiceId: selectedModel.id,
-      modelId: selectedModel.modelId,
-      modelProvider: selectedModel.provider,
-      variationIdsByIndex: new Map(variations.map(variation => [variation.index, variation.id])),
+      idempotencyKey: designJobQueueIdempotencyKey(job.id),
+      userId: session.userId,
+      workspaceId: workspace.id,
+      createdAt: new Date().toISOString(),
     })
 
     return {
@@ -277,8 +317,12 @@ export class ApplicationService {
     const snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     await this.requireJobAccess(snapshot.job.id, ctx.userId)
+    const templateRequirements = normalizeTemplateRequirements(snapshot.job.templateRequirements)
     return {
-      job: snapshot.job,
+      job: {
+        ...snapshot.job,
+        capabilitySnapshot: templateRequirements?.capabilitySnapshot ?? null,
+      },
       variations: snapshot.variations.map(variation => ({
         ...variation,
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
@@ -312,6 +356,7 @@ export class ApplicationService {
         id: job.id,
         prompt: job.prompt,
         status: job.status,
+        capabilitySnapshot: normalizeTemplateRequirements(job.templateRequirements)?.capabilitySnapshot ?? null,
       },
       currentArtifact: currentArtifact
         ? {
@@ -806,7 +851,14 @@ export class ApplicationService {
     }
   }
 
-  async listAdminJobs(ctx: RequestContext, filter: { status?: string | null; userId?: string | null } = {}) {
+  async listAdminJobs(ctx: RequestContext, filter: {
+    status?: string | null
+    userId?: string | null
+    workspaceId?: string | null
+    sessionId?: string | null
+    createdFrom?: string | null
+    createdTo?: string | null
+  } = {}) {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.listAdminJobs(filter)
   }
@@ -834,6 +886,46 @@ export class ApplicationService {
   async listAdminModels(ctx: RequestContext) {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
     return this.store.listAdminModels()
+  }
+
+  async syncAdminModels(ctx: RequestContext) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const runtimeModels = await this.runtime.listRuntimeModels()
+    const discovered = runtimeModelsToModelServices(runtimeModels)
+    const result = await this.store.upsertDiscoveredModelServices(discovered)
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'model.sync',
+      targetType: 'model_service',
+      targetId: 'runtime_discovery',
+      reason: null,
+      metadata: {
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        missingCount: result.missingCount,
+        disabledMissingCount: result.disabledMissingCount,
+        diffCount: result.diff.length,
+        runtimeProviderCount: runtimeModels.providers.length,
+        runtimeModelCount: discovered.length,
+        runtimeDefaultModel: runtimeModels.defaultModel,
+        runtimeVersion: runtimeModels.version,
+      },
+    })
+    return {
+      ...result,
+      runtime: {
+        type: runtimeModels.type,
+        version: runtimeModels.version,
+        providerCount: runtimeModels.providers.length,
+        modelCount: discovered.length,
+        defaultModel: runtimeModels.defaultModel,
+        activeProfile: runtimeModels.activeProfile ?? null,
+        syncedAt: runtimeModels.syncedAt,
+      },
+      audit,
+    }
   }
 
   async updateAdminModel(ctx: RequestContext, modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }) {
@@ -966,6 +1058,52 @@ export class ApplicationService {
     }
   }
 
+  async retryVariationAsAdmin(ctx: RequestContext, jobId: string, variationId: string, input: { reason?: string } = {}) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const original = await this.store.getJobById(jobId)
+    if (!original) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
+    const variation = await this.store.getVariationById(variationId)
+    if (!variation || variation.jobId !== jobId) {
+      throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation ${variationId} not found for job ${jobId}.`)
+    }
+    const session = await this.store.getSessionById(original.sessionId)
+    if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${original.sessionId}`)
+    const templateRequirements = normalizeTemplateRequirements(original.templateRequirements)
+    const retryNote = `Admin variation retry: job=${original.id}; variation=${variation.id}; index=${variation.index}.`
+    const retry = await this.createDesignJob(
+      { ...ctx, userId: original.userId },
+      {
+        sessionId: original.sessionId,
+        prompt: original.prompt,
+        sourceMode: original.sourceMode,
+        variationCount: 1,
+        templateRequirements: {
+          ...templateRequirements,
+          notes: templateRequirements?.notes ? `${templateRequirements.notes}\n${retryNote}` : retryNote,
+        },
+        modelServiceId: stringValue(original.templateRequirements.modelServiceId) ?? undefined,
+      },
+    )
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'variation.retry',
+      targetType: 'design_variation',
+      targetId: variationId,
+      reason: input.reason ?? null,
+      metadata: {
+        originalJobId: original.id,
+        retriedJobId: retry.job.id,
+        retryVariationCount: retry.job.variationCount,
+      },
+    })
+    return {
+      retry,
+      audit,
+    }
+  }
+
   private async requireCurrentVariationArtifact(variationId: string) {
     const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
@@ -1032,6 +1170,41 @@ export class ApplicationService {
     const model = await this.store.getModelServiceById(modelServiceId)
     if (!model || !model.enabled) throw createHttpError(404, 'MODEL_NOT_FOUND', `Model service not found: ${modelServiceId}`)
     return model
+  }
+
+  async processQueuedDesignJob(payload: DesignJobQueuePayload): Promise<void> {
+    const sessionContext = await this.store.getSessionWorkspaceContext(payload.sessionId)
+    if (!sessionContext) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${payload.sessionId}`)
+    const { session, workspace } = sessionContext
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
+    const job = await this.store.getJobById(payload.jobId)
+    if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${payload.jobId}`)
+    const modelContext = modelContextFromTemplateRequirements(job.templateRequirements)
+    const variations = await Promise.all(payload.variationIds.map(id => this.store.getVariationById(id)))
+    const variationIdsByIndex = new Map(
+      variations
+        .filter((variation): variation is DesignVariation => Boolean(variation))
+        .map(variation => [variation.index, variation.id]),
+    )
+    await this.runMockJob({
+      jobId: job.id,
+      sessionId: session.id,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.storageKey,
+      prompt: job.prompt,
+      sourceMode: job.sourceMode,
+      sourceArtifactId: payload.sourceArtifactId,
+      variationCount: job.variationCount,
+      templateRequirements: normalizeTemplateRequirements(job.templateRequirements),
+      modelServiceId: payload.modelServiceId ?? modelContext.modelServiceId ?? '',
+      modelId: modelContext.modelId ?? '',
+      modelProvider: modelContext.modelProvider ?? '',
+      variationIdsByIndex,
+    })
+  }
+
+  async processQueuedRefineJob(_payload: RefineJobQueuePayload): Promise<void> {
+    throw createHttpError(501, 'REFINE_QUEUE_NOT_IMPLEMENTED', 'Queued refine execution is not enabled yet.')
   }
 
   private async runMockJob(input: {
@@ -1782,6 +1955,103 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
       ? value.deviceTargets.filter((item): item is 'desktop' | 'tablet' | 'mobile' => item === 'desktop' || item === 'tablet' || item === 'mobile')
       : undefined,
     notes: typeof value.notes === 'string' ? value.notes : undefined,
+    capabilitySnapshot: isCapabilitySnapshot(value.capabilitySnapshot) ? value.capabilitySnapshot : undefined,
+  }
+}
+
+function runtimeModelsToModelServices(runtimeModels: RuntimeModels): ModelService[] {
+  const now = runtimeModels.syncedAt
+  return runtimeModels.providers.flatMap(provider =>
+    provider.models
+      .filter(model => model.id && model.id !== 'unknown')
+      .map(model => {
+        const longContext = model.contextWindow >= 64000
+        return {
+          id: runtimeModelServiceId(provider.id, model.id),
+          provider: 'babel-o',
+          modelId: model.id,
+          displayName: model.name || model.id,
+          description: `${provider.displayName} model discovered from BabeL-O runtime.`,
+          enabled: false,
+          isDefault: false,
+          capabilities: [
+            'html_generation',
+            'html_refine',
+            ...(longContext ? ['long_context'] as const : []),
+          ],
+          contextWindow: model.contextWindow || null,
+          inputTokenCostCents: 0,
+          outputTokenCostCents: 0,
+          metadata: {
+            source: 'runtime_discovery',
+            runtime: 'babel-o',
+            runtimeSyncedAt: now,
+            runtimeVersion: runtimeModels.version,
+            runtimeDefaultModel: runtimeModels.defaultModel,
+            runtimeActiveProfile: runtimeModels.activeProfile ?? null,
+            runtimeProviderId: provider.id,
+            runtimeProviderName: provider.displayName,
+            runtimeProviderAdapter: provider.adapter,
+            runtimeProviderAuthMode: provider.authMode,
+            runtimeProviderConfigured: provider.configured,
+            runtimeProviderAuthConfigured: provider.authConfigured,
+            runtimeProviderAuthSource: provider.authSource,
+            runtimeProviderActive: provider.active,
+            runtimeProviderDefaultModel: provider.defaultModel,
+            runtimeModelDefaultMaxTokens: model.defaultMaxTokens,
+            runtimeModelCapabilities: model.capabilities,
+          },
+          createdAt: now,
+          updatedAt: now,
+        } satisfies ModelService
+      }),
+  )
+}
+
+function runtimeModelServiceId(providerId: string, modelId: string): string {
+  return `mdl_runtime_${slugId(`${providerId}_${modelId}`)}`
+}
+
+function slugId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96) || 'model'
+}
+
+function isCapabilitySnapshot(value: unknown): value is NonNullable<CreateDesignJobRequest['templateRequirements']>['capabilitySnapshot'] {
+  return Boolean(value && typeof value === 'object' && typeof (value as Record<string, unknown>).schemaVersion === 'string')
+}
+
+function withCapabilityPreferenceDefaults(value: UserCapabilityPreference | null | undefined): UserCapabilityPreference {
+  const defaults = listCapabilities().defaults
+  return normalizeCapabilityPreference({
+    domainTemplateId: value?.domainTemplateId ?? defaults.domainTemplateId,
+    aestheticProfileId: value?.aestheticProfileId ?? defaults.aestheticProfileId,
+    colorPaletteId: value?.colorPaletteId ?? defaults.colorPaletteId,
+    loopProfileId: value?.loopProfileId ?? defaults.loopProfileId,
+  })
+}
+
+function normalizeCapabilityPreference(input: Partial<UserCapabilityPreference>): UserCapabilityPreference {
+  const capabilities = listCapabilities()
+  const defaults = capabilities.defaults
+  const domainTemplateId = capabilities.domainTemplates.some(item => item.id === input.domainTemplateId)
+    ? input.domainTemplateId!
+    : defaults.domainTemplateId
+  const aestheticProfileId = capabilities.aestheticProfiles.some(item => item.id === input.aestheticProfileId)
+    ? input.aestheticProfileId!
+    : defaults.aestheticProfileId
+  const aesthetic = capabilities.aestheticProfiles.find(item => item.id === aestheticProfileId)
+  const colorPaletteId = capabilities.colorPalettes.some(item => item.id === input.colorPaletteId)
+    && (!aesthetic || aesthetic.colorPaletteIds.includes(input.colorPaletteId!))
+    ? input.colorPaletteId!
+    : defaults.colorPaletteId
+  const loopProfileId = capabilities.automationLoopProfiles.some(item => item.id === input.loopProfileId)
+    ? input.loopProfileId!
+    : defaults.loopProfileId
+  return {
+    domainTemplateId,
+    aestheticProfileId,
+    colorPaletteId,
+    loopProfileId,
   }
 }
 
@@ -1802,6 +2072,10 @@ function modelContextFromTemplateRequirements(value: Record<string, unknown>): {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function designJobQueueIdempotencyKey(jobId: string): string {
+  return `queue:design-job:${jobId}`
 }
 
 function artifactQualitySummary(value: unknown): ArtifactQualityReport | null {

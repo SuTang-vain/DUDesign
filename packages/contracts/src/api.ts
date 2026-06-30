@@ -32,6 +32,111 @@ export type WorkspaceOption = {
   storageKey: string
 }
 
+export type DomainTemplate = {
+  id: ID
+  name: string
+  category: string
+  description: string
+  contentVersion: string
+  structure: {
+    sections: string[]
+    requiredElements: string[]
+    optionalElements: string[]
+  }
+  constraints: string[]
+  variationDirections: string[]
+}
+
+export type AestheticProfile = {
+  id: ID
+  name: string
+  description: string
+  colorPaletteIds: ID[]
+  typographyTone: string
+  layoutTone: string
+  motionTone: string
+  negativeRules: string[]
+}
+
+export type ColorPalette = {
+  id: ID
+  name: string
+  colors: string[]
+  usage: Record<string, string>
+  accessibilityNotes: string[]
+}
+
+export type AutomationLoopProfile = {
+  id: ID
+  name: string
+  description: string
+  maxRepairAttempts: number
+  enablePixelGate: boolean
+  qualityGate: 'static' | 'pixel'
+}
+
+export type CapabilityRequirements = {
+  template?: {
+    domainTemplateId?: ID | null
+    aestheticProfileId?: ID | null
+    colorPaletteId?: ID | null
+  }
+  plugins?: {
+    skillIds?: ID[]
+    mcpToolIds?: ID[]
+  }
+  automation?: {
+    loopProfileId?: ID | null
+    maxRepairAttempts?: number | null
+  }
+}
+
+export type CapabilitySnapshot = {
+  schemaVersion: string
+  template: {
+    domainTemplate: DomainTemplate
+    aestheticProfile: AestheticProfile
+    colorPalette: ColorPalette
+  }
+  plugins: {
+    skillIds: ID[]
+    mcpToolIds: ID[]
+  }
+  automation: {
+    loopProfile: AutomationLoopProfile
+    maxRepairAttempts: number
+  }
+}
+
+export type ListCapabilitiesResponse = {
+  schemaVersion: string
+  domainTemplates: DomainTemplate[]
+  aestheticProfiles: AestheticProfile[]
+  colorPalettes: ColorPalette[]
+  automationLoopProfiles: AutomationLoopProfile[]
+  defaults: {
+    domainTemplateId: ID
+    aestheticProfileId: ID
+    colorPaletteId: ID
+    loopProfileId: ID
+  }
+}
+
+export type UserCapabilityPreference = {
+  domainTemplateId: ID | null
+  aestheticProfileId: ID | null
+  colorPaletteId: ID | null
+  loopProfileId: ID | null
+}
+
+export type UserPreferencesResponse = {
+  capabilityPreference: UserCapabilityPreference
+}
+
+export type UpdateUserPreferencesRequest = {
+  capabilityPreference?: Partial<UserCapabilityPreference>
+}
+
 export type AdminModelService = UserModelOption & {
   enabled: boolean
   inputTokenCostCents: number
@@ -114,10 +219,12 @@ export type CreateDesignJobRequest = {
   sourceArtifactId?: ID | null
   modelServiceId?: ID | null
   variationCount: number
+  capabilityRequirements?: CapabilityRequirements
   templateRequirements?: {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
     notes?: string
+    capabilitySnapshot?: CapabilitySnapshot
   }
 }
 
@@ -164,6 +271,7 @@ export type DesignJobSnapshotResponse = {
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
     prompt: string
     variationCount: number
+    capabilitySnapshot: CapabilitySnapshot | null
   }
   variations: Array<{
     id: ID
@@ -235,6 +343,7 @@ export type VariationDetailResponse = {
     id: ID
     prompt: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+    capabilitySnapshot: CapabilitySnapshot | null
   }
   currentArtifact: {
     id: ID

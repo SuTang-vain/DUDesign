@@ -1,4 +1,4 @@
-import type { DesignEvent, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
+import type { CapabilitySnapshot, DesignEvent, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 
@@ -67,6 +67,7 @@ export type SpawnVariationAgentsInput = {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
     notes?: string
+    capabilitySnapshot?: CapabilitySnapshot
   }
 }
 
@@ -108,9 +109,47 @@ export type CancelRuntimeJobResult = {
   failedVariationCount?: number
 }
 
+export type RuntimeModelsCapability = {
+  toolCalling: boolean
+  jsonOutput: boolean
+  streaming: boolean
+}
+
+export type RuntimeModelDefinition = {
+  id: string
+  name: string
+  contextWindow: number
+  defaultMaxTokens: number
+  capabilities: RuntimeModelsCapability
+}
+
+export type RuntimeModelProvider = {
+  id: string
+  displayName: string
+  adapter: string
+  authMode: string
+  defaultBaseUrl?: string
+  defaultModel: string
+  configured: boolean
+  authConfigured: boolean
+  authSource: 'none' | 'env' | 'profile' | 'provider_config'
+  active: boolean
+  models: RuntimeModelDefinition[]
+}
+
+export type RuntimeModels = {
+  type: 'runtime_models'
+  version: number | string | null
+  providers: RuntimeModelProvider[]
+  defaultModel: string | null
+  activeProfile?: string | null
+  syncedAt: string
+}
+
 export type RuntimeGateway = {
   getRuntimeHealth(): Promise<RuntimeHealth>
   getRuntimeContract(): Promise<RuntimeContract>
+  listRuntimeModels(): Promise<RuntimeModels>
   createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef>
   resumeSession(input: ResumeRuntimeSessionInput): Promise<RuntimeResumeResult>
   spawnVariationAgents(input: SpawnVariationAgentsInput): AsyncIterable<DesignEvent>

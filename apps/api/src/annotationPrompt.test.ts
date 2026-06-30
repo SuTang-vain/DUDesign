@@ -43,4 +43,16 @@ describe('buildAnnotationPrompt', () => {
     assert.match(prompt, /^Apply the requested visual changes from these annotations\./)
     assert.match(prompt, /rectangle at x=0\.000, y=0\.000, w=0\.100, h=0\.200/)
   })
+
+  it('serializes circle, arrow, and pen annotations', () => {
+    const prompt = buildAnnotationPrompt([
+      { type: 'circle', cx: 0.5, cy: 0.4, r: 0.12, note: 'Tighten this badge.' },
+      { type: 'arrow', from: { x: 0.1, y: 0.2 }, to: { x: 0.3, y: 0.45 }, note: 'Move attention here.' },
+      { type: 'pen', points: [{ x: 0.2, y: 0.2 }, { x: 0.25, y: 0.24 }, { x: 0.3, y: 0.27 }] },
+    ])
+
+    assert.match(prompt, /circle at cx=0\.500, cy=0\.400, r=0\.120; note: Tighten this badge\./)
+    assert.match(prompt, /arrow from \(0\.100, 0\.200\) to \(0\.300, 0\.450\); note: Move attention here\./)
+    assert.match(prompt, /freehand stroke with 3 points/)
+  })
 })

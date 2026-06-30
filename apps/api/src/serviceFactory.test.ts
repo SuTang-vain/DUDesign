@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import { BabelORuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
 
-import { createRuntimeGatewayFromEnv } from './serviceFactory.js'
+import {
+  applicationProcessRoleFromEnv,
+  createRuntimeGatewayFromEnv,
+  shouldConsumeQueue,
+} from './serviceFactory.js'
 
 const envKeys = [
   'DUDESIGN_RUNTIME_PROVIDER',
@@ -22,6 +26,10 @@ const envKeys = [
   'DUDESIGN_BABELO_STREAM_IDLE_TIMEOUT_MS',
   'DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS',
   'DUDESIGN_BABELO_CONTRACT_VERSION',
+  'DUDESIGN_PROCESS_ROLE',
+  'DUDESIGN_SERVICE_ROLE',
+  'DUDESIGN_QUEUE',
+  'DUDESIGN_QUEUE_PROVIDER',
 ] as const
 
 describe('createRuntimeGatewayFromEnv', () => {
@@ -73,5 +81,43 @@ describe('createRuntimeGatewayFromEnv', () => {
     const runtime = createRuntimeGatewayFromEnv()
 
     assert.ok(runtime instanceof BabelORuntimeGateway)
+  })
+})
+
+describe('application service process roles', () => {
+  afterEach(() => {
+    for (const key of envKeys) {
+      delete process.env[key]
+    }
+  })
+
+  it('defaults to the API role', () => {
+    assert.equal(applicationProcessRoleFromEnv(), 'api')
+  })
+
+  it('supports worker and inline roles from env', () => {
+    process.env.DUDESIGN_PROCESS_ROLE = 'worker'
+    assert.equal(applicationProcessRoleFromEnv(), 'worker')
+    process.env.DUDESIGN_PROCESS_ROLE = 'inline'
+    assert.equal(applicationProcessRoleFromEnv(), 'inline')
+  })
+
+  it('keeps API role consuming the default in-memory queue', () => {
+    delete process.env.DUDESIGN_QUEUE
+
+    assert.equal(shouldConsumeQueue('api'), true)
+  })
+
+  it('keeps API role as producer-only for Redis queues', () => {
+    process.env.DUDESIGN_QUEUE = 'redis'
+
+    assert.equal(shouldConsumeQueue('api'), false)
+  })
+
+  it('always consumes queues in worker and inline roles', () => {
+    process.env.DUDESIGN_QUEUE = 'redis'
+
+    assert.equal(shouldConsumeQueue('worker'), true)
+    assert.equal(shouldConsumeQueue('inline'), true)
   })
 })

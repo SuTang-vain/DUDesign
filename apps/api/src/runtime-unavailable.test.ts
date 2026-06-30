@@ -43,6 +43,9 @@ const unavailableRuntime: RuntimeGateway = {
       eventMappings: {},
     }
   },
+  async listRuntimeModels() {
+    throw new Error('Runtime unavailable in test.')
+  },
   async createSession() {
     throw new Error('Runtime unavailable in test.')
   },

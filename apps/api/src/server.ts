@@ -59,6 +59,21 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/capabilities') {
+    sendJson(res, 200, await service.listCapabilities(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/preferences') {
+    sendJson(res, 200, await service.getUserPreferences(ctx))
+    return
+  }
+
+  if (method === 'PUT' && url.pathname === '/api/preferences') {
+    sendJson(res, 200, await service.updateUserPreferences(ctx, await readJson(req)))
+    return
+  }
+
   if (method === 'POST' && url.pathname === '/api/source-artifacts') {
     sendJson(res, 201, await service.createSourceArtifact(ctx, await readJson(req)))
     return
@@ -71,6 +86,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (method === 'GET' && url.pathname === '/api/admin/models') {
     sendJson(res, 200, await service.listAdminModels(ctx))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/admin/models/sync') {
+    sendJson(res, 200, await service.syncAdminModels(ctx))
     return
   }
 
@@ -110,6 +130,10 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     sendJson(res, 200, await service.listAdminJobs(ctx, {
       status: url.searchParams.get('status'),
       userId: url.searchParams.get('userId'),
+      workspaceId: url.searchParams.get('workspaceId'),
+      sessionId: url.searchParams.get('sessionId'),
+      createdFrom: url.searchParams.get('createdFrom'),
+      createdTo: url.searchParams.get('createdTo'),
     }))
     return
   }
@@ -180,6 +204,21 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const adminJobRetryMatch = url.pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/retry$/)
   if (method === 'POST' && adminJobRetryMatch) {
     sendJson(res, 200, await service.retryJobAsAdmin(ctx, decodeURIComponent(adminJobRetryMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const adminVariationRetryMatch = url.pathname.match(/^\/api\/admin\/jobs\/([^/]+)\/variations\/([^/]+)\/retry$/)
+  if (method === 'POST' && adminVariationRetryMatch) {
+    sendJson(
+      res,
+      200,
+      await service.retryVariationAsAdmin(
+        ctx,
+        decodeURIComponent(adminVariationRetryMatch[1]!),
+        decodeURIComponent(adminVariationRetryMatch[2]!),
+        await readJson(req),
+      ),
+    )
     return
   }
 
@@ -361,7 +400,7 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
     'access-control-allow-headers': 'content-type',
   })
   res.end(JSON.stringify(payload, null, 2))
@@ -371,7 +410,7 @@ function sendHtml(res: http.ServerResponse, status: number, html: string): void 
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
     'access-control-allow-headers': 'content-type',
     'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'none'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
   })
@@ -387,7 +426,7 @@ function sendAsset(
   res.writeHead(status, {
     'content-type': asset.contentType,
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
     'access-control-allow-headers': 'content-type',
     'cache-control': cacheControl,
   })
@@ -404,7 +443,7 @@ function sendDownload(
     'content-disposition': `attachment; filename="${download.filename.replaceAll(/["\\\r\n]/g, '_')}"`,
     'content-length': String(download.body.byteLength),
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
     'access-control-allow-headers': 'content-type',
     'cache-control': 'private, max-age=60',
   })
@@ -414,7 +453,7 @@ function sendDownload(
 function sendCorsPreflight(res: http.ServerResponse): void {
   res.writeHead(204, {
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
     'access-control-allow-headers': 'content-type',
     'access-control-max-age': '600',
   })

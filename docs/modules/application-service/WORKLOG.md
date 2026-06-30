@@ -3,6 +3,168 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-06-30 APP-M22.6 Redis Queue Integration Smoke
+
+### 已完成
+
+- 新增 `redisDesignJobQueue.integration.test.ts`，作为真实 Redis opt-in integration smoke。
+- 通过 `DUDESIGN_REDIS_TEST_URL` 控制是否启用；默认无 Redis 环境时自动 skip，不影响本地默认门禁。
+- smoke 覆盖 API producer-only 与 worker consumer 分离链路：
+  - producer `ApplicationService` 使用 `consumeQueue: false`，只负责创建 session / job 并入队。
+  - worker `ApplicationService` 使用另一份 `RedisDesignJobQueue` 连接并消费同一个 queue。
+  - 两个 service 共享 repository / artifact store，用于模拟生产 PostgreSQL + 对象存储共享事实源。
+  - 验证 job 从 `queued` 推进到 `completed`，variation 完成，并生成 HTML artifact。
+- `RedisDesignJobQueue` 增加 `obliterate()` 生命周期辅助方法，便于 integration smoke 清理测试队列。
+- 新增脚本：
+  - `npm --workspace @dudesign/api run test:redis`
+  - `npm run test:redis`
+
+### 验证
+
+- 默认无 Redis 环境：
+  - `npm --workspace @dudesign/api run test`
+- 当前机器未安装 `redis-server` / `redis-cli`，真实 Redis smoke 已作为 opt-in 测试入口保留，未在本轮本机执行。
+
+### 决策
+
+- Redis smoke 暂不进入默认 `npm test`，避免开发机和 CI 在没有 Redis 服务时失败。
+- 后续 CI / staging 可通过 `DUDESIGN_REDIS_TEST_URL=redis://... npm run test:redis` 显式开启。
+- 下一阶段继续补 Redis queue runtime unavailable 降级与 retry/DLQ 策略。
+
+## 2026-06-30 APP-M22.5 Design Job Worker Process Entrypoint
+
+### 已完成
+
+- 新增 `apps/api/src/worker.ts`，作为独立 design job worker process entrypoint。
+- 新增 API workspace scripts：
+  - `npm --workspace @dudesign/api run dev:worker`
+  - `npm --workspace @dudesign/api run start:worker`
+- 根 workspace 新增：
+  - `npm run dev:worker`
+  - `npm run start:worker`
+- `ApplicationService` 新增 `consumeQueue` 构造选项：
+  - 默认 `new ApplicationService()` 仍消费队列，保持本地/dev/test 行为不变。
+  - factory 可传入 producer-only API 服务，避免生产 API 进程和 worker 进程同时抢任务。
+- `createApplicationServiceFromEnv()` 支持 process role：
+  - `api`：默认角色；Redis/BullMQ queue 下只入队不消费，InMemory queue 下继续 inline 消费。
+  - `worker`：独立 worker 角色；绑定 queue consumer 并消费任务。
+  - `inline`：显式单进程部署角色；API/worker 合并消费。
+- 新增 `applicationProcessRoleFromEnv()` / `shouldConsumeQueue()`，支持：
+  - `DUDESIGN_PROCESS_ROLE=worker|inline`
+  - legacy alias：`DUDESIGN_SERVICE_ROLE`
+- worker 进程启动后等待 queue ready，并监听 `SIGINT` / `SIGTERM`，关闭前 flush background tasks 和 queue connection。
+- 补充 process role 单元测试，覆盖：
+  - 默认 API role。
+  - worker / inline env role。
+  - API + InMemory 继续消费。
+  - API + Redis producer-only。
+  - worker / inline 始终消费。
+
+### 决策
+
+- 生产推荐部署为 API process + worker process：
+  - API：`DUDESIGN_QUEUE=redis npm run start:api`
+  - Worker：`DUDESIGN_QUEUE=redis DUDESIGN_PROCESS_ROLE=worker npm run start:worker`
+- 本轮不强制 worker 只能搭配 Redis；InMemory worker 仍可启动，主要用于本地调试。
+- Retry、timeout、DLQ、真实 Redis smoke 继续作为下一阶段队列可靠性任务。
+
+## 2026-06-30 APP-M22.4 Redis/BullMQ Queue Adapter
+
+### 已完成
+
+- 新增 `RedisDesignJobQueue`，作为 `DesignJobQueue` 的 production adapter 初版。
+- 接入 BullMQ，支持：
+  - `enqueueDesignJob`
+  - `enqueueRefineJob`
+  - `cancelJob`
+  - `getJobState`
+  - `setConsumer`
+  - `flush`
+  - `close`
+- 使用 `idempotencyKey` 作为 BullMQ `jobId`，保持跨进程生产者的幂等入队语义。
+- 新增 `createRedisDesignJobQueueFromEnv()`：
+  - `DUDESIGN_QUEUE=redis` 或 `DUDESIGN_QUEUE_PROVIDER=bullmq` 启用。
+  - `REDIS_URL` / `DUDESIGN_REDIS_URL` 指定连接。
+  - 预留 `DUDESIGN_QUEUE_NAME`、`DUDESIGN_QUEUE_PREFIX`、`DUDESIGN_QUEUE_CONCURRENCY`、`DUDESIGN_QUEUE_ATTEMPTS`、`DUDESIGN_QUEUE_BACKOFF_MS`。
+- `createApplicationServiceFromEnv()` 增加 queue provider 选择；默认仍使用 `InMemoryDesignJobQueue`，保证 dev/test 无 Redis 依赖。
+- 新增 BullMQ state 到 DUDesign `QueueJobState` 的归一化逻辑，避免业务层泄漏 BullMQ 内部状态。
+- active job 取消采用保守语义：只有当前进程 worker 可取消时才返回 cancelled；跨进程 active job 返回 running + `QUEUE_CANCEL_UNAVAILABLE`。
+- 补充 Redis adapter configuration 单元测试，覆盖：
+  - BullMQ 状态映射。
+  - job snapshot 归一化。
+  - 默认 provider 仍为 InMemory。
+  - Redis provider 缺少 Redis URL 时明确报错。
+  - 跨进程 job name 稳定。
+
+### 决策
+
+- 本轮不让默认测试启动真实 Redis；真实 Redis integration smoke 下一阶段单独做 opt-in。
+- Redis adapter 先承担 production queue contract，独立 worker process entrypoint 和 DLQ/retry 策略继续后置。
+- BullMQ job name 固定为 `design_job` / `refine_job`，为未来独立 worker 进程和运维队列观察保持稳定。
+
+## 2026-06-30 APP-M22.3 Queue Worker Handler Boundary
+
+### 已完成
+
+- 新增 `ApplicationDesignJobWorker`，作为 queue consumer 到业务处理器之间的 worker handler boundary。
+- 新增 `attachDesignJobWorker()`，统一绑定 `DesignJobQueue` 和 queued job processor。
+- `ApplicationService` 构造函数不再内联 `setConsumer` 回调，改为通过 worker handler 注册队列消费。
+- 将 queued design/refine 处理方法显式暴露为 `processQueuedDesignJob()` / `processQueuedRefineJob()`，为后续独立 worker process 复用同一处理入口做准备。
+- `InMemoryDesignJobQueue.setConsumer()` 支持消费 consumer 绑定前已经入队且仍处于 `queued` 的 job，更贴近后续 worker 启动后拉取积压任务的语义。
+- 补充 worker handler 单元测试，覆盖：
+  - design/refine payload 委托到 processor。
+  - 先入队、后绑定 worker 时 pending job 可被消费。
+  - 绑定 worker 前已取消的 job 不会被错误消费。
+
+### 决策
+
+- 本轮只拆 handler boundary，不引入 Redis/BullMQ，也不创建独立 worker 进程，避免提前增加部署依赖。
+- production worker entrypoint 将在 `RedisDesignJobQueue` / BullMQ adapter 落地后推进。
+
+## 2026-06-30 APP-M22 Queue Contract and InMemory Design Job Queue
+
+### 已完成
+
+- 新增 `DesignJobQueue` 接口：
+  - `enqueueDesignJob`
+  - `enqueueRefineJob`
+  - `cancelJob`
+  - `getJobState`
+- 定义 queue payload schema：
+  - `jobId`
+  - `sessionId`
+  - `variationIds`
+  - `sourceArtifactId`
+  - `runtimeSessionId`
+  - `modelServiceId`
+  - `idempotencyKey`
+  - `userId`
+  - `workspaceId`
+  - `createdAt`
+- 新增 `InMemoryDesignJobQueue`：
+  - 按 `idempotencyKey` 去重。
+  - 记录 queued / running / completed / failed / cancelled 状态。
+  - 支持 `flush()`，用于测试和服务关闭前等待队列任务完成。
+- `ApplicationService` 注入 queue，并注册 queue consumer。
+- `POST /api/design-jobs` 创建 job/variations 后改为 `enqueueDesignJob()`。
+- 队列 consumer 通过 `jobId/sessionId/variationIds` 从 Repository 反查 prompt、workspace、model、variation index，再调用原 runtime 执行链路。
+- `refine` 仍保持同步执行；本轮只预留 `enqueueRefineJob` contract，避免破坏单变体编辑页交互。
+- 补充 `InMemoryDesignJobQueue` 单元测试，覆盖幂等入队、消费、取消和状态查询。
+- 修复前端 `annotationSummary` 缺失导致的全量 typecheck 阻断。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/web run build`
+- `npm test`
+
+### 决策
+
+- MVP 当前先做 queue contract + InMemory queue，暂不上 Redis/BullMQ。
+- design job 已进入队列边界；refine 异步化需要前端先支持 queued/running/refine status。
+- 后续 Screenshot Worker、Runtime Worker、Retry/DLQ 可以复用同一 queue contract。
+
 ## 2026-06-29 APP-M21 Screenshot Artifact Rendering
 
 ### 已完成
@@ -1351,3 +1513,66 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - Admin Job Monitor 需要展示更准确的 runtime error 摘要，例如 `REQUEST_TIMEOUT: Execution timed out after 300s`。
 - Staging smoke 增加复杂 3/4 variation prompt，用于覆盖并行 workspace 隔离。
+
+## 2026-06-30 M31 API Test Isolation Gate
+
+### 问题
+
+- `npm run test:api` 使用 `node --test dist/*.test.js`，Node test runner 会并发执行多个测试文件。
+- 多个 API flow 测试会同时启动 HTTP harness、异步生成 screenshot、消费队列/worker 事件，导致偶发：
+  - screenshot timeout。
+  - admin job/support summary 读到不同阶段的 latest job。
+
+### 已完成
+
+- API workspace test script 改为：
+  - `tsc -b && node --test --test-concurrency=1 dist/*.test.js`
+- 保留单个测试文件内部的测试结构，只串行化跨文件执行。
+- 修正 `apiFlowSmoke` 中 support summary 的不稳定断言：
+  - 不再假设当前 session 的 `latestJob` 必然是最早创建的 generation job。
+  - 改为验证 support summary 的稳定语义：session 可恢复、latest job 已完成、failure summary 正常、prompt preview 已脱敏。
+
+### 验证
+
+- `npm run test:api`
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- API flow smoke 属于端到端级别的业务门禁，默认应优先稳定性而不是测试文件级并发速度。
+- 后续如果需要加速，可以把纯单元测试和 HTTP/API smoke 拆成两个脚本：
+  - unit 并发。
+  - smoke 串行。
+
+## 2026-06-30 M32 User Preference PostgreSQL Persistence
+
+### 已完成
+
+- 新增 PostgreSQL migration：`0005_user_preferences.sql`。
+- 新增 `user_preferences` 表，持久化用户默认 capability 选择：
+  - `domain_template_id`
+  - `aesthetic_profile_id`
+  - `color_palette_id`
+  - `loop_profile_id`
+- `PostgresRepository` hydrate 读取 `user_preferences` 并恢复到 repository cache。
+- `PostgresRepository.saveUserCapabilityPreference()` 改为 SQL-first 写入 `user_preferences`，再同步 cache。
+- `PostgresRepository.getUserCapabilityPreference()` 增加 SQL-native 读取路径，支持 production no-hydrate mode 下按需恢复用户偏好。
+- PostgreSQL integration smoke 增加偏好保存、hydrate 后恢复、清 cache 后 SQL 读取验证。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- 真实 PostgreSQL opt-in smoke：
+  - 使用本机 `initdb/pg_ctl` 创建临时 PostgreSQL 数据目录。
+  - 临时端口：`55432`。
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://127.0.0.1:55432/dudesign_test`。
+  - 执行 `npm --workspace @dudesign/api run test` 通过。
+  - 覆盖 startup hydrate、production no-hydrate API flow、`user_preferences` migration、偏好 hydrate 恢复和 SQL-native 读取。
+  - 测试后已停止 PostgreSQL 并清理临时数据目录。
+
+### 决策
+
+- 偏好表只保存 capability id，不保存完整 capability snapshot，避免官方 registry 更新后用户偏好持有陈旧对象。
+- 完整生成依据仍继续随 job 存储在 `template_requirements.capabilitySnapshot` 中，保证历史 job 可审计。

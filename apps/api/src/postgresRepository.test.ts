@@ -137,6 +137,12 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       costCents: 999,
       metadata: { duplicate: true },
     })
+    await repository.saveUserCapabilityPreference(repository.devUser.id, {
+      domainTemplateId: 'tpl_apple_like_product',
+      aestheticProfileId: 'aes_apple_minimal',
+      colorPaletteId: 'pal_minimal_mono',
+      loopProfileId: 'loop_standard',
+    })
 
     await repository.flush()
     await repository.close()
@@ -147,6 +153,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
     })
     try {
       assert.equal(hydrated.sessions.get(session.id)?.runtimeSessionId, 'runtime_pg_smoke')
+      assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.domainTemplateId, 'tpl_apple_like_product')
       assert.equal(hydrated.messages.get(session.id)?.[0]?.id, message.id)
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
 	      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
@@ -194,6 +201,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       const defaultModel = await hydrated.getModelServiceById(userModels.defaultModelId!)
       assert.equal(defaultModel?.enabled, true)
       assert.equal(await hydrated.canUserUseModel(repository.devUser.id, userModels.defaultModelId!), true)
+      assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.colorPaletteId, 'pal_minimal_mono')
       const adminModels = await hydrated.listAdminModels()
       assert.ok(adminModels.models.some(model => model.id === userModels.defaultModelId))
       const fastModel = await hydrated.updateAdminModel('mdl_babelo_fast', { enabled: true, isDefault: true })
@@ -234,6 +242,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       clearHydratedCache(hydrated)
       assert.match((await hydrated.getShareByToken(share.token))?.revokedAt ?? '', /^\d{4}-/)
       await hydrated.hydrate()
+      assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.aestheticProfileId, 'aes_apple_minimal')
       const snapshot = await hydrated.getSessionSnapshot(session.id)
       assert.equal(snapshot?.messages.length, 1)
       assert.equal(snapshot?.jobs.length, 1)
@@ -256,6 +265,7 @@ function clearHydratedCache(repository: PostgresRepository): void {
   repository.shares.clear()
   repository.modelServices.clear()
   repository.userModelAccess.clear()
+  repository.userCapabilityPreferences.clear()
   repository.annotationBatches.clear()
   repository.auditLogs.splice(0, repository.auditLogs.length)
   repository.usageEvents.splice(0, repository.usageEvents.length)

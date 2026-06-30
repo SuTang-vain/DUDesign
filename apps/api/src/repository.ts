@@ -11,6 +11,7 @@ import type {
   Workspace,
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, SessionMessage } from './store.js'
+import type { UserCapabilityPreference } from '@dudesign/contracts'
 
 export type MaybePromise<T> = T | Promise<T>
 
@@ -152,6 +153,10 @@ export type CreateShareInput = {
 export type AdminJobsFilter = {
   status?: string | null
   userId?: string | null
+  workspaceId?: string | null
+  sessionId?: string | null
+  createdFrom?: string | null
+  createdTo?: string | null
 }
 
 export type AdminArtifactsFilter = {
@@ -181,7 +186,23 @@ export type AdminJobSummary = {
   totalOutputTokens: number
   totalCostCents: number
   errorCount: number
+  variations: AdminJobVariationSummary[]
   createdAt: string
+  updatedAt: string
+}
+
+export type AdminJobVariationSummary = {
+  id: string
+  index: number
+  title: string | null
+  status: DesignVariation['status']
+  currentArtifactId: string | null
+  previewUrl: string | null
+  inputTokens: number
+  outputTokens: number
+  costCents: number
+  errorCode: string | null
+  errorMessage: string | null
   updatedAt: string
 }
 
@@ -301,6 +322,29 @@ export type AdminModelSummary = UserModelOption & {
   updatedAt: string
 }
 
+export type ModelSyncDiffItem = {
+  modelServiceId: string
+  modelId: string
+  displayName: string
+  runtimeProviderId: string | null
+  changeType: 'created' | 'updated' | 'missing'
+  previousContextWindow?: number | null
+  nextContextWindow?: number | null
+  previousInputTokenCostCents?: number
+  nextInputTokenCostCents?: number
+  previousOutputTokenCostCents?: number
+  nextOutputTokenCostCents?: number
+}
+
+export type UpsertDiscoveredModelServicesResult = {
+  createdCount: number
+  updatedCount: number
+  missingCount: number
+  disabledMissingCount: number
+  diff: ModelSyncDiffItem[]
+  models: AdminModelSummary[]
+}
+
 export type AdminUserModelAccess = UserModelAccess & {
   usage: {
     inputTokens: number
@@ -364,6 +408,8 @@ export type ApplicationRepository = {
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null>
   getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null>
   listUserModelOptions(userId: string): MaybePromise<{ models: UserModelOption[]; defaultModelId: string | null }>
+  getUserCapabilityPreference(userId: string): MaybePromise<UserCapabilityPreference | null>
+  saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): MaybePromise<UserCapabilityPreference>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
   canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>
@@ -419,6 +465,7 @@ export type ApplicationRepository = {
   } | Promise<{ users: AdminUserSupport[] }>
   getAdminCostSummary(): MaybePromise<AdminCostSummary>
   listAdminModels(): MaybePromise<{ models: AdminModelSummary[] }>
+  upsertDiscoveredModelServices(models: ModelService[]): MaybePromise<UpsertDiscoveredModelServicesResult>
   updateAdminModel(modelServiceId: string, input: { enabled?: boolean; isDefault?: boolean }): MaybePromise<ModelService | null>
   getAdminUserModelAccess(userId: string): MaybePromise<{ userId: string; access: AdminUserModelAccess[] }>
   updateUserModelAccess(userId: string, modelServiceId: string, input: {

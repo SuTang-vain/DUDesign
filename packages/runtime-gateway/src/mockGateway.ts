@@ -8,6 +8,7 @@ import type {
   RuntimeContract,
   RuntimeGateway,
   RuntimeHealth,
+  RuntimeModels,
   RuntimeResumeResult,
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
@@ -59,6 +60,42 @@ export class MockRuntimeGateway implements RuntimeGateway {
         result: 'design.variation_completed',
         error: 'design.variation_failed',
       },
+    }
+  }
+
+  async listRuntimeModels(): Promise<RuntimeModels> {
+    return {
+      type: 'runtime_models',
+      version: 'mock',
+      defaultModel: 'local/coding-runtime',
+      activeProfile: 'mock',
+      syncedAt: new Date().toISOString(),
+      providers: [
+        {
+          id: 'local',
+          displayName: 'Local deterministic runtime',
+          adapter: 'local',
+          authMode: 'none',
+          defaultModel: 'local/coding-runtime',
+          configured: true,
+          authConfigured: true,
+          authSource: 'none',
+          active: true,
+          models: [
+            {
+              id: 'local/coding-runtime',
+              name: 'Local Coding Runtime',
+              contextWindow: 8192,
+              defaultMaxTokens: 4096,
+              capabilities: {
+                toolCalling: true,
+                jsonOutput: false,
+                streaming: true,
+              },
+            },
+          ],
+        },
+      ],
     }
   }
 
@@ -207,6 +244,7 @@ function mockGeneratedFiles(
 ): Array<{ path: string; language: 'html' | 'css' | 'javascript' | 'json'; content: string }> {
   const accent = ['#4f46e5', '#dc2626', '#0891b2', '#c2410c', '#111827', '#65a30d'][index - 1] ?? '#4f46e5'
   const title = prompt.length > 52 ? `${prompt.slice(0, 52)}...` : prompt
+  const longTail = /long\s+code|tail\s+buffer/i.test(prompt)
   return [
     {
       path: 'index.html',
@@ -238,6 +276,7 @@ function mockGeneratedFiles(
         'body { margin: 0; font-family: Inter, sans-serif; background: #fffefa; }',
         '.hero { min-height: 100vh; display: grid; place-items: center; padding: 48px; }',
         '.hero h1 { max-width: 760px; color: var(--accent); }',
+        ...(longTail ? Array.from({ length: 260 }, (_, item) => `.section-${index}-${item} { margin-top: ${item}px; color: ${accent}; }`) : []),
         '',
       ].join('\n'),
     },

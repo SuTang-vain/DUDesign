@@ -14,6 +14,7 @@ import type {
   RuntimeContract,
   RuntimeGateway,
   RuntimeHealth,
+  RuntimeModels,
   RuntimeResumeResult,
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
@@ -46,6 +47,11 @@ export class BabelORuntimeGateway implements RuntimeGateway {
 
   getRuntimeContract(): Promise<RuntimeContract> {
     return this.client.getRuntimeContract()
+  }
+
+  async listRuntimeModels(): Promise<RuntimeModels> {
+    await this.requireCompatibleRuntime()
+    return this.client.listRuntimeModels()
   }
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef> {
