@@ -480,10 +480,16 @@ a {
   position: relative;
   min-height: 72px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   border-top: 1px solid var(--line);
   padding: 12px 14px;
+}
+
+.toolbar-menu {
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .toolbar-icon {
@@ -495,6 +501,11 @@ a {
   background: rgba(25, 23, 20, 0.06);
   color: var(--muted);
   font-weight: 900;
+}
+
+.toolbar-icon[aria-expanded='true'] {
+  background: rgba(25, 23, 20, 0.12);
+  color: var(--text);
 }
 
 .toolbar-icon.send {
@@ -537,13 +548,105 @@ a {
   pointer-events: none;
 }
 
+.context-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 35;
+  width: min(380px, 86vw);
+  max-height: min(640px, 72vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 8px;
+  box-shadow: var(--shadow);
+}
+
+.context-popover-section {
+  display: grid;
+  gap: 7px;
+  padding: 6px;
+}
+
+.context-popover-section + .context-popover-section {
+  border-top: 1px solid rgba(25, 23, 20, 0.08);
+}
+
+.context-popover-title {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.context-popover button,
+.context-upload-action {
+  width: 100%;
+  min-height: 46px;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 10px 11px;
+  color: var(--text);
+  text-align: left;
+}
+
+.context-popover button.active,
+.context-upload-action:hover {
+  border-color: rgba(79, 70, 229, 0.45);
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.context-popover button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.context-popover button span,
+.context-upload-action span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.context-upload-action {
+  cursor: pointer;
+}
+
+.context-upload-action strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.context-upload-action input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.context-option-list {
+  display: grid;
+  gap: 7px;
+}
+
 .pill-menu {
   position: relative;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .pill-menu-trigger {
   min-height: 38px;
-  max-width: 230px;
+  max-width: 190px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -622,6 +725,10 @@ a {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.context-popover .popover-field input {
+  margin-top: 6px;
 }
 
 .preset-list,

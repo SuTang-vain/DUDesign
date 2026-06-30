@@ -26,7 +26,7 @@ const promptExamples = [
 
 const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', 'calm SaaS, spacious', 'playful mobile, colorful']
 const variationOptions = [1, 2, 3, 4, 5, 6]
-type OpenMenu = 'workspace' | 'type' | 'variations' | 'domain' | 'aesthetic' | 'palette' | 'loop' | 'styles' | 'model' | null
+type OpenMenu = 'workspace' | 'context' | 'variations' | 'domain' | 'aesthetic' | 'palette' | 'model' | null
 type CapabilityPreferenceDraft = {
   domainTemplateId?: string
   aestheticProfileId?: string
@@ -327,34 +327,86 @@ export default function HomePage(): React.JSX.Element {
               rows={8}
             />
             <div className="composer-toolbar">
-              <button className="toolbar-icon" type="button" aria-label="Add context">+</button>
-              <PillMenu id="type" label="Type" value={mode === 'new_html' ? 'New HTML' : 'Existing HTML'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
-                  setMode('new_html')
-                  setOpenMenu(null)
-                }}>
-                  New HTML
-                  <span>Generate a fresh standalone page.</span>
+              <div className="toolbar-menu" data-menu-root="true">
+                <button
+                  className="toolbar-icon"
+                  type="button"
+                  aria-label="Add context"
+                  aria-expanded={openMenu === 'context'}
+                  onClick={() => setOpenMenu(current => current === 'context' ? null : 'context')}
+                >
+                  +
                 </button>
-                <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => {
-                  setMode('from_existing_html')
-                  setOpenMenu(null)
-                }}>
-                  Existing HTML
-                  <span>Continue from an uploaded or selected artifact.</span>
-                </button>
-              </PillMenu>
-              {mode === 'from_existing_html' ? (
-                <label className="source-upload-pill">
-                  <span>{sourceUploadStatus === 'uploading' ? 'Uploading...' : sourceArtifact ? sourceArtifact.entryPath : 'Upload HTML'}</span>
-                  <input
-                    data-testid="source-html-input"
-                    type="file"
-                    accept=".html,.htm,text/html"
-                    onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
-                  />
-                </label>
-              ) : null}
+                {openMenu === 'context' ? (
+                  <div className="context-popover">
+                    <div className="context-popover-section">
+                      <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
+                        setMode('new_html')
+                        setOpenMenu(null)
+                      }}>
+                        New HTML
+                        <span>Generate a fresh standalone page.</span>
+                      </button>
+                      <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
+                        Existing HTML
+                        <span>Continue from an uploaded page.</span>
+                      </button>
+                      <label className="context-upload-action">
+                        <strong>{sourceUploadStatus === 'uploading' ? 'Uploading...' : sourceArtifact ? sourceArtifact.entryPath : 'Upload HTML'}</strong>
+                        <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : 'Use a local .html file'}</span>
+                        <input
+                          data-testid="source-html-input"
+                          type="file"
+                          accept=".html,.htm,text/html"
+                          onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                    </div>
+                    <div className="context-popover-section">
+                      <strong className="context-popover-title">Loop</strong>
+                      <div className="context-option-list" data-testid="loop-profile-options">
+                        {(capabilities?.automationLoopProfiles ?? []).map(profile => (
+                          <button
+                            key={profile.id}
+                            className={profile.id === loopProfileId ? 'active' : ''}
+                            type="button"
+                            onClick={() => {
+                              setLoopProfileId(profile.id)
+                              saveCapabilityPreference({ loopProfileId: profile.id })
+                              setOpenMenu(null)
+                            }}
+                          >
+                            {profile.name}
+                            <span>{profile.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="context-popover-section">
+                      <label className="popover-field">
+                        Styles
+                        <input value={styles} onChange={event => setStyles(event.target.value)} />
+                      </label>
+                      <div className="preset-list">
+                        {stylePresets.map(preset => (
+                          <button key={preset} type="button" onClick={() => {
+                            setStyles(preset)
+                            setOpenMenu(null)
+                          }}>
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="context-popover-section">
+                      <strong className="context-popover-title">Plugins</strong>
+                      <button type="button" disabled>Connectors</button>
+                      <button type="button" disabled>Plugins</button>
+                      <button type="button" disabled>MCP</button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <PillMenu id="variations" label="Variations" value={`${variationCount} drafts`} openMenu={openMenu} setOpenMenu={setOpenMenu}>
                 <div className="segmented-options" data-testid="variation-count-input">
                   {variationOptions.map(count => (
@@ -429,41 +481,6 @@ export default function HomePage(): React.JSX.Element {
                       <span className="swatch-row" aria-hidden>
                         {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </PillMenu>
-              <PillMenu id="loop" label="Loop" value={selectedLoop?.name ?? 'Loop'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="capability-option-list" data-testid="loop-profile-options">
-                  {(capabilities?.automationLoopProfiles ?? []).map(profile => (
-                    <button
-                      key={profile.id}
-                      className={profile.id === loopProfileId ? 'active' : ''}
-                      type="button"
-                      onClick={() => {
-                        setLoopProfileId(profile.id)
-                        saveCapabilityPreference({ loopProfileId: profile.id })
-                        setOpenMenu(null)
-                      }}
-                    >
-                      <strong>{profile.name}</strong>
-                      <span>{profile.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </PillMenu>
-              <PillMenu id="styles" label="Styles" value={styles || 'Choose style'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <label className="popover-field">
-                  Style direction
-                  <input value={styles} onChange={event => setStyles(event.target.value)} />
-                </label>
-                <div className="preset-list">
-                  {stylePresets.map(preset => (
-                    <button key={preset} type="button" onClick={() => {
-                      setStyles(preset)
-                      setOpenMenu(null)
-                    }}>
-                      {preset}
                     </button>
                   ))}
                 </div>
