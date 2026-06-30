@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { ModelServicesPanel } from '@/components/ModelServicesPanel'
+import { RuntimeHealthPanel } from '@/components/RuntimeHealthPanel'
 import {
   cancelJob,
   getAdminArtifacts,
@@ -13,6 +15,8 @@ import {
   getUserModelAccess,
   getUserSupport,
   retryJob,
+  retryVariation,
+  syncAdminModels,
   updateAdminModel,
   updateUserModelAccess,
   type AdminArtifact,
@@ -25,20 +29,40 @@ import {
   type AuditLog,
   type CostSummaryResponse,
   type RuntimeHealthResponse,
+  type SyncAdminModelsResponse,
 } from '@/lib/adminApi'
+
+type AdminSection = 'runtime' | 'models' | 'jobs' | 'artifacts' | 'support' | 'memory' | 'audit'
+
+const adminSections: Array<{ id: AdminSection; label: string }> = [
+  { id: 'runtime', label: 'Runtime Health' },
+  { id: 'models', label: 'Model Services' },
+  { id: 'jobs', label: 'Job Controls' },
+  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'support', label: 'User Support' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'audit', label: 'Audit Log' },
+]
 
 export default function AdminHomePage(): React.JSX.Element {
   const [role, setRole] = useState<AdminRole>('operator')
+  const [activeSection, setActiveSection] = useState<AdminSection>('runtime')
   const [runtime, setRuntime] = useState<RuntimeHealthResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [jobs, setJobs] = useState<AdminJob[]>([])
   const [artifacts, setArtifacts] = useState<AdminArtifact[]>([])
   const [models, setModels] = useState<AdminModel[]>([])
   const [modelAccess, setModelAccess] = useState<AdminUserModelAccess[]>([])
+  const [modelSyncSummary, setModelSyncSummary] = useState<SyncAdminModelsResponse | null>(null)
   const [memoryGovernance, setMemoryGovernance] = useState<AdminMemoryGovernanceResponse | null>(null)
   const [supportUsers, setSupportUsers] = useState<AdminUserSupportResponse['users']>([])
   const [costs, setCosts] = useState<CostSummaryResponse | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
+  const [jobUserFilter, setJobUserFilter] = useState('')
+  const [jobWorkspaceFilter, setJobWorkspaceFilter] = useState('')
+  const [jobSessionFilter, setJobSessionFilter] = useState('')
+  const [jobCreatedFromFilter, setJobCreatedFromFilter] = useState('')
+  const [jobCreatedToFilter, setJobCreatedToFilter] = useState('')
   const [artifactJobFilter, setArtifactJobFilter] = useState('')
   const [artifactKindFilter, setArtifactKindFilter] = useState('')
   const [supportQuery, setSupportQuery] = useState('usr_dev')
@@ -58,7 +82,7 @@ export default function AdminHomePage(): React.JSX.Element {
   useEffect(() => {
     void refreshJobs()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, statusFilter])
+  }, [role])
 
   useEffect(() => {
     void refreshArtifacts()
@@ -86,7 +110,14 @@ export default function AdminHomePage(): React.JSX.Element {
   async function refreshJobs(): Promise<void> {
     try {
       const [jobData, costData] = await Promise.all([
-        getAdminJobs(role, { status: statusFilter || undefined }),
+        getAdminJobs(role, {
+          status: statusFilter || undefined,
+          userId: jobUserFilter.trim() || undefined,
+          workspaceId: jobWorkspaceFilter.trim() || undefined,
+          sessionId: jobSessionFilter.trim() || undefined,
+          createdFrom: dateTimeFilterToIso(jobCreatedFromFilter),
+          createdTo: dateTimeFilterToIso(jobCreatedToFilter),
+        }),
         getCostSummary(role),
       ])
       setJobs(jobData.jobs)
@@ -134,6 +165,22 @@ export default function AdminHomePage(): React.JSX.Element {
       setModels(modelData.models)
     } catch (err) {
       setError((err as Error).message)
+    }
+  }
+
+  async function syncModels(): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await syncAdminModels(role)
+      setModels(result.models)
+      setModelSyncSummary(result)
+      setNotice(`Synced ${result.runtime.modelCount} runtime models; ${result.createdCount} created, ${result.updatedCount} updated, ${result.missingCount} missing.`)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -240,9 +287,20 @@ export default function AdminHomePage(): React.JSX.Element {
     }
   }
 
-  const mappedEventCount = useMemo(() => {
-    return runtime ? Object.keys(runtime.contract.eventMappings).length : 0
-  }, [runtime])
+  async function retryVariationFromRow(jobId: string, variationId: string): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await retryVariation(role, jobId, variationId, `Retry variation ${variationId} from admin console`)
+      setNotice(`Retried ${variationId}; new job ${result.retry.job.id}`)
+      await refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <main className="admin-shell">
@@ -252,13 +310,16 @@ export default function AdminHomePage(): React.JSX.Element {
           <strong>DUDesign Admin</strong>
         </div>
         <nav className="nav-stack" aria-label="Admin sections">
-          <button className="nav-item active">Runtime Health</button>
-          <button className="nav-item active">Model Services</button>
-          <button className="nav-item active">Job Controls</button>
-          <button className="nav-item active">Artifacts</button>
-          <button className="nav-item active">User Support</button>
-          <button className="nav-item active">Memory</button>
-          <button className="nav-item active">Audit Log</button>
+          {adminSections.map(section => (
+            <button
+              className={`nav-item ${activeSection === section.id ? 'active' : ''}`}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+              type="button"
+            >
+              {section.label}
+            </button>
+          ))}
         </nav>
       </aside>
 
@@ -270,7 +331,7 @@ export default function AdminHomePage(): React.JSX.Element {
           </div>
           <label className="role-picker">
             Role
-            <select value={role} onChange={event => setRole(event.target.value as AdminRole)}>
+            <select data-testid="admin-role-select" value={role} onChange={event => setRole(event.target.value as AdminRole)}>
               <option value="support">support</option>
               <option value="operator">operator</option>
               <option value="developer">developer</option>
@@ -281,87 +342,40 @@ export default function AdminHomePage(): React.JSX.Element {
         {error ? <p className="error">{error}</p> : null}
         {notice ? <p className="success">{notice}</p> : null}
 
+        <div className="section-tabs" role="tablist" aria-label="Admin module tags">
+          {adminSections.map(section => (
+            <button
+              aria-selected={activeSection === section.id}
+              className={`section-tab ${activeSection === section.id ? 'active' : ''}`}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+              role="tab"
+              type="button"
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+
         <div className="grid">
-          <section className="panel">
-            <div className="panel-header">
-              <h2>Runtime Health</h2>
-              <span className={`status-pill ${runtime?.runtime.status ?? ''}`}>
-                {runtime?.runtime.status ?? (loading ? 'loading' : 'unknown')}
-              </span>
-            </div>
-            <div className="metric-grid">
-              <div className="metric">
-                <span>Runtime</span>
-                <strong>{runtime?.runtime.runtime ?? 'babel-o'}</strong>
-              </div>
-              <div className="metric">
-                <span>Runtime version</span>
-                <strong>{runtime?.runtime.runtimeVersion ?? 'unknown'}</strong>
-              </div>
-              <div className="metric">
-                <span>Contract</span>
-                <strong>{runtime?.contract.contractVersion ?? 'not loaded'}</strong>
-              </div>
-              <div className="metric">
-                <span>Event mappings</span>
-                <strong>{mappedEventCount}</strong>
-              </div>
-            </div>
-          </section>
+          {activeSection === 'runtime' ? (
+          <RuntimeHealthPanel runtime={runtime} loading={loading} />
+          ) : null}
 
-          <section className="panel wide-panel">
-            <div className="panel-header">
-              <h2>Model Services</h2>
-              <button className="secondary-button" onClick={() => void refreshModels()} disabled={loading}>
-                Refresh models
-              </button>
-            </div>
-            {models.length === 0 ? (
-              <p className="muted">No model services are configured.</p>
-            ) : (
-              <div className="model-table">
-                <div className="model-table-head">
-                  <span>Model</span>
-                  <span>Status</span>
-                  <span>Capabilities</span>
-                  <span>Cost</span>
-                  <span>Actions</span>
-                </div>
-                {models.map(model => (
-                  <article className="model-row" key={model.id}>
-                    <div>
-                      <strong>{model.displayName}</strong>
-                      <p>{model.provider} · {model.modelId}</p>
-                      <small>{model.description ?? 'No description'}</small>
-                    </div>
-                    <div className="compact-metrics">
-                      <span className={`status-pill ${model.enabled ? 'compatible' : 'unavailable'}`}>
-                        {model.enabled ? 'enabled' : 'disabled'}
-                      </span>
-                      {model.isDefault ? <span className="status-pill compatible">default</span> : null}
-                    </div>
-                    <div className="compact-metrics">
-                      <span>{model.capabilities.join(', ')}</span>
-                      <span>{model.contextWindow ? `${model.contextWindow.toLocaleString()} ctx` : 'no ctx limit'}</span>
-                    </div>
-                    <div className="compact-metrics">
-                      <span>in {model.inputTokenCostCents}c</span>
-                      <span>out {model.outputTokenCostCents}c</span>
-                    </div>
-                    <div className="row-actions">
-                      <button className="secondary-button" onClick={() => void toggleModel(model, !model.enabled)} disabled={loading}>
-                        {model.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                      <button className="secondary-button" onClick={() => void setDefaultModel(model)} disabled={loading || model.isDefault}>
-                        Make default
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+          {activeSection === 'models' ? (
+          <ModelServicesPanel
+            role={role}
+            loading={loading}
+            models={models}
+            syncSummary={modelSyncSummary}
+            onRefresh={() => void refreshModels()}
+            onSync={() => void syncModels()}
+            onToggleModel={(model, enabled) => void toggleModel(model, enabled)}
+            onSetDefault={model => void setDefaultModel(model)}
+          />
+          ) : null}
 
+          {activeSection === 'models' ? (
           <section className="panel wide-panel">
             <div className="panel-header">
               <h2>User Model Access</h2>
@@ -415,7 +429,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             )}
           </section>
+          ) : null}
 
+          {activeSection === 'jobs' ? (
           <section className="panel wide-panel">
             <div className="panel-header">
               <h2>Job Monitor</h2>
@@ -433,6 +449,53 @@ export default function AdminHomePage(): React.JSX.Element {
                 </button>
               </div>
             </div>
+            <div className="job-filter-grid">
+              <label>
+                User
+                <input
+                  className="compact-input"
+                  value={jobUserFilter}
+                  onChange={event => setJobUserFilter(event.target.value)}
+                  placeholder="usr_..."
+                />
+              </label>
+              <label>
+                Workspace
+                <input
+                  className="compact-input"
+                  value={jobWorkspaceFilter}
+                  onChange={event => setJobWorkspaceFilter(event.target.value)}
+                  placeholder="wrk_..."
+                />
+              </label>
+              <label>
+                Session
+                <input
+                  className="compact-input"
+                  value={jobSessionFilter}
+                  onChange={event => setJobSessionFilter(event.target.value)}
+                  placeholder="ses_..."
+                />
+              </label>
+              <label>
+                From
+                <input
+                  className="compact-input"
+                  type="datetime-local"
+                  value={jobCreatedFromFilter}
+                  onChange={event => setJobCreatedFromFilter(event.target.value)}
+                />
+              </label>
+              <label>
+                To
+                <input
+                  className="compact-input"
+                  type="datetime-local"
+                  value={jobCreatedToFilter}
+                  onChange={event => setJobCreatedToFilter(event.target.value)}
+                />
+              </label>
+            </div>
             {jobs.length === 0 ? (
               <p className="muted">No jobs match the current filter.</p>
             ) : (
@@ -449,7 +512,7 @@ export default function AdminHomePage(): React.JSX.Element {
                     <div>
                       <strong>{job.id}</strong>
                       <p>{job.prompt}</p>
-                      <small>{job.userId} · {formatTime(job.updatedAt)}</small>
+                      <small>{job.userId} · {job.workspaceId} · {job.sessionId} · {formatTime(job.updatedAt)}</small>
                     </div>
                     <span className={`status-pill ${job.status}`}>{job.status}</span>
                     <div className="compact-metrics">
@@ -473,12 +536,44 @@ export default function AdminHomePage(): React.JSX.Element {
                         Retry
                       </button>
                     </div>
+                    <div className="variation-admin-list">
+                      {job.variations.map(variation => (
+                        <article className="variation-admin-row" key={variation.id}>
+                          <div>
+                            <strong>Variation {String(variation.index).padStart(2, '0')}</strong>
+                            <p>{variation.id}</p>
+                            {variation.errorMessage ? <small>{variation.errorMessage}</small> : null}
+                          </div>
+                          <span className={`status-pill ${variation.status}`}>{variation.status}</span>
+                          <div className="compact-metrics">
+                            <span>{variation.inputTokens + variation.outputTokens} tok</span>
+                            <span>${(variation.costCents / 100).toFixed(2)}</span>
+                          </div>
+                          <div className="row-actions">
+                            <button
+                              className="secondary-button"
+                              onClick={() => void retryVariationFromRow(job.id, variation.id)}
+                              disabled={loading}
+                            >
+                              Retry variation
+                            </button>
+                            {variation.previewUrl ? (
+                              <a className="secondary-link" href={variation.previewUrl} target="_blank" rel="noreferrer">
+                                Preview
+                              </a>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   </article>
                 ))}
               </div>
             )}
           </section>
+          ) : null}
 
+          {activeSection === 'jobs' ? (
           <section className="panel">
             <div className="panel-header">
               <h2>Cancel Job</h2>
@@ -500,7 +595,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </button>
             </div>
           </section>
+          ) : null}
 
+          {activeSection === 'jobs' ? (
           <section className="panel">
             <div className="panel-header">
               <h2>Cost Summary</h2>
@@ -525,7 +622,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             </div>
           </section>
+          ) : null}
 
+          {activeSection === 'artifacts' ? (
           <section className="panel wide-panel">
             <div className="panel-header">
               <h2>Artifact Explorer</h2>
@@ -589,7 +688,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             )}
           </section>
+          ) : null}
 
+          {activeSection === 'support' ? (
           <section className="panel wide-panel">
             <div className="panel-header">
               <h2>User Support</h2>
@@ -661,7 +762,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             )}
           </section>
+          ) : null}
 
+          {activeSection === 'memory' ? (
           <section className="panel wide-panel">
             <div className="panel-header">
               <h2>Memory Governance</h2>
@@ -735,21 +838,9 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             )}
           </section>
+          ) : null}
 
-          <section className="panel">
-            <div className="panel-header">
-              <h2>Required Endpoints</h2>
-              <span className="status-pill">{runtime?.contract.requiredEndpoints.length ?? 0}</span>
-            </div>
-            <div className="list">
-              {(runtime?.contract.requiredEndpoints ?? []).map((endpoint: string) => (
-                <div className="audit-row" key={endpoint}>
-                  <strong>{endpoint}</strong>
-                </div>
-              ))}
-            </div>
-          </section>
-
+          {activeSection === 'audit' ? (
           <section className="panel">
             <div className="panel-header">
               <h2>Audit Log</h2>
@@ -774,6 +865,7 @@ export default function AdminHomePage(): React.JSX.Element {
               </div>
             )}
           </section>
+          ) : null}
         </div>
       </section>
     </main>
@@ -790,6 +882,13 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function dateTimeFilterToIso(value: string): string | undefined {
+  if (!value) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
 }
 
 function modelName(models: AdminModel[], modelServiceId: string): string {

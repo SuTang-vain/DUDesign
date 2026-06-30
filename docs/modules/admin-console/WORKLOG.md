@@ -311,3 +311,301 @@
 
 - 增加 runtime contract mismatch 展示测试，补齐管理端兼容性质量门禁。
 - 设计 memory_notes / memory_events 持久化 schema，再升级 Memory Governance 面板的 hit/candidate/approval 视图。
+
+## 2026-06-29 ADM-M8 Runtime Contract Mismatch Gate
+
+### 已完成
+
+- 新增 `apps/api/src/admin-runtime-health.test.ts`：
+  - 注入 `ContractMismatchRuntimeGateway`。
+  - 请求 `GET /api/admin/runtime/health`。
+  - 断言 Admin API 返回 `runtime.status = contract_mismatch`。
+  - 断言 Admin API 返回 `contract.status = contract_mismatch`。
+  - 断言 mismatch message 和 required endpoint 仍可被管理端消费。
+- 管理端现有 Runtime Health 面板已经支持 `contract_mismatch` status pill 样式；本轮通过 `next build` 验证类型与渲染路径未破坏。
+
+### 验证
+
+- `npm run test:api`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- mismatch 场景先以 Admin API contract test 作为质量门禁，避免因为缺少真实 BabeL-O mismatch 环境而阻塞本地验证。
+- 管理端继续只展示 DUDesign 标准 runtime health / contract 字段，不泄漏 BabeL-O 原始响应结构。
+
+### 下一步
+
+- 将 Admin Console 拆分为可测试组件后，补浏览器级/组件级 runtime mismatch 视觉断言。
+- 进入下一阶段可推进 memory_notes / memory_events schema，或转向用户端前端体验完善。
+
+## 2026-06-29 ADM-M9 Module Tag Navigation
+
+### 已完成
+
+- 管理端首页新增 `activeSection` 状态。
+- 侧边栏导航从静态 active 样式改为真实模块切换：
+  - Runtime Health
+  - Model Services
+  - Job Controls
+  - Artifacts
+  - User Support
+  - Memory
+  - Audit Log
+- 页面主体按当前模块 tag 条件渲染对应 panel，不再一次性展示所有治理能力形成大长列表。
+- 页面顶部新增 tag row，方便在主内容区直接切换模块。
+- Runtime Health 模块保留 Runtime Health 与 Required Endpoints。
+- Model Services 模块保留模型服务治理与单用户模型访问治理。
+- Job Controls 模块保留 Job Monitor、Cancel Job 与 Cost Summary。
+
+### 验证
+
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- 本轮只调整管理端前端交互组织，不改 Admin API、runtime gateway 或用户端页面。
+- tag/section 仍使用同一套 admin module taxonomy，后续拆组件时可直接沿用。
+
+### 下一步
+
+- 增加浏览器级 admin console smoke：打开页面后切换每个 tag，断言只出现当前模块的核心标题。
+- 将大型 `page.tsx` 拆为 RuntimeSection、ModelSection、JobsSection、ArtifactsSection、SupportSection、MemorySection、AuditSection 组件。
+
+## 2026-06-30 ADM-M10 Job Filters and Variation Retry
+
+### 已完成
+
+- Admin Job Monitor 支持服务端筛选：
+  - `userId`
+  - `workspaceId`
+  - `sessionId`
+  - `status`
+  - `createdFrom`
+  - `createdTo`
+- `GET /api/admin/jobs` 返回每个 job 的 variation 简表：
+  - variation id/index/status。
+  - token/cost。
+  - preview URL。
+  - 脱敏后的 error message。
+- 新增 `POST /api/admin/jobs/:jobId/variations/:variationId/retry`。
+- variation retry 采用“创建一个新的单变体 retry job”的方式，不覆盖原 job、原 variation 和历史 artifact。
+- variation retry 写入 `variation.retry` 审计日志，记录 original job、target variation 和 retried job。
+- 管理端 Job Monitor 增加 user/workspace/session/time 筛选控件。
+- 管理端 job 行内展开 variation 列表，支持单个 variation retry 和 preview 入口。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm run test:api`
+
+### 决策
+
+- variation retry 不复用原 variation id，避免破坏已有 preview/export/share 的引用稳定性。
+- support 角色可以读取 job/variation 摘要，但不能执行 variation retry。
+- operator/developer 可以执行 variation retry，且必须留下审计记录。
+
+### 下一步
+
+- 增加按 variation status/errorCode 的二级筛选。
+- 将 Job Monitor 拆成独立组件，给筛选表单和 variation retry 按钮补前端组件测试或 Playwright smoke。
+
+## 2026-06-30 ADM-M11 Babel-O Runtime Model Sync Planning
+
+### 现状确认
+
+- BabeL-O 已有公开运行时接口 `GET /v1/runtime/models`。
+- 该接口返回 `runtime_models`：
+  - providers。
+  - provider auth/config 状态。
+  - models。
+  - contextWindow。
+  - defaultMaxTokens。
+  - tool/json/streaming capabilities。
+  - active/default model。
+- BabeL-O 测试已覆盖该接口不会泄漏 provider/profile/env secrets。
+- DUDesign 当前 Runtime Gateway contract 还没有模型发现方法。
+- DUDesign 当前 Model Services 仍只读取 `model_services` 治理表。
+
+### 同步方案
+
+- 在 Runtime Gateway 增加 `listRuntimeModels()`。
+- Babel-O adapter 通过 `GET /v1/runtime/models` 拉取 runtime model matrix。
+- Admin API 新增 `POST /api/admin/models/sync`。
+- 同步结果 upsert 到 DUDesign `model_services`。
+- 同步只更新 discovery 字段和 metadata，保留管理员治理字段：
+  - `enabled`
+  - `isDefault`
+  - 用户级 model access。
+- `metadata.source` 标记为 `runtime_discovery`。
+- `metadata.runtimeProviderId` 保存 Babel-O provider id，如 `openai`、`anthropic`、`minimax`。
+- `provider` 字段 MVP 继续使用 `babel-o`，避免 DUDesign 直接耦合外部 provider enum。
+
+### 风险与边界
+
+- `GET /v1/runtime/models` 是 BabeL-O runtime registry/capability matrix，不等同于供应商 live `/models` 库存。
+- 真实 provider live discovery 可作为后续 `provider_discovery` 层单独实现。
+- 同步失败不应破坏现有 `model_services`。
+- 新发现模型默认不自动启用，避免未经管理员确认进入用户可选模型池。
+
+### 下一步
+
+- 实现 `RuntimeGateway.listRuntimeModels()`。
+- 实现 `POST /api/admin/models/sync` 和审计日志。
+- 管理端 Model Services 展示 source、runtime provider、auth 状态和 lastSyncedAt。
+
+## 2026-06-30 ADM-M12 Runtime Model Sync Governance Diff
+
+### 已完成
+
+- `upsertDiscoveredModelServices()` 返回同步治理结果：
+  - `createdCount`
+  - `updatedCount`
+  - `missingCount`
+  - `disabledMissingCount`
+  - `diff`
+- 运行时同步只自动处理 `metadata.source=runtime_discovery` 的模型。
+- 当历史 runtime-discovery 模型不再出现在 Babel-O runtime model matrix 中：
+  - 标记 `metadata.runtimeMissingSinceLastSync=true`。
+  - 写入 `metadata.runtimeMissingAt`。
+  - 自动禁用该模型，避免继续被用户选择。
+- 已有模型继续保留管理员治理字段：
+  - `enabled`
+  - `isDefault`
+  - `createdAt`
+- 同步审计 `model.sync` 增加治理摘要：
+  - created/updated/missing/disabled missing。
+  - diff 数量。
+  - runtime provider/model/default/version 信息。
+- 管理端 Model Services 增加同步摘要：
+  - 新增、更新、缺失、禁用数量。
+  - 最近同步时间。
+  - audit id。
+  - 前 8 条 diff。
+  - 行内 missing from runtime 标识。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `node --test dist/model-governance.test.js` in `apps/api`
+- `node --test dist/mock-flow.test.js` in `apps/api`
+
+### 已知问题
+
+- 已在后端业务服务层 M31 将 API workspace 默认测试改为跨文件串行执行，并修正 support summary latest job 的不稳定断言。
+- `npm run test:api` 已恢复通过。
+
+### 下一步
+
+- 将 Model Services 面板拆成组件，并补 Playwright smoke：触发 sync 后检查 diff/audit/missing 展示。
+
+## 2026-06-30 ADM-M13 Model Services Component Smoke
+
+### 已完成
+
+- 将管理端 Model Services 面板从 `app/page.tsx` 拆到独立组件：
+  - `apps/admin/src/components/ModelServicesPanel.tsx`
+- 组件覆盖：
+  - 模型服务列表。
+  - source/runtime provider/auth/syncedAt 标识。
+  - sync summary。
+  - created/updated/missing/disabled 计数。
+  - audit id。
+  - diff 列表。
+  - missing from runtime 行内标识。
+- 管理端新增 Playwright 配置：
+  - `apps/admin/playwright.config.ts`
+- 管理端新增浏览器 smoke：
+  - `apps/admin/e2e/model-services-sync.spec.ts`
+  - 使用 route mock 拦截 Admin API，不依赖真实 API server。
+  - 验证点击 `Sync from Babel-O` 后显示 diff/audit/missing 治理信息。
+- 新增脚本：
+  - `npm --workspace @dudesign/admin run test:e2e`
+  - `npm run test:admin:e2e`
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm run test:admin:e2e`
+
+### 决策
+
+- 管理端浏览器 smoke 使用 mock API，作为 UI 契约测试；真实 API 行为仍由 `npm run test:api` 覆盖。
+- 先只拆 Model Services，避免一次性拆完整 admin page 造成审查成本过高。
+
+### 下一步
+
+- 继续将 Job Controls / Runtime Health 拆为独立组件。
+- 给 role=support 场景补一个 Model Services smoke，验证同步按钮不可执行且不会出现写操作。
+
+## 2026-06-30 ADM-M14 Model Services Support Permission Smoke
+
+### 已完成
+
+- 管理端 role selector 增加稳定测试选择器：
+  - `data-testid="admin-role-select"`
+- `model-services-sync.spec.ts` 抽出 Admin API route mock helper，减少后续权限 smoke 复制成本。
+- 新增 support 只读权限浏览器 smoke：
+  - 切换 role 为 `support`。
+  - 打开 Model Services。
+  - 验证模型服务列表可读。
+  - 验证 `Sync from Babel-O` 按钮 disabled。
+  - 强制点击 disabled 按钮后确认没有发出 `POST /api/admin/models/sync`。
+  - 验证页面不会出现 sync summary。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm run test:admin:e2e`
+
+### 决策
+
+- support 角色在管理端可以读取模型治理信息，但不能触发模型发现同步或其它写操作。
+- 前端权限 smoke 只验证 UI 不发写请求；后端 403 权限仍由 API 测试覆盖。
+
+### 下一步
+
+- 继续拆 `Job Controls` 独立组件，并补 support 不能 cancel/retry、operator 可以 retry variation 的浏览器 smoke。
+
+## 2026-06-30 ADM-M15 Runtime Health Component Smoke
+
+### 已完成
+
+- 将 Runtime Health 从 `app/page.tsx` 拆到独立组件：
+  - `apps/admin/src/components/RuntimeHealthPanel.tsx`
+- 组件覆盖：
+  - runtime status。
+  - runtime version。
+  - contract version。
+  - event mapping count。
+  - runtime message。
+  - required endpoints。
+- 原本分散在页面里的 `Runtime Health` 和 `Required Endpoints` 两块统一由组件输出。
+- 新增浏览器 smoke：
+  - `apps/admin/e2e/runtime-health.spec.ts`
+  - compatible 状态展示 contract 和 endpoint。
+  - contract mismatch 状态展示红色状态和错误信息。
+  - degraded 状态展示降级信息，并继续保留 required endpoints。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm run test:admin:e2e`
+
+### 决策
+
+- Runtime Health 使用 mock Admin API 做浏览器契约测试，确保 UI 状态渲染独立于真实 BabeL-O 可用性。
+- Required endpoints 与 runtime status 放在同一个组件边界，便于后续增加 drift/golden replay 摘要。
+
+### 下一步
+
+- 继续拆 `Job Controls` 独立组件。
+- 给 Job Controls 补浏览器 smoke：
+  - support 不能 cancel/retry。
+  - operator 可以 retry variation。
+  - 筛选条件 user/workspace/session/status/time 可以传到 Admin API。

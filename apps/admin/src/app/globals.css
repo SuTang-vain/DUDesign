@@ -229,6 +229,25 @@ button {
   padding: 9px 11px;
 }
 
+.job-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.job-filter-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.job-filter-grid .compact-input {
+  width: 100%;
+}
+
 .job-table,
 .artifact-table,
 .model-table,
@@ -271,6 +290,40 @@ button {
   grid-template-columns: minmax(280px, 1fr) 120px 170px 120px 180px;
 }
 
+.job-row {
+  align-items: start;
+}
+
+.variation-admin-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.variation-admin-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px 140px 220px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.variation-admin-row p {
+  color: var(--muted);
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.variation-admin-row small {
+  color: var(--bad);
+  overflow-wrap: anywhere;
+}
+
 .artifact-table-head,
 .artifact-row {
   grid-template-columns: minmax(320px, 1fr) 120px 140px 120px 140px;
@@ -279,6 +332,60 @@ button {
 .model-table-head,
 .model-row {
   grid-template-columns: minmax(280px, 1fr) 140px minmax(180px, 0.9fr) 110px 170px;
+}
+
+.model-sync-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.model-sync-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-sync-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 9px;
+}
+
+.model-sync-diff {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.model-sync-diff-row {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 90px minmax(180px, 1fr) 120px 150px;
+  padding-top: 8px;
+}
+
+.model-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.model-source-row span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
 }
 
 .memory-table-head,
@@ -464,6 +571,29 @@ button {
   padding: 12px;
 }
 
+.section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.section-tab {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.section-tab.active {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--accent);
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     grid-template-columns: 1fr;
@@ -490,9 +620,14 @@ button {
   .artifact-row,
   .model-row,
   .memory-row,
-  .support-session-row {
+  .support-session-row,
+  .variation-admin-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .job-filter-grid {
+    grid-template-columns: 1fr;
   }
 
   .memory-metrics {

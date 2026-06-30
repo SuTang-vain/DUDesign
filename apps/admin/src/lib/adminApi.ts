@@ -43,6 +43,36 @@ export type AdminModelsResponse = {
   models: AdminModel[]
 }
 
+export type SyncAdminModelsResponse = AdminModelsResponse & {
+  createdCount: number
+  updatedCount: number
+  missingCount: number
+  disabledMissingCount: number
+  diff: Array<{
+    modelServiceId: string
+    modelId: string
+    displayName: string
+    runtimeProviderId: string | null
+    changeType: 'created' | 'updated' | 'missing'
+    previousContextWindow?: number | null
+    nextContextWindow?: number | null
+    previousInputTokenCostCents?: number
+    nextInputTokenCostCents?: number
+    previousOutputTokenCostCents?: number
+    nextOutputTokenCostCents?: number
+  }>
+  runtime: {
+    type: 'runtime_models'
+    version: number | string | null
+    providerCount: number
+    modelCount: number
+    defaultModel: string | null
+    activeProfile: string | null
+    syncedAt: string
+  }
+  audit: AuditLog
+}
+
 export type AdminUserModelAccess = {
   id: string
   userId: string
@@ -98,7 +128,23 @@ export type AdminJob = {
   totalOutputTokens: number
   totalCostCents: number
   errorCount: number
+  variations: AdminJobVariation[]
   createdAt: string
+  updatedAt: string
+}
+
+export type AdminJobVariation = {
+  id: string
+  index: number
+  title: string | null
+  status: 'queued' | 'running' | 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
+  currentArtifactId: string | null
+  previewUrl: string | null
+  inputTokens: number
+  outputTokens: number
+  costCents: number
+  errorCode: string | null
+  errorMessage: string | null
   updatedAt: string
 }
 
@@ -150,6 +196,8 @@ export type RetryJobResponse = {
   }
   audit: AuditLog
 }
+
+export type RetryVariationResponse = RetryJobResponse
 
 export type CostSummaryResponse = {
   totals: {
@@ -265,6 +313,10 @@ export async function getAdminModels(role: AdminRole): Promise<AdminModelsRespon
   return getJson('/api/admin/models', role)
 }
 
+export async function syncAdminModels(role: AdminRole): Promise<SyncAdminModelsResponse> {
+  return postJson('/api/admin/models/sync', role, {})
+}
+
 export async function updateAdminModel(
   role: AdminRole,
   modelServiceId: string,
@@ -290,9 +342,21 @@ export async function getAuditLogs(role: AdminRole): Promise<AuditLogsResponse> 
   return getJson('/api/admin/audit-logs', role)
 }
 
-export async function getAdminJobs(role: AdminRole, filter: { status?: string } = {}): Promise<AdminJobsResponse> {
+export async function getAdminJobs(role: AdminRole, filter: {
+  status?: string
+  userId?: string
+  workspaceId?: string
+  sessionId?: string
+  createdFrom?: string
+  createdTo?: string
+} = {}): Promise<AdminJobsResponse> {
   const params = new URLSearchParams()
   if (filter.status) params.set('status', filter.status)
+  if (filter.userId) params.set('userId', filter.userId)
+  if (filter.workspaceId) params.set('workspaceId', filter.workspaceId)
+  if (filter.sessionId) params.set('sessionId', filter.sessionId)
+  if (filter.createdFrom) params.set('createdFrom', filter.createdFrom)
+  if (filter.createdTo) params.set('createdTo', filter.createdTo)
   return getJson(`/api/admin/jobs${params.size ? `?${params.toString()}` : ''}`, role)
 }
 
@@ -328,6 +392,14 @@ export async function cancelJob(role: AdminRole, jobId: string, reason: string):
 
 export async function retryJob(role: AdminRole, jobId: string, reason: string): Promise<RetryJobResponse> {
   return postJson(`/api/admin/jobs/${encodeURIComponent(jobId)}/retry`, role, { reason })
+}
+
+export async function retryVariation(role: AdminRole, jobId: string, variationId: string, reason: string): Promise<RetryVariationResponse> {
+  return postJson(
+    `/api/admin/jobs/${encodeURIComponent(jobId)}/variations/${encodeURIComponent(variationId)}/retry`,
+    role,
+    { reason },
+  )
 }
 
 async function getJson<T>(path: string, role: AdminRole): Promise<T> {

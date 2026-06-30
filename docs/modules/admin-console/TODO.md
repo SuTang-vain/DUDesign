@@ -8,6 +8,7 @@
 ## Phase ADM-0：管理端边界与权限
 
 - [x] 确认管理端是否独立 app，或与用户端共用同一前端工程。
+- [x] 管理端按治理模块 tag/section 切换展示，避免所有能力堆成单页长列表。
 - [x] 定义 admin roles：support、operator、developer。
 - [x] 定义 Admin API client。
 - [x] 定义 M1 管理操作审计字段：operator、action、target、reason、created_at。
@@ -22,10 +23,10 @@
 
 - [x] 展示 design job 列表。
 - [x] 展示 variation 状态、token、成本、错误数量摘要。
-- [ ] 支持按用户、workspace、session、status、时间筛选。
+- [x] 支持按用户、workspace、session、status、时间筛选。
 - [x] 支持 job cancel。
 - [x] 支持 job retry。
-- [ ] 支持 variation retry。
+- [x] 支持 variation retry。
 
 验收：
 
@@ -76,10 +77,10 @@
 - [x] 支持设置默认模型。
 - [x] 支持查看和调整单用户模型访问权限。
 - [x] 展示单用户按模型的使用摘要。
-- [ ] 在 Model Services 中明确标识 `source=seed/config/runtime_discovery/provider_discovery`。
-- [ ] 支持管理员触发模型发现同步 `Refresh models`，而不是只刷新当前治理表。
-- [ ] 展示模型发现差异：新增、缺失、已停用、成本/上下文窗口变化。
-- [ ] 展示模型同步审计记录和最近同步时间。
+- [x] 在 Model Services 中明确标识 `source=seed/config/runtime_discovery/provider_discovery`。
+- [x] 支持管理员触发模型发现同步 `Refresh models`，而不是只刷新当前治理表。
+- [x] 展示模型发现差异：新增、缺失、已停用、成本/上下文窗口变化。
+- [x] 展示模型同步审计记录和最近同步时间。
 - [ ] 按 workspace、模型、时间范围筛选成本。
 - [x] 展示 memory namespace。
 - [x] 展示 memory ref 观测能力状态。
@@ -99,7 +100,10 @@
 - [x] Admin user support summary 测试。
 - [x] 敏感字段脱敏测试。
 - [x] Admin memory namespace isolation 测试。
-- [ ] runtime contract mismatch 展示测试。
+- [x] runtime contract mismatch 展示测试。
+- [x] Model Services 同步 diff/audit/missing 浏览器 smoke test。
+- [x] Model Services support 只读权限浏览器 smoke test。
+- [x] Runtime Health contract mismatch/degraded 浏览器 smoke test。
 
 验收：
 
