@@ -12,6 +12,7 @@
 - [x] 增加 `/variations/:variationId` 和 `/share/:token` 用户端路由。
 - [x] 定义 M1 用户端应用壳：品牌、workspace、生成入口。
 - [x] 建立用户端右上角全局操作区：用户头像、设置、更多入口。
+- [x] 在全局设置入口中支持中英文语言切换，并跨页面持久化。
 - [x] 定义统一 API client，只调用 DUDesign User API。
 - [x] 定义统一 `DesignEventClient` 的事件契约基础，只消费 DUDesign 标准事件。
 - [x] 建立用户端错误展示规范：用户可理解错误、可重试状态、runtime 降级提示。
@@ -37,6 +38,7 @@
 ## Phase UX-2：交互首页
 
 - [x] 实现 prompt composer。
+- [x] 首页第一屏和 prompt composer 核心文案接入全局中英文语言切换。
 - [x] 实现新建 HTML / 基于已有 HTML 模式选择。
 - [x] 实现已有 HTML 上传或历史 artifact 选择入口。
 - [x] 实现变体数量选择，MVP 上限默认 6。

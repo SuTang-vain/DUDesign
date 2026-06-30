@@ -358,6 +358,43 @@ a {
   letter-spacing: 0.08em;
 }
 
+.language-switcher {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.72);
+  margin-bottom: 8px;
+  padding: 10px;
+}
+
+.language-switcher > span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.language-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.user-action-menu .language-options button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.user-action-menu .language-options button.active {
+  border-color: rgba(79, 70, 229, 0.38);
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--accent);
+}
+
 .user-action-menu button {
   width: 100%;
   border: 1px solid transparent;
@@ -548,29 +585,65 @@ a {
   pointer-events: none;
 }
 
-.context-popover {
+.context-popover-wrap {
   position: absolute;
   left: 0;
   bottom: calc(100% + 12px);
   z-index: 35;
-  width: min(380px, 86vw);
-  max-height: min(640px, 72vh);
-  overflow: auto;
+  width: 506px;
+  height: 180px;
+  --context-card-padding: 8px;
+  --context-item-height: 34px;
+  --context-row-gap: 6px;
+  --context-parent-width: 178px;
+  --context-child-width: 320px;
+}
+
+.context-parent-popover,
+.context-child-popover {
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
-  padding: 8px;
   box-shadow: var(--shadow);
 }
 
-.context-popover-section {
-  display: grid;
-  gap: 7px;
-  padding: 6px;
+.context-parent-popover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--context-parent-width);
+  height: calc((4 * var(--context-item-height)) + (3 * var(--context-row-gap)) + (2 * var(--context-card-padding)));
+  padding: var(--context-card-padding);
 }
 
-.context-popover-section + .context-popover-section {
-  border-top: 1px solid rgba(25, 23, 20, 0.08);
+.context-child-popover {
+  position: absolute;
+  left: calc(var(--context-parent-width) + 8px);
+  width: var(--context-child-width);
+  --context-panel-height: calc((var(--context-panel-items) * var(--context-item-height)) + ((var(--context-panel-items) - 1) * var(--context-row-gap)) + (2 * var(--context-card-padding)));
+  top: calc(var(--context-card-padding) + (var(--context-panel-index) * (var(--context-item-height) + var(--context-row-gap))) + var(--context-item-height) - var(--context-panel-height) + 1px);
+  height: var(--context-panel-height);
+  padding: var(--context-card-padding);
+}
+
+.context-parent-list,
+.context-child-panel {
+  display: grid;
+  gap: var(--context-row-gap);
+  align-content: start;
+}
+
+.context-parent-list {
+  height: 100%;
+  min-height: 0;
+}
+
+.context-child-panel {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .context-popover-title {
@@ -580,37 +653,89 @@ a {
   text-transform: uppercase;
 }
 
-.context-popover button,
+.context-popover-wrap button,
 .context-upload-action {
   width: 100%;
-  min-height: 46px;
+  min-height: var(--context-item-height);
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
-  padding: 10px 11px;
+  padding: 7px 9px;
   color: var(--text);
   text-align: left;
 }
 
-.context-popover button.active,
+.context-parent-list button {
+  min-height: var(--context-item-height);
+  height: var(--context-item-height);
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.context-parent-list button > span {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.context-parent-list button > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.context-child-panel .context-option-list {
+  gap: var(--context-row-gap);
+}
+
+.context-child-panel button,
+.context-child-panel .context-upload-action {
+  min-height: var(--context-item-height);
+  height: var(--context-item-height);
+  padding: 7px 9px;
+}
+
+.context-child-panel .context-upload-action strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.context-popover-wrap button.active,
 .context-upload-action:hover {
   border-color: rgba(79, 70, 229, 0.45);
   background: rgba(79, 70, 229, 0.08);
 }
 
-.context-popover button:disabled {
+.context-popover-wrap button:disabled {
   cursor: not-allowed;
   opacity: 0.54;
 }
 
-.context-popover button span,
+.context-popover-wrap button span,
 .context-upload-action span {
   display: block;
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.context-parent-list button > span {
+  display: grid;
+}
+
+.context-child-panel button span,
+.context-child-panel .context-upload-action span {
+  display: none;
 }
 
 .context-upload-action {
@@ -685,6 +810,23 @@ a {
   box-shadow: var(--shadow);
 }
 
+.template-popover {
+  display: grid;
+  gap: 12px;
+  max-height: min(540px, 64vh);
+  overflow: auto;
+}
+
+.template-popover section {
+  display: grid;
+  gap: 7px;
+}
+
+.template-popover section + section {
+  border-top: 1px solid rgba(25, 23, 20, 0.08);
+  padding-top: 10px;
+}
+
 .pill-popover button,
 .popover-field input {
   width: 100%;
@@ -727,7 +869,7 @@ a {
   font-weight: 800;
 }
 
-.context-popover .popover-field input {
+.template-popover .popover-field input {
   margin-top: 6px;
 }
 
@@ -2343,6 +2485,44 @@ a {
   .pill-popover {
     left: auto;
     right: 0;
+  }
+
+  .context-popover-wrap {
+    width: min(360px, calc(100vw - 36px));
+    height: 320px;
+  }
+
+  .context-parent-popover,
+  .context-child-popover {
+    position: static;
+    width: 100%;
+  }
+
+  .context-parent-popover {
+    height: auto;
+  }
+
+  .context-child-popover {
+    height: 180px;
+  }
+
+  .context-parent-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+  }
+
+  .context-parent-list button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .context-parent-list button > strong {
+    font-size: 11px;
+  }
+
+  .context-child-panel {
+    height: 100%;
   }
 
   .toolbar-icon.send {

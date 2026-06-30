@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { LanguageProvider } from '@/components/LanguageProvider'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -9,8 +10,9 @@ export const metadata: Metadata = {
 export default function RootLayout(props: { children: React.ReactNode }): React.JSX.Element {
   return (
     <html lang="en">
-      <body>{props.children}</body>
+      <body>
+        <LanguageProvider>{props.children}</LanguageProvider>
+      </body>
     </html>
   )
 }
-

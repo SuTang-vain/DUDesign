@@ -27,7 +27,8 @@ test('UX-M1 mock product flow works through browser clicks', async ({ page }) =>
 test('workbench can start from uploaded HTML', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
-  await page.getByRole('button', { name: 'Existing HTML', exact: true }).click()
+  await page.locator('.mode-tabs').getByRole('button', { name: 'Existing HTML', exact: true }).click()
+  await page.getByRole('button', { name: 'Add context' }).click()
   await page.getByTestId('source-html-input').setInputFiles({
     name: 'existing-source.html',
     mimeType: 'text/html',
@@ -48,15 +49,22 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Type New HTML/ }).click()
-  await expect(page.getByText('Generate a fresh standalone page.')).toBeVisible()
+  await page.getByRole('button', { name: 'Add context' }).click()
+  await expect(page.getByRole('button', { name: 'Add files or photos' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add connector' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add plugins...' })).toBeVisible()
+  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeVisible()
+  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'Existing HTML' })).toBeVisible()
+  await expect(page.locator('.context-child-panel').getByText('Upload HTML')).toBeVisible()
 
-  await page.getByRole('button', { name: /Styles minimal, trustworthy/ }).click()
-  await expect(page.getByText('Generate a fresh standalone page.')).toBeHidden()
-  await expect(page.getByText('Style direction')).toBeVisible()
+  await page.getByRole('button', { name: /Template/ }).click()
+  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeHidden()
+  await expect(page.getByText('Domain')).toBeVisible()
+  await expect(page.getByText('Styles')).toBeVisible()
 
   await page.getByTestId('prompt-input').click()
-  await expect(page.getByText('Style direction')).toBeHidden()
+  await expect(page.getByText('Domain')).toBeHidden()
 })
 
 test('workbench can choose capability distribution options', async ({ page }) => {
@@ -70,16 +78,14 @@ test('workbench can choose capability distribution options', async ({ page }) =>
     }
   })
 
-  await page.getByRole('button', { name: /Domain/ }).click()
+  await page.getByRole('button', { name: /Template/ }).click()
   await page.getByTestId('domain-template-options').getByRole('button', { name: /Apple-like Product Page/ }).click()
-
-  await page.getByRole('button', { name: /Aesthetic/ }).click()
   await page.getByTestId('aesthetic-profile-options').getByRole('button', { name: /Apple-like Minimal/ }).click()
-
-  await page.getByRole('button', { name: /Palette/ }).click()
   await page.getByTestId('color-palette-options').getByRole('button', { name: /Minimal Mono/ }).click()
 
-  await page.getByRole('button', { name: /Loop/ }).click()
+  await page.getByTestId('prompt-input').click()
+  await page.getByRole('button', { name: 'Add context' }).click()
+  await page.getByRole('button', { name: 'Skills' }).click()
   await page.getByTestId('loop-profile-options').getByRole('button', { name: /Standard/ }).click()
 
   await expect(page.getByTestId('capability-summary')).toContainText('Apple-like Product Page')
@@ -193,6 +199,28 @@ test('global user action cluster opens and closes reserved menus', async ({ page
   await expect(page.getByTestId('user-action-menu')).toContainText('Keyboard shortcuts')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('user-action-menu')).toBeHidden()
+})
+
+test('settings menu switches global language between English and Chinese', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('user-action-cluster')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await expect(page.getByTestId('language-switcher')).toContainText('Language')
+  await page.getByTestId('language-switcher').getByRole('button', { name: '中文' }).click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  await expect(page.getByTestId('user-action-menu')).toContainText('模型偏好')
+  await expect(page.getByRole('heading', { name: '今天想设计什么？' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '新建 HTML' })).toBeVisible()
+  await expect(page.getByPlaceholder('描述页面、产品、受众与语气...')).toBeVisible()
+
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.getByTestId('user-action-menu')).toContainText('语言')
+
+  await page.getByTestId('language-switcher').getByRole('button', { name: 'English' }).click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
 })
 
 test('runtime activity hides raw delta by default and code view uses a tail buffer', async ({ page }) => {

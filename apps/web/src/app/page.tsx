@@ -16,6 +16,7 @@ import {
   type ModelOption,
   type SessionSnapshot,
 } from '@/lib/api'
+import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
 
 const promptExamples = [
@@ -26,7 +27,8 @@ const promptExamples = [
 
 const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', 'calm SaaS, spacious', 'playful mobile, colorful']
 const variationOptions = [1, 2, 3, 4, 5, 6]
-type OpenMenu = 'workspace' | 'context' | 'variations' | 'domain' | 'aesthetic' | 'palette' | 'model' | null
+type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
+type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
 type CapabilityPreferenceDraft = {
   domainTemplateId?: string
   aestheticProfileId?: string
@@ -37,6 +39,7 @@ type CapabilityPreferenceDraft = {
 const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
 export default function HomePage(): React.JSX.Element {
+  const { t } = useLanguage()
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null)
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [prompt, setPrompt] = useState(promptExamples[0]!)
@@ -61,6 +64,7 @@ export default function HomePage(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
+  const [contextPanel, setContextPanel] = useState<ContextPanel>('files')
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -233,39 +237,40 @@ export default function HomePage(): React.JSX.Element {
 
   return (
     <main className="workspace-shell">
-      <aside className="workspace-sidebar" aria-label="Recent sessions">
+      <aside className="workspace-sidebar" aria-label={t('recent')}>
         <div className="sidebar-brand">
           <span className="brand-mark" aria-hidden />
           <strong>DUDesign</strong>
         </div>
         <div className="sidebar-tabs" role="tablist" aria-label="Workspace scope">
-          <button className="active">My sessions</button>
-          <button>Shared</button>
+          <button className="active">{t('mySessions')}</button>
+          <button>{t('shared')}</button>
         </div>
         <label className="sidebar-search">
           <span>⌕</span>
-          <input aria-label="Search sessions" placeholder="Search sessions" />
+          <input aria-label={t('searchSessions')} placeholder={t('searchSessions')} />
         </label>
         <SessionGroup
-          title="Recent"
+          title={t('recent')}
           sessions={sessions.slice(0, 5)}
           resumeId={resumeId}
           onResume={resume}
+          emptyText={t('createFirstDesignSession')}
         />
         <SessionGroup
-          title="Earlier"
+          title={t('earlier')}
           sessions={sessions.slice(5, 10)}
           resumeId={resumeId}
           onResume={resume}
-          emptyText="Older sessions will appear here."
+          emptyText={t('olderSessionsWillAppear')}
         />
       </aside>
 
       <section className="workspace-main">
         <header className="workspace-topbar">
           <div>
-            <span className="eyebrow">Hosted design workspace</span>
-            <h1>What shall we design today?</h1>
+            <span className="eyebrow">{t('hostedDesignWorkspace')}</span>
+            <h1>{t('whatShallWeDesign')}</h1>
           </div>
           <div className="workspace-topbar-actions">
             <div className="workspace-selector" data-menu-root="true">
@@ -276,8 +281,8 @@ export default function HomePage(): React.JSX.Element {
                 aria-expanded={openMenu === 'workspace'}
                 onClick={() => setOpenMenu(current => current === 'workspace' ? null : 'workspace')}
               >
-                <span>{workspace?.name ?? 'Connecting workspace...'}</span>
-                <small>MVP hosted</small>
+                <span>{workspace?.name ?? t('connectingWorkspace')}</span>
+                <small>{t('mvpHosted')}</small>
               </button>
               {openMenu === 'workspace' ? (
                 <div className="workspace-menu">
@@ -295,7 +300,7 @@ export default function HomePage(): React.JSX.Element {
                       <span>{item.storageKey}</span>
                     </button>
                   ))}
-                  <p>Team workspaces are reserved for the collaboration milestone.</p>
+                  <p>{t('teamWorkspacesReserved')}</p>
                 </div>
               ) : null}
             </div>
@@ -303,25 +308,25 @@ export default function HomePage(): React.JSX.Element {
           </div>
         </header>
 
-        <section className="workbench-composer" aria-label="Generate design variations">
+        <section className="workbench-composer" aria-label={t('generateDesignVariations')}>
           <div className="composer-heading">
-            <div className="mode-tabs compact" role="tablist" aria-label="Source mode">
+            <div className="mode-tabs compact" role="tablist" aria-label={t('sourceMode')}>
               <button className={mode === 'new_html' ? 'active' : ''} onClick={() => setMode('new_html')}>
-                New HTML
+                {t('newHtml')}
               </button>
               <button className={mode === 'from_existing_html' ? 'active' : ''} onClick={() => setMode('from_existing_html')}>
-                Existing HTML
+                {t('existingHtml')}
               </button>
             </div>
             <button className="start-design-button" type="button" onClick={() => setPrompt('')}>
-              + Start with your design
+              {t('startWithYourDesign')}
             </button>
           </div>
           <div className="prompt-box">
             <textarea
               data-testid="prompt-input"
-              aria-label="Design prompt"
-              placeholder="Describe the page, product, audience, and tone..."
+              aria-label={t('designPrompt')}
+              placeholder={t('describePromptPlaceholder')}
               value={prompt}
               onChange={event => setPrompt(event.target.value)}
               rows={8}
@@ -331,83 +336,127 @@ export default function HomePage(): React.JSX.Element {
                 <button
                   className="toolbar-icon"
                   type="button"
-                  aria-label="Add context"
+                  aria-label={t('addContext')}
                   aria-expanded={openMenu === 'context'}
                   onClick={() => setOpenMenu(current => current === 'context' ? null : 'context')}
                 >
                   +
                 </button>
                 {openMenu === 'context' ? (
-                  <div className="context-popover">
-                    <div className="context-popover-section">
-                      <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
-                        setMode('new_html')
-                        setOpenMenu(null)
-                      }}>
-                        New HTML
-                        <span>Generate a fresh standalone page.</span>
-                      </button>
-                      <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
-                        Existing HTML
-                        <span>Continue from an uploaded page.</span>
-                      </button>
-                      <label className="context-upload-action">
-                        <strong>{sourceUploadStatus === 'uploading' ? 'Uploading...' : sourceArtifact ? sourceArtifact.entryPath : 'Upload HTML'}</strong>
-                        <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : 'Use a local .html file'}</span>
-                        <input
-                          data-testid="source-html-input"
-                          type="file"
-                          accept=".html,.htm,text/html"
-                          onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
-                        />
-                      </label>
+                  <div className="context-popover-wrap">
+                    <div className="context-parent-popover">
+                      <div className="context-parent-list" role="menu" aria-label={t('addContext')}>
+                        <button
+                          className={contextPanel === 'files' ? 'active' : ''}
+                          type="button"
+                          onMouseEnter={() => setContextPanel('files')}
+                          onFocus={() => setContextPanel('files')}
+                          onClick={() => setContextPanel('files')}
+                        >
+                          <span aria-hidden>⌇</span>
+                          <strong>{t('addFilesOrPhotos')}</strong>
+                        </button>
+                        <button
+                          className={contextPanel === 'skills' ? 'active' : ''}
+                          type="button"
+                          onMouseEnter={() => setContextPanel('skills')}
+                          onFocus={() => setContextPanel('skills')}
+                          onClick={() => setContextPanel('skills')}
+                        >
+                          <span aria-hidden>▣</span>
+                          <strong>{t('skills')}</strong>
+                        </button>
+                        <button
+                          className={contextPanel === 'connectors' ? 'active' : ''}
+                          type="button"
+                          onMouseEnter={() => setContextPanel('connectors')}
+                          onFocus={() => setContextPanel('connectors')}
+                          onClick={() => setContextPanel('connectors')}
+                        >
+                          <span aria-hidden>⌁</span>
+                          <strong>{t('addConnector')}</strong>
+                        </button>
+                        <button
+                          className={contextPanel === 'plugins' ? 'active' : ''}
+                          type="button"
+                          onMouseEnter={() => setContextPanel('plugins')}
+                          onFocus={() => setContextPanel('plugins')}
+                          onClick={() => setContextPanel('plugins')}
+                        >
+                          <span aria-hidden>⌘</span>
+                          <strong>{t('addPlugins')}</strong>
+                        </button>
+                      </div>
                     </div>
-                    <div className="context-popover-section">
-                      <strong className="context-popover-title">Loop</strong>
-                      <div className="context-option-list" data-testid="loop-profile-options">
-                        {(capabilities?.automationLoopProfiles ?? []).map(profile => (
-                          <button
-                            key={profile.id}
-                            className={profile.id === loopProfileId ? 'active' : ''}
-                            type="button"
-                            onClick={() => {
-                              setLoopProfileId(profile.id)
-                              saveCapabilityPreference({ loopProfileId: profile.id })
+                    <div
+                      className="context-child-popover"
+                      style={{
+                        '--context-panel-index': String(contextPanelIndex(contextPanel)),
+                        '--context-panel-items': String(contextPanelItemCount(contextPanel)),
+                      } as React.CSSProperties}
+                    >
+                      <div className="context-child-panel">
+                        {contextPanel === 'files' ? (
+                          <div className="context-option-list">
+                            <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
+                              setMode('new_html')
                               setOpenMenu(null)
-                            }}
-                          >
-                            {profile.name}
-                            <span>{profile.description}</span>
-                          </button>
-                        ))}
+                            }}>
+                              {t('newHtml')}
+                              <span>{t('generateFreshStandalonePage')}</span>
+                            </button>
+                            <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
+                              {t('existingHtml')}
+                              <span>{t('continueFromUploadedPage')}</span>
+                            </button>
+                            <label className="context-upload-action">
+                              <strong>{sourceUploadStatus === 'uploading' ? t('uploading') : sourceArtifact ? sourceArtifact.entryPath : t('uploadHtml')}</strong>
+                              <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : t('useLocalHtmlFile')}</span>
+                              <input
+                                data-testid="source-html-input"
+                                type="file"
+                                accept=".html,.htm,text/html"
+                                onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
+                              />
+                            </label>
+                          </div>
+                        ) : null}
+                        {contextPanel === 'connectors' ? (
+                          <div className="context-option-list">
+                            <button type="button" disabled>{t('connectors')}</button>
+                            <button type="button" disabled>{t('mcp')}</button>
+                          </div>
+                        ) : null}
+                        {contextPanel === 'plugins' ? (
+                          <div className="context-option-list">
+                            <button type="button" disabled>{t('plugins')}</button>
+                          </div>
+                        ) : null}
+                        {contextPanel === 'skills' ? (
+                          <div className="context-option-list" data-testid="loop-profile-options">
+                            {(capabilities?.automationLoopProfiles ?? []).map(profile => (
+                              <button
+                                key={profile.id}
+                                className={profile.id === loopProfileId ? 'active' : ''}
+                                type="button"
+                                onClick={() => {
+                                  setLoopProfileId(profile.id)
+                                  saveCapabilityPreference({ loopProfileId: profile.id })
+                                  setOpenMenu(null)
+                                }}
+                              >
+                                {profile.name}
+                                <span>{profile.description}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                    <div className="context-popover-section">
-                      <label className="popover-field">
-                        Styles
-                        <input value={styles} onChange={event => setStyles(event.target.value)} />
-                      </label>
-                      <div className="preset-list">
-                        {stylePresets.map(preset => (
-                          <button key={preset} type="button" onClick={() => {
-                            setStyles(preset)
-                            setOpenMenu(null)
-                          }}>
-                            {preset}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="context-popover-section">
-                      <strong className="context-popover-title">Plugins</strong>
-                      <button type="button" disabled>Connectors</button>
-                      <button type="button" disabled>Plugins</button>
-                      <button type="button" disabled>MCP</button>
                     </div>
                   </div>
                 ) : null}
               </div>
-              <PillMenu id="variations" label="Variations" value={`${variationCount} drafts`} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+              <PillMenu id="variations" label={t('variations')} value={`${variationCount} ${t('drafts')}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>
                 <div className="segmented-options" data-testid="variation-count-input">
                   {variationOptions.map(count => (
                     <button
@@ -424,68 +473,85 @@ export default function HomePage(): React.JSX.Element {
                   ))}
                 </div>
               </PillMenu>
-              <PillMenu id="domain" label="Domain" value={selectedDomain?.name ?? 'Domain'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="capability-option-list" data-testid="domain-template-options">
-                  {(capabilities?.domainTemplates ?? []).map(template => (
-                    <button
-                      key={template.id}
-                      className={template.id === domainTemplateId ? 'active' : ''}
-                      type="button"
-                      onClick={() => {
-                        setDomainTemplateId(template.id)
-                        saveCapabilityPreference({ domainTemplateId: template.id })
-                        setOpenMenu(null)
-                      }}
-                    >
-                      <strong>{template.name}</strong>
-                      <span>{template.category} · {template.description}</span>
-                    </button>
-                  ))}
+              <PillMenu id="template" label={t('template')} value={selectedDomain?.name ?? t('choose')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+                <div className="template-popover">
+                  <section>
+                    <strong className="context-popover-title">{t('styles')}</strong>
+                    <label className="popover-field">
+                      <input value={styles} onChange={event => setStyles(event.target.value)} />
+                    </label>
+                    <div className="preset-list">
+                      {stylePresets.map(preset => (
+                        <button key={preset} type="button" onClick={() => setStyles(preset)}>
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <strong className="context-popover-title">{t('domain')}</strong>
+                    <div className="capability-option-list" data-testid="domain-template-options">
+                      {(capabilities?.domainTemplates ?? []).map(template => (
+                        <button
+                          key={template.id}
+                          className={template.id === domainTemplateId ? 'active' : ''}
+                          type="button"
+                          onClick={() => {
+                            setDomainTemplateId(template.id)
+                            saveCapabilityPreference({ domainTemplateId: template.id })
+                          }}
+                        >
+                          <strong>{template.name}</strong>
+                          <span>{template.category} · {template.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <strong className="context-popover-title">{t('aesthetic')}</strong>
+                    <div className="capability-option-list" data-testid="aesthetic-profile-options">
+                      {(capabilities?.aestheticProfiles ?? []).map(profile => (
+                        <button
+                          key={profile.id}
+                          className={profile.id === aestheticProfileId ? 'active' : ''}
+                          type="button"
+                          onClick={() => {
+                            const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
+                            setAestheticProfileId(profile.id)
+                            setColorPaletteId(nextPaletteId)
+                            saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
+                          }}
+                        >
+                          <strong>{profile.name}</strong>
+                          <span>{profile.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <strong className="context-popover-title">{t('palette')}</strong>
+                    <div className="capability-option-list" data-testid="color-palette-options">
+                      {availablePalettes.map(palette => (
+                        <button
+                          key={palette.id}
+                          className={palette.id === colorPaletteId ? 'active' : ''}
+                          type="button"
+                          onClick={() => {
+                            setColorPaletteId(palette.id)
+                            saveCapabilityPreference({ colorPaletteId: palette.id })
+                          }}
+                        >
+                          <strong>{palette.name}</strong>
+                          <span className="swatch-row" aria-hidden>
+                            {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
                 </div>
               </PillMenu>
-              <PillMenu id="aesthetic" label="Aesthetic" value={selectedAesthetic?.name ?? 'Aesthetic'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="capability-option-list" data-testid="aesthetic-profile-options">
-                  {(capabilities?.aestheticProfiles ?? []).map(profile => (
-                    <button
-                      key={profile.id}
-                      className={profile.id === aestheticProfileId ? 'active' : ''}
-                      type="button"
-                      onClick={() => {
-                        const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
-                        setAestheticProfileId(profile.id)
-                        setColorPaletteId(nextPaletteId)
-                        saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
-                        setOpenMenu(null)
-                      }}
-                    >
-                      <strong>{profile.name}</strong>
-                      <span>{profile.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </PillMenu>
-              <PillMenu id="palette" label="Palette" value={selectedPalette?.name ?? 'Palette'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="capability-option-list" data-testid="color-palette-options">
-                  {availablePalettes.map(palette => (
-                    <button
-                      key={palette.id}
-                      className={palette.id === colorPaletteId ? 'active' : ''}
-                      type="button"
-                      onClick={() => {
-                        setColorPaletteId(palette.id)
-                        saveCapabilityPreference({ colorPaletteId: palette.id })
-                        setOpenMenu(null)
-                      }}
-                    >
-                      <strong>{palette.name}</strong>
-                      <span className="swatch-row" aria-hidden>
-                        {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </PillMenu>
-              <PillMenu id="model" label="Model" value={selectedModel ? modelLabel(selectedModel) : 'No model'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+              <PillMenu id="model" label={t('model')} value={selectedModel ? modelLabel(selectedModel) : t('noModel')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
                 <div className="model-option-list">
                   {(bootstrap?.models.models ?? []).map(model => (
                     <button
@@ -519,24 +585,24 @@ export default function HomePage(): React.JSX.Element {
             <div className={`source-artifact-status ${sourceArtifact?.qualityStatus ?? sourceUploadStatus}`} data-testid="source-artifact-status">
               {sourceArtifact
                 ? `Using ${sourceArtifact.entryPath} · ${formatBytes(sourceArtifact.sizeBytes)}${sourceArtifact.qualityStatus ? ` · ${sourceArtifact.qualityStatus}` : ''}`
-                : 'Upload an HTML file to continue from an existing page.'}
+                : t('uploadHtmlToContinue')}
             </div>
           ) : null}
           {capabilities ? (
             <div className="capability-summary" data-testid="capability-summary">
-              <span>{selectedDomain?.name ?? 'Domain'}</span>
-              <span>{selectedAesthetic?.name ?? 'Aesthetic'}</span>
-              <span>{selectedPalette?.name ?? 'Palette'}</span>
-              <span>{selectedLoop?.name ?? 'Loop'}</span>
+              <span>{selectedDomain?.name ?? t('domain')}</span>
+              <span>{selectedAesthetic?.name ?? t('aesthetic')}</span>
+              <span>{selectedPalette?.name ?? t('palette')}</span>
+              <span>{selectedLoop?.name ?? t('loop')}</span>
             </div>
           ) : null}
           {error ? <p className="error-text">{error}</p> : null}
         </section>
 
-        <section className="inspiration-strip" aria-label="Design inspiration">
+        <section className="inspiration-strip" aria-label={t('designInspiration')}>
           <div className="section-heading">
-            <strong>Need inspiration?</strong>
-            <span>{sessions.length} saved</span>
+            <strong>{t('needInspiration')}</strong>
+            <span>{sessions.length} {t('saved')}</span>
           </div>
           <div className="inspiration-grid">
             {promptExamples.map((example, index) => (
@@ -613,6 +679,19 @@ function modelDescription(model: ModelOption | undefined): string {
   if (!model) return 'No model is currently available.'
   const capabilityText = model.capabilities.join(', ')
   return `${model.provider} · ${model.modelId}${capabilityText ? ` · ${capabilityText}` : ''}`
+}
+
+function contextPanelIndex(panel: ContextPanel): number {
+  if (panel === 'files') return 0
+  if (panel === 'skills') return 1
+  if (panel === 'connectors') return 2
+  return 3
+}
+
+function contextPanelItemCount(panel: ContextPanel): number {
+  if (panel === 'files') return 3
+  if (panel === 'connectors') return 2
+  return 1
 }
 
 function formatRelativeTime(value: string): string {

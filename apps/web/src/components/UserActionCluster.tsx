@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useLanguage, type AppLanguage } from './LanguageProvider'
 
 export type UserActionIdentity = {
   name?: string | null
@@ -17,6 +18,7 @@ const fallbackUser: UserActionIdentity = {
 export function UserActionCluster(props: { user?: UserActionIdentity | null }): React.JSX.Element {
   const user = props.user ?? fallbackUser
   const [openMenu, setOpenMenu] = useState<OpenUserMenu>(null)
+  const { language, setLanguage, t } = useLanguage()
   const label = user.name || user.email || 'DUDesign User'
   const initials = initialsForUser(user)
 
@@ -42,14 +44,14 @@ export function UserActionCluster(props: { user?: UserActionIdentity | null }): 
   return (
     <div className="user-action-cluster" data-user-actions="true" data-testid="user-action-cluster">
       <ActionButton
-        label="Settings"
+        label={t('settings')}
         active={openMenu === 'settings'}
         onClick={() => setOpenMenu(current => current === 'settings' ? null : 'settings')}
       >
         ⚙
       </ActionButton>
       <ActionButton
-        label="More"
+        label={t('more')}
         active={openMenu === 'more'}
         onClick={() => setOpenMenu(current => current === 'more' ? null : 'more')}
       >
@@ -58,7 +60,7 @@ export function UserActionCluster(props: { user?: UserActionIdentity | null }): 
       <button
         type="button"
         className="user-avatar-button"
-        aria-label={`User profile for ${label}`}
+        aria-label={`${t('userProfileFor')} ${label}`}
         aria-expanded={openMenu === 'profile'}
         onClick={() => setOpenMenu(current => current === 'profile' ? null : 'profile')}
       >
@@ -66,22 +68,29 @@ export function UserActionCluster(props: { user?: UserActionIdentity | null }): 
       </button>
 
       {openMenu === 'settings' ? (
-        <UserActionMenu title="Settings">
-          <ReservedMenuItem title="Account" detail="Profile and sign-in settings" />
-          <ReservedMenuItem title="Workspace" detail="Personal hosted workspace" />
-          <ReservedMenuItem title="Model preferences" detail="Default model and generation defaults" />
+        <UserActionMenu title={t('settings')}>
+          <LanguageSwitcher
+            language={language}
+            label={t('language')}
+            englishLabel={t('english')}
+            chineseLabel={t('chinese')}
+            setLanguage={setLanguage}
+          />
+          <ReservedMenuItem title={t('account')} detail={t('accountDetail')} />
+          <ReservedMenuItem title={t('workspace')} detail={t('workspaceDetail')} />
+          <ReservedMenuItem title={t('modelPreferences')} detail={t('modelPreferencesDetail')} />
         </UserActionMenu>
       ) : null}
       {openMenu === 'more' ? (
-        <UserActionMenu title="More">
-          <ReservedMenuItem title="Help" detail="Guides and product support" />
-          <ReservedMenuItem title="Feedback" detail="Send a product note" />
-          <ReservedMenuItem title="Keyboard shortcuts" detail="Reserved for editor shortcuts" />
-          <ReservedMenuItem title="Sign out" detail="Reserved for auth milestone" />
+        <UserActionMenu title={t('more')}>
+          <ReservedMenuItem title={t('help')} detail={t('helpDetail')} />
+          <ReservedMenuItem title={t('feedback')} detail={t('feedbackDetail')} />
+          <ReservedMenuItem title={t('keyboardShortcuts')} detail={t('keyboardShortcutsDetail')} />
+          <ReservedMenuItem title={t('signOut')} detail={t('signOutDetail')} />
         </UserActionMenu>
       ) : null}
       {openMenu === 'profile' ? (
-        <UserActionMenu title="Profile">
+        <UserActionMenu title={t('profile')}>
           <div className="user-profile-card">
             <span>{initials}</span>
             <strong>{label}</strong>
@@ -127,6 +136,38 @@ function ReservedMenuItem(props: { title: string; detail: string }): React.JSX.E
       <span>{props.title}</span>
       <small>{props.detail}</small>
     </button>
+  )
+}
+
+function LanguageSwitcher(props: {
+  language: AppLanguage
+  label: string
+  englishLabel: string
+  chineseLabel: string
+  setLanguage: (language: AppLanguage) => void
+}): React.JSX.Element {
+  return (
+    <div className="language-switcher" data-testid="language-switcher">
+      <span>{props.label}</span>
+      <div className="language-options" role="group" aria-label={props.label}>
+        <button
+          type="button"
+          className={props.language === 'en' ? 'active' : ''}
+          aria-pressed={props.language === 'en'}
+          onClick={() => props.setLanguage('en')}
+        >
+          {props.englishLabel}
+        </button>
+        <button
+          type="button"
+          className={props.language === 'zh' ? 'active' : ''}
+          aria-pressed={props.language === 'zh'}
+          onClick={() => props.setLanguage('zh')}
+        >
+          {props.chineseLabel}
+        </button>
+      </div>
+    </div>
   )
 }
 

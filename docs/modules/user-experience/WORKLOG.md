@@ -965,3 +965,76 @@
 
 - 单变体页继续基于 iframe 做交互编辑，结果墙承担轻量浏览职责。
 - version menu 后续可展示 desktop / tablet / mobile screenshot 缩略图。
+
+## 2026-06-30 UX-M22 Global Language Switch
+
+### 已完成
+
+- 新增用户端全局语言状态：
+  - `apps/web/src/components/LanguageProvider.tsx`
+- 在根布局中包裹 `LanguageProvider`，使首页、生成页、单变体页共享语言状态。
+- 设置菜单新增中英文切换：
+  - English
+  - 中文
+- 语言选择持久化到 `localStorage`：
+  - `dudesign.language`
+- 切换语言时同步更新 `document.documentElement.lang`：
+  - `en`
+  - `zh-CN`
+- 设置菜单、更多菜单、个人资料菜单的全局文案接入翻译。
+- 新增浏览器 E2E 覆盖：
+  - 在 Settings 中切换为中文。
+  - 验证菜单文案切换。
+  - 验证 `html lang="zh-CN"`。
+  - 刷新后语言保持。
+  - 切回英文。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npx playwright test --grep "settings menu switches|global user action cluster"` in `apps/web`
+
+### 说明
+
+- 本轮先完成全局语言状态、设置入口和全局菜单文案切换。
+- 首页、结果墙、编辑页主体文案仍需后续逐页接入翻译 key，避免一次性改动过大。
+- `npm run test:ux` 需要 API 服务在线；本轮只启动了 web dev server，因此该 node smoke 返回 `fetch failed`。
+
+### 下一步
+
+- 逐步将首页 composer、结果墙、单变体编辑页的主体文案迁移到同一套翻译上下文。
+- 后续如新增独立 `/settings` 页面，应复用当前 `LanguageProvider` 和 storage key。
+
+## 2026-06-30 UX-M22.1 Home Composer Language Coverage
+
+### 已完成
+
+- 首页引入 `useLanguage()`。
+- 首页第一屏核心文案接入全局翻译：
+  - workspace sidebar。
+  - workspace selector。
+  - hero eyebrow / headline。
+  - 新建 HTML / 已有 HTML 模式切换。
+  - prompt textarea aria-label / placeholder。
+  - Add context 菜单。
+  - Loop / Styles / Plugins。
+  - Variations / Template / Model pill controls。
+  - capability summary fallback label。
+  - inspiration strip。
+- `LanguageProvider` 的翻译表扩展为渐进式 key fallback：
+  - 当前语言没有某 key 时 fallback 到英文。
+  - 英文也没有时 fallback 到 key 本身。
+- 浏览器 E2E 增强：
+  - 切换中文后验证首页标题、模式按钮和 prompt placeholder。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npx playwright test --grep "settings menu switches|global user action cluster"` in `apps/web`
+
+### 下一步
+
+- 继续迁移结果墙 `/jobs/:jobId` 主体文案。
+- 再迁移单变体编辑页 `/variations/:variationId` 主体文案。
