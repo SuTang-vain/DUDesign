@@ -1,15 +1,28 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
+import { UserActionCluster } from '@/components/UserActionCluster'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, shareVariation } from '@/lib/api'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
-type AnnotationTool = 'rect' | 'text'
-type DraftRect = { startX: number; startY: number; currentX: number; currentY: number }
+type AnnotationTool = 'rect' | 'circle' | 'arrow' | 'pen' | 'text'
+type DraftShape =
+  | { type: 'rect' | 'circle' | 'arrow'; startX: number; startY: number; currentX: number; currentY: number }
+  | { type: 'pen'; points: Array<{ x: number; y: number }> }
 type EditorViewMode = 'preview' | 'code'
 type ArtifactQuality = NonNullable<NonNullable<VariationDetailResponse['currentArtifact']>['quality']>
 type ExportArtifactSummary = NonNullable<ExportVariationResponse['exportArtifact']>
+type LockedVariationVersion = {
+  variationId: string
+  artifactId: string
+  version: number
+  entryPath: string | null
+  lockedAt: string
+}
+
+const lockedVariationStorageKey = 'dudesign.lockedVariationVersions'
 
 export default function VariationPage(props: { params: Promise<{ variationId: string }> }): React.JSX.Element {
   const [variationId, setVariationId] = useState<string | null>(null)
@@ -27,15 +40,19 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [annotationMode, setAnnotationMode] = useState(false)
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>('rect')
   const [annotations, setAnnotations] = useState<AnnotationShape[]>([])
-  const [draftRect, setDraftRect] = useState<DraftRect | null>(null)
+  const [selectedAnnotationIndex, setSelectedAnnotationIndex] = useState<number | null>(null)
+  const [draftShape, setDraftShape] = useState<DraftShape | null>(null)
+  const draftShapeRef = useRef<DraftShape | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting'>('idle')
   const [lastExport, setLastExport] = useState<ExportArtifactSummary | null>(null)
   const [shareStatus, setShareStatus] = useState<'idle' | 'creating'>('idle')
   const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(null)
+  const [lockedVersion, setLockedVersion] = useState<LockedVariationVersion | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const selectedArtifactQuality = qualityForArtifact(detail, selectedArtifactId)
+  const runtimeSummary = runtimeSummaryForVariation(detail)
 
   useEffect(() => {
     props.params.then(params => setVariationId(params.variationId)).catch(err => {
@@ -46,6 +63,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
   useEffect(() => {
     if (!variationId) return
+    setLockedVersion(readLockedVariationVersion(variationId))
     let cancelled = false
     getVariation(variationId)
       .then(data => {
@@ -137,6 +155,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         prompt: prompt.trim() || undefined,
       })
       setAnnotations([])
+      setSelectedAnnotationIndex(null)
       setAnnotationMode(false)
       setSelectedArtifactId(null)
       setPreviewVersion(version => version + 1)
@@ -208,6 +227,20 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     }
   }
 
+  function lockCurrentVersion(): void {
+    if (!variationId || !detail?.currentArtifact || detail.currentArtifact.kind !== 'html') return
+    const locked = {
+      variationId,
+      artifactId: detail.currentArtifact.id,
+      version: detail.currentArtifact.version,
+      entryPath: detail.currentArtifact.entryPath,
+      lockedAt: new Date().toISOString(),
+    }
+    writeLockedVariationVersion(locked)
+    setLockedVersion(locked)
+    setNotice(`Locked v${locked.version} as the selected direction for this variation.`)
+  }
+
   function normalizedPoint(event: React.PointerEvent<HTMLDivElement>): { x: number; y: number } {
     const rect = event.currentTarget.getBoundingClientRect()
     return {
@@ -216,42 +249,128 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     }
   }
 
+  function setDraft(shape: DraftShape | null): void {
+    draftShapeRef.current = shape
+    setDraftShape(shape)
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>): void {
     if (!annotationMode) return
     const point = normalizedPoint(event)
     if (annotationTool === 'text') {
       const text = window.prompt('Annotation note')
       if (text?.trim()) {
-        setAnnotations(items => [...items, { type: 'text', anchor: point, text: text.trim(), note: text.trim() }])
+        appendAnnotation({ type: 'text', anchor: point, text: text.trim(), note: text.trim() })
       }
       return
     }
-    event.currentTarget.setPointerCapture(event.pointerId)
-    setDraftRect({ startX: point.x, startY: point.y, currentX: point.x, currentY: point.y })
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Some synthetic/browser test pointer events are not capture-eligible.
+    }
+    if (annotationTool === 'pen') {
+      setDraft({ type: 'pen', points: [point] })
+      return
+    }
+    setDraft({ type: annotationTool, startX: point.x, startY: point.y, currentX: point.x, currentY: point.y })
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
-    if (!draftRect) return
+    if (!draftShapeRef.current) return
     const point = normalizedPoint(event)
-    setDraftRect(rect => rect ? { ...rect, currentX: point.x, currentY: point.y } : null)
+    const currentShape = draftShapeRef.current
+    const nextShape = currentShape.type === 'pen'
+      ? { ...currentShape, points: [...currentShape.points, point].slice(-120) }
+      : { ...currentShape, currentX: point.x, currentY: point.y }
+    setDraft(nextShape)
   }
 
   function handlePointerUp(event: React.PointerEvent<HTMLDivElement>): void {
-    if (!draftRect) return
+    const currentShape = draftShapeRef.current
+    if (!currentShape) return
     const point = normalizedPoint(event)
-    const x = Math.min(draftRect.startX, point.x)
-    const y = Math.min(draftRect.startY, point.y)
-    const w = Math.abs(point.x - draftRect.startX)
-    const h = Math.abs(point.y - draftRect.startY)
-    if (w > 0.01 && h > 0.01) {
-      setAnnotations(items => [...items, { type: 'rect', x, y, w, h, color: '#4f46e5', note: 'Marked area to refine' }])
-    }
-    setDraftRect(null)
+    commitDraftShape(currentShape, point)
+    setDraft(null)
     try {
       event.currentTarget.releasePointerCapture(event.pointerId)
     } catch {
       // best effort
     }
+  }
+
+  function handlePointerLeave(event: React.PointerEvent<HTMLDivElement>): void {
+    const currentShape = draftShapeRef.current
+    if (!currentShape || currentShape.type !== 'pen') return
+    commitDraftShape(currentShape, normalizedPoint(event))
+    setDraft(null)
+  }
+
+  function commitDraftShape(currentShape: DraftShape, point: { x: number; y: number }): void {
+    if (currentShape.type === 'pen') {
+      const points = [...currentShape.points, point]
+      if (points.length >= 2) {
+        appendAnnotation({ type: 'pen', points, color: '#4f46e5', note: 'Freehand marked area to refine' })
+      }
+    } else {
+      const x = Math.min(currentShape.startX, point.x)
+      const y = Math.min(currentShape.startY, point.y)
+      const w = Math.abs(point.x - currentShape.startX)
+      const h = Math.abs(point.y - currentShape.startY)
+      if (w > 0.01 && h > 0.01) {
+        if (currentShape.type === 'rect') {
+          appendAnnotation({ type: 'rect', x, y, w, h, color: '#4f46e5', note: 'Marked area to refine' })
+        } else if (currentShape.type === 'circle') {
+          appendAnnotation({
+            type: 'circle',
+            cx: x + w / 2,
+            cy: y + h / 2,
+            r: Math.max(w, h) / 2,
+            color: '#4f46e5',
+            note: 'Circular marked area to refine',
+          })
+        } else {
+          appendAnnotation({
+            type: 'arrow',
+            from: { x: currentShape.startX, y: currentShape.startY },
+            to: point,
+            color: '#4f46e5',
+            note: 'Arrow points to the area to refine',
+          })
+        }
+      }
+    }
+  }
+
+  function appendAnnotation(shape: AnnotationShape): void {
+    const nextIndex = annotations.length
+    setAnnotations(items => [...items, shape])
+    setSelectedAnnotationIndex(nextIndex)
+  }
+
+  function selectAnnotation(index: number): void {
+    setSelectedAnnotationIndex(index)
+  }
+
+  function deleteAnnotation(index: number): void {
+    setAnnotations(items => items.filter((_item, itemIndex) => itemIndex !== index))
+    setSelectedAnnotationIndex(current => {
+      if (current === null) return null
+      if (current === index) return null
+      if (current > index) return current - 1
+      return current
+    })
+  }
+
+  function editTextAnnotation(index: number): void {
+    const shape = annotations[index]
+    if (!shape || shape.type !== 'text') return
+    const text = window.prompt('Edit annotation note', shape.text)
+    if (!text?.trim()) return
+    setAnnotations(items => items.map((item, itemIndex) => itemIndex === index && item.type === 'text'
+      ? { ...item, text: text.trim(), note: text.trim() }
+      : item))
+    setSelectedAnnotationIndex(index)
   }
 
   return (
@@ -264,6 +383,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           <p>{detail?.job.prompt ?? 'Loading variation context...'}</p>
         </div>
         <div className="editor-command-bar" aria-label="Variation actions">
+          <UserActionCluster />
           <button
             data-testid="download-html-button"
             onClick={() => void downloadZip()}
@@ -278,8 +398,13 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           >
             {shareStatus === 'creating' ? 'Sharing' : 'Share'}
           </button>
-          <button onClick={() => setNotice('This variation is marked as the selected direction for the current session.')}>
-            Lock this one
+          <button
+            className="lock-variation-button"
+            data-testid="lock-version-button"
+            onClick={lockCurrentVersion}
+            disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
+          >
+            {lockedVersion?.artifactId === detail?.currentArtifact?.id ? 'Locked' : 'Lock this version'}
           </button>
         </div>
       </header>
@@ -328,11 +453,18 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
+                onPointerLeave={handlePointerLeave}
               >
                 {annotations.map((shape, index) => (
-                  <AnnotationView key={index} shape={shape} index={index} />
+                  <AnnotationView
+                    key={index}
+                    shape={shape}
+                    index={index}
+                    selected={selectedAnnotationIndex === index}
+                    onSelect={() => selectAnnotation(index)}
+                  />
                 ))}
-                {draftRect ? <DraftRectView rect={draftRect} /> : null}
+                {draftShape ? <DraftShapeView shape={draftShape} /> : null}
               </div>
             </div>
           ) : (
@@ -368,15 +500,50 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
               </label>
             </div>
             <div className="device-toggle annotation-tools" aria-label="Annotation tool">
-              {(['rect', 'text'] as const).map(tool => (
-                <button key={tool} className={annotationTool === tool ? 'active' : ''} onClick={() => setAnnotationTool(tool)}>
+              {(['rect', 'circle', 'arrow', 'pen', 'text'] as const).map(tool => (
+                <button
+                  key={tool}
+                  data-testid={`annotation-tool-${tool}`}
+                  aria-pressed={annotationTool === tool}
+                  className={annotationTool === tool ? 'active' : ''}
+                  onClick={() => setAnnotationTool(tool)}
+                >
                   {tool}
                 </button>
               ))}
             </div>
             <p>{annotations.length} annotation{annotations.length === 1 ? '' : 's'} staged.</p>
+            {annotations.length > 0 ? (
+              <div className="annotation-list" data-testid="annotation-list">
+                {annotations.map((shape, index) => (
+                  <div
+                    key={index}
+                    className={`annotation-list-row ${selectedAnnotationIndex === index ? 'active' : ''}`}
+                    data-testid="annotation-list-row"
+                  >
+                    <button type="button" onClick={() => selectAnnotation(index)}>
+                      <span>{String(index + 1).padStart(2, '0')} · {shape.type}</span>
+                      <small>{annotationSummary(shape)}</small>
+                    </button>
+                    {shape.type === 'text' ? (
+                      <button type="button" data-testid="edit-annotation-button" onClick={() => editTextAnnotation(index)}>
+                        Edit
+                      </button>
+                    ) : null}
+                    <button type="button" data-testid="delete-annotation-button" onClick={() => deleteAnnotation(index)}>
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="annotation-empty">Draw on the preview to stage marks.</p>
+            )}
             <div className="annotation-actions">
-              <button onClick={() => setAnnotations([])} disabled={annotations.length === 0}>Clear</button>
+              <button onClick={() => {
+                setAnnotations([])
+                setSelectedAnnotationIndex(null)
+              }} disabled={annotations.length === 0}>Clear</button>
               <button
                 data-testid="apply-annotations-button"
                 onClick={() => void submitAnnotations()}
@@ -395,11 +562,47 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             {status === 'refining' ? 'Refining...' : 'Refine variation'}
           </button>
 
+          <CapabilitySummary snapshot={detail?.job.capabilitySnapshot} compact testId="variation-capability-snapshot" />
+
+          <section className="runtime-summary-panel" data-testid="runtime-summary-panel">
+            <strong>Cost & runtime</strong>
+            <dl>
+              <div>
+                <dt>Total cost</dt>
+                <dd>{runtimeSummary.cost}</dd>
+              </div>
+              <div>
+                <dt>Tokens</dt>
+                <dd>{runtimeSummary.tokens}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{runtimeSummary.status}</dd>
+              </div>
+              <div>
+                <dt>Artifacts</dt>
+                <dd>{runtimeSummary.artifacts}</dd>
+              </div>
+            </dl>
+            <p>{runtimeSummary.detail}</p>
+          </section>
+
           <section className="artifact-panel">
             <strong>Current artifact</strong>
             <p data-testid="current-artifact-version">
               {detail?.currentArtifact ? `v${detail.currentArtifact.version} · ${detail.currentArtifact.id}` : 'No artifact yet'}
             </p>
+            {lockedVersion ? (
+              <div
+                className={`locked-version-summary ${lockedVersion.artifactId === detail?.currentArtifact?.id ? 'current' : 'historical'}`}
+                data-testid="locked-version-summary"
+              >
+                <strong>{lockedVersion.artifactId === detail?.currentArtifact?.id ? 'Current version locked' : 'Locked version differs'}</strong>
+                <span>
+                  v{lockedVersion.version} · {lockedVersion.entryPath ?? lockedVersion.artifactId} · {new Date(lockedVersion.lockedAt).toLocaleString()}
+                </span>
+              </div>
+            ) : null}
             {selectedArtifactQuality && selectedArtifactQuality.status !== 'pass' ? (
               <div className={`quality-banner artifact-quality-summary ${selectedArtifactQuality.status}`} data-testid="artifact-quality-summary">
                 <strong>{selectedArtifactQuality.status === 'fail' ? 'Quality failed' : 'Quality warning'}</strong>
@@ -467,13 +670,15 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   )
 }
 
-function AnnotationView(props: { shape: AnnotationShape; index: number }): React.JSX.Element | null {
-  const { shape, index } = props
+function AnnotationView(props: { shape: AnnotationShape; index: number; selected: boolean; onSelect: () => void }): React.JSX.Element | null {
+  const { shape, index, selected, onSelect } = props
   if (shape.type === 'rect') {
     return (
-      <div
+      <button
+        type="button"
         data-testid="annotation-rect"
-        className="annotation-rect"
+        className={`annotation-rect ${selected ? 'selected' : ''}`}
+        onClick={onSelect}
         style={{
           left: `${shape.x * 100}%`,
           top: `${shape.y * 100}%`,
@@ -482,35 +687,161 @@ function AnnotationView(props: { shape: AnnotationShape; index: number }): React
         }}
       >
         <span>{index + 1}</span>
-      </div>
+      </button>
     )
+  }
+  if (shape.type === 'circle') {
+    return (
+      <button
+        type="button"
+        data-testid="annotation-circle"
+        className={`annotation-circle ${selected ? 'selected' : ''}`}
+        onClick={onSelect}
+        style={{
+          left: `${(shape.cx - shape.r) * 100}%`,
+          top: `${(shape.cy - shape.r) * 100}%`,
+          width: `${shape.r * 2 * 100}%`,
+          height: `${shape.r * 2 * 100}%`,
+        }}
+      >
+        <span>{index + 1}</span>
+      </button>
+    )
+  }
+  if (shape.type === 'arrow') {
+    return <AnnotationLineView testId="annotation-arrow" from={shape.from} to={shape.to} index={index} arrow selected={selected} onSelect={onSelect} />
+  }
+  if (shape.type === 'pen') {
+    return <AnnotationPenView points={shape.points} index={index} selected={selected} onSelect={onSelect} />
   }
   if (shape.type === 'text') {
     return (
-      <div className="annotation-text" style={{ left: `${shape.anchor.x * 100}%`, top: `${shape.anchor.y * 100}%` }}>
+      <button
+        type="button"
+        className={`annotation-text ${selected ? 'selected' : ''}`}
+        onClick={onSelect}
+        style={{ left: `${shape.anchor.x * 100}%`, top: `${shape.anchor.y * 100}%` }}
+      >
         {index + 1}. {shape.text}
-      </div>
+      </button>
     )
   }
   return null
 }
 
-function DraftRectView(props: { rect: DraftRect }): React.JSX.Element {
-  const x = Math.min(props.rect.startX, props.rect.currentX)
-  const y = Math.min(props.rect.startY, props.rect.currentY)
-  const w = Math.abs(props.rect.currentX - props.rect.startX)
-  const h = Math.abs(props.rect.currentY - props.rect.startY)
+function DraftShapeView(props: { shape: DraftShape }): React.JSX.Element | null {
+  const { shape } = props
+  if (shape.type === 'pen') return <AnnotationPenView points={shape.points} draft />
+  if (shape.type === 'arrow') {
+    return <AnnotationLineView testId="annotation-arrow-draft" from={{ x: shape.startX, y: shape.startY }} to={{ x: shape.currentX, y: shape.currentY }} arrow draft />
+  }
+  const x = Math.min(shape.startX, shape.currentX)
+  const y = Math.min(shape.startY, shape.currentY)
+  const w = Math.abs(shape.currentX - shape.startX)
+  const h = Math.abs(shape.currentY - shape.startY)
+  if (shape.type === 'circle') {
+    return (
+      <div
+        className="annotation-circle draft"
+        style={{
+          left: `${x * 100}%`,
+          top: `${y * 100}%`,
+          width: `${w * 100}%`,
+          height: `${h * 100}%`,
+        }}
+      />
+    )
+  }
   return (
-    <div
-      className="annotation-rect draft"
-      style={{
-        left: `${x * 100}%`,
-        top: `${y * 100}%`,
-        width: `${w * 100}%`,
-        height: `${h * 100}%`,
-      }}
-    />
+    <div className="annotation-rect draft" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
   )
+}
+
+function AnnotationLineView(props: {
+  from: { x: number; y: number }
+  to: { x: number; y: number }
+  testId: string
+  index?: number
+  arrow?: boolean
+  draft?: boolean
+  selected?: boolean
+  onSelect?: () => void
+}): React.JSX.Element {
+  const markerId = `arrowhead-${props.index ?? 'draft'}`
+  return (
+    <svg
+      className={`annotation-svg ${props.draft ? 'draft' : ''} ${props.selected ? 'selected' : ''} ${props.onSelect ? 'selectable' : ''}`}
+      data-testid={props.testId}
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      onClick={props.onSelect}
+    >
+      {props.arrow ? (
+        <defs>
+          <marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L8,4 L0,8 Z" />
+          </marker>
+        </defs>
+      ) : null}
+      <line
+        className="annotation-hit-line"
+        x1={props.from.x * 100}
+        y1={props.from.y * 100}
+        x2={props.to.x * 100}
+        y2={props.to.y * 100}
+      />
+      <line
+        x1={props.from.x * 100}
+        y1={props.from.y * 100}
+        x2={props.to.x * 100}
+        y2={props.to.y * 100}
+        markerEnd={props.arrow ? `url(#${markerId})` : undefined}
+      />
+      {typeof props.index === 'number' ? (
+        <text x={props.from.x * 100} y={props.from.y * 100}>{props.index + 1}</text>
+      ) : null}
+    </svg>
+  )
+}
+
+function AnnotationPenView(props: { points: Array<{ x: number; y: number }>; index?: number; draft?: boolean; selected?: boolean; onSelect?: () => void }): React.JSX.Element | null {
+  if (props.points.length < 2) return null
+  const points = props.points.map(point => `${point.x * 100},${point.y * 100}`).join(' ')
+  const first = props.points[0]!
+  return (
+    <svg
+      className={`annotation-svg annotation-pen ${props.draft ? 'draft' : ''} ${props.selected ? 'selected' : ''} ${props.onSelect ? 'selectable' : ''}`}
+      data-testid="annotation-pen"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      onClick={props.onSelect}
+    >
+      <polyline className="annotation-hit-line" points={points} />
+      <polyline points={points} />
+      {typeof props.index === 'number' ? <text x={first.x * 100} y={first.y * 100}>{props.index + 1}</text> : null}
+    </svg>
+  )
+}
+
+function annotationSummary(shape: AnnotationShape): string {
+  switch (shape.type) {
+    case 'rect':
+      return `${percent(shape.x)}, ${percent(shape.y)} · ${percent(shape.w)} x ${percent(shape.h)}`
+    case 'circle':
+      return `center ${percent(shape.cx)}, ${percent(shape.cy)} · r ${percent(shape.r)}`
+    case 'arrow':
+      return `${percent(shape.from.x)}, ${percent(shape.from.y)} -> ${percent(shape.to.x)}, ${percent(shape.to.y)}`
+    case 'pen':
+      return `${shape.points.length} point${shape.points.length === 1 ? '' : 's'}`
+    case 'text':
+      return shape.text.length > 42 ? `${shape.text.slice(0, 42)}...` : shape.text
+    default:
+      return 'annotation'
+  }
+}
+
+function percent(value: number): string {
+  return `${Math.round(clamp(value) * 100)}%`
 }
 
 function filesForViewer(files: VariationFilesResponse['files']): CodeFile[] {
@@ -558,6 +889,61 @@ function shortArtifactId(value: string): string {
 function artifactKindLabel(kind: VariationDetailResponse['artifacts'][number]['kind']): string {
   if (kind === 'export_zip') return 'zip'
   return kind
+}
+
+function readLockedVariationVersion(variationId: string): LockedVariationVersion | null {
+  try {
+    const raw = window.localStorage.getItem(lockedVariationStorageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Record<string, LockedVariationVersion>
+    const locked = parsed[variationId]
+    return locked?.variationId === variationId && locked.artifactId ? locked : null
+  } catch {
+    return null
+  }
+}
+
+function writeLockedVariationVersion(locked: LockedVariationVersion): void {
+  try {
+    const raw = window.localStorage.getItem(lockedVariationStorageKey)
+    const parsed = raw ? JSON.parse(raw) as Record<string, LockedVariationVersion> : {}
+    window.localStorage.setItem(lockedVariationStorageKey, JSON.stringify({
+      ...parsed,
+      [locked.variationId]: locked,
+    }))
+  } catch {
+    // Locking is a local MVP affordance until backend collaboration state lands.
+  }
+}
+
+function runtimeSummaryForVariation(detail: VariationDetailResponse | null): {
+  cost: string
+  tokens: string
+  status: string
+  artifacts: string
+  detail: string
+} {
+  const variation = detail?.variation
+  if (!variation) {
+    return {
+      cost: '$0.00',
+      tokens: '0 in / 0 out',
+      status: 'loading',
+      artifacts: '0',
+      detail: 'Runtime usage will appear after this variation loads.',
+    }
+  }
+  const htmlCount = detail.artifacts.filter(artifact => artifact.kind === 'html').length
+  const screenshotCount = detail.artifacts.filter(artifact => artifact.kind === 'screenshot').length
+  return {
+    cost: `$${(variation.costCents / 100).toFixed(2)}`,
+    tokens: `${variation.inputTokens.toLocaleString()} in / ${variation.outputTokens.toLocaleString()} out`,
+    status: variation.status.replaceAll('_', ' '),
+    artifacts: `${htmlCount} html · ${screenshotCount} shots`,
+    detail: variation.errorMessage
+      ? `${variation.errorCode ?? 'Runtime error'}: ${variation.errorMessage}`
+      : `Runtime child ${shortArtifactId(variation.id)} is attached to session ${shortArtifactId(variation.sessionId)}.`,
+  }
 }
 
 function clamp(value: number): number {

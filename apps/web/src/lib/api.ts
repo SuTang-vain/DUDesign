@@ -3,6 +3,7 @@ import type {
   CreateDesignJobResponse,
   CreateAnnotationBatchRequest,
   CreateAnnotationBatchResponse,
+  ListCapabilitiesResponse,
   CreateSourceArtifactRequest,
   CreateSourceArtifactResponse,
   CreateSessionRequest,
@@ -16,9 +17,12 @@ import type {
   SharedVariationResponse,
   ShareVariationRequest,
   ShareVariationResponse,
+  UpdateUserPreferencesRequest,
+  UserPreferencesResponse,
   VariationDetailResponse,
   VariationFilesResponse,
 } from '@dudesign/contracts'
+import { ApiClientError } from './userErrors'
 
 const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_DUDESIGN_API_URL)
 
@@ -57,6 +61,8 @@ export type ModelsResponse = {
   models: ModelOption[]
   defaultModelId: string | null
 }
+
+export type CapabilitiesResponse = ListCapabilitiesResponse
 
 export type JobSnapshot = DesignJobSnapshotResponse
 
@@ -106,7 +112,7 @@ export type VariationSnapshot = {
 }
 
 export function apiUrl(path: string): string {
-  return `${API_BASE}${path}`
+  return `${runtimeApiBase()}${path}`
 }
 
 function normalizeApiBase(value: string | undefined): string {
@@ -116,12 +122,32 @@ function normalizeApiBase(value: string | undefined): string {
   return base
 }
 
+function runtimeApiBase(): string {
+  if (API_BASE) return API_BASE
+  if (typeof window !== 'undefined' && ['3000', '3001'].includes(window.location.port)) {
+    return 'http://127.0.0.1:4000'
+  }
+  return ''
+}
+
 export async function getBootstrap(): Promise<BootstrapResponse> {
   return getJson('/api/dev/bootstrap')
 }
 
 export async function listModels(): Promise<ModelsResponse> {
   return getJson('/api/models')
+}
+
+export async function getCapabilities(): Promise<ListCapabilitiesResponse> {
+  return getJson('/api/capabilities')
+}
+
+export async function getUserPreferences(): Promise<UserPreferencesResponse> {
+  return getJson('/api/preferences')
+}
+
+export async function updateUserPreferences(input: UpdateUserPreferencesRequest): Promise<UserPreferencesResponse> {
+  return putJson('/api/preferences', input)
 }
 
 export async function createSession(input: CreateSessionRequest): Promise<CreateSessionResponse> {
@@ -184,7 +210,7 @@ export async function exportVariation(variationId: string): Promise<ExportVariat
 
 export async function downloadArtifact(path: string): Promise<Blob> {
   const res = await fetch(apiUrl(path), { cache: 'no-store' })
-  if (!res.ok) throw new Error(await errorMessage(res))
+  if (!res.ok) throw await apiError(res)
   return res.blob()
 }
 
@@ -233,7 +259,7 @@ export function subscribeToJob(
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(apiUrl(path), { cache: 'no-store' })
-  if (!res.ok) throw new Error(await errorMessage(res))
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
@@ -243,15 +269,43 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(await errorMessage(res))
+  if (!res.ok) throw await apiError(res)
+  return res.json() as Promise<T>
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
 
 async function errorMessage(res: Response): Promise<string> {
+  const parsed = await errorPayload(res)
+  if (parsed.message) return parsed.message
+  return `HTTP ${res.status}`
+}
+
+async function errorPayload(res: Response): Promise<{ code?: string; message?: string }> {
   const payload = await res.json().catch(() => null)
   if (payload && typeof payload === 'object' && 'error' in payload) {
-    const error = payload.error as { message?: unknown }
-    if (typeof error.message === 'string') return error.message
+    const error = payload.error as { code?: unknown; message?: unknown }
+    return {
+      code: typeof error.code === 'string' ? error.code : undefined,
+      message: typeof error.message === 'string' ? error.message : undefined,
+    }
   }
-  return `HTTP ${res.status}`
+  return {}
+}
+
+async function apiError(res: Response): Promise<ApiClientError> {
+  const payload = await errorPayload(res)
+  return new ApiClientError({
+    status: res.status,
+    code: payload.code,
+    message: payload.message,
+  })
 }

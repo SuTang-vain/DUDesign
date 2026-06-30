@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignEvent } from '@dudesign/contracts'
+import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { CodeFileTrace, CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
+import { UserActionCluster } from '@/components/UserActionCluster'
 import { apiUrl, getDesignJob, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
+import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
 
 type ArtifactQuality = NonNullable<JobSnapshot['artifacts'][number]['quality']>
 
@@ -16,10 +19,19 @@ type StreamLine = {
   detail?: string
 }
 
+type RawStreamLine = {
+  id: string
+  variationLabel: string
+  channel: string
+  delta: string
+}
+
 type CodeStreamState = {
   path: string
   language: CodeFile['language']
   text: string
+  totalChars: number
+  truncatedChars: number
   sequence: number
   isFinal: boolean
 }
@@ -31,15 +43,23 @@ type CodeFileSet = {
 
 type VariationViewMode = 'preview' | 'code'
 
+type JobOutcome = {
+  kind: 'partial' | 'failed'
+  title: string
+  message: string
+}
+
 export default function JobPage(props: { params: Promise<{ jobId: string }> }): React.JSX.Element {
   const [jobId, setJobId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null)
   const [streamLines, setStreamLines] = useState<StreamLine[]>([])
+  const [rawStreamLines, setRawStreamLines] = useState<RawStreamLine[]>([])
   const [qualityByVariation, setQualityByVariation] = useState<Record<string, ArtifactQuality>>({})
   const [codeStreams, setCodeStreams] = useState<Record<string, CodeFileSet>>({})
   const [viewModes, setViewModes] = useState<Record<string, VariationViewMode>>({})
   const [streamState, setStreamState] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [error, setError] = useState<string | null>(null)
+  const activitySequence = useRef(0)
 
   useEffect(() => {
     props.params.then(params => setJobId(params.jobId)).catch(err => setError((err as Error).message))
@@ -93,14 +113,26 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const variations = snapshot?.variations ?? []
   const completedCount = variations.filter(variation => variation.status === 'completed').length
   const failedCount = variations.filter(variation => variation.status === 'failed').length
+  const totalCount = variations.length || snapshot?.job.variationCount || 0
+  const jobOutcome = snapshot ? jobOutcomeForSnapshot(snapshot, completedCount, failedCount) : null
+  const jobNotice = error
+    ? toUserFacingError({ message: error, scope: 'job' })
+    : streamState === 'error'
+      ? toUserFacingError({ scope: 'stream', message: 'The live event stream disconnected.' })
+      : null
 
   function applyEvent(event: DesignEvent): void {
     const activity = activityFromEvent(event, snapshot?.variations ?? [])
     if (activity) {
+      const lineId = `${event.timestamp}-${activitySequence.current++}`
       setStreamLines(lines => [
-        { ...activity, id: `${event.timestamp}-${lines.length}` },
+        { ...activity, id: lineId },
         ...lines,
       ].slice(0, 24))
+    }
+    if (event.type === 'design.variation_streaming') {
+      const rawLine = rawStreamLineFromEvent(event, snapshot?.variations ?? [], activitySequence.current++)
+      setRawStreamLines(lines => [rawLine, ...lines].slice(0, 32))
     }
     if (event.type === 'design.runtime_warning' && event.variationId && event.payload.code === 'ARTIFACT_QUALITY_GATE') {
       setQualityByVariation(current => ({
@@ -115,11 +147,17 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       setCodeStreams(current => {
         const previousSet = current[event.variationId!]
         const previousFile = previousSet?.files[event.payload.path]
+        const previousTotal = previousFile?.totalChars ?? previousFile?.text.length ?? 0
+        const totalChars = previousTotal + event.payload.delta.length
         const nextText = `${previousFile?.text ?? ''}${event.payload.delta}`
+        const retainedText = nextText.slice(-6000)
+        const truncatedChars = Math.max(previousFile?.truncatedChars ?? 0, totalChars - retainedText.length)
         const nextFile = {
           path: event.payload.path,
           language: event.payload.language,
-          text: nextText.slice(-6000),
+          text: retainedText,
+          totalChars,
+          truncatedChars,
           sequence: Math.max(previousFile?.sequence ?? 0, event.payload.sequence),
           isFinal: event.payload.isFinal ?? previousFile?.isFinal ?? false,
         }
@@ -161,14 +199,17 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
           <span className="eyebrow">Building from</span>
           <h1>{pageTitle}</h1>
           <p>
-            {completedCount} of {variations.length || snapshot?.job.variationCount || 0} variations completed
+            {completedCount} of {totalCount} variations completed
             {failedCount > 0 ? ` · ${failedCount} failed` : ''}
             {' '}· stream {streamState}
           </p>
         </div>
+        <UserActionCluster />
       </header>
 
-      {error ? <p className="error-text">{error}</p> : null}
+      {jobNotice ? <UserNotice notice={jobNotice} onRetry={() => window.location.reload()} /> : null}
+      {jobOutcome ? <JobOutcomeBanner outcome={jobOutcome} /> : null}
+      <CapabilitySummary snapshot={snapshot?.job.capabilitySnapshot} testId="job-capability-snapshot" />
 
       <section data-testid="variation-grid" className="variation-grid">
         {variations.map(variation => {
@@ -177,7 +218,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
           const showCode = Boolean(codeFiles) && (!variation.previewUrl || viewMode === 'code')
           const quality = qualityByVariation[variation.id] ?? qualityForVariation(snapshot, variation)
           return (
-            <article key={variation.id} data-testid="variation-card" className="variation-card">
+            <article key={variation.id} data-testid="variation-card" className={`variation-card ${variation.status === 'failed' ? 'failed' : ''}`}>
               <div className="variation-card-header">
                 <span><i className={`status-dot ${variation.status}`} /> {variation.title ?? `Variation ${variation.index}`}</span>
                 <span>{variation.status}</span>
@@ -238,11 +279,14 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 ) : (
                   <div className="preview-placeholder">
                     {variation.status === 'failed'
-                      ? (variation.errorMessage ?? 'Generation failed')
+                      ? userErrorForVariation(variation).message
                       : 'Waiting for preview'}
                   </div>
                 )}
               </div>
+              {variation.status === 'failed' ? (
+                <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = '/'} />
+              ) : null}
               {codeFiles && variation.previewUrl && viewMode === 'preview' ? (
                 <CodeFileTrace files={codeFilesForViewer(codeFiles)} activePath={codeFiles.activePath} testId="variation-code-stream" />
               ) : null}
@@ -251,7 +295,11 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 <span>${(variation.costCents / 100).toFixed(2)}</span>
               </div>
               <div className="variation-actions">
-                <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>Open</a>
+                {variation.status === 'failed' && !variation.currentArtifactId ? (
+                  <button type="button" disabled>Unavailable</button>
+                ) : (
+                  <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>Open</a>
+                )}
               </div>
             </article>
           )
@@ -259,7 +307,10 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       </section>
 
       <aside className="stream-panel" data-testid="runtime-activity">
-        <strong>Runtime activity</strong>
+        <div className="stream-panel-header">
+          <strong>Runtime activity</strong>
+          <span>Structured view</span>
+        </div>
         {streamLines.length === 0 ? <p>No activity yet.</p> : null}
         {streamLines.map(line => (
           <div key={line.id} className="activity-row" data-stage={line.stage}>
@@ -268,8 +319,40 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
             {line.detail ? <p>{line.detail}</p> : null}
           </div>
         ))}
+        <details className="raw-stream-debug" data-testid="raw-stream-debug">
+          <summary>Debug raw assistant stream</summary>
+          {rawStreamLines.length === 0 ? <p>No raw assistant delta captured.</p> : null}
+          {rawStreamLines.map(line => (
+            <div key={line.id} className="raw-stream-row">
+              <span>{line.variationLabel} · {line.channel}</span>
+              <code>{line.delta}</code>
+            </div>
+          ))}
+        </details>
       </aside>
     </main>
+  )
+}
+
+function JobOutcomeBanner(props: { outcome: JobOutcome }): React.JSX.Element {
+  return (
+    <section className={`job-outcome-banner ${props.outcome.kind}`} data-testid="job-outcome-banner">
+      <strong>{props.outcome.title}</strong>
+      <p>{props.outcome.message}</p>
+    </section>
+  )
+}
+
+function UserNotice(props: { notice: UserFacingError; compact?: boolean; onRetry?: () => void }): React.JSX.Element {
+  return (
+    <div className={`user-notice ${props.notice.severity}${props.compact ? ' compact' : ''}`} data-testid="user-facing-error">
+      <strong>{props.notice.title}</strong>
+      <p>{props.notice.message}</p>
+      {props.notice.detail ? <small>{props.notice.detail}</small> : null}
+      {props.notice.retryable && props.onRetry ? (
+        <button type="button" onClick={props.onRetry}>{props.notice.action}</button>
+      ) : null}
+    </div>
   )
 }
 
@@ -295,8 +378,8 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         variationId: event.variationId,
         variationLabel,
         stage: event.payload.channel === 'thinking' ? 'thinking' : 'writing',
-        summary: event.payload.channel === 'thinking' ? 'Planning the design' : 'Working on the page',
-        detail: summarizeRuntimeDelta(event.payload.delta),
+        summary: event.payload.channel === 'thinking' ? 'Planning the design' : activitySummaryForDelta(event.payload.delta),
+        detail: activityDetailForDelta(event.payload.delta),
       }
     case 'design.variation_code_delta':
       return {
@@ -323,20 +406,35 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         detail: tokenSummary(event.payload.inputTokens, event.payload.outputTokens, event.payload.costCents),
       }
     case 'design.variation_failed':
-      return {
-        variationId: event.variationId,
-        variationLabel,
-        stage: 'failed',
-        summary: 'Agent failed',
-        detail: `${event.payload.errorCode}: ${event.payload.message}`,
+      {
+        const failure = toUserFacingError({
+          code: event.payload.errorCode,
+          message: event.payload.message,
+          recoverable: event.payload.recoverable,
+          scope: 'variation',
+        })
+        return {
+          variationId: event.variationId,
+          variationLabel,
+          stage: 'failed',
+          summary: failure.title,
+          detail: failure.message,
+        }
       }
     case 'design.runtime_warning':
-      return {
-        variationId: event.variationId,
-        variationLabel,
-        stage: 'warning',
-        summary: event.payload.code === 'ARTIFACT_QUALITY_GATE' ? 'Preview quality warning' : 'Runtime warning',
-        detail: event.payload.message,
+      {
+        const warning = toUserFacingError({
+          code: event.payload.code,
+          message: event.payload.message,
+          scope: 'runtime',
+        })
+        return {
+          variationId: event.variationId,
+          variationLabel,
+          stage: 'warning',
+          summary: warning.title,
+          detail: warning.message,
+        }
       }
     case 'design.job_completed':
       return {
@@ -347,6 +445,17 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
       }
     default:
       return null
+  }
+}
+
+function rawStreamLineFromEvent(event: Extract<DesignEvent, { type: 'design.variation_streaming' }>, variations: VariationSnapshot[], sequence: number): RawStreamLine {
+  const variation = event.variationId ? variations.find(item => item.id === event.variationId) : null
+  const inferredIndex = variation?.index ?? inferVariationIndex(event)
+  return {
+    id: `${event.timestamp}-${event.variationId ?? 'job'}-${sequence}`,
+    variationLabel: inferredIndex ? `Variation ${String(inferredIndex).padStart(2, '0')}` : 'Variation',
+    channel: event.payload.channel,
+    delta: event.payload.delta.replace(/\s+/g, ' ').trim().slice(0, 420),
   }
 }
 
@@ -363,15 +472,24 @@ function inferVariationIndex(event: DesignEvent): number | null {
   return null
 }
 
-function summarizeRuntimeDelta(delta: string): string | undefined {
+function activitySummaryForDelta(delta: string): string {
+  const normalized = delta.replace(/\s+/g, ' ').trim()
+  if (/BabeL-O execution started/i.test(normalized)) return 'Runtime started'
+  if (/index\.html|doctype|html/i.test(normalized)) return 'Preparing HTML structure'
+  if (/style|css|layout|visual/i.test(normalized)) return 'Shaping layout and style'
+  if (/script|javascript|interaction/i.test(normalized)) return 'Checking interactions'
+  if (/error|failed|timeout/i.test(normalized)) return 'Runtime reported a problem'
+  return 'Working on the page'
+}
+
+function activityDetailForDelta(delta: string): string | undefined {
   const normalized = delta.replace(/\s+/g, ' ').trim()
   if (!normalized) return undefined
-  if (/BabeL-O execution started/i.test(normalized)) return 'Started BabeL-O execution.'
-  if (/index\.html/i.test(normalized)) return 'Preparing the HTML entry file.'
-  if (/style|css/i.test(normalized)) return 'Working on layout and visual styling.'
-  if (/script|javascript|interaction/i.test(normalized)) return 'Checking interactive behavior.'
   if (/error|failed|timeout/i.test(normalized)) return normalized.slice(0, 160)
-  return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized
+  if (/index\.html/i.test(normalized)) return 'Agent is updating index.html.'
+  if (/style|css/i.test(normalized)) return 'Agent is adjusting CSS and visual hierarchy.'
+  if (/script|javascript|interaction/i.test(normalized)) return 'Agent is checking client-side behavior.'
+  return undefined
 }
 
 function runtimeRefs(runtimeChildSessionId?: string, runtimeAgentJobId?: string): string | undefined {
@@ -396,12 +514,41 @@ function codeFilesForViewer(fileSet: CodeFileSet): CodeFile[] {
     language: file.language,
     content: file.text,
     isFinal: file.isFinal,
+    retainedChars: file.text.length,
+    truncatedChars: file.truncatedChars,
   }))
 }
 
 function activeStatusLabel(fileSet: CodeFileSet): string {
   const active = fileSet.files[fileSet.activePath] ?? Object.values(fileSet.files)[0]
   return active?.isFinal ? 'readying preview' : 'writing'
+}
+
+function userErrorForVariation(variation: VariationSnapshot): UserFacingError {
+  return toUserFacingError({
+    code: variation.errorCode,
+    message: variation.errorMessage,
+    scope: 'variation',
+  })
+}
+
+function jobOutcomeForSnapshot(snapshot: JobSnapshot, completedCount: number, failedCount: number): JobOutcome | null {
+  const totalCount = snapshot.variations.length || snapshot.job.variationCount
+  if (failedCount === 0) return null
+  if (snapshot.job.status === 'failed' || completedCount === 0) {
+    return {
+      kind: 'failed',
+      title: 'Generation failed',
+      message: completedCount > 0
+        ? `${completedCount} variation${completedCount === 1 ? '' : 's'} completed before the job failed. You can still open completed drafts.`
+        : 'No usable variation was completed. Start a new generation or adjust the prompt and model settings.',
+    }
+  }
+  return {
+    kind: 'partial',
+    title: 'Partial results available',
+    message: `${completedCount} of ${totalCount} variation${totalCount === 1 ? '' : 's'} completed. ${failedCount} failed and can be ignored while you inspect the completed drafts.`,
+  }
 }
 
 function qualityForVariation(snapshot: JobSnapshot | null, variation: VariationSnapshot): ArtifactQuality | null {

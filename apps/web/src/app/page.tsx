@@ -5,13 +5,18 @@ import {
   createDesignJob,
   createSession,
   createSourceArtifact,
+  getCapabilities,
   getBootstrap,
+  getUserPreferences,
   listSessions,
   resumeSession,
+  updateUserPreferences,
   type BootstrapResponse,
+  type CapabilitiesResponse,
   type ModelOption,
   type SessionSnapshot,
 } from '@/lib/api'
+import { UserActionCluster } from '@/components/UserActionCluster'
 
 const promptExamples = [
   'A landing page for an invoicing app for freelancers: send invoices, get paid faster, track expenses.',
@@ -21,15 +26,28 @@ const promptExamples = [
 
 const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', 'calm SaaS, spacious', 'playful mobile, colorful']
 const variationOptions = [1, 2, 3, 4, 5, 6]
-type OpenMenu = 'workspace' | 'type' | 'variations' | 'styles' | 'model' | null
+type OpenMenu = 'workspace' | 'type' | 'variations' | 'domain' | 'aesthetic' | 'palette' | 'loop' | 'styles' | 'model' | null
+type CapabilityPreferenceDraft = {
+  domainTemplateId?: string
+  aestheticProfileId?: string
+  colorPaletteId?: string
+  loopProfileId?: string
+}
+
+const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
 export default function HomePage(): React.JSX.Element {
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null)
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [prompt, setPrompt] = useState(promptExamples[0]!)
   const [variationCount, setVariationCount] = useState(3)
   const [mode, setMode] = useState<'new_html' | 'from_existing_html'>('new_html')
   const [styles, setStyles] = useState('minimal, trustworthy')
   const [modelServiceId, setModelServiceId] = useState<string>('')
+  const [domainTemplateId, setDomainTemplateId] = useState<string>('')
+  const [aestheticProfileId, setAestheticProfileId] = useState<string>('')
+  const [colorPaletteId, setColorPaletteId] = useState<string>('')
+  const [loopProfileId, setLoopProfileId] = useState<string>('')
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('')
   const [sourceArtifact, setSourceArtifact] = useState<{
     id: string
@@ -45,13 +63,29 @@ export default function HomePage(): React.JSX.Element {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
 
   useEffect(() => {
-    Promise.all([getBootstrap(), listSessions()])
+    Promise.all([getBootstrap(), listSessions(), getCapabilities()])
       .then(data => {
         setBootstrap(data[0])
         setModelServiceId(data[0].models.defaultModelId ?? data[0].models.models[0]?.id ?? '')
         setSelectedWorkspaceId(data[0].workspace.id)
         setSessions(data[1].sessions)
+        setCapabilities(data[2])
+        const localPreference = readCapabilityPreference()
+        setDomainTemplateId(localPreference.domainTemplateId ?? data[2].defaults.domainTemplateId)
+        setAestheticProfileId(localPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
+        setColorPaletteId(localPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
+        setLoopProfileId(localPreference.loopProfileId ?? data[2].defaults.loopProfileId)
         setStatus('idle')
+        return getUserPreferences()
+          .then(preferences => {
+            setDomainTemplateId(localPreference.domainTemplateId ?? preferences.capabilityPreference.domainTemplateId ?? data[2].defaults.domainTemplateId)
+            setAestheticProfileId(localPreference.aestheticProfileId ?? preferences.capabilityPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
+            setColorPaletteId(localPreference.colorPaletteId ?? preferences.capabilityPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
+            setLoopProfileId(localPreference.loopProfileId ?? preferences.capabilityPreference.loopProfileId ?? data[2].defaults.loopProfileId)
+          })
+          .catch(err => {
+            console.warn('Failed to load capability preferences', err)
+          })
       })
       .catch(err => {
         setError((err as Error).message)
@@ -81,6 +115,14 @@ export default function HomePage(): React.JSX.Element {
   const workspaces = bootstrap?.workspaces?.length ? bootstrap.workspaces : bootstrap ? [bootstrap.workspace] : []
   const workspace = workspaces.find(item => item.id === selectedWorkspaceId) ?? bootstrap?.workspace
   const selectedModel = bootstrap?.models.models.find(model => model.id === modelServiceId)
+  const selectedDomain = capabilities?.domainTemplates.find(template => template.id === domainTemplateId)
+  const selectedAesthetic = capabilities?.aestheticProfiles.find(profile => profile.id === aestheticProfileId)
+  const availablePalettes = capabilities?.colorPalettes.filter(palette =>
+    !selectedAesthetic || selectedAesthetic.colorPaletteIds.includes(palette.id)
+  ) ?? []
+  const selectedPalette = availablePalettes.find(palette => palette.id === colorPaletteId)
+    ?? capabilities?.colorPalettes.find(palette => palette.id === colorPaletteId)
+  const selectedLoop = capabilities?.automationLoopProfiles.find(profile => profile.id === loopProfileId)
   const canSubmit = useMemo(() => {
     return status !== 'submitting'
       && sourceUploadStatus !== 'uploading'
@@ -133,6 +175,16 @@ export default function HomePage(): React.JSX.Element {
         sourceArtifactId: sourceArtifact?.id ?? null,
         modelServiceId: modelServiceId || undefined,
         variationCount,
+        capabilityRequirements: {
+          template: {
+            domainTemplateId: domainTemplateId || undefined,
+            aestheticProfileId: aestheticProfileId || undefined,
+            colorPaletteId: colorPaletteId || undefined,
+          },
+          automation: {
+            loopProfileId: loopProfileId || undefined,
+          },
+        },
         templateRequirements: {
           styles: styles.split(',').map(style => style.trim()).filter(Boolean),
           deviceTargets: ['desktop', 'mobile'],
@@ -143,6 +195,21 @@ export default function HomePage(): React.JSX.Element {
       setError((err as Error).message)
       setStatus('error')
     }
+  }
+
+  function saveCapabilityPreference(next: CapabilityPreferenceDraft): void {
+    const capabilityPreference = {
+      domainTemplateId: next.domainTemplateId ?? domainTemplateId,
+      aestheticProfileId: next.aestheticProfileId ?? aestheticProfileId,
+      colorPaletteId: next.colorPaletteId ?? colorPaletteId,
+      loopProfileId: next.loopProfileId ?? loopProfileId,
+    }
+    writeCapabilityPreference(capabilityPreference)
+    void updateUserPreferences({
+      capabilityPreference,
+    }).catch(err => {
+      console.warn('Failed to save capability preferences', err)
+    })
   }
 
   async function resume(session: SessionSnapshot): Promise<void> {
@@ -200,36 +267,39 @@ export default function HomePage(): React.JSX.Element {
             <span className="eyebrow">Hosted design workspace</span>
             <h1>What shall we design today?</h1>
           </div>
-          <div className="workspace-selector" data-menu-root="true">
-            <button
-              type="button"
-              className="workspace-selector-trigger"
-              data-testid="workspace-selector"
-              aria-expanded={openMenu === 'workspace'}
-              onClick={() => setOpenMenu(current => current === 'workspace' ? null : 'workspace')}
-            >
-              <span>{workspace?.name ?? 'Connecting workspace...'}</span>
-              <small>MVP hosted</small>
-            </button>
-            {openMenu === 'workspace' ? (
-              <div className="workspace-menu">
-                {workspaces.map(item => (
-                  <button
-                    key={item.id}
-                    className={item.id === workspace?.id ? 'active' : ''}
-                    type="button"
-                    onClick={() => {
-                      setSelectedWorkspaceId(item.id)
-                      setOpenMenu(null)
-                    }}
-                  >
-                    <strong>{item.name}</strong>
-                    <span>{item.storageKey}</span>
-                  </button>
-                ))}
-                <p>Team workspaces are reserved for the collaboration milestone.</p>
-              </div>
-            ) : null}
+          <div className="workspace-topbar-actions">
+            <div className="workspace-selector" data-menu-root="true">
+              <button
+                type="button"
+                className="workspace-selector-trigger"
+                data-testid="workspace-selector"
+                aria-expanded={openMenu === 'workspace'}
+                onClick={() => setOpenMenu(current => current === 'workspace' ? null : 'workspace')}
+              >
+                <span>{workspace?.name ?? 'Connecting workspace...'}</span>
+                <small>MVP hosted</small>
+              </button>
+              {openMenu === 'workspace' ? (
+                <div className="workspace-menu">
+                  {workspaces.map(item => (
+                    <button
+                      key={item.id}
+                      className={item.id === workspace?.id ? 'active' : ''}
+                      type="button"
+                      onClick={() => {
+                        setSelectedWorkspaceId(item.id)
+                        setOpenMenu(null)
+                      }}
+                    >
+                      <strong>{item.name}</strong>
+                      <span>{item.storageKey}</span>
+                    </button>
+                  ))}
+                  <p>Team workspaces are reserved for the collaboration milestone.</p>
+                </div>
+              ) : null}
+            </div>
+            <UserActionCluster user={bootstrap?.user} />
           </div>
         </header>
 
@@ -302,6 +372,86 @@ export default function HomePage(): React.JSX.Element {
                   ))}
                 </div>
               </PillMenu>
+              <PillMenu id="domain" label="Domain" value={selectedDomain?.name ?? 'Domain'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+                <div className="capability-option-list" data-testid="domain-template-options">
+                  {(capabilities?.domainTemplates ?? []).map(template => (
+                    <button
+                      key={template.id}
+                      className={template.id === domainTemplateId ? 'active' : ''}
+                      type="button"
+                      onClick={() => {
+                        setDomainTemplateId(template.id)
+                        saveCapabilityPreference({ domainTemplateId: template.id })
+                        setOpenMenu(null)
+                      }}
+                    >
+                      <strong>{template.name}</strong>
+                      <span>{template.category} · {template.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </PillMenu>
+              <PillMenu id="aesthetic" label="Aesthetic" value={selectedAesthetic?.name ?? 'Aesthetic'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+                <div className="capability-option-list" data-testid="aesthetic-profile-options">
+                  {(capabilities?.aestheticProfiles ?? []).map(profile => (
+                    <button
+                      key={profile.id}
+                      className={profile.id === aestheticProfileId ? 'active' : ''}
+                      type="button"
+                      onClick={() => {
+                        const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
+                        setAestheticProfileId(profile.id)
+                        setColorPaletteId(nextPaletteId)
+                        saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
+                        setOpenMenu(null)
+                      }}
+                    >
+                      <strong>{profile.name}</strong>
+                      <span>{profile.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </PillMenu>
+              <PillMenu id="palette" label="Palette" value={selectedPalette?.name ?? 'Palette'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+                <div className="capability-option-list" data-testid="color-palette-options">
+                  {availablePalettes.map(palette => (
+                    <button
+                      key={palette.id}
+                      className={palette.id === colorPaletteId ? 'active' : ''}
+                      type="button"
+                      onClick={() => {
+                        setColorPaletteId(palette.id)
+                        saveCapabilityPreference({ colorPaletteId: palette.id })
+                        setOpenMenu(null)
+                      }}
+                    >
+                      <strong>{palette.name}</strong>
+                      <span className="swatch-row" aria-hidden>
+                        {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </PillMenu>
+              <PillMenu id="loop" label="Loop" value={selectedLoop?.name ?? 'Loop'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
+                <div className="capability-option-list" data-testid="loop-profile-options">
+                  {(capabilities?.automationLoopProfiles ?? []).map(profile => (
+                    <button
+                      key={profile.id}
+                      className={profile.id === loopProfileId ? 'active' : ''}
+                      type="button"
+                      onClick={() => {
+                        setLoopProfileId(profile.id)
+                        saveCapabilityPreference({ loopProfileId: profile.id })
+                        setOpenMenu(null)
+                      }}
+                    >
+                      <strong>{profile.name}</strong>
+                      <span>{profile.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </PillMenu>
               <PillMenu id="styles" label="Styles" value={styles || 'Choose style'} openMenu={openMenu} setOpenMenu={setOpenMenu}>
                 <label className="popover-field">
                   Style direction
@@ -353,6 +503,14 @@ export default function HomePage(): React.JSX.Element {
               {sourceArtifact
                 ? `Using ${sourceArtifact.entryPath} · ${formatBytes(sourceArtifact.sizeBytes)}${sourceArtifact.qualityStatus ? ` · ${sourceArtifact.qualityStatus}` : ''}`
                 : 'Upload an HTML file to continue from an existing page.'}
+            </div>
+          ) : null}
+          {capabilities ? (
+            <div className="capability-summary" data-testid="capability-summary">
+              <span>{selectedDomain?.name ?? 'Domain'}</span>
+              <span>{selectedAesthetic?.name ?? 'Aesthetic'}</span>
+              <span>{selectedPalette?.name ?? 'Palette'}</span>
+              <span>{selectedLoop?.name ?? 'Loop'}</span>
             </div>
           ) : null}
           {error ? <p className="error-text">{error}</p> : null}
@@ -456,4 +614,23 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
   return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function readCapabilityPreference(): CapabilityPreferenceDraft {
+  try {
+    const raw = window.localStorage.getItem(capabilityPreferenceStorageKey)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as CapabilityPreferenceDraft
+    return typeof parsed === 'object' && parsed ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeCapabilityPreference(preference: Required<CapabilityPreferenceDraft>): void {
+  try {
+    window.localStorage.setItem(capabilityPreferenceStorageKey, JSON.stringify(preference))
+  } catch {
+    // Persisting preferences locally is a best-effort UX optimization.
+  }
 }

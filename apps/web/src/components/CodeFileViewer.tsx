@@ -7,6 +7,8 @@ export type CodeFile = {
   language: 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text'
   content: string
   isFinal?: boolean
+  retainedChars?: number
+  truncatedChars?: number
 }
 
 export function CodeFileViewer(props: {
@@ -22,7 +24,7 @@ export function CodeFileViewer(props: {
   const [copyFailedPath, setCopyFailedPath] = useState<string | null>(null)
   const orderedFiles = sortCodeFiles(files)
   const activeFile = activeCodeFile(orderedFiles, activePath)
-  const summary = useMemo(() => activeFile ? fileSummary(activeFile.content) : null, [activeFile])
+  const summary = useMemo(() => activeFile ? fileSummary(activeFile) : null, [activeFile])
   if (!activeFile) return <div className="preview-placeholder">{emptyLabel}</div>
   const copied = copiedPath === activeFile.path
   const copyFailed = copyFailedPath === activeFile.path
@@ -68,6 +70,12 @@ export function CodeFileViewer(props: {
           <code>{activeFile.content}</code>
           {activeFile.isFinal === false ? <span className="code-cursor" aria-hidden="true" /> : null}
         </pre>
+        {(activeFile.truncatedChars ?? 0) > 0 ? (
+          <div className="code-tail-notice" data-testid="code-tail-notice">
+            Showing latest {formatBytes(activeFile.retainedChars ?? activeFile.content.length)} of stream.
+            Earlier {formatBytes(activeFile.truncatedChars ?? 0)} are compacted to keep preview responsive.
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -101,10 +109,11 @@ function tailLine(value: string): string {
   return normalized.slice(-2).join(' ')
 }
 
-function fileSummary(value: string): string {
-  const bytes = new TextEncoder().encode(value).byteLength
-  const lines = value.length === 0 ? 0 : value.split('\n').length
-  return `${lines} lines · ${formatBytes(bytes)}`
+function fileSummary(file: CodeFile): string {
+  const bytes = new TextEncoder().encode(file.content).byteLength
+  const lines = file.content.length === 0 ? 0 : file.content.split('\n').length
+  const tail = (file.truncatedChars ?? 0) > 0 ? ' · tail buffer' : ''
+  return `${lines} lines · ${formatBytes(bytes)}${tail}`
 }
 
 function formatBytes(bytes: number): string {

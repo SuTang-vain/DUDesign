@@ -674,6 +674,252 @@
 - 在真实多 workspace 列表接入后，复用同一受控菜单机制，避免 workspace selector 和 composer 菜单产生弹层冲突。
 - 后续可增加键盘方向键选择与焦点回收，提升可访问性。
 
+## 2026-06-29 UX-M23 User Error / Stream Governance
+
+### 已完成
+
+- 建立用户端错误展示规范 helper：
+  - 将 API status、error code、runtime warning、variation failure 归一成 `UserFacingError`。
+  - 输出用户可理解的 title、message、action、retryable、severity。
+  - 覆盖 `RUNTIME_UNAVAILABLE`、runtime timeout、`MODEL_FORBIDDEN`、`ARTIFACT_QUALITY_GATE`、share link 失效等常见状态。
+- API client 不再只抛普通 `Error(message)`，而是抛带 `status/code/userError` 的 `ApiClientError`。
+- 结果页接入 `UserNotice`：
+  - 顶部展示 job / stream 级错误。
+  - failed variation 卡片展示用户可理解错误与可重试动作。
+  - Runtime stream 断连展示“Live updates paused”，提示可刷新恢复最新快照。
+- 长代码流治理：
+  - per-file stream 保留 6000 chars tail buffer。
+  - 记录 `totalChars` / `truncatedChars`。
+  - Code viewer 明确展示 `tail buffer` 与 compacted 提示，避免用户误以为看到的是完整文件。
+- Runtime Activity 分层：
+  - 默认展示结构化 Activity Stream，只显示 variation、阶段、动作、文件。
+  - 普通 assistant delta 不再直接展示在默认活动流中。
+  - raw assistant delta 放入 `Debug raw assistant stream` 折叠区。
+- 补充浏览器 E2E：
+  - 默认 Activity 不泄露 raw delta marker。
+  - Debug 展开后可查看 raw assistant stream。
+  - 长代码流触发 tail buffer notice。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 增加真正的 retry action contract，例如 `POST /api/design-jobs/:id/retry` 面向用户端开放，而不是只提供刷新或回到首页。
+- 将单变体编辑页的 refine/export/share 错误也统一接入 `UserNotice`。
+- 后续可用虚拟列表替换当前 tail buffer，支持用户查看完整历史 code stream。
+
+## 2026-06-29 UX-M24 Global User Action Cluster
+
+### 背景
+
+- 结果墙、工作台、单变体编辑页已经具备完整主流程，但右上角缺少用户账户与系统设置入口。
+- 参考 Stitch 风格的右上角紧凑 action cluster，DUDesign 需要补齐用户头像、设置、更多入口，为后续账号、workspace、偏好、帮助、反馈、退出登录做 UI 承载。
+
+### 已完成
+
+- 抽象可复用的 `UserActionCluster`。
+- 在工作台、结果墙、单变体编辑页接入同一组件。
+- MVP 不实现完整设置页，仅提供菜单壳和明确的预留项。
+- 设置菜单包含 Account、Workspace、Model preferences。
+- 更多菜单包含 Help、Feedback、Keyboard shortcuts、Sign out。
+- 点击外部与 Escape 可关闭菜单，避免与 composer/menu 弹层堆叠。
+- 首页使用 bootstrap 用户生成头像首字母；结果墙和单变体页暂用 fallback 用户，后续接全局 session context。
+- 补充 E2E 覆盖设置/更多菜单打开与关闭。
+
+### 验收
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 风险与决策
+
+- 暂不引入新的图标库，先用轻量文本符号/内联图形完成 MVP，避免因为依赖引入影响当前验证链路。
+- 后续若统一 UI icon system，可替换为 `lucide-react` 或现有设计系统图标。
+
+## 2026-06-30 UX-M25 Variation Runtime Summary & Annotation Tools
+
+### 已完成
+
+- 单变体编辑页新增 `Cost & runtime` summary panel：
+  - Total cost。
+  - input/output tokens。
+  - variation status。
+  - HTML / screenshot artifact 数量。
+  - runtime/session 关联摘要或错误摘要。
+- 扩展圈画批改工具，从 `rect/text` 升级为：
+  - `rect`
+  - `circle`
+  - `arrow`
+  - `pen`
+  - `text`
+- annotation overlay 支持 SVG arrow 与 pen stroke 渲染。
+- circle/arrow/pen 均使用 `0..1` 归一化坐标，与已有 rect/text contract 保持一致。
+- 后端 annotation prompt serializer 补充 circle/arrow/pen 单测。
+- 浏览器 E2E 补充 circle、arrow、pen、text 和 runtime summary 可见性覆盖。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 将 annotation 工具按钮替换为统一 icon button，并增加 tooltip。
+- 增加 annotation list，让用户能逐条删除/编辑批注，而不是只能清空全部。
+- cost/runtime summary 后续可接 runtime duration、child session id、agent job id 等更细字段。
+
+## 2026-06-30 UX-M26 Capability Distribution Composer
+
+### 已完成
+
+- 工作台 composer 接入 `GET /api/capabilities`。
+- 新增四个能力分发胶囊菜单：
+  - Domain：领域模板。
+  - Aesthetic：审美 profile。
+  - Palette：颜色方案。
+  - Loop：自动化 loop profile。
+- 创建 design job 时传入 `capabilityRequirements`：
+  - `domainTemplateId`
+  - `aestheticProfileId`
+  - `colorPaletteId`
+  - `loopProfileId`
+- 增加 capability summary，帮助用户确认当前选择。
+- Palette 菜单展示颜色 swatch。
+- E2E 覆盖用户选择 Apple-like Product Page / Apple-like Minimal / Minimal Mono / Standard 并创建 job。
+
+### 验收
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 将 capability 选择结果展示到结果墙/单变体详情页，便于用户理解当前生成依据。
+- 后续接入用户默认能力偏好，让 composer 启动时恢复用户常用领域和审美组合。
+
+## 2026-06-30 UX-M27 Capability Snapshot Visibility
+
+### 已完成
+
+- `GET /api/design-jobs/:id` 和 `GET /api/variations/:id` 显式返回 `job.capabilitySnapshot`。
+- 新增共享 `CapabilitySummary` 组件。
+- 结果墙顶部展示本次生成方向：
+  - Domain。
+  - Aesthetic。
+  - Palette。
+  - Loop。
+- 单变体详情页右侧 refine 面板展示同一组 capability snapshot，避免用户进入精修后失去上下文。
+- 浏览器 E2E 覆盖默认能力组合和用户选择 Apple-like 组合后的结果墙/详情页展示。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 接入用户默认能力偏好，让 composer 启动时恢复用户常用领域、审美和颜色组合。
+- 将 capability snapshot 纳入分享页只读摘要，便于外部访问者理解生成背景。
+
+## 2026-06-30 UX-M28 Capability Preference Restore
+
+### 已完成
+
+- 新增用户偏好契约：
+  - `UserCapabilityPreference`。
+  - `GET /api/preferences`。
+  - `PUT /api/preferences`。
+- Composer 启动时恢复用户常用 capability 组合：
+  - Domain。
+  - Aesthetic。
+  - Palette。
+  - Loop。
+- 选择 capability 后会保存到后端用户偏好，并写入本地兜底缓存。
+- 偏好接口失败不阻断工作台核心加载，保证用户仍可创建任务。
+- 修复 API CORS allow methods，支持 `PUT`。
+- 修复 Runtime Activity / raw stream key 生成，避免高频事件下 React duplicate key warning。
+- E2E 覆盖选择 Apple-like 组合后刷新首页仍恢复偏好。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/web run build`
+- `npm run test:ux:e2e`
+
+### 后续关注
+
+- 后端偏好已补 `user_preferences` PostgreSQL 持久化；后续需要在真实 PostgreSQL CI/staging 中持续跑 opt-in smoke。
+- 分享页可继续接入 capability snapshot 只读摘要。
+
+## 2026-06-30 UX-M29 Annotation Management Panel
+
+### 已完成
+
+- 单变体编辑页的 annotation panel 从“计数 + 清空”升级为可管理列表。
+- 每条批注展示序号、类型和位置摘要。
+- 支持点击列表项选中批注，并在预览 overlay 中同步高亮。
+- 支持点击 overlay 中的 rect、circle、arrow、pen、text 批注反向选中列表项。
+- 支持单条删除批注，删除后自动维护选中索引。
+- 支持 text 批注二次编辑，更新 overlay 文案和列表摘要。
+- 新增本地开发 API fallback：当用户端运行在 `localhost:3000/3001` 且未显式配置 `NEXT_PUBLIC_DUDESIGN_API_URL` 时，自动连接 `http://127.0.0.1:4000`，降低本地 E2E 对 build-time env 的脆弱依赖。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern "buildAnnotationPrompt"`
+- `npm --workspace @dudesign/web run test:e2e -- e2e/annotation-flow.spec.ts`
+- `npm run test:ux:e2e`
+
+### 下一步
+
+- 将 annotation 工具按钮改为 icon button + tooltip。
+- 增加批注 before/after review：提交 refine 后快速对比原版本和新版本。
+- 支持键盘操作：`Esc` 退出绘制，`Delete` 删除当前选中批注。
+
+## 2026-06-30 UX-M30 Job Failure States and Version Lock
+
+### 已完成
+
+- 结果墙支持 job 部分失败状态：
+  - 当部分 variation completed、部分 failed 时，展示用户可理解的 partial results banner。
+  - completed variation 仍可正常打开，failed variation 展示错误摘要并禁用不可用入口。
+- 结果墙支持 job 全失败/无可用结果提示：
+  - 使用统一用户端错误语义提示重新生成或调整 prompt/model。
+  - 避免把 runtime 原始错误直接暴露给用户。
+- 单变体编辑页支持锁定当前版本：
+  - `Lock this version` 会记录当前 HTML artifact id、version、entry path 和锁定时间。
+  - 当前 artifact 与锁定 artifact 一致时展示 `Current version locked`。
+  - 用户恢复历史版本后，展示 `Locked version differs`，明确当前预览与已锁定方向不同。
+- 锁定状态在 MVP 阶段使用浏览器 localStorage 保存，作为用户端交互验证；后续协作场景需要升级为后端持久化字段。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/web run test:e2e -- e2e/annotation-flow.spec.ts e2e/mock-product-flow.spec.ts`
+
+### 后续关注
+
+- 将锁定版本从 localStorage 升级为 User API 持久化，便于跨设备恢复和后续团队协作。
+- 为 failed variation 增加 retry action，支持只重跑失败的子 session。
+- 后端 design job 状态需要持续输出 partial/failed 的结构化原因，避免前端依赖字符串判断。
+
 ## 2026-06-29 UX-M20 Artifact Version Restore
 
 ### 已完成

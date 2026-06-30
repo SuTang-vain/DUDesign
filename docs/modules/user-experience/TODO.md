@@ -11,9 +11,10 @@
 - [x] 确认 M1 用户端路由结构：`/`、`/jobs/:jobId`。
 - [x] 增加 `/variations/:variationId` 和 `/share/:token` 用户端路由。
 - [x] 定义 M1 用户端应用壳：品牌、workspace、生成入口。
+- [x] 建立用户端右上角全局操作区：用户头像、设置、更多入口。
 - [x] 定义统一 API client，只调用 DUDesign User API。
 - [x] 定义统一 `DesignEventClient` 的事件契约基础，只消费 DUDesign 标准事件。
-- [ ] 建立用户端错误展示规范：用户可理解错误、可重试状态、runtime 降级提示。
+- [x] 建立用户端错误展示规范：用户可理解错误、可重试状态、runtime 降级提示。
 
 验收：
 
@@ -40,6 +41,9 @@
 - [x] 实现已有 HTML 上传或历史 artifact 选择入口。
 - [x] 实现变体数量选择，MVP 上限默认 6。
 - [x] 实现模板风格/要求输入。
+- [x] 接入 Capability Distribution 选择：领域模板、审美 profile、颜色方案、loop profile。
+- [x] 在结果墙和单变体详情页展示本次生成使用的 Capability Snapshot。
+- [x] 支持用户默认 Capability 偏好恢复：优先本地体验兜底，并通过用户偏好 API 保存。
 - [x] 展示用户可用模型列表并支持选择生成模型。
 - [x] 胶囊下拉菜单支持向下展开、切换互斥、点击外部/Esc 自动收起。
 - [x] 调用 `POST /api/design-jobs` 创建生成任务。
@@ -48,6 +52,7 @@
 
 - 用户可以从空白需求创建 design job。
 - 用户可以基于上传的已有 HTML artifact 创建 design job。
+- 用户可以选择领域、审美、颜色和自动化强度创建 design job。
 - 请求体中不包含本地 cwd，只包含 workspace/session/artifact 引用。
 
 ## Phase UX-3：并行生成页
@@ -60,11 +65,11 @@
 - [x] preview ready 后保留轻量 code trace，方便用户确认刚才的生成过程。
 - [x] 支持 Code / Preview 手动切换，允许用户在结果墙阶段展开查看完整代码。
 - [x] Code 视图支持多文件列表，覆盖 `index.html`、`styles.css`、`script.js`、`assets.json`。
-- [ ] 对长代码流做更严格的虚拟滚动或 tail buffer 策略。
-- [ ] 将 Runtime stream 从原始 delta 列表升级为结构化 Activity Stream，明确展示每个 variation agent 的阶段、动作和文件。
-- [ ] 默认隐藏 raw assistant delta，仅在 debug/详情模式中展示。
+- [x] 对长代码流做更严格的虚拟滚动或 tail buffer 策略。
+- [x] 将 Runtime stream 从原始 delta 列表升级为结构化 Activity Stream，明确展示每个 variation agent 的阶段、动作和文件。
+- [x] 默认隐藏 raw assistant delta，仅在 debug/详情模式中展示。
 - [x] 支持单个 variation 先完成先预览。
-- [ ] 支持 job 失败和部分失败状态。
+- [x] 支持 job 失败和部分失败状态。
 
 验收：
 
@@ -80,7 +85,7 @@
 - [x] 展示 preview iframe。
 - [x] 结果墙优先展示 screenshot artifact，缺失时 fallback 到 preview iframe。
 - [x] 支持进入单变体编辑。
-- [ ] 支持锁定当前版本。
+- [x] 支持锁定当前版本。
 - [x] 支持导出入口。
 - [x] 支持分享入口。
 
@@ -99,7 +104,7 @@
 - [x] version menu 展示 artifact kind、current 标记和 export source。
 - [x] 支持将历史 HTML artifact 恢复为当前版本。
 - [x] 非 HTML artifact 在 version menu 中只读展示，避免误选 `asset` / `export_zip` 作为页面预览入口。
-- [ ] 实现 cost/runtime summary panel。
+- [x] 实现 cost/runtime summary panel。
 - [x] 实现 artifact-backed ZIP 导出。
 - [x] 导出按钮支持 loading、success、error 状态。
 - [x] 导出后展示 ZIP 文件数量、大小、hash 摘要。
@@ -116,8 +121,10 @@
 ## Phase UX-6：圈画批改
 
 - [x] 实现 annotation overlay 最小版本。
-- [ ] 支持 rect、circle、arrow、pen、text。
+- [x] 支持 rect、circle、arrow、pen、text。
 - [x] 支持 rect 和 text。
+- [x] 实现批注管理列表，支持选中、高亮、单条删除。
+- [x] 支持 text 批注二次编辑。
 - [x] 使用 `0..1` 归一化坐标。
 - [x] 支持批注计数和清空。
 - [x] 把批注转换为 `POST /api/variations/:id/annotations` 请求。
