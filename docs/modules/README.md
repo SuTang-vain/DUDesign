@@ -20,6 +20,7 @@
 | 管理员/开发者前端交互层 | 面向治理、排障、观测和运营的管理控制台 | `admin-console/TODO.md` | `admin-console/WORKLOG.md` |
 | 后端业务服务层 | DUDesign 业务事实来源，管理用户、工作区、会话、任务、资产、分享 | `application-service/TODO.md` | `application-service/WORKLOG.md` |
 | 后端内核兼容层 | BabeL-O 防腐层，处理 runtime contract、事件映射、兼容升级 | `runtime-compatibility/TODO.md` | `runtime-compatibility/WORKLOG.md` |
+| Capability Distribution System | 横跨四层的模板、插件、MCP/skill 和自动化 loop 能力分发治理 | `capability-distribution/TODO.md` | `capability-distribution/WORKLOG.md` |
 
 ## 当前代码骨架
 
@@ -43,3 +44,4 @@ packages/
 - 跨模块任务必须在所有受影响模块中标注依赖。
 - 与 BabeL-O 相关的协议、事件、兼容性变更只记录在 `runtime-compatibility`，其他模块只记录 DUDesign 标准契约。
 - 管理端治理能力不得绕过 `application-service` 和 `runtime-compatibility` 的边界。
+- Capability Distribution System 是跨层能力模块，不新增架构层级；具体实现仍必须落到四层对应边界内。
