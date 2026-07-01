@@ -333,3 +333,55 @@
 - 增加 Design Template Pack 持久化表或 capability table。
 - 增加 `POST /api/design-templates/import-design-md` 草案 API。
 - 补 6-8 个 DUDesign 官方启发式模板 seed。
+
+## 2026-07-01 CAP-M3.5 Template Contract Split
+
+### 已完成
+
+- 扩展 `@dudesign/contracts` 模板契约：
+  - 新增 `BrandStyleReference`。
+  - 新增 `AdvancedTemplateConstraints`。
+  - 扩展 `AestheticProfile`：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
+  - `CapabilitySnapshot.template` 增加 `brandStyleReference`。
+- 升级 capability schema 到 `2026-07-01.dudesign-capabilities.v2`。
+- 拆分官方 registry 中混合品牌/视觉/场景的过渡条目：
+  - `Apple-like Product Page` -> `Premium Product Page` 场景。
+  - `Apple-like Minimal` -> `Premium Minimal` 视觉。
+  - `Apple-inspired` 进入 `BrandStyleReference`，并补充 inspiration-only 和 forbidden rules。
+- 新增官方品牌参考：
+  - `Apple-inspired`
+  - `Stripe-inspired`
+  - `Linear-inspired`
+- 用户端 Design Direction picker：
+  - Visual 卡片展示 mood、density、formality、bestFor 摘要。
+  - Advanced 增加官方 brand reference chips。
+  - 色板、补充风格词、参考品牌、负面要求写入结构化 `advancedConstraints`。
+  - 本地保存高级偏好，刷新后创建 job 不丢 brand reference。
+- Runtime Gateway：
+  - 将 `AdvancedTemplateConstraints` 编译为独立 prompt block。
+  - `CapabilitySnapshot` 中的 `BrandStyleReference` 进入 runtime capability context。
+- Job snapshot：
+  - 继续把完整 `capabilitySnapshot` 写入 `templateRequirements`。
+  - `CapabilitySummary` 显示 `Brand reference`，用于确认 resume/replay 不漂移。
+
+### 决策
+
+- 官方 registry 不再把品牌、场景、视觉混在同一个 `DomainTemplate` 名称里。
+- 参考品牌必须是 inspiration-only 抽象约束，不作为品牌克隆模板。
+- 高级偏好先做用户端 localStorage 持久化；后端用户偏好表暂不扩字段，避免引入数据库迁移。
+- `BrandStyleReference` 进入 contracts/API/runtime，但“从 variation 保存私有模板”仍需要单独的用户模板存储/API/UI。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api run test`
+- `DUDESIGN_WEB_URL=http://localhost:3301 npm --workspace @dudesign/web run test:e2e -- e2e/mock-product-flow.spec.ts`
+
+### 下一步
+
+- 进入 CAP-1 私有模板保存：
+  - `POST /api/variations/:id/save-template` 或 `POST /api/design-templates/from-variation`。
+  - 增加 `design_templates` / `design_template_versions` 存储。
+  - 用户端 variation 页面增加“保存为模板”入口。
+  - 模板选择器合并官方模板与用户私有模板。

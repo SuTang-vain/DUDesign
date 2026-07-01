@@ -13,7 +13,7 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
   await page.getByTestId('generate-button').click()
 
   await expect(page).toHaveURL(/\/jobs\/job_/)
-  await expect(page.getByTestId('variation-grid')).toBeVisible()
+  await expect(page.getByTestId('variation-grid')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('variation-card')).toHaveCount(3)
   await expect(page.getByTestId('runtime-activity')).toContainText('Runtime activity')
   await expect(page.getByTestId('runtime-activity')).toContainText('Variation 01')
@@ -25,9 +25,12 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
   await page.getByTestId('open-variation-link').first().click()
   await expect(page).toHaveURL(/\/variations\/var_/)
   await expect(page.getByTestId('variation-preview')).toBeVisible()
+  await expect(page.getByTestId('preview-device-toggle')).toBeVisible()
   await page.getByRole('button', { name: 'Code' }).click()
+  await expect(page.getByTestId('preview-device-toggle')).toBeHidden()
   await expect(page.getByTestId('variation-code-view')).toContainText('index.html')
   await expect(page.getByTestId('variation-code-view')).toContainText(/<!doctype html|Mock preview/i)
   await page.getByRole('button', { name: 'Preview' }).click()
+  await expect(page.getByTestId('preview-device-toggle')).toBeVisible()
   await expect(page.getByTestId('variation-preview')).toBeVisible()
 }

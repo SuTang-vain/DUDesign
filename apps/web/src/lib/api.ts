@@ -124,6 +124,9 @@ function normalizeApiBase(value: string | undefined): string {
 
 function runtimeApiBase(): string {
   if (API_BASE) return API_BASE
+  if (typeof window !== 'undefined' && window.location.port === '3301') {
+    return 'http://127.0.0.1:4100'
+  }
   if (typeof window !== 'undefined' && ['3000', '3001'].includes(window.location.port)) {
     return 'http://127.0.0.1:4000'
   }

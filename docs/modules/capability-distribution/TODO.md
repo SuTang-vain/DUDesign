@@ -26,9 +26,9 @@
 - [x] 定义 `DomainTemplate` domain model。
 - [x] 定义 `AestheticProfile` domain model。
 - [x] 定义 `ColorPalette` domain model。
-- [ ] 定义 `BrandStyleReference` domain model。
-- [ ] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
-- [ ] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
+- [x] 定义 `BrandStyleReference` domain model。
+- [x] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
+- [x] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
 - [ ] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
 - [x] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
 - [x] 支持 `DESIGN.md` import/lint 初版：
@@ -41,7 +41,7 @@
 - [ ] 规划 6-8 个 DUDesign 官方启发式模板，避免直接复制公开品牌 trade dress。
 - [x] 设计首批官方领域模板。
 - [x] 设计首批官方审美 profile。
-- [ ] 将官方 registry 中混合了品牌/视觉/场景的条目拆分，例如 `Premium Product Page`。
+- [x] 将官方 registry 中混合了品牌/视觉/场景的条目拆分，例如 `Premium Product Page`。
 - [ ] 支持用户从 variation 保存私有模板。
 - [ ] 支持用户上传或粘贴 `DESIGN.md` 保存为私有模板。
 - [ ] 支持多 variation 自动分配不同 Design Template Pack。
@@ -114,7 +114,7 @@
 - [x] 工作台 composer 增加视觉选择，底层继续映射 `AestheticProfile`。
 - [x] 工作台 composer 将色板、补充风格词、参考品牌、负面要求放入高级入口。
 - [x] 设计方向选择器支持搜索、分类、右侧详情预览。
-- [ ] 视觉卡片展示 mood、density、formality、best for、avoid for 的摘要。
+- [x] 视觉卡片展示 mood、density、formality、best for、avoid for 的摘要。
 - [ ] 预留 Design System picker 入口，MVP 可隐藏或放入高级。
 - [ ] 增加官方模板 / 我的模板 / 最近使用 / 收藏的选择入口。
 - [ ] 模板卡片展示 color swatch、字体摘要、适用场景、preview artifact。

@@ -148,6 +148,13 @@ type AestheticProfile = {
   name: string
   description: string
   colorPaletteIds: string[]
+  mood: string[]
+  occasion: string[]
+  tone: string[]
+  formality: string
+  density: string
+  bestFor: string[]
+  avoidFor: string[]
   typographyTone: string
   layoutTone: string
   motionTone: string
@@ -178,20 +185,17 @@ type BrandStyleReference = {
   id: string
   name: string
   description: string
-  visibility: 'official' | 'private' | 'workspace' | 'team'
-  ownerUserId?: string | null
-  allowedUse: 'inspiration_only'
-  abstractionRules: string[]
-  forbiddenRules: string[]
-  visualTraits: {
-    layout?: string[]
-    typography?: string[]
+  brandFamily: string
+  inspirationOnly: true
+  visualPrinciples: string[]
+  tokenHints: {
     color?: string[]
+    typography?: string[]
+    layout?: string[]
     motion?: string[]
-    productStory?: string[]
+    voice?: string[]
   }
-  contentVersion: string
-  status: 'active' | 'archived' | 'disabled'
+  forbiddenRules: string[]
 }
 ```
 

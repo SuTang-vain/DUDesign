@@ -430,7 +430,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
               </button>
             </div>
             {viewMode === 'preview' ? (
-              <div className="device-toggle editor-device-toggle" aria-label="Preview device">
+              <div className="device-toggle editor-device-toggle" data-testid="preview-device-toggle" aria-label="Preview device">
                 {(['desktop', 'tablet', 'mobile'] as const).map(item => (
                   <button key={item} className={device === item ? 'active' : ''} onClick={() => setDevice(item)}>
                     {item}
