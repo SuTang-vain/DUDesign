@@ -1,6 +1,7 @@
 import type {
   AestheticProfile,
   AutomationLoopProfile,
+  BrandStyleReference,
   CapabilityRequirements,
   CapabilitySnapshot,
   ColorPalette,
@@ -8,7 +9,7 @@ import type {
   ListCapabilitiesResponse,
 } from '@dudesign/contracts'
 
-export const CAPABILITY_SCHEMA_VERSION = '2026-06-30.dudesign-capabilities.v1'
+export const CAPABILITY_SCHEMA_VERSION = '2026-07-01.dudesign-capabilities.v2'
 
 const domainTemplates: DomainTemplate[] = [
   {
@@ -100,8 +101,8 @@ const domainTemplates: DomainTemplate[] = [
     ],
   },
   {
-    id: 'tpl_apple_like_product',
-    name: 'Apple-like Product Page',
+    id: 'tpl_premium_product_page',
+    name: 'Premium Product Page',
     category: 'product',
     description: 'A premium product page with restrained copy, large product moments, and refined interaction rhythm.',
     contentVersion: '1.0.0',
@@ -113,7 +114,7 @@ const domainTemplates: DomainTemplate[] = [
     constraints: [
       'Use minimal copy and high confidence spacing.',
       'Prefer product-focused composition over decorative illustrations.',
-      'Avoid copying protected brand marks or exact proprietary language.',
+      'Keep brand-specific references as inspiration-only styling constraints.',
     ],
     variationDirections: [
       'Calm premium product storytelling.',
@@ -141,6 +142,79 @@ const domainTemplates: DomainTemplate[] = [
       'Operational SaaS dashboard with dense clarity.',
       'Agent workflow story with visual process steps.',
       'Developer tool presentation with technical confidence.',
+    ],
+  },
+]
+
+const brandStyleReferences: BrandStyleReference[] = [
+  {
+    id: 'brand_apple_inspired',
+    name: 'Apple-inspired',
+    description: 'Premium product storytelling with calm confidence, precise whitespace, and product-first hierarchy.',
+    brandFamily: 'consumer hardware and ecosystem',
+    inspirationOnly: true,
+    visualPrinciples: [
+      'Use restraint, clarity, and product-first composition.',
+      'Prefer large product moments, short copy, and confident negative space.',
+      'Make interactions subtle and polished rather than decorative.',
+    ],
+    tokenHints: {
+      color: ['neutral monochrome base', 'sparingly used cool accents'],
+      typography: ['large confident headings', 'short supporting copy', 'generous line height'],
+      layout: ['full-width product moments', 'strong vertical rhythm', 'minimal chrome'],
+      motion: ['subtle reveal', 'controlled section transitions'],
+      voice: ['concise', 'assured', 'benefit-led'],
+    },
+    forbiddenRules: [
+      'Do not copy protected logos, marks, product names, proprietary copy, or campaign slogans.',
+      'Do not imply endorsement or official affiliation.',
+      'Do not reproduce exact Apple page layouts or recognizable product imagery.',
+    ],
+  },
+  {
+    id: 'brand_stripe_inspired',
+    name: 'Stripe-inspired',
+    description: 'Developer-friendly commercial clarity with crisp information architecture and technical confidence.',
+    brandFamily: 'developer platform and fintech',
+    inspirationOnly: true,
+    visualPrinciples: [
+      'Use clear product explanation, practical proof, and confident conversion flow.',
+      'Balance technical depth with approachable commercial copy.',
+      'Keep visual energy purposeful rather than ornamental.',
+    ],
+    tokenHints: {
+      color: ['cool gradients as accents', 'clean white or dark surfaces'],
+      typography: ['technical but readable hierarchy'],
+      layout: ['documentation-adjacent sections', 'product diagrams', 'proof blocks'],
+      motion: ['light technical transitions'],
+      voice: ['precise', 'developer-aware', 'commercially clear'],
+    },
+    forbiddenRules: [
+      'Do not copy logos, proprietary gradients, exact copy, or brand-specific diagrams.',
+      'Do not imply partnership or official endorsement.',
+    ],
+  },
+  {
+    id: 'brand_linear_inspired',
+    name: 'Linear-inspired',
+    description: 'Focused product velocity with quiet dark surfaces, refined controls, and dense operational clarity.',
+    brandFamily: 'productivity and developer workflow',
+    inspirationOnly: true,
+    visualPrinciples: [
+      'Use focused hierarchy, compact rhythm, and precise interface details.',
+      'Let product workflow and speed feel tangible.',
+      'Keep decorative elements subordinate to usability.',
+    ],
+    tokenHints: {
+      color: ['dark neutral base', 'subtle violet or blue accent'],
+      typography: ['compact headings', 'crisp labels'],
+      layout: ['dense but breathable product surfaces', 'workflow-first sections'],
+      motion: ['fast, subtle, utility-led motion'],
+      voice: ['direct', 'calm', 'operator-focused'],
+    },
+    forbiddenRules: [
+      'Do not copy logos, proprietary screenshots, exact UI chrome, or official copy.',
+      'Do not imply affiliation.',
     ],
   },
 ]
@@ -202,10 +276,17 @@ const colorPalettes: ColorPalette[] = [
 
 const aestheticProfiles: AestheticProfile[] = [
   {
-    id: 'aes_apple_minimal',
-    name: 'Apple-like Minimal',
+    id: 'aes_premium_minimal',
+    name: 'Premium Minimal',
     description: 'Premium, restrained, spacious, and product-focused.',
     colorPaletteIds: ['pal_minimal_mono', 'pal_blue_white_trust'],
+    mood: ['calm', 'premium', 'focused'],
+    occasion: ['product launch', 'brand site', 'consumer product'],
+    tone: ['confident', 'restrained', 'polished'],
+    formality: 'medium-high',
+    density: 'low',
+    bestFor: ['premium product pages', 'hardware or app launches', 'focused feature storytelling'],
+    avoidFor: ['dense dashboards', 'regulated disclosure-heavy pages', 'multi-product catalogs'],
     typographyTone: 'large confident headings, short supporting copy, high line-height',
     layoutTone: 'spacious product moments, generous vertical rhythm, minimal chrome',
     motionTone: 'subtle reveal and section transitions only',
@@ -216,6 +297,13 @@ const aestheticProfiles: AestheticProfile[] = [
     name: 'Trustworthy SaaS',
     description: 'Clear, calm, scannable, and conversion-oriented for B2B software.',
     colorPaletteIds: ['pal_blue_white_trust', 'pal_minimal_mono'],
+    mood: ['calm', 'credible', 'practical'],
+    occasion: ['b2b landing', 'product marketing', 'pricing page'],
+    tone: ['trustworthy', 'direct', 'helpful'],
+    formality: 'medium',
+    density: 'medium',
+    bestFor: ['SaaS landing pages', 'B2B product sites', 'conversion flows with proof'],
+    avoidFor: ['art portfolios', 'fashion editorials', 'highly experimental campaigns'],
     typographyTone: 'clear hierarchy with practical subheads',
     layoutTone: 'organized sections, proof blocks, feature comparisons',
     motionTone: 'minimal motion, focus on usability',
@@ -226,6 +314,13 @@ const aestheticProfiles: AestheticProfile[] = [
     name: 'Warm Business',
     description: 'Approachable commercial tone with warmth and direct CTAs.',
     colorPaletteIds: ['pal_warm_commercial'],
+    mood: ['warm', 'approachable', 'commercial'],
+    occasion: ['small business site', 'service landing', 'local commerce'],
+    tone: ['friendly', 'plainspoken', 'encouraging'],
+    formality: 'low-medium',
+    density: 'medium',
+    bestFor: ['service businesses', 'consultants', 'consumer-friendly commercial pages'],
+    avoidFor: ['financial regulation pages', 'luxury minimal launches', 'developer tools'],
     typographyTone: 'friendly headings and legible body copy',
     layoutTone: 'rounded but restrained sections, testimonials, approachable proof',
     motionTone: 'soft transitions',
@@ -236,6 +331,13 @@ const aestheticProfiles: AestheticProfile[] = [
     name: 'Bold Editorial',
     description: 'High contrast, strong typographic rhythm, and memorable composition.',
     colorPaletteIds: ['pal_editorial_contrast', 'pal_minimal_mono'],
+    mood: ['bold', 'memorable', 'sharp'],
+    occasion: ['campaign page', 'portfolio', 'editorial launch'],
+    tone: ['assertive', 'curated', 'expressive'],
+    formality: 'medium',
+    density: 'medium-high',
+    bestFor: ['creative campaigns', 'portfolio showcases', 'single-message landing pages'],
+    avoidFor: ['compliance-heavy pages', 'dense SaaS dashboards', 'support documentation'],
     typographyTone: 'oversized headlines, strong contrast, editorial labels',
     layoutTone: 'asymmetric grids and dramatic section breaks',
     motionTone: 'confident but controlled',
@@ -276,11 +378,13 @@ export function listCapabilities(): ListCapabilitiesResponse {
     domainTemplates,
     aestheticProfiles,
     colorPalettes,
+    brandStyleReferences,
     automationLoopProfiles,
     defaults: {
       domainTemplateId: 'tpl_fintech_trust',
       aestheticProfileId: 'aes_trustworthy_saas',
       colorPaletteId: 'pal_blue_white_trust',
+      brandStyleReferenceId: null,
       loopProfileId: 'loop_standard',
     },
   }
@@ -291,12 +395,16 @@ export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefi
   const domainTemplateId = input?.template?.domainTemplateId ?? capabilities.defaults.domainTemplateId
   const aestheticProfileId = input?.template?.aestheticProfileId ?? capabilities.defaults.aestheticProfileId
   const requestedPaletteId = input?.template?.colorPaletteId ?? capabilities.defaults.colorPaletteId
+  const brandStyleReferenceId = input?.template?.brandStyleReferenceId ?? capabilities.defaults.brandStyleReferenceId
   const loopProfileId = input?.automation?.loopProfileId ?? capabilities.defaults.loopProfileId
 
   const domainTemplate = findById(capabilities.domainTemplates, domainTemplateId, 'DOMAIN_TEMPLATE_NOT_FOUND')
   const aestheticProfile = findById(capabilities.aestheticProfiles, aestheticProfileId, 'AESTHETIC_PROFILE_NOT_FOUND')
   const paletteId = aestheticProfile.colorPaletteIds.includes(requestedPaletteId) ? requestedPaletteId : aestheticProfile.colorPaletteIds[0] ?? requestedPaletteId
   const colorPalette = findById(capabilities.colorPalettes, paletteId, 'COLOR_PALETTE_NOT_FOUND')
+  const brandStyleReference = brandStyleReferenceId
+    ? findById(capabilities.brandStyleReferences, brandStyleReferenceId, 'BRAND_STYLE_REFERENCE_NOT_FOUND')
+    : null
   const loopProfile = findById(capabilities.automationLoopProfiles, loopProfileId, 'LOOP_PROFILE_NOT_FOUND')
   const maxRepairAttempts = input?.automation?.maxRepairAttempts
 
@@ -306,6 +414,7 @@ export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefi
       domainTemplate,
       aestheticProfile,
       colorPalette,
+      brandStyleReference,
     },
     plugins: {
       skillIds: [...new Set(input?.plugins?.skillIds ?? [])],

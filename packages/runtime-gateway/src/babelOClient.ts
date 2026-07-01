@@ -1,4 +1,4 @@
-import type { CapabilitySnapshot } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot } from '@dudesign/contracts'
 import type {
   CancelRuntimeJobInput,
   CancelRuntimeJobResult,
@@ -505,6 +505,8 @@ function buildVariationRuntimePrompt(
     input.prompt,
     '',
     capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
+    advancedConstraintsPromptBlock(input.templateRequirements?.advancedConstraints),
+    input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
     '',
     'DUDesign variation directive:',
     `- This is variation ${input.variationIndex} of ${input.variationCount}.`,
@@ -521,12 +523,20 @@ function capabilityPromptBlock(snapshot: CapabilitySnapshot | undefined): string
       domainTemplate?: { name?: string; description?: string; constraints?: string[]; structure?: { sections?: string[] }; variationDirections?: string[] }
       aestheticProfile?: { name?: string; description?: string; negativeRules?: string[]; typographyTone?: string; layoutTone?: string; motionTone?: string }
       colorPalette?: { name?: string; colors?: string[]; usage?: Record<string, string> }
+      brandStyleReference?: {
+        name?: string
+        description?: string
+        visualPrinciples?: string[]
+        forbiddenRules?: string[]
+        tokenHints?: Record<string, string[]>
+      } | null
     }
     automation?: { loopProfile?: { name?: string; description?: string }; maxRepairAttempts?: number }
   }
   const domain = record.template?.domainTemplate
   const aesthetic = record.template?.aestheticProfile
   const palette = record.template?.colorPalette
+  const brand = record.template?.brandStyleReference
   const loop = record.automation?.loopProfile
   return [
     'DUDesign capability context:',
@@ -540,8 +550,32 @@ function capabilityPromptBlock(snapshot: CapabilitySnapshot | undefined): string
     aesthetic?.negativeRules?.length ? `- Avoid: ${aesthetic.negativeRules.join(' ')}` : undefined,
     palette && `- Color palette: ${palette.name ?? 'Unknown'}${palette.colors?.length ? ` (${palette.colors.join(', ')})` : ''}.`,
     palette?.usage ? `- Suggested color usage: ${Object.entries(palette.usage).map(([key, value]) => `${key}=${value}`).join(', ')}.` : undefined,
+    brand && `- Brand style reference: ${brand.name ?? 'Unknown'}${brand.description ? ` — ${brand.description}` : ''} Use as abstract inspiration only.`,
+    brand?.visualPrinciples?.length ? `- Brand-inspired visual principles: ${brand.visualPrinciples.join(' ')}` : undefined,
+    brand?.tokenHints ? `- Brand-inspired token hints: ${Object.entries(brand.tokenHints).map(([key, value]) => `${key}=${value.join(', ')}`).join('; ')}.` : undefined,
+    brand?.forbiddenRules?.length ? `- Brand reference forbidden rules: ${brand.forbiddenRules.join(' ')}` : undefined,
     loop && `- Automation loop preference: ${loop.name ?? 'Unknown'}${typeof record.automation?.maxRepairAttempts === 'number' ? `, max repair attempts ${record.automation.maxRepairAttempts}` : ''}.`,
   ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function advancedConstraintsPromptBlock(constraints: AdvancedTemplateConstraints | undefined): string {
+  if (!constraints || typeof constraints !== 'object') return ''
+  const record = constraints as {
+    colorPaletteId?: string | null
+    styleNotes?: string[]
+    brandStyleReferenceId?: string | null
+    referenceBrand?: string | null
+    negativeRequirements?: string[]
+  }
+  const lines = [
+    'DUDesign advanced template constraints:',
+    record.colorPaletteId ? `- Selected palette id: ${record.colorPaletteId}.` : undefined,
+    record.styleNotes?.length ? `- Supplemental style notes: ${record.styleNotes.join(', ')}.` : undefined,
+    record.brandStyleReferenceId ? `- Selected brand style reference id: ${record.brandStyleReferenceId}.` : undefined,
+    record.referenceBrand ? `- Freeform reference brand: ${record.referenceBrand}. Treat it as inspiration only; do not copy brand assets, marks, protected product names, proprietary copy, or imply endorsement.` : undefined,
+    record.negativeRequirements?.length ? `- Negative requirements: ${record.negativeRequirements.join(' ')}` : undefined,
+  ].filter((line): line is string => Boolean(line))
+  return lines.length > 1 ? lines.join('\n') : ''
 }
 
 function optionalString(value: unknown): string | undefined {

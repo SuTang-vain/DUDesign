@@ -52,6 +52,13 @@ export type AestheticProfile = {
   name: string
   description: string
   colorPaletteIds: ID[]
+  mood: string[]
+  occasion: string[]
+  tone: string[]
+  formality: string
+  density: string
+  bestFor: string[]
+  avoidFor: string[]
   typographyTone: string
   layoutTone: string
   motionTone: string
@@ -64,6 +71,31 @@ export type ColorPalette = {
   colors: string[]
   usage: Record<string, string>
   accessibilityNotes: string[]
+}
+
+export type BrandStyleReference = {
+  id: ID
+  name: string
+  description: string
+  brandFamily: string
+  inspirationOnly: true
+  visualPrinciples: string[]
+  tokenHints: {
+    color?: string[]
+    typography?: string[]
+    layout?: string[]
+    motion?: string[]
+    voice?: string[]
+  }
+  forbiddenRules: string[]
+}
+
+export type AdvancedTemplateConstraints = {
+  colorPaletteId?: ID | null
+  styleNotes?: string[]
+  brandStyleReferenceId?: ID | null
+  referenceBrand?: string | null
+  negativeRequirements?: string[]
 }
 
 export type AutomationLoopProfile = {
@@ -80,6 +112,7 @@ export type CapabilityRequirements = {
     domainTemplateId?: ID | null
     aestheticProfileId?: ID | null
     colorPaletteId?: ID | null
+    brandStyleReferenceId?: ID | null
   }
   plugins?: {
     skillIds?: ID[]
@@ -97,6 +130,7 @@ export type CapabilitySnapshot = {
     domainTemplate: DomainTemplate
     aestheticProfile: AestheticProfile
     colorPalette: ColorPalette
+    brandStyleReference: BrandStyleReference | null
   }
   plugins: {
     skillIds: ID[]
@@ -113,11 +147,13 @@ export type ListCapabilitiesResponse = {
   domainTemplates: DomainTemplate[]
   aestheticProfiles: AestheticProfile[]
   colorPalettes: ColorPalette[]
+  brandStyleReferences: BrandStyleReference[]
   automationLoopProfiles: AutomationLoopProfile[]
   defaults: {
     domainTemplateId: ID
     aestheticProfileId: ID
     colorPaletteId: ID
+    brandStyleReferenceId: ID | null
     loopProfileId: ID
   }
 }
@@ -224,6 +260,7 @@ export type CreateDesignJobRequest = {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
     notes?: string
+    advancedConstraints?: AdvancedTemplateConstraints
     capabilitySnapshot?: CapabilitySnapshot
   }
 }

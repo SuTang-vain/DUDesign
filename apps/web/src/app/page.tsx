@@ -18,6 +18,7 @@ import {
 } from '@/lib/api'
 import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
+import { DesignDirectionPicker } from '@/components/DesignDirectionPicker'
 
 const promptExamples = [
   'A landing page for an invoicing app for freelancers: send invoices, get paid faster, track expenses.',
@@ -29,7 +30,6 @@ const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', '
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
 type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
-type TemplatePanel = 'styles' | 'domain' | 'aesthetic' | 'palette'
 type ModelPanel = 'models'
 type CapabilityPreferenceDraft = {
   domainTemplateId?: string
@@ -53,6 +53,9 @@ export default function HomePage(): React.JSX.Element {
   const [aestheticProfileId, setAestheticProfileId] = useState<string>('')
   const [colorPaletteId, setColorPaletteId] = useState<string>('')
   const [loopProfileId, setLoopProfileId] = useState<string>('')
+  const [brandStyleReferenceId, setBrandStyleReferenceId] = useState<string>('')
+  const [referenceBrand, setReferenceBrand] = useState('')
+  const [negativeRequirements, setNegativeRequirements] = useState('')
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('')
   const [sourceArtifact, setSourceArtifact] = useState<{
     id: string
@@ -67,7 +70,6 @@ export default function HomePage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const [contextPanel, setContextPanel] = useState<ContextPanel | null>(null)
-  const [templatePanel, setTemplatePanel] = useState<TemplatePanel | null>(null)
   const [modelPanel, setModelPanel] = useState<ModelPanel | null>(null)
 
   useEffect(() => {
@@ -188,6 +190,7 @@ export default function HomePage(): React.JSX.Element {
             domainTemplateId: domainTemplateId || undefined,
             aestheticProfileId: aestheticProfileId || undefined,
             colorPaletteId: colorPaletteId || undefined,
+            brandStyleReferenceId: brandStyleReferenceId || undefined,
           },
           automation: {
             loopProfileId: loopProfileId || undefined,
@@ -196,6 +199,14 @@ export default function HomePage(): React.JSX.Element {
         templateRequirements: {
           styles: styles.split(',').map(style => style.trim()).filter(Boolean),
           deviceTargets: ['desktop', 'mobile'],
+          notes: designDirectionNotes(referenceBrand, negativeRequirements),
+          advancedConstraints: {
+            colorPaletteId: colorPaletteId || null,
+            styleNotes: styles.split(',').map(style => style.trim()).filter(Boolean),
+            brandStyleReferenceId: brandStyleReferenceId || null,
+            referenceBrand: referenceBrand.trim() || null,
+            negativeRequirements: splitRequirementLines(negativeRequirements),
+          },
         },
       })
       window.location.href = `/jobs/${job.job.id}`
@@ -243,8 +254,8 @@ export default function HomePage(): React.JSX.Element {
     <main className="workspace-shell">
       <aside className="workspace-sidebar" aria-label={t('recent')}>
         <div className="sidebar-brand">
-          <span className="brand-mark" aria-hidden />
           <strong>DUDesign</strong>
+          <span className="product-stage-badge">Alpha</span>
         </div>
         <div className="sidebar-tabs" role="tablist" aria-label="Workspace scope">
           <button className="active">{t('mySessions')}</button>
@@ -273,7 +284,6 @@ export default function HomePage(): React.JSX.Element {
       <section className="workspace-main">
         <header className="workspace-topbar">
           <div>
-            <span className="eyebrow">{t('hostedDesignWorkspace')}</span>
             <h1>{t('whatShallWeDesign')}</h1>
           </div>
           <div className="workspace-topbar-actions">
@@ -360,8 +370,9 @@ export default function HomePage(): React.JSX.Element {
                           onFocus={() => setContextPanel('files')}
                           onClick={() => setContextPanel('files')}
                         >
-                          <span aria-hidden>⌇</span>
+                          <span className="context-menu-icon" aria-hidden>↥</span>
                           <strong>{t('addFilesOrPhotos')}</strong>
+                          <i aria-hidden>›</i>
                         </button>
                         <button
                           className={contextPanel === 'skills' ? 'active' : ''}
@@ -370,8 +381,9 @@ export default function HomePage(): React.JSX.Element {
                           onFocus={() => setContextPanel('skills')}
                           onClick={() => setContextPanel('skills')}
                         >
-                          <span aria-hidden>▣</span>
+                          <span className="context-menu-icon" aria-hidden>✦</span>
                           <strong>{t('skills')}</strong>
+                          <i aria-hidden>›</i>
                         </button>
                         <button
                           className={contextPanel === 'connectors' ? 'active' : ''}
@@ -380,8 +392,9 @@ export default function HomePage(): React.JSX.Element {
                           onFocus={() => setContextPanel('connectors')}
                           onClick={() => setContextPanel('connectors')}
                         >
-                          <span aria-hidden>⌁</span>
+                          <span className="context-menu-icon" aria-hidden>ↄ</span>
                           <strong>{t('addConnector')}</strong>
+                          <i aria-hidden>›</i>
                         </button>
                         <button
                           className={contextPanel === 'plugins' ? 'active' : ''}
@@ -390,8 +403,9 @@ export default function HomePage(): React.JSX.Element {
                           onFocus={() => setContextPanel('plugins')}
                           onClick={() => setContextPanel('plugins')}
                         >
-                          <span aria-hidden>⌘</span>
+                          <span className="context-menu-icon" aria-hidden>✣</span>
                           <strong>{t('addPlugins')}</strong>
+                          <i aria-hidden>›</i>
                         </button>
                       </div>
                     </div>
@@ -490,92 +504,58 @@ export default function HomePage(): React.JSX.Element {
                   ))}
                 </div>
               </DirectPillMenu>
-              <PairedPillMenu<TemplatePanel>
+              <DirectPillMenu
                 id="template"
-                label={t('template')}
+                label={t('designDirection')}
                 value={selectedDomain?.name ?? t('choose')}
-                panels={[
-                  { id: 'styles', icon: '✧', label: t('styles'), itemCount: stylePresets.length + 1 },
-                  { id: 'domain', icon: '▤', label: t('domain'), itemCount: Math.max(capabilities?.domainTemplates.length ?? 1, 1) },
-                  { id: 'aesthetic', icon: '◈', label: t('aesthetic'), itemCount: Math.max(capabilities?.aestheticProfiles.length ?? 1, 1) },
-                  { id: 'palette', icon: '◍', label: t('palette'), itemCount: Math.max(availablePalettes.length, 1) },
-                ]}
-                activePanel={templatePanel}
-                onActivePanelChange={setTemplatePanel}
+                itemCount={1}
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
               >
-                {templatePanel === 'styles' ? (
-                  <div className="paired-option-list template-style-list">
-                    <label className="paired-input-row">
-                      <input aria-label={t('styles')} value={styles} onChange={event => setStyles(event.target.value)} />
-                    </label>
-                    {stylePresets.map(preset => (
-                      <button key={preset} type="button" onClick={() => setStyles(preset)}>
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {templatePanel === 'domain' ? (
-                  <div className="paired-option-list capability-option-list" data-testid="domain-template-options">
-                    {(capabilities?.domainTemplates ?? []).map(template => (
-                      <button
-                        key={template.id}
-                        className={template.id === domainTemplateId ? 'active' : ''}
-                        type="button"
-                        onClick={() => {
-                          setDomainTemplateId(template.id)
-                          saveCapabilityPreference({ domainTemplateId: template.id })
-                        }}
-                      >
-                        <strong>{template.name}</strong>
-                        <span>{template.category} · {template.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {templatePanel === 'aesthetic' ? (
-                  <div className="paired-option-list capability-option-list" data-testid="aesthetic-profile-options">
-                    {(capabilities?.aestheticProfiles ?? []).map(profile => (
-                      <button
-                        key={profile.id}
-                        className={profile.id === aestheticProfileId ? 'active' : ''}
-                        type="button"
-                        onClick={() => {
-                          const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
-                          setAestheticProfileId(profile.id)
-                          setColorPaletteId(nextPaletteId)
-                          saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
-                        }}
-                      >
-                        <strong>{profile.name}</strong>
-                        <span>{profile.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {templatePanel === 'palette' ? (
-                  <div className="paired-option-list capability-option-list" data-testid="color-palette-options">
-                    {availablePalettes.map(palette => (
-                      <button
-                        key={palette.id}
-                        className={palette.id === colorPaletteId ? 'active' : ''}
-                        type="button"
-                        onClick={() => {
-                          setColorPaletteId(palette.id)
-                          saveCapabilityPreference({ colorPaletteId: palette.id })
-                        }}
-                      >
-                        <strong>{palette.name}</strong>
-                        <span className="swatch-row" aria-hidden>
-                          {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </PairedPillMenu>
+                <DesignDirectionPicker
+                  capabilities={capabilities}
+                  value={{
+                    domainTemplateId,
+                    aestheticProfileId,
+                    colorPaletteId,
+                    brandStyleReferenceId,
+                    styleNotes: styles,
+                    referenceBrand,
+                    negativeRequirements,
+                  }}
+                  selectedLoopName={selectedLoop?.name}
+                  labels={{
+                    designDirection: t('designDirection'),
+                    scene: t('scene'),
+                    visual: t('visual'),
+                    advanced: t('advanced'),
+                    palette: t('palette'),
+                    styleNotes: t('styleNotes'),
+                    referenceBrand: t('referenceBrand'),
+                    negativeRequirements: t('negativeRequirements'),
+                    search: t('search'),
+                    choose: t('choose'),
+                    loop: t('loop'),
+                  }}
+                  onChange={next => {
+                    if (next.domainTemplateId !== undefined) {
+                      setDomainTemplateId(next.domainTemplateId)
+                      saveCapabilityPreference({ domainTemplateId: next.domainTemplateId })
+                    }
+                    if (next.aestheticProfileId !== undefined || next.colorPaletteId !== undefined) {
+                      const nextAestheticId = next.aestheticProfileId ?? aestheticProfileId
+                      const nextPaletteId = next.colorPaletteId ?? colorPaletteId
+                      setAestheticProfileId(nextAestheticId)
+                      setColorPaletteId(nextPaletteId)
+                      saveCapabilityPreference({ aestheticProfileId: nextAestheticId, colorPaletteId: nextPaletteId })
+                    }
+                    if (next.styleNotes !== undefined) setStyles(next.styleNotes)
+                    if (next.brandStyleReferenceId !== undefined) setBrandStyleReferenceId(next.brandStyleReferenceId)
+                    if (next.referenceBrand !== undefined) setReferenceBrand(next.referenceBrand)
+                    if (next.negativeRequirements !== undefined) setNegativeRequirements(next.negativeRequirements)
+                  }}
+                />
+              </DirectPillMenu>
               <PairedPillMenu<ModelPanel>
                 id="model"
                 label={t('model')}
@@ -764,7 +744,7 @@ function DirectPillMenu(props: {
     <div className="pill-menu" data-menu-root="true">
       <button
         type="button"
-        className="pill-menu-trigger"
+        className={`pill-menu-trigger${props.id === 'template' ? ' direction-pill-trigger' : ''}`}
         aria-expanded={isOpen}
         onClick={() => props.setOpenMenu(current => current === props.id ? null : props.id)}
       >
@@ -773,7 +753,7 @@ function DirectPillMenu(props: {
       </button>
       {isOpen ? (
         <div
-          className="direct-popover"
+          className={`direct-popover${props.id === 'template' ? ' design-direction-popover' : ''}`}
           data-testid={`${props.id}-direct-popover`}
           style={{
             '--direct-panel-items': String(props.itemCount),
@@ -826,6 +806,18 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
   return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function designDirectionNotes(referenceBrand: string, negativeRequirements: string): string | undefined {
+  const lines = [
+    referenceBrand.trim() ? `Reference brand inspiration: ${referenceBrand.trim()}. Use as inspiration only; do not copy brand assets, marks, proprietary copy, or imply endorsement.` : '',
+    negativeRequirements.trim() ? `Negative requirements: ${negativeRequirements.trim()}` : '',
+  ].filter(Boolean)
+  return lines.length > 0 ? lines.join('\n') : undefined
+}
+
+function splitRequirementLines(value: string): string[] {
+  return value.split(/\n|,/).map(item => item.trim()).filter(Boolean)
 }
 
 function readCapabilityPreference(): CapabilityPreferenceDraft {

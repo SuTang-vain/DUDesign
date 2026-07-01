@@ -44,6 +44,12 @@
 - [x] 实现变体数量选择，MVP 上限默认 6。
 - [x] 实现模板风格/要求输入。
 - [x] 接入 Capability Distribution 选择：领域模板、审美 profile、颜色方案、loop profile。
+- [x] 将 Capability Distribution 模板入口从“风格 / 领域 / 审美 / 配色”收敛为“场景 / 视觉 / 高级”。
+- [x] 将多个模板小菜单收敛为单个“设计方向”选择器。
+- [x] “设计方向”选择器使用 tabs：场景、视觉、高级。
+- [x] 场景/视觉选择支持搜索、分类和右侧详情预览。
+- [x] 将色板、补充风格词、参考品牌、负面要求移动到高级入口。
+- [ ] 高级入口预留 Design System / 参考品牌升级路径。
 - [x] 在结果墙和单变体详情页展示本次生成使用的 Capability Snapshot。
 - [x] 支持用户默认 Capability 偏好恢复：优先本地体验兜底，并通过用户偏好 API 保存。
 - [x] 展示用户可用模型列表并支持选择生成模型。
@@ -54,7 +60,7 @@
 
 - 用户可以从空白需求创建 design job。
 - 用户可以基于上传的已有 HTML artifact 创建 design job。
-- 用户可以选择领域、审美、颜色和自动化强度创建 design job。
+- 用户可以选择场景、视觉、高级约束和自动化强度创建 design job。
 - 请求体中不包含本地 cwd，只包含 workspace/session/artifact 引用。
 
 ## Phase UX-3：并行生成页

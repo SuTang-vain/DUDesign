@@ -33,9 +33,36 @@ Skill 可以包含：
 
 - Static Export Safe。
 - Fintech Conversion Copy。
-- Apple-like Minimal Product Story。
+- Premium Minimal Product Story。
 - Accessibility First。
 - Mobile-first Landing。
+
+### 2.1 Design Skill 与 Design Template 的区别
+
+Design Template 回答“页面看起来是什么样”，Design Skill 回答“生成时应该怎么做”。
+
+| 类型 | 关注点 | 示例 |
+| --- | --- | --- |
+| Design Template | 视觉 token、布局气质、组件风格、品牌氛围 | Minimal SaaS、Dark Developer Tool、Editorial Landing |
+| Design Skill | 信息架构方法、响应式策略、质量检查、特定页面生成流程 | High-conversion SaaS Landing、Mobile-first HTML、Static Export Safe |
+
+Skill 可以引用或限制模板适用范围，但不能修改模板 registry，也不能覆盖模板 snapshot。创建 job 时，Application Service 负责把用户选择的 template + skill + loop 合成为 `Capability Profile`，Runtime Gateway 再把它编译为受控 prompt block。
+
+MVP 阶段用户自定义 skill 只允许声明式内容：
+
+- 生成策略。
+- 质量 checklist。
+- 响应式要求。
+- 不可违反的负向规则。
+- 可选 prompt block。
+
+不允许：
+
+- 任意脚本。
+- shell 命令。
+- 绝对路径。
+- runtime cwd 修改。
+- 工具权限提升。
 
 ## 3. MCP Tool
 

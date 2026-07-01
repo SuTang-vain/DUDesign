@@ -1,5 +1,6 @@
 import { createDesignEvent } from '@dudesign/contracts'
 import type {
+  AdvancedTemplateConstraints,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
   CreateSourceArtifactRequest,
@@ -1955,7 +1956,22 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
       ? value.deviceTargets.filter((item): item is 'desktop' | 'tablet' | 'mobile' => item === 'desktop' || item === 'tablet' || item === 'mobile')
       : undefined,
     notes: typeof value.notes === 'string' ? value.notes : undefined,
+    advancedConstraints: normalizeAdvancedTemplateConstraints(value.advancedConstraints),
     capabilitySnapshot: isCapabilitySnapshot(value.capabilitySnapshot) ? value.capabilitySnapshot : undefined,
+  }
+}
+
+function normalizeAdvancedTemplateConstraints(value: unknown): AdvancedTemplateConstraints | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  return {
+    colorPaletteId: typeof record.colorPaletteId === 'string' ? record.colorPaletteId : null,
+    styleNotes: Array.isArray(record.styleNotes) ? record.styleNotes.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : undefined,
+    brandStyleReferenceId: typeof record.brandStyleReferenceId === 'string' ? record.brandStyleReferenceId : null,
+    referenceBrand: typeof record.referenceBrand === 'string' ? record.referenceBrand : null,
+    negativeRequirements: Array.isArray(record.negativeRequirements)
+      ? record.negativeRequirements.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : undefined,
   }
 }
 

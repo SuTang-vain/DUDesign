@@ -139,10 +139,14 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(bootstrap.workspace.id, 'ws_dev')
 
   const capabilities = await getJson<ListCapabilitiesResponse>('/api/capabilities')
-  assert.equal(capabilities.schemaVersion, '2026-06-30.dudesign-capabilities.v1')
+  assert.equal(capabilities.schemaVersion, '2026-07-01.dudesign-capabilities.v2')
   assert.ok(capabilities.domainTemplates.some(template => template.id === capabilities.defaults.domainTemplateId))
   assert.ok(capabilities.aestheticProfiles.some(profile => profile.id === capabilities.defaults.aestheticProfileId))
   assert.ok(capabilities.colorPalettes.some(palette => palette.id === capabilities.defaults.colorPaletteId))
+  assert.ok(capabilities.brandStyleReferences.some(reference => reference.id === 'brand_apple_inspired'))
+  const premiumMinimal = capabilities.aestheticProfiles.find(profile => profile.id === 'aes_premium_minimal')
+  assert.ok(premiumMinimal?.mood.includes('premium'))
+  assert.ok(premiumMinimal?.bestFor.includes('premium product pages'))
   assert.ok(capabilities.automationLoopProfiles.some(profile => profile.id === capabilities.defaults.loopProfileId))
 
   const defaultPreferences = await getJson<{
@@ -156,14 +160,14 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(defaultPreferences.capabilityPreference.domainTemplateId, capabilities.defaults.domainTemplateId)
   const updatedPreferences = await putJson<typeof defaultPreferences>('/api/preferences', {
     capabilityPreference: {
-      domainTemplateId: 'tpl_apple_like_product',
-      aestheticProfileId: 'aes_apple_minimal',
+      domainTemplateId: 'tpl_premium_product_page',
+      aestheticProfileId: 'aes_premium_minimal',
       colorPaletteId: 'pal_minimal_mono',
       loopProfileId: 'loop_standard',
     },
   })
-  assert.equal(updatedPreferences.capabilityPreference.domainTemplateId, 'tpl_apple_like_product')
-  assert.equal(updatedPreferences.capabilityPreference.aestheticProfileId, 'aes_apple_minimal')
+  assert.equal(updatedPreferences.capabilityPreference.domainTemplateId, 'tpl_premium_product_page')
+  assert.equal(updatedPreferences.capabilityPreference.aestheticProfileId, 'aes_premium_minimal')
   assert.equal(updatedPreferences.capabilityPreference.colorPaletteId, 'pal_minimal_mono')
 
   const sourceArtifact = await postJson<CreateSourceArtifactResponse>('/api/source-artifacts', {
@@ -216,6 +220,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
         domainTemplateId: 'tpl_fintech_trust',
         aestheticProfileId: 'aes_trustworthy_saas',
         colorPaletteId: 'pal_blue_white_trust',
+        brandStyleReferenceId: 'brand_apple_inspired',
       },
       automation: {
         loopProfileId: 'loop_standard',
@@ -225,6 +230,13 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     templateRequirements: {
       styles: ['minimal', 'editorial'],
       deviceTargets: ['desktop', 'mobile'],
+      advancedConstraints: {
+        colorPaletteId: 'pal_blue_white_trust',
+        styleNotes: ['minimal', 'editorial'],
+        brandStyleReferenceId: 'brand_apple_inspired',
+        referenceBrand: 'Apple-inspired',
+        negativeRequirements: ['No busy gradients'],
+      },
     },
   })
   assert.equal(createdJob.variations.length, 3)
@@ -238,21 +250,30 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       domainTemplate?: { id?: string }
       aestheticProfile?: { id?: string }
       colorPalette?: { id?: string }
+      brandStyleReference?: { id?: string } | null
     }
     automation?: {
       loopProfile?: { id?: string }
       maxRepairAttempts?: number
     }
   } | undefined
-  assert.equal(capabilitySnapshot?.schemaVersion, '2026-06-30.dudesign-capabilities.v1')
+  assert.equal(capabilitySnapshot?.schemaVersion, '2026-07-01.dudesign-capabilities.v2')
   assert.equal(capabilitySnapshot?.template?.domainTemplate?.id, 'tpl_fintech_trust')
   assert.equal(capabilitySnapshot?.template?.aestheticProfile?.id, 'aes_trustworthy_saas')
   assert.equal(capabilitySnapshot?.template?.colorPalette?.id, 'pal_blue_white_trust')
+  assert.equal(capabilitySnapshot?.template?.brandStyleReference?.id, 'brand_apple_inspired')
   assert.equal(capabilitySnapshot?.automation?.loopProfile?.id, 'loop_standard')
   assert.equal(capabilitySnapshot?.automation?.maxRepairAttempts, 1)
+  const advancedConstraints = storedCreatedJob?.templateRequirements.advancedConstraints as {
+    brandStyleReferenceId?: string | null
+    negativeRequirements?: string[]
+  } | undefined
+  assert.equal(advancedConstraints?.brandStyleReferenceId, 'brand_apple_inspired')
+  assert.deepEqual(advancedConstraints?.negativeRequirements, ['No busy gradients'])
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_fintech_trust')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.aestheticProfile.id, 'aes_trustworthy_saas')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.colorPalette.id, 'pal_blue_white_trust')
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.template.brandStyleReference?.id, 'brand_apple_inspired')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_standard')
   assert.equal(jobSnapshot.variations.length, 3)
   assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))

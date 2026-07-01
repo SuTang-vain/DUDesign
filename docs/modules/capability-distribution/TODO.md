@@ -22,19 +22,34 @@
 
 ## Phase CAP-1：Templates
 
+- [x] 明确用户端模板入口从“风格 / 领域 / 审美 / 配色”收敛为“场景 / 视觉 / 高级”。
 - [x] 定义 `DomainTemplate` domain model。
 - [x] 定义 `AestheticProfile` domain model。
 - [x] 定义 `ColorPalette` domain model。
 - [ ] 定义 `BrandStyleReference` domain model。
+- [ ] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
+- [ ] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
+- [ ] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
+- [ ] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
+- [ ] 支持 `DESIGN.md` import/lint/export：
+  - [ ] YAML front matter token 解析。
+  - [ ] Markdown section 解析。
+  - [ ] broken token reference 检查。
+  - [ ] 颜色对比度检查。
+  - [ ] 危险 prompt 指令过滤。
+- [ ] 规划 6-8 个 DUDesign 官方启发式模板，避免直接复制公开品牌 trade dress。
 - [x] 设计首批官方领域模板。
 - [x] 设计首批官方审美 profile。
+- [ ] 将官方 registry 中混合了品牌/视觉/场景的条目拆分，例如 `Premium Product Page`。
 - [ ] 支持用户从 variation 保存私有模板。
+- [ ] 支持用户上传或粘贴 `DESIGN.md` 保存为私有模板。
+- [ ] 支持多 variation 自动分配不同 Design Template Pack。
 - [x] 支持用户保存默认审美偏好。
 - [ ] 模板选择写入 job snapshot，保证 resume 不漂移。
 
 验收：
 
-- 用户可以表达“在某个领域下，按某种审美风格生成页面”。
+- 用户可以表达“在某个场景下，按某种视觉风格，并带着必要高级约束生成页面”。
 
 ## Phase CAP-2：Plugins
 
@@ -42,6 +57,8 @@
 - [ ] 定义 `DesignSkill` domain model。
 - [ ] 定义 `McpToolBinding` domain model。
 - [ ] 定义 `PluginPermissionPolicy`。
+- [ ] 明确 Design Skill 与 Design Template 的边界：skill 管生成方法，template 管视觉系统。
+- [ ] 定义 `CapabilityProfile`：template + skill + loop + 用户偏好组合快照。
 - [ ] Skill 只支持声明式规则，不支持任意代码执行。
 - [ ] MCP 插件支持只读/写入/验证等 scope。
 - [ ] Application Service 校验插件可见性和授权。
@@ -79,6 +96,8 @@
 - [x] 新增 PostgreSQL migration。
 - [x] 新增用户偏好 API。
 - [ ] 新增保存 variation 为模板 API。
+- [ ] 新增 `design_templates` / `design_template_versions` 或等价 capability table。
+- [ ] 新增 `capability_profiles` 或在 job snapshot 中显式保存 profile version。
 - [ ] 新增 capability usage events。
 
 验收：
@@ -88,8 +107,17 @@
 
 ## Phase CAP-5：用户前端接入
 
-- [ ] 工作台 composer 增加领域模板选择。
-- [ ] 工作台 composer 增加审美 profile/颜色方案选择。
+- [x] 工作台 composer 将模板入口调整为“场景 / 视觉 / 高级”。
+- [x] 工作台 composer 将多个小菜单收敛为单个“设计方向”选择器。
+- [x] 工作台 composer 增加场景选择，底层继续映射 `DomainTemplate`。
+- [x] 工作台 composer 增加视觉选择，底层继续映射 `AestheticProfile`。
+- [x] 工作台 composer 将色板、补充风格词、参考品牌、负面要求放入高级入口。
+- [x] 设计方向选择器支持搜索、分类、右侧详情预览。
+- [ ] 视觉卡片展示 mood、density、formality、best for、avoid for 的摘要。
+- [ ] 预留 Design System picker 入口，MVP 可隐藏或放入高级。
+- [ ] 增加官方模板 / 我的模板 / 最近使用 / 收藏的选择入口。
+- [ ] 模板卡片展示 color swatch、字体摘要、适用场景、preview artifact。
+- [ ] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
 - [ ] 工作台 composer 增加插件/skill 选择。
 - [ ] 工作台 composer 增加 automation loop 强度选择。
 - [ ] 增加“保存为我的模板”入口。
@@ -98,12 +126,15 @@
 
 验收：
 
-- 用户无需理解 prompt 工程，也能选择领域、审美、插件和自动化强度完成生成。
+- 用户无需理解 prompt 工程，也能选择场景、视觉、插件和自动化强度完成生成。
 
 ## Phase CAP-6：管理端治理
 
-- [ ] 管理官方领域模板。
-- [ ] 管理官方审美 profile。
+- [ ] 管理官方场景模板。
+- [ ] 管理官方视觉 profile。
+- [ ] 管理官方色板和参考品牌。
+- [ ] 管理官方 Design Template Pack。
+- [ ] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
 - [ ] 管理官方 skill。
 - [ ] 管理 MCP 插件可见性和权限。
 - [ ] 展示 automation loop 成功率和成本。
@@ -118,6 +149,8 @@
 ## Phase CAP-7：测试与上线门禁
 
 - [ ] 模板 schema 单元测试。
+- [ ] `DESIGN.md` import/lint/export 单元测试。
+- [ ] Design Template Pack adapter 单元测试。
 - [ ] skill safety validator 单元测试。
 - [ ] MCP permission policy 单元测试。
 - [ ] automation loop stop condition 单元测试。

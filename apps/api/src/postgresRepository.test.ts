@@ -138,8 +138,8 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       metadata: { duplicate: true },
     })
     await repository.saveUserCapabilityPreference(repository.devUser.id, {
-      domainTemplateId: 'tpl_apple_like_product',
-      aestheticProfileId: 'aes_apple_minimal',
+      domainTemplateId: 'tpl_premium_product_page',
+      aestheticProfileId: 'aes_premium_minimal',
       colorPaletteId: 'pal_minimal_mono',
       loopProfileId: 'loop_standard',
     })
@@ -153,7 +153,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
     })
     try {
       assert.equal(hydrated.sessions.get(session.id)?.runtimeSessionId, 'runtime_pg_smoke')
-      assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.domainTemplateId, 'tpl_apple_like_product')
+      assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.domainTemplateId, 'tpl_premium_product_page')
       assert.equal(hydrated.messages.get(session.id)?.[0]?.id, message.id)
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
 	      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
@@ -242,7 +242,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       clearHydratedCache(hydrated)
       assert.match((await hydrated.getShareByToken(share.token))?.revokedAt ?? '', /^\d{4}-/)
       await hydrated.hydrate()
-      assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.aestheticProfileId, 'aes_apple_minimal')
+      assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.aestheticProfileId, 'aes_premium_minimal')
       const snapshot = await hydrated.getSessionSnapshot(session.id)
       assert.equal(snapshot?.messages.length, 1)
       assert.equal(snapshot?.jobs.length, 1)

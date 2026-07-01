@@ -1,4 +1,4 @@
-import type { CapabilitySnapshot, DesignEvent, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 
@@ -67,6 +67,7 @@ export type SpawnVariationAgentsInput = {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
     notes?: string
+    advancedConstraints?: AdvancedTemplateConstraints
     capabilitySnapshot?: CapabilitySnapshot
   }
 }

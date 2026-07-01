@@ -11,6 +11,7 @@ export function CapabilitySummary(props: {
     { label: 'Domain', value: snapshot.template.domainTemplate.name },
     { label: 'Aesthetic', value: snapshot.template.aestheticProfile.name },
     { label: 'Palette', value: snapshot.template.colorPalette.name },
+    ...(snapshot.template.brandStyleReference ? [{ label: 'Brand reference', value: snapshot.template.brandStyleReference.name }] : []),
     { label: 'Loop', value: snapshot.automation.loopProfile.name },
   ]
   return (

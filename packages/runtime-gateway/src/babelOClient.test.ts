@@ -415,6 +415,14 @@ describe('BabelORuntimeClient', () => {
       modelProvider: 'babel-o',
       templateRequirements: {
         styles: ['minimal'],
+        notes: 'Reference brand inspiration: Apple-inspired. Use as inspiration only.\nNegative requirements: No busy gradients',
+        advancedConstraints: {
+          colorPaletteId: 'pal_minimal_mono',
+          styleNotes: ['premium product storytelling'],
+          brandStyleReferenceId: 'brand_apple_inspired',
+          referenceBrand: 'Apple-inspired',
+          negativeRequirements: ['No busy gradients'],
+        },
       },
     })
     const events = []
@@ -434,6 +442,14 @@ describe('BabelORuntimeClient', () => {
     assert.match(agentPrompt, /This is variation 1 of 2/)
     assert.match(agentPrompt, /Editorial Swiss grid/)
     assert.match(agentPrompt, /minimal/)
+    assert.match(agentPrompt, /DUDesign advanced template constraints:/)
+    assert.match(agentPrompt, /Selected palette id: pal_minimal_mono/)
+    assert.match(agentPrompt, /Supplemental style notes: premium product storytelling/)
+    assert.match(agentPrompt, /Selected brand style reference id: brand_apple_inspired/)
+    assert.match(agentPrompt, /Freeform reference brand: Apple-inspired/)
+    assert.match(agentPrompt, /DUDesign advanced direction notes:/)
+    assert.match(agentPrompt, /Reference brand inspiration: Apple-inspired/)
+    assert.match(agentPrompt, /Negative requirements: No busy gradients/)
     assert.deepEqual(agentBody, {
       userId: 'user_1',
       workspaceId: 'workspace_1',
@@ -452,6 +468,14 @@ describe('BabelORuntimeClient', () => {
       modelProvider: 'babel-o',
       templateRequirements: {
         styles: ['minimal'],
+        notes: 'Reference brand inspiration: Apple-inspired. Use as inspiration only.\nNegative requirements: No busy gradients',
+        advancedConstraints: {
+          colorPaletteId: 'pal_minimal_mono',
+          styleNotes: ['premium product storytelling'],
+          brandStyleReferenceId: 'brand_apple_inspired',
+          referenceBrand: 'Apple-inspired',
+          negativeRequirements: ['No busy gradients'],
+        },
         variationStyleDirection: 'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent. Interpret the user-requested style tags through this direction: minimal.',
       },
     })

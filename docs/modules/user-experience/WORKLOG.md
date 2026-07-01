@@ -792,7 +792,7 @@
   - `loopProfileId`
 - 增加 capability summary，帮助用户确认当前选择。
 - Palette 菜单展示颜色 swatch。
-- E2E 覆盖用户选择 Apple-like Product Page / Apple-like Minimal / Minimal Mono / Standard 并创建 job。
+- E2E 覆盖用户选择 Premium Product Page / Premium Minimal / Minimal Mono / Standard 并创建 job。
 
 ### 验收
 
@@ -865,6 +865,105 @@
 
 - 后端偏好已补 `user_preferences` PostgreSQL 持久化；后续需要在真实 PostgreSQL CI/staging 中持续跑 opt-in smoke。
 - 分享页可继续接入 capability snapshot 只读摘要。
+
+## 2026-07-01 UX-M29 Capability Template IA Follow-up
+
+### 背景
+
+- 当前首页模板菜单展示为：
+  - Styles。
+  - Domain。
+  - Aesthetic。
+  - Palette。
+- 这四项在用户心智中都接近“风格”，容易造成冗余和选择负担。
+
+### 文档决策
+
+- 用户端模板入口后续调整为：
+  - Scene：场景，底层映射 `DomainTemplate`。
+  - Visual：视觉，底层映射 `AestheticProfile`。
+  - Advanced：高级，容纳 Palette、补充风格词、参考品牌、负面要求。
+- Capability summary 默认优先展示 Scene、Visual、Loop；Palette 可作为次级信息展示。
+- 当前底层 API 字段暂不重命名，避免破坏已落地的 preference、snapshot 和 E2E 契约。
+
+### 下一步
+
+- 首页 composer UI 改造为 `Scene / Visual / Advanced`。
+- 更新中英文翻译：
+  - `domain` 用户可见文案改为 Scene / 场景。
+  - `aesthetic` 用户可见文案改为 Visual / 视觉。
+  - 新增 Advanced / 高级。
+- 调整 E2E：不再按 Domain/Aesthetic/Palette 三个并列按钮定位。
+
+## 2026-07-01 UX-M29.1 Open Design Picker Reference
+
+### 背景
+
+- 参考 `/Users/tangyaoyue/DEV/open-design` 的 New Project、Design System Picker、Prompt Template Gallery。
+- Open Design 的前端选择不是把所有能力都放进一个“模板”下拉，而是分离：
+  - 输出形态。
+  - 使用场景。
+  - 设计系统。
+  - skill / template。
+  - prompt gallery。
+
+### 对 DUDesign 的 UX 决策
+
+- 首页 composer 不继续增加更多并列 pill。
+- 将现有模板相关 pill 收敛为一个“设计方向”入口。
+- “设计方向”入口打开一个轻量选择器：
+  - Scene：场景。
+  - Visual：视觉。
+  - Advanced：色板、补充风格词、参考品牌、负面要求。
+- 选择器内应支持：
+  - 搜索。
+  - 分类。
+  - 右侧详情预览。
+  - 当前选择摘要。
+  - 可回退到默认值。
+
+### 中期预留
+
+- 参考 Open Design 的 Design System Picker，DUDesign 后续应引入 Design System picker：
+  - 官方品牌参考。
+  - 用户自定义设计系统。
+  - 从已有 HTML / variation 中提取的设计系统。
+- 参考 Open Design 的 Prompt Templates Gallery，DUDesign 后续可增加“灵感模板/brief starter”，但不应与正式 capability snapshot 混淆。
+
+### 下一步
+
+- 实现 `DesignDirectionPicker` 组件。
+- 更新首页 composer 的 template pill 交互。
+- 更新 E2E 定位和文案断言。
+
+## 2026-07-01 UX-M30 Design Direction Picker
+
+### 已完成
+
+- 新增 `DesignDirectionPicker`，将首页模板相关入口收敛为单个“设计方向”选择器。
+- 选择器内部使用三个 tab：
+  - Scene：场景，映射 `DomainTemplate`。
+  - Visual：视觉，映射 `AestheticProfile`。
+  - Advanced：色板、补充风格词、参考品牌、负面要求。
+- Scene / Visual 支持搜索、列表选择和右侧详情预览。
+- Advanced 中：
+  - 色板继续映射 `ColorPalette`。
+  - 补充风格词继续写入 `templateRequirements.styles`。
+  - 参考品牌和负面要求写入 `templateRequirements.notes`。
+- 保留现有 `capabilityRequirements` 和用户偏好 API，不改后端契约。
+- 更新浏览器 E2E，按新的 `Design direction -> Scene / Visual / Advanced` 路径选择能力分发选项。
+
+### 决策
+
+- 第一版不新增 `BrandStyleReference` 后端契约，参考品牌只作为 inspiration-only notes。
+- 第一版不新增 Design System picker，仅在 Advanced 中预留参考品牌入口。
+- Capability summary 仍展示 Scene、Visual、Palette、Loop，避免影响结果页和详情页已有 snapshot 展示。
+
+### 下一步
+
+- 扩展官方 registry 的视觉 profile 元数据：mood、density、formality、bestFor、avoidFor。
+- 让视觉卡片展示更像 Open Design `template.json` 的摘要，而不是只展示 description。
+- 将分享页接入 capability snapshot 只读摘要。
 
 ## 2026-06-30 UX-M29 Annotation Management Panel
 

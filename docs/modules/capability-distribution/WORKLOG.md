@@ -122,3 +122,163 @@
 - 将工作台 composer 接入 `GET /api/capabilities`，支持用户选择领域模板、审美 profile 和颜色方案。
 - 设计插件权限策略和 MCP tool binding schema。
 - 将 automation loop profile 从 snapshot 升级为可执行 loop plan。
+
+## 2026-07-01 CAP-M3 Template IA Consolidation
+
+### 背景
+
+- 当前用户端模板菜单将 `Styles / Domain / Aesthetic / Palette` 并列展示。
+- 从用户心智看，这四项都会被理解为“风格”，其中：
+  - `Styles` 与 `Aesthetic` 重叠。
+  - `Palette` 是视觉风格的高级覆盖项，不应与场景并列。
+  - `Premium Product Page` 这类条目混合了页面场景、视觉气质和品牌参考。
+
+### 已完成
+
+- 将模板产品信息架构明确为三层：
+  - 场景：用户要做什么类型的网站或页面。
+  - 视觉：用户希望页面呈现什么视觉气质。
+  - 高级：色板、补充风格词、参考品牌、负面要求。
+- 更新 `templates.md`：
+  - 明确 UI label 建议：`Scene / Visual / Advanced`。
+  - 明确底层契约仍保留 `DomainTemplate / AestheticProfile / ColorPalette`。
+  - 新增 `BrandStyleReference` 草案。
+  - 明确参考品牌只能作为 inspiration，不得复制品牌资产、文案、商标或造成官方背书误解。
+- 更新 `README.md` 和 `TODO.md`，将后续前端接入任务调整为“场景 / 视觉 / 高级”。
+
+### 决策
+
+- 产品展示层不再使用“风格 / 领域 / 审美 / 配色”四个并列入口。
+- 工程契约层暂不重命名已落地字段，避免破坏 `capabilitySnapshot`、用户偏好和 runtime prompt 编译。
+- `ColorPalette` 作为 `AestheticProfile` 的高级覆盖项展示。
+- 自由 `Styles` 输入改为高级入口内的补充风格词，不进入官方 registry。
+- `BrandStyleReference` 是后续扩展项，必须带有 `inspiration_only` 和 forbidden rules。
+
+### 下一步
+
+- 更新用户前端工作台 composer：
+  - `Domain` 改为 `Scene`。
+  - `Aesthetic` 改为 `Visual`。
+  - `Palette` 和 `Styles` 移入 `Advanced`。
+  - 预留参考品牌和负面要求字段。
+- 梳理官方 registry，将混合场景/视觉/品牌参考的条目拆分。
+
+## 2026-07-01 CAP-M3.1 Open Design Reference Mapping
+
+### 背景
+
+- 参考 `/Users/tangyaoyue/DEV/open-design` 的模板、设计系统和前端选择器实现，重新校准 DUDesign 的模板 UI 规划。
+- Open Design 的价值不在于“更多模板分类”，而在于把生成能力拆成多个独立平面：
+  - Mode / Surface。
+  - Scenario。
+  - Design System。
+  - Skill / Design Template。
+  - Prompt Template Gallery。
+
+### 已完成
+
+- 在 `templates.md` 新增 Open Design 参考映射。
+- 明确 DUDesign 短期仍采用“场景 / 视觉 / 高级”。
+- 明确中期应预留 Open Design 式 Design System 能力，用于承载品牌 token、组件、排版、动效、语气和反模式。
+- 将 Open Design `template.json` 的字段纳入后续 `AestheticProfile` 扩展参考：
+  - `mood`
+  - `occasion`
+  - `tone`
+  - `formality`
+  - `density`
+  - `palette`
+  - `typography`
+  - `best_for`
+  - `avoid_for`
+- 将前端选择器建议写入文档：
+  - 单个“设计方向”选择器。
+  - 内部 tabs：场景、视觉、高级。
+  - 搜索、分类、右侧详情预览。
+
+### 决策
+
+- 不把 Open Design 的 `Design System` 直接等同于 DUDesign 当前的 `BrandStyleReference`。
+- `BrandStyleReference` 是高级入口中的轻量 inspiration-only 参考。
+- `DesignSystem` 是中期更完整的品牌契约能力，未来可以从已有 HTML、用户上传素材或历史 variation 中提取。
+- Prompt Template Gallery 应定位为灵感库/brief starter，不进入正式 capability snapshot，除非用户显式选择保存为模板。
+
+### 下一步
+
+- 用户前端先做轻量 `DesignDirectionPicker`。
+- 后端 registry 后续扩展视觉 profile 元数据。
+- 中期新增 Design System 文档和数据模型时，再决定是否从 Capability Distribution 中拆成独立子模块。
+
+## 2026-07-01 CAP-M3.2 Design Direction Picker Implementation
+
+### 已完成
+
+- 用户端首页 composer 将原 `Styles / Domain / Aesthetic / Palette` 并列入口替换为单个 Design Direction 入口。
+- Design Direction 内部 tabs：
+  - Scene。
+  - Visual。
+  - Advanced。
+- Advanced 已承载：
+  - Palette。
+  - Style notes。
+  - Reference brand。
+  - Negative requirements。
+- 参考品牌和负面要求复用现有 `templateRequirements.notes`，避免新增后端契约。
+- Runtime Gateway 将 `templateRequirements.notes` 注入 variation runtime prompt，确保高级约束进入实际生成上下文。
+
+### 决策
+
+- 本阶段只做前端信息架构和 runtime prompt 闭环。
+- `BrandStyleReference`、`DesignSystem`、视觉 profile 扩展字段暂不进入代码模型，继续按 TODO 推进。
+- 旧 `DomainTemplate / AestheticProfile / ColorPalette` 契约保持不变，确保历史 job snapshot 和用户偏好兼容。
+
+### 下一步
+
+- 增加 runtime-gateway 单测覆盖 `templateRequirements.notes` 注入。
+- 扩展 registry 元数据后，再升级视觉卡片内容。
+
+## 2026-07-01 CAP-M3.3 DESIGN.md Ecosystem Reference
+
+### 背景
+
+- 调研 `google-labs-code/design.md`：
+  - 重点是 DESIGN.md 规范、lint、diff、export 和 token/prose 双层结构。
+  - YAML front matter 存机器可读 token。
+  - Markdown 正文存设计意图、组件规则和 Do / Don't。
+- 调研 `VoltAgent/awesome-design-md`：
+  - 重点是大量品牌设计系统样例的组织方式。
+  - 对 DUDesign 的价值是模板库分发、分类和预览方式，而不是直接复制品牌视觉。
+
+### 已完成
+
+- 更新 `README.md`：
+  - 增加 Design Template / Design Skill / Capability Profile 三分法。
+  - 明确 `DESIGN.md` 是导入/导出兼容格式，不是 DUDesign 唯一内部格式。
+  - 增加 `design_template_versions` 和 `capability_profiles` 数据对象建议。
+- 更新 `templates.md`：
+  - 增加 `DESIGN.md` 与 Template Pack 治理章节。
+  - 定义 `DesignTemplatePack` 草案。
+  - 明确官方模板应抽象为通用启发式模板，而不是品牌克隆。
+  - 明确用户模板来源：上传 `DESIGN.md`、从已有 HTML/variation 提取、手动编辑。
+  - 明确多 variation 可以按不同 template pack 自动分配。
+- 更新 `plugins.md`：
+  - 明确 Design Skill 与 Design Template 的边界。
+  - Skill 管生成方法，Template 管视觉系统。
+- 更新 `TODO.md`：
+  - 增加 `DESIGN.md` import/lint/export。
+  - 增加 Design Template Pack adapter。
+  - 增加官方模板、用户模板、模板卡片、管理端 lint/diff/preview smoke 任务。
+- 更新 `online-design-platform-plan.md`：
+  - 将 `DESIGN.md` 生态启发写入总规划。
+
+### 决策
+
+- DUDesign 可以兼容 `DESIGN.md`，但内部必须保留 stable contract。
+- 官方模板不能直接复制公开品牌名称、logo、专有字体、商标元素或明显 trade dress。
+- 用户偏好只保存 template/skill/profile id；真实生成依据随 job snapshot 保存完整版本。
+- 多变体生成应支持“单模板多方向”和“多模板分配”两种模式。
+
+### 下一步
+
+- 先做 `DesignTemplatePack` 文档定稿和 schema 单测。
+- 再做 `DESIGN.md` import/lint 的后端基础能力。
+- 然后补 6-8 个 DUDesign 官方启发式模板。
