@@ -282,3 +282,54 @@
 - 先做 `DesignTemplatePack` 文档定稿和 schema 单测。
 - 再做 `DESIGN.md` import/lint 的后端基础能力。
 - 然后补 6-8 个 DUDesign 官方启发式模板。
+
+## 2026-07-01 CAP-M3.4 DesignTemplatePack Import Contract
+
+### 已完成
+
+- 在 `@dudesign/contracts` 增加内部稳定模板包契约：
+  - `DesignTemplatePack`
+  - `DesignTemplatePackImportResult`
+  - `DesignTemplatePackLintFinding`
+  - token、source、format、visibility、status、lint status 等枚举类型。
+- 新增 API 层 `DESIGN.md` adapter：
+  - 解析 YAML front matter。
+  - 解析 Markdown `##` sections。
+  - 规范化 colors、typography、spacing、rounded、components。
+  - 保留 unknown sections，方便后续兼容外部扩展。
+  - 生成稳定 `dtp_` id。
+- 新增 lint 初版：
+  - missing front matter。
+  - invalid YAML。
+  - duplicate section。
+  - missing primary。
+  - missing typography。
+  - broken token reference。
+  - component background/text contrast ratio。
+  - dangerous instruction 过滤。
+- 新增单元测试覆盖：
+  - 正常 `DESIGN.md` 导入为 DUDesign Template Pack。
+  - broken ref 和低对比 warning。
+  - 越权/危险 prompt 指令拦截。
+  - unknown section 保留。
+- 增加 `yaml` 依赖，避免手写 YAML 缩进解析。
+- 修复 InMemoryStore 最近 job/artifact 排序在同毫秒下不稳定的问题：
+  - 增加 `compareRecent`，按 updatedAt、createdAt、id 兜底排序。
+  - 防止新增测试改变执行顺序后 admin support smoke 偶发拿到错误 latest job。
+
+### 决策
+
+- `DESIGN.md` 只作为导入兼容格式，内部使用 `DesignTemplatePack` stable contract。
+- `DESIGN.md` export 暂未实现，保留在 TODO 中后续补齐。
+- Runtime Gateway 仍不直接读取用户上传 markdown；后续必须由 Application Service 解析、校验、授权和 snapshot 后再注入。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+
+### 下一步
+
+- 增加 Design Template Pack 持久化表或 capability table。
+- 增加 `POST /api/design-templates/import-design-md` 草案 API。
+- 补 6-8 个 DUDesign 官方启发式模板 seed。

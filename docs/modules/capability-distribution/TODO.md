@@ -30,13 +30,14 @@
 - [ ] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
 - [ ] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
 - [ ] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
-- [ ] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
-- [ ] 支持 `DESIGN.md` import/lint/export：
-  - [ ] YAML front matter token 解析。
-  - [ ] Markdown section 解析。
-  - [ ] broken token reference 检查。
-  - [ ] 颜色对比度检查。
-  - [ ] 危险 prompt 指令过滤。
+- [x] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
+- [x] 支持 `DESIGN.md` import/lint 初版：
+  - [x] YAML front matter token 解析。
+  - [x] Markdown section 解析。
+  - [x] broken token reference 检查。
+  - [x] 颜色对比度检查。
+  - [x] 危险 prompt 指令过滤。
+  - [ ] export 回 `DESIGN.md`。
 - [ ] 规划 6-8 个 DUDesign 官方启发式模板，避免直接复制公开品牌 trade dress。
 - [x] 设计首批官方领域模板。
 - [x] 设计首批官方审美 profile。
@@ -148,9 +149,9 @@
 
 ## Phase CAP-7：测试与上线门禁
 
-- [ ] 模板 schema 单元测试。
-- [ ] `DESIGN.md` import/lint/export 单元测试。
-- [ ] Design Template Pack adapter 单元测试。
+- [x] 模板 schema 单元测试。
+- [x] `DESIGN.md` import/lint 单元测试。
+- [x] Design Template Pack adapter 单元测试。
 - [ ] skill safety validator 单元测试。
 - [ ] MCP permission policy 单元测试。
 - [ ] automation loop stop condition 单元测试。

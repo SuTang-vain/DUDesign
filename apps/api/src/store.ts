@@ -544,7 +544,7 @@ export class InMemoryStore implements ApplicationRepository {
         && artifact.variationId === variationId
         && artifact.parentArtifactId === sourceArtifactId,
       )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+      .sort(compareRecent)[0] ?? null
   }
 
   setJobStatus(jobId: string, status: DesignJob['status']): MaybePromise<void> {
@@ -919,7 +919,7 @@ export class InMemoryStore implements ApplicationRepository {
           sessions: sessions.map(session => {
             const jobs = [...this.jobs.values()]
               .filter(job => job.sessionId === session.id)
-              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+              .sort(compareRecent)
             const jobIds = new Set(jobs.map(job => job.id))
             const variations = [...this.variations.values()].filter(variation => jobIds.has(variation.jobId))
             const variationSummary = variations.reduce(
@@ -1298,6 +1298,14 @@ function artifactSortKey(artifact: Artifact): string {
         ? '2'
         : '3'
   return `${String(999999 - artifact.version).padStart(6, '0')}:${kindRank}:${artifact.entryPath ?? artifact.id}`
+}
+
+function compareRecent<T extends { id: string; createdAt: string; updatedAt?: string }>(a: T, b: T): number {
+  const updated = (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt)
+  if (updated !== 0) return updated
+  const created = b.createdAt.localeCompare(a.createdAt)
+  if (created !== 0) return created
+  return b.id.localeCompare(a.id)
 }
 
 function countMemoryNamespaces(users: User[]): Map<string, number> {
