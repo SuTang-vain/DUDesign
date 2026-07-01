@@ -4,7 +4,9 @@ import { createVariationThroughUi } from './helpers'
 test('annotation rect can refine the current variation', async ({ page }) => {
   await createVariationThroughUi(page, 'A landing page for annotation browser E2E')
 
+  await page.getByTestId('side-panel-tab-inspect').click()
   await expect(page.getByTestId('current-artifact-version')).toContainText('v1')
+  await page.getByTestId('side-panel-tab-annotate').click()
 
   await page.getByTestId('annotation-draw-toggle').check()
   const overlay = page.getByTestId('annotation-overlay')
@@ -23,8 +25,9 @@ test('annotation rect can refine the current variation', async ({ page }) => {
   await expect(page.getByTestId('apply-annotations-button')).toBeEnabled()
 
   await page.getByTestId('apply-annotations-button').click()
-  await expect(page.getByTestId('current-artifact-version')).toContainText('v2')
   await expect(page.getByText('0 annotations staged.')).toBeVisible()
+  await page.getByTestId('side-panel-tab-inspect').click()
+  await expect(page.getByTestId('current-artifact-version')).toContainText('v2')
 
   await page.getByTestId('lock-version-button').click()
   await expect(page.getByTestId('variation-notice')).toContainText('Locked v2')
@@ -44,8 +47,10 @@ test('annotation rect can refine the current variation', async ({ page }) => {
 test('annotation tools support circle arrow pen text and runtime summary is visible', async ({ page }) => {
   await createVariationThroughUi(page, 'A landing page for annotation tools E2E')
 
+  await page.getByTestId('side-panel-tab-inspect').click()
   await expect(page.getByTestId('runtime-summary-panel')).toContainText('Cost & runtime')
   await expect(page.getByTestId('runtime-summary-panel')).toContainText('Tokens')
+  await page.getByTestId('side-panel-tab-annotate').click()
   await page.getByTestId('annotation-draw-toggle').check()
   const overlay = page.getByTestId('annotation-overlay')
   const box = await overlay.boundingBox()

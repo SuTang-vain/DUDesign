@@ -96,20 +96,7 @@ export type ResumeSessionSnapshot = {
   }
 }
 
-export type VariationSnapshot = {
-  id: string
-  index: number
-  title: string | null
-  status: 'queued' | 'running' | 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
-  currentArtifactId: string | null
-  previewUrl: string | null
-  screenshotUrl: string | null
-  inputTokens: number
-  outputTokens: number
-  costCents: number
-  errorCode: string | null
-  errorMessage: string | null
-}
+export type VariationSnapshot = DesignJobSnapshotResponse['variations'][number]
 
 export function apiUrl(path: string): string {
   return `${runtimeApiBase()}${path}`

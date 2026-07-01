@@ -40,10 +40,7 @@ test('workbench can start from uploaded HTML', async ({ page }) => {
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
   await expect(page.getByTestId('variation-grid')).toBeVisible()
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Domain')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Aesthetic')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Palette')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Loop')
+  await expect(page.getByTestId('job-capability-snapshot')).toHaveCount(0)
 })
 
 test('composer menus close on outside click and do not stack', async ({ page }) => {
@@ -94,6 +91,8 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await page.getByTestId('visual-options').getByRole('button', { name: /Premium Minimal/ }).click()
   await page.getByRole('tab', { name: /Advanced/ }).click()
   await expect(page.getByTestId('advanced-options')).toBeVisible()
+  await expect(page.getByTestId('design-system-upgrade-path')).toContainText('Design System')
+  await expect(page.getByTestId('design-system-upgrade-path')).toContainText('Alpha reserve')
   await page.getByTestId('palette-options').getByRole('button', { name: /Minimal Mono/ }).click()
   await page.getByTestId('style-notes-input').fill('premium product storytelling')
   await expect(page.getByTestId('brand-reference-options')).toBeVisible()
@@ -123,10 +122,15 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
   await expect(page.getByTestId('variation-grid')).toBeVisible()
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Premium Product Page')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Premium Minimal')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Minimal Mono')
-  await page.getByTestId('open-variation-link').first().click()
+  await expect(page.getByTestId('job-capability-snapshot')).toHaveCount(0)
+  const variationUrl = await page.getByTestId('open-variation-link').first().getAttribute('href')
+  expect(variationUrl).toMatch(/^\/variations\/var_/)
+  await page.goto(variationUrl!)
+  const directionTab = page.getByTestId('side-panel-tab-direction')
+  await expect(directionTab).toBeVisible()
+  await directionTab.scrollIntoViewIfNeeded()
+  await directionTab.click({ force: true })
+  await expect(directionTab).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Product Page')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Minimal')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Minimal Mono')
@@ -206,6 +210,103 @@ test('result wall explains partial and failed generation states', async ({ page 
   await expect(page.getByTestId('variation-card').nth(1).getByRole('button', { name: 'Unavailable' })).toBeDisabled()
 })
 
+test('result wall surfaces artifact preview visibility issues', async ({ page }) => {
+  await page.route('**/api/design-jobs/job_quality_case/stream', async route => {
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+      body: [
+        'event: design.job_completed',
+        `data: ${JSON.stringify({
+          schemaVersion: '2026-06-26.dudesign-event.v1',
+          type: 'design.job_completed',
+          timestamp: new Date().toISOString(),
+          sessionId: 'sess_quality_case',
+          jobId: 'job_quality_case',
+          payload: { completedVariationCount: 1, failedVariationCount: 0 },
+        })}`,
+        '',
+        '',
+      ].join('\n'),
+    })
+  })
+  await page.route('**/api/design-jobs/job_quality_case', async route => {
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        job: {
+          id: 'job_quality_case',
+          status: 'completed',
+          prompt: 'Quality gate preview',
+          variationCount: 1,
+          capabilitySnapshot: null,
+          designTemplatePacks: [],
+        },
+        variations: [
+          {
+            id: 'var_quality_case',
+            index: 1,
+            title: 'Variation 01',
+            status: 'completed',
+            currentArtifactId: 'art_quality_black_shell',
+            previewUrl: '/api/variations/var_quality_case/preview',
+            screenshotUrl: null,
+            designTemplatePack: null,
+            inputTokens: 110,
+            outputTokens: 880,
+            costCents: 2,
+            errorCode: null,
+            errorMessage: null,
+          },
+        ],
+        artifacts: [
+          {
+            id: 'art_quality_black_shell',
+            variationId: 'var_quality_case',
+            version: 1,
+            kind: 'html',
+            entryPath: 'index.html',
+            parentArtifactId: null,
+            screenshotDevice: null,
+            url: null,
+            quality: {
+              status: 'fail',
+              issues: ['Preview appears blank black, empty, or stuck on a loading shell.'],
+            },
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.goto('/jobs/job_quality_case')
+  await expect(page.getByTestId('variation-grid')).toBeVisible()
+  await expect(page.getByTestId('variation-quality-banner')).toContainText('Quality failed')
+  await expect(page.getByTestId('variation-quality-banner')).toContainText(/blank black|loading shell/)
+})
+
+test('user workbench exposes basic accessible controls', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('main')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'More' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /User profile for/ })).toBeVisible()
+  await expect(page.getByTestId('workspace-selector')).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('prompt-input')).toHaveAttribute('aria-label', 'Design prompt')
+  await page.getByTestId('prompt-input').fill('')
+  await expect(page.getByTestId('generate-button')).toBeDisabled()
+
+  await page.getByTestId('prompt-input').fill('Accessible smoke prompt')
+  await expect(page.getByTestId('generate-button')).toBeEnabled()
+  await page.getByTestId('template-pill-trigger').click()
+  await expect(page.getByRole('tablist', { name: 'Design direction' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /Scene/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /Visual/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /Advanced/ })).toBeVisible()
+})
+
 test('global user action cluster opens and closes reserved menus', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('user-action-cluster')).toBeVisible()
@@ -252,9 +353,10 @@ test('runtime activity hides raw delta and completed cards keep preview clean', 
 
   await expect(page).toHaveURL(/\/jobs\/job_/)
   const activity = page.getByTestId('runtime-activity')
-  await expect(activity).toContainText('Structured view')
-  await expect(activity).toContainText(/Working on the page|Preparing HTML structure|Writing index.html/)
-  expect((await activity.locator('.activity-row').allTextContents()).join('\n')).not.toContain('private raw delta marker')
+  await expect(activity).toContainText('Live status')
+  await expect(activity).toContainText(/Generating|Completed|Rendering preview/)
+  expect((await activity.locator('.runtime-status-card').allTextContents()).join('\n')).not.toContain('private raw delta marker')
+  expect((await activity.locator('.runtime-recent').allTextContents()).join('\n')).not.toContain('private raw delta marker')
 
   await activity.getByText('Debug raw assistant stream').click()
   await expect(activity).toContainText('private raw delta marker')

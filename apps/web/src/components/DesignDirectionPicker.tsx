@@ -206,6 +206,18 @@ export function DesignDirectionPicker(props: {
                   data-testid="reference-brand-input"
                 />
               </label>
+              <section className="design-system-reserve" data-testid="design-system-upgrade-path">
+                <div>
+                  <strong>Design System</strong>
+                  <span>Alpha reserve</span>
+                </div>
+                <p>Brand references can later become reusable workspace systems.</p>
+                <ul>
+                  <li>Tokens</li>
+                  <li>Components</li>
+                  <li>Brand rules</li>
+                </ul>
+              </section>
               <label>
                 <strong>{props.labels.negativeRequirements}</strong>
                 <textarea

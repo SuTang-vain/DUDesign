@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignEvent } from '@dudesign/contracts'
-import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { apiUrl, getDesignJob, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
@@ -111,6 +110,8 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const completedCount = variations.filter(variation => variation.status === 'completed').length
   const failedCount = variations.filter(variation => variation.status === 'failed').length
   const totalCount = variations.length || snapshot?.job.variationCount || 0
+  const latestJobActivity = streamLines.find(line => line.stage === 'job')
+  const runtimeProgress = totalCount > 0 ? Math.round(((completedCount + failedCount) / totalCount) * 100) : 0
   const jobOutcome = snapshot ? jobOutcomeForSnapshot(snapshot, completedCount, failedCount) : null
   const jobNotice = error
     ? toUserFacingError({ message: error, scope: 'job' })
@@ -206,7 +207,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
 
       {jobNotice ? <UserNotice notice={jobNotice} onRetry={() => window.location.reload()} /> : null}
       {jobOutcome ? <JobOutcomeBanner outcome={jobOutcome} /> : null}
-      <CapabilitySummary snapshot={snapshot?.job.capabilitySnapshot} testId="job-capability-snapshot" />
 
       <section data-testid="variation-grid" className="variation-grid">
         {variations.map(variation => {
@@ -284,16 +284,41 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       <aside className="stream-panel" data-testid="runtime-activity">
         <div className="stream-panel-header">
           <strong>Runtime activity</strong>
-          <span>Structured view</span>
+          <span>Live status</span>
         </div>
-        {streamLines.length === 0 ? <p>No activity yet.</p> : null}
-        {streamLines.map(line => (
-          <div key={line.id} className="activity-row" data-stage={line.stage}>
-            <span>{line.variationLabel}</span>
-            <strong>{line.summary}</strong>
-            {line.detail ? <p>{line.detail}</p> : null}
+        <div className="runtime-overview">
+          <div>
+            <span>Overall</span>
+            <strong>{latestJobActivity?.summary ?? runtimeOverviewTitle(streamState, completedCount, failedCount, totalCount)}</strong>
+            <p>{latestJobActivity?.detail ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</p>
           </div>
-        ))}
+          <meter min={0} max={100} value={runtimeProgress} aria-label="Runtime progress" />
+        </div>
+        <div className="runtime-status-grid">
+          {variations.map(variation => {
+            const latest = latestActivityForVariation(streamLines, variation)
+            const stage = latest?.stage ?? stageFromVariationStatus(variation.status)
+            return (
+              <article key={variation.id} className="runtime-status-card" data-stage={stage}>
+                <div>
+                  <span>{`Variation ${String(variation.index).padStart(2, '0')}`}</span>
+                  <strong>{stageLabel(stage, variation.status)}</strong>
+                </div>
+                <p>{latest?.summary ?? summaryForVariationStatus(variation.status)}</p>
+                {latest?.detail ? <small>{latest.detail}</small> : null}
+              </article>
+            )
+          })}
+        </div>
+        {streamLines.length > 0 ? (
+          <div className="runtime-recent">
+            <span>Latest</span>
+            <strong>{streamLines[0]?.variationLabel}</strong>
+            <p>{streamLines[0]?.summary}</p>
+          </div>
+        ) : (
+          <p>No activity yet.</p>
+        )}
         <details className="raw-stream-debug" data-testid="raw-stream-debug">
           <summary>Debug raw assistant stream</summary>
           {rawStreamLines.length === 0 ? <p>No raw assistant delta captured.</p> : null}
@@ -329,6 +354,63 @@ function UserNotice(props: { notice: UserFacingError; compact?: boolean; onRetry
       ) : null}
     </div>
   )
+}
+
+function latestActivityForVariation(streamLines: StreamLine[], variation: VariationSnapshot): StreamLine | null {
+  return streamLines.find(line => line.variationId === variation.id) ?? null
+}
+
+function stageFromVariationStatus(status: VariationSnapshot['status']): StreamLine['stage'] {
+  if (status === 'queued') return 'queued'
+  if (status === 'running' || status === 'streaming') return 'writing'
+  if (status === 'rendering_preview') return 'preview'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed' || status === 'cancelled') return 'failed'
+  return 'queued'
+}
+
+function stageLabel(stage: StreamLine['stage'], status: VariationSnapshot['status']): string {
+  if (status === 'completed') return 'Completed'
+  if (status === 'failed') return 'Failed'
+  if (status === 'cancelled') return 'Cancelled'
+  if (stage === 'preview') return 'Rendering preview'
+  if (stage === 'thinking') return 'Planning'
+  if (stage === 'writing') return 'Generating'
+  if (stage === 'warning') return 'Needs attention'
+  return 'Queued'
+}
+
+function summaryForVariationStatus(status: VariationSnapshot['status']): string {
+  if (status === 'completed') return 'Preview is ready.'
+  if (status === 'failed') return 'Runtime stopped before a usable result.'
+  if (status === 'cancelled') return 'Generation was cancelled.'
+  if (status === 'rendering_preview') return 'Preparing a visual preview.'
+  if (status === 'running' || status === 'streaming') return 'Agent is working on this variation.'
+  return 'Waiting for an agent.'
+}
+
+function runtimeOverviewTitle(
+  streamState: 'connecting' | 'open' | 'closed' | 'error',
+  completedCount: number,
+  failedCount: number,
+  totalCount: number,
+): string {
+  if (failedCount > 0 && completedCount === 0) return 'Generation needs attention'
+  if (totalCount > 0 && completedCount + failedCount >= totalCount) return 'Parallel generation finished'
+  if (streamState === 'connecting') return 'Connecting to runtime'
+  if (streamState === 'error') return 'Runtime stream disconnected'
+  return 'Generating variations'
+}
+
+function runtimeProgressLabel(
+  completedCount: number,
+  failedCount: number,
+  totalCount: number,
+  streamState: 'connecting' | 'open' | 'closed' | 'error',
+): string {
+  const base = `${completedCount} completed · ${failedCount} failed`
+  if (totalCount === 0) return `Waiting for variations · stream ${streamState}`
+  return `${base} · ${Math.max(totalCount - completedCount - failedCount, 0)} running`
 }
 
 function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]): Omit<StreamLine, 'id'> | null {
