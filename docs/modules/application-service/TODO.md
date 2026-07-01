@@ -18,7 +18,7 @@
   - [x] 真实 PostgreSQL opt-in smoke 覆盖 hydrate / no-hydrate 双路径。
 - [x] 建立对象存储抽象。
 - [x] 实现本地 `LocalArtifactStore`，用于 MVP/dev 环境 artifact body 存储。
-- [ ] 建立 Redis/Queue 抽象。
+- [x] 建立 Redis/Queue 抽象。
   - [x] 定义 `DesignJobQueue` 接口：`enqueueDesignJob`、`enqueueRefineJob`、`cancelJob`、`getJobState`。
   - [x] 定义 queue payload schema：`jobId`、`sessionId`、`variationIds`、`sourceArtifactId`、`runtimeSessionId`、`modelServiceId`、`idempotencyKey`。
   - [x] payload 额外携带 `userId`、`workspaceId`、`createdAt`，方便 worker 审计、隔离和日志。
@@ -27,10 +27,10 @@
   - [x] 实现 production `RedisDesignJobQueue` / BullMQ adapter 初版，支持显式 `DUDESIGN_QUEUE=redis` 启用。
   - [x] 建立独立 worker process entrypoint，统一从 Redis/BullMQ 调用 `ApplicationService` / Runtime Gateway。
   - [x] 区分 API / worker / inline process role，生产 API 可只入队不消费。
-  - [ ] 增加 queue retry、dedupe、timeout、dead-letter 策略。
+  - [x] 增加 queue retry、dedupe、timeout、dead-letter 策略。
   - [x] 增加 queue worker handler / Redis adapter configuration 测试。
   - [x] 增加 Redis queue opt-in integration smoke，验证 API producer-only 与 worker consumer 分离链路。
-  - [ ] 增加 Redis queue runtime unavailable 降级测试。
+  - [x] 增加 Redis queue runtime unavailable 降级测试。
 - [x] 建立 M1 阶段统一错误 envelope 和基础错误码。
 - [x] 建立 M1 request id 传递；trace id 后续接观测系统。
 - [x] 支持 User API CORS preflight。

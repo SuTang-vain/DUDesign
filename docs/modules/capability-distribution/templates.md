@@ -441,16 +441,37 @@ type DesignTemplatePack = {
 
 公开品牌设计系统可以作为研究参考，但 DUDesign 官方模板不应直接复制品牌名称、logo、专有字体、品牌文案或明显 trade dress。官方模板应抽象为通用风格包，例如：
 
-- Premium Product Gallery。
-- Dark Developer Tool。
-- Minimal SaaS。
-- Editorial Landing。
-- Fintech Trust。
-- Creative Portfolio。
-- Data Dense Console。
-- Warm Commercial Launch。
+- Premium Product Launch。
+- Trust-Centered Fintech。
+- Editorial Creative Portfolio。
+- Enterprise Clarity。
+- Mobility Launch。
+- Developer Workflow。
+- Warm Commerce。
+- Data-Dense Operations。
 
 这些模板应表达设计特征，而不是表达“做一个 Apple / Linear / Vercel 克隆”。
+
+官方启发式模板的治理规则：
+
+- 名称使用通用产品/场景语言，不使用公开品牌名。
+- `rationale.donts` 必须显式包含反克隆约束，例如不复制 logo、字体、页面 chrome、摄影风格、专有文案或明显 trade dress。
+- 每个模板必须能 export 为 `DESIGN.md`，并能重新 import 为 `DesignTemplatePack`。
+- 模板只表达设计方向，不表达任何官方背书、合作关系或品牌从属关系。
+- 视觉差异通过 token、排版、布局、组件结构和反模式约束生成，不通过借用某个品牌外观生成。
+
+首批官方模板建议作为 API seed 管理，进入 UI 前先完成 lint、DESIGN.md export/import round-trip 和预览 smoke。
+
+| Template Pack | 适用场景 | 设计重点 | 主要反模式 |
+|---|---|---|---|
+| Premium Product Launch | 高价值产品、硬件、精品 SaaS 发布页 | 产品实物/界面早露出、克制高级感、强 CTA | 不复制任何公开品牌页面 chrome、摄影风格或专有文案 |
+| Trust-Centered Fintech | 金融科技、支付、账单、费用管理 | 清晰费用、风险/安全说明、可审计指标 | 不模仿银行、卡组织或支付公司 trade dress |
+| Editorial Creative Portfolio | 艺术家、设计师、工作室、摄影作品集 | 作品主导、杂志节奏、叙事 caption | 不用抽象背景替代作品，不堆砌徽章 |
+| Enterprise Clarity | B2B、企业服务、采购决策 | 信息密度、部署/安全证据、比较表 | 不把运营/企业工具做成大幅营销空壳 |
+| Mobility Launch | 汽车、交通、机器人、硬件移动产品 | 物体可检视、参数条、运动线索 | 不复制车企徽章、格栅、字体或发布页视觉 |
+| Developer Workflow | API、CLI、基础设施、开发者工具 | 真实代码、quickstart、状态和集成 | 不使用不可读代码纹理，不复制开发平台页面 chrome |
+| Warm Commerce | 生活方式电商、精选商品、转化页 | 商品检视、购买路径、温暖可信 | 不隐藏购买控件，不复制电商/时尚品牌 trade dress |
+| Data-Dense Operations | Dashboard、admin、监控、工作流工具 | 扫描、筛选、表格、状态、重复操作 | 不把操作型工具做成 landing page，不用卡片替代表格 |
 
 ### 11.4 用户自定义模板
 
@@ -471,3 +492,43 @@ type DesignTemplatePack = {
 - 多模板分配：系统为 N 个 variation 分配不同官方模板或用户收藏模板，制造更明显的视觉差异。
 
 无论哪种模式，每个 variation 都必须保存自己的 capability snapshot，确保后续 refine、share、resume 不漂移。
+
+### 11.6 中期 DesignSystem 能力
+
+`DesignTemplatePack` 解决的是“本次生成可用的视觉上下文”。中期 `DesignSystem` 要解决的是“长期可复用、可治理、可从作品中沉淀的品牌/产品设计系统”。
+
+推荐将 `DesignSystem` 放在 `DesignTemplatePack` 之上：
+
+```text
+DESIGN.md / variation / user editor
+        ↓
+DesignTemplatePack
+        ↓
+DesignSystem version
+        ↓
+Job snapshot / Runtime prompt compiler
+```
+
+中期 `DesignSystem` 能力建议覆盖：
+
+| 能力 | 内容 | 用途 |
+|---|---|---|
+| Brand Tokens | 核心色、语义色、背景/前景、边框、状态色、密度 token | 让同一用户/工作区生成结果有稳定品牌基因 |
+| Typography | 字族、字号阶梯、字重、行高、标题/正文/标签/代码样式 | 避免每次 prompt 都重新发明排版体系 |
+| Components | Button、Card、Nav、Table、Form、Pricing、Hero、Code Panel 等组件规则 | 让 agent 按已有组件语义生成，而不是只写散装样式 |
+| Motion | 动效强度、持续时间、缓动、进入/悬停/切换规则 | 控制动效克制程度，避免无意义动画 |
+| Voice | 文案语气、CTA 风格、说明文字密度、术语偏好 | 让视觉和文案保持一致 |
+| Anti-patterns | 明确禁止：品牌克隆、过度渐变、低对比、信息遮挡、无关装饰等 | 将“不要做什么”结构化，降低生成漂移 |
+
+`DesignSystem` 与当前高级字段的关系：
+
+- 高级字段里的“色板 / 补充风格词 / 参考品牌 / 负面要求”是一次 job 的轻量约束。
+- `DesignTemplatePack` 是可保存、可 import/export 的模板资产。
+- `DesignSystem` 是更完整的长期资产，可以从用户选择的模板、历史 variation、上传素材和人工编辑中沉淀。
+
+治理要求：
+
+- `DesignSystem` 必须版本化，job 只引用 snapshot，不直接引用 mutable latest。
+- 用户私有 `DesignSystem` 按 `userId / workspaceId` 隔离，不能污染官方模板。
+- 官方 `DesignSystem` 不得使用公开品牌名作为模板身份，不得包含 logo、专有字体、官方文案或可识别 trade dress。
+- Runtime Gateway 只能接收业务层解析后的标准设计上下文，不直接读取原始 `DESIGN.md` 或用户上传文档。

@@ -3,6 +3,45 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-01 APP-M22.7 Queue Reliability Policy and Redis Degradation Coverage
+
+### 已完成
+
+- `RedisDesignJobQueue` 增加显式可靠性策略：
+  - retry attempts：`DUDESIGN_QUEUE_ATTEMPTS`
+  - fixed backoff：`DUDESIGN_QUEUE_BACKOFF_MS`
+  - job timeout：`DUDESIGN_QUEUE_JOB_TIMEOUT_MS`
+  - dedupe：使用 `idempotencyKey` 作为 BullMQ `jobId`
+  - dead-letter：最终失败保留在 BullMQ failed set
+- 新增 `createRedisQueueReliabilityPolicy()`，将 retry / timeout / DLQ 策略作为可单测的纯函数，避免无 Redis 环境下单元测试误开连接。
+- Redis worker consumer 增加 timeout wrapper：
+  - 超时抛出稳定 `QUEUE_JOB_TIMEOUT`。
+  - BullMQ attempts/backoff 决定是否重试。
+  - 耗尽重试后进入 failed set。
+- `queueStateFromBullJob()` 增强：
+  - timeout failure 归一为 `QUEUE_JOB_TIMEOUT`。
+  - consumer failure 归一为 `QUEUE_CONSUMER_FAILED`。
+  - attempts 对 pending/running/completed/failed 做稳定归一。
+- `RedisDesignJobQueue` 增加 `getDeadLetterJobs()`，将 BullMQ failed set 暴露为 DUDesign `QueueJobState[]`，为后续 Admin repair/requeue 做准备。
+- Redis opt-in integration smoke 补充：
+  - runtime unavailable 时，通过 Redis worker 消费后业务 job / variation 明确进入 failed，variation `errorCode=RUNTIME_UNAVAILABLE`。
+  - 业务可处理的 runtime unavailable 不进入 queue DLQ，避免把“业务失败”误判为“队列失败”。
+  - synthetic queue consumer failure 进入 dead-letter view，验证真正队列消费异常可被运维发现。
+- `application-service/TODO.md` 将 Redis/Queue 抽象、retry/dedupe/timeout/DLQ、Redis runtime unavailable 降级测试标记完成。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- `npm run test:redis`
+
+### 决策
+
+- DUDesign 区分两类失败：
+  - runtime unavailable 属于业务执行失败：Application Service 将 job/variation 标记 failed，队列 job 本身可 completed。
+  - queue consumer crash/timeout 属于队列执行失败：BullMQ failed set 作为 DLQ。
+- 默认门禁仍不依赖真实 Redis；`DUDESIGN_REDIS_TEST_URL=... npm run test:redis` 用于 CI/staging 的真实 Redis smoke。
+
 ## 2026-06-30 APP-M22.6 Redis Queue Integration Smoke
 
 ### 已完成

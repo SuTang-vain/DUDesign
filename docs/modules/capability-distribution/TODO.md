@@ -29,7 +29,7 @@
 - [x] 定义 `BrandStyleReference` domain model。
 - [x] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
 - [x] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
-- [ ] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
+- [x] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
 - [x] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
 - [x] 支持 `DESIGN.md` import/lint 初版：
   - [x] YAML front matter token 解析。
@@ -37,8 +37,8 @@
   - [x] broken token reference 检查。
   - [x] 颜色对比度检查。
   - [x] 危险 prompt 指令过滤。
-  - [ ] export 回 `DESIGN.md`。
-- [ ] 规划 6-8 个 DUDesign 官方启发式模板，避免直接复制公开品牌 trade dress。
+  - [x] export 回 `DESIGN.md`。
+- [x] 规划 6-8 个 DUDesign 官方启发式模板，避免直接复制公开品牌 trade dress。
 - [x] 设计首批官方领域模板。
 - [x] 设计首批官方审美 profile。
 - [x] 将官方 registry 中混合了品牌/视觉/场景的条目拆分，例如 `Premium Product Page`。

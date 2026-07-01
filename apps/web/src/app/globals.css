@@ -2281,7 +2281,6 @@ a {
 
 .editor-device-toggle {
   margin-left: auto;
-  background: rgba(255, 254, 250, 0.72);
 }
 
 .annotated-preview-wrap {
@@ -2533,6 +2532,36 @@ a {
 .device-toggle button.active {
   color: var(--text);
   background: var(--surface-2);
+  font-weight: 800;
+}
+
+.device-toggle.editor-device-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  grid-template-columns: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+  background: transparent;
+}
+
+.device-toggle.editor-device-toggle button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.device-toggle.editor-device-toggle button.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
   font-weight: 800;
 }
 

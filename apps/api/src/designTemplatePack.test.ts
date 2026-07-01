@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { importDesignMd, DESIGN_TEMPLATE_PACK_SCHEMA_VERSION } from './designTemplatePack.js'
+import { importDesignMd, exportDesignTemplatePackToDesignMd, DESIGN_TEMPLATE_PACK_SCHEMA_VERSION } from './designTemplatePack.js'
 
 const validDesignMd = `---
 version: alpha
@@ -144,5 +144,28 @@ Collapse to one column on mobile.
     assert.equal(result.pack.status, 'draft')
     assert.equal(result.pack.rationale.sections['Responsive Behavior'], 'Collapse to one column on mobile.')
     assert.ok(result.findings.some(finding => finding.code === 'unknown-section'))
+  })
+
+  it('exports a DUDesign template pack back to DESIGN.md', () => {
+    const imported = importDesignMd(validDesignMd, {
+      id: 'dtp_heritage',
+      source: 'user',
+      createdByUserId: 'user_123',
+    })
+
+    const exported = exportDesignTemplatePackToDesignMd(imported.pack)
+    const roundTripped = importDesignMd(exported)
+
+    assert.match(exported, /^---\n/)
+    assert.match(exported, /name: Heritage/)
+    assert.match(exported, /## Overview/)
+    assert.match(exported, /## Do's and Don'ts/)
+    assert.equal(roundTripped.pack.name, imported.pack.name)
+    assert.equal(roundTripped.pack.version, imported.pack.version)
+    assert.deepEqual(roundTripped.pack.designTokens.colors, imported.pack.designTokens.colors)
+    assert.deepEqual(roundTripped.pack.designTokens.spacing, imported.pack.designTokens.spacing)
+    assert.deepEqual(roundTripped.pack.rationale.dos, imported.pack.rationale.dos)
+    assert.deepEqual(roundTripped.pack.rationale.donts, imported.pack.rationale.donts)
+    assert.equal(roundTripped.summary.errors, 0)
   })
 })

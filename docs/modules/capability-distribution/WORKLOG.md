@@ -385,3 +385,57 @@
   - 增加 `design_templates` / `design_template_versions` 存储。
   - 用户端 variation 页面增加“保存为模板”入口。
   - 模板选择器合并官方模板与用户私有模板。
+
+## 2026-07-01 CAP-M3.6 DesignSystem Plan and Official Heuristic Templates
+
+### 已完成
+
+- 补齐中期 `DesignSystem` 能力规划：
+  - Brand Tokens
+  - Typography
+  - Components
+  - Motion
+  - Voice
+  - Anti-patterns
+- 明确 `DesignSystem`、`DesignTemplatePack`、高级字段之间的层级：
+  - 高级字段是一次 job 的轻量约束。
+  - `DesignTemplatePack` 是可保存、可 import/export 的模板资产。
+  - `DesignSystem` 是长期可复用、可治理、可版本化的品牌/产品设计系统。
+- 新增 `exportDesignTemplatePackToDesignMd`：
+  - 将 DUDesign stable `DesignTemplatePack` 导出为 `DESIGN.md` front matter + Markdown sections。
+  - 支持 colors、typography、spacing、rounded、components。
+  - 支持 Overview、Colors、Typography、Layout、Elevation、Shapes、Components、Do's and Don'ts 以及 unknown sections。
+- 新增 8 个 DUDesign 官方启发式模板 seed：
+  - Premium Product Launch
+  - Trust-Centered Fintech
+  - Editorial Creative Portfolio
+  - Enterprise Clarity
+  - Mobility Launch
+  - Developer Workflow
+  - Warm Commerce
+  - Data-Dense Operations
+- 新增单元测试：
+  - `DesignTemplatePack -> DESIGN.md -> DesignTemplatePack` round-trip。
+  - 官方模板数量限制为 6-8 个。
+  - 官方模板不包含公开品牌名称。
+  - 官方模板必须带有反克隆约束。
+  - 官方模板都能 export/import 为有效 `DESIGN.md`。
+
+### 决策
+
+- 官方模板使用通用场景/产品语言，不使用公开品牌名称作为模板身份。
+- 公开品牌只能作为 inspiration-only `BrandStyleReference` 或用户高级约束，不进入官方模板 seed 名称。
+- 官方模板必须通过 lint/export/import round-trip，再进入用户端可选 UI。
+- `DesignSystem` 暂不直接进入数据库模型；下一步先完善私有模板保存和 Template Pack 持久化。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+
+### 下一步
+
+- 增加 `design_templates` / `design_template_versions` 存储。
+- 增加 `POST /api/design-templates/import-design-md` 和 `POST /api/design-templates/from-variation`。
+- 将官方 Template Pack seed 接入 capability listing 或独立 template listing API。
+- 用户端模板选择器合并官方模板、用户私有模板和当前轻量 Scene / Visual / Advanced 选择。

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { parseDocument } from 'yaml'
+import { parseDocument, stringify } from 'yaml'
 import type {
   DesignTemplatePack,
   DesignTemplatePackImportResult,
@@ -112,6 +112,43 @@ export function importDesignMd(markdown: string, options: ImportDesignMdOptions 
     findings,
     summary: summarizeFindings(findings),
   }
+}
+
+export function exportDesignTemplatePackToDesignMd(pack: DesignTemplatePack): string {
+  const frontMatter: Record<string, unknown> = {
+    name: pack.name,
+    version: pack.version,
+  }
+
+  if (pack.description) {
+    frontMatter.description = pack.description
+  }
+  addNonEmptyRecord(frontMatter, 'colors', pack.designTokens.colors)
+  addNonEmptyRecord(frontMatter, 'typography', pack.designTokens.typography)
+  addNonEmptyRecord(frontMatter, 'spacing', pack.designTokens.spacing)
+  addNonEmptyRecord(frontMatter, 'rounded', pack.designTokens.rounded)
+  addNonEmptyRecord(frontMatter, 'components', pack.designTokens.components)
+
+  const sections: string[] = []
+  pushSection(sections, 'Overview', pack.rationale.overview)
+  pushSection(sections, 'Colors', pack.rationale.colors)
+  pushSection(sections, 'Typography', pack.rationale.typography)
+  pushSection(sections, 'Layout', pack.rationale.layout)
+  pushSection(sections, 'Elevation & Depth', pack.rationale.elevation)
+  pushSection(sections, 'Shapes', pack.rationale.shapes)
+  pushSection(sections, 'Components', pack.rationale.components)
+  pushDoDontSection(sections, pack.rationale.dos, pack.rationale.donts)
+
+  for (const [title, content] of Object.entries(pack.rationale.sections)) {
+    pushSection(sections, title, content)
+  }
+
+  const yamlSource = stringify(frontMatter, {
+    lineWidth: 0,
+    sortMapEntries: false,
+  }).trimEnd()
+
+  return `---\n${yamlSource}\n---\n\n${sections.join('\n\n')}\n`
 }
 
 function parseFrontMatter(markdown: string): ParsedFrontMatter {
@@ -292,6 +329,27 @@ function normalizeComponents(value: unknown, findings: DesignTemplatePackLintFin
     output[key] = { ...rawValue }
   }
   return output
+}
+
+function addNonEmptyRecord(target: Record<string, unknown>, key: string, value: Record<string, unknown> | Record<string, string | number>): void {
+  if (Object.keys(value).length > 0) {
+    target[key] = value
+  }
+}
+
+function pushSection(sections: string[], title: string, content: string | null | undefined): void {
+  if (!content?.trim()) return
+  sections.push(`## ${title}\n\n${content.trim()}`)
+}
+
+function pushDoDontSection(sections: string[], dos: string[], donts: string[]): void {
+  const lines = [
+    ...dos.map(item => `- Do: ${item}`),
+    ...donts.map(item => `- Don't: ${item}`),
+  ]
+  if (lines.length > 0) {
+    sections.push(`## Do's and Don'ts\n\n${lines.join('\n')}`)
+  }
 }
 
 function lintRequiredTokens(tokens: DesignTemplatePack['designTokens'], findings: DesignTemplatePackLintFinding[]): void {
