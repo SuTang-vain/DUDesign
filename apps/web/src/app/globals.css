@@ -597,6 +597,8 @@ a {
   --context-row-gap: 6px;
   --context-parent-width: 178px;
   --context-child-width: 320px;
+  --context-card-border: 1px;
+  --context-card-block-border: calc(2 * var(--context-card-border));
 }
 
 .context-parent-popover,
@@ -613,7 +615,7 @@ a {
   left: 0;
   top: 0;
   width: var(--context-parent-width);
-  height: calc((4 * var(--context-item-height)) + (3 * var(--context-row-gap)) + (2 * var(--context-card-padding)));
+  height: calc((4 * var(--context-item-height)) + (3 * var(--context-row-gap)) + (2 * var(--context-card-padding)) + var(--context-card-block-border));
   padding: var(--context-card-padding);
 }
 
@@ -621,7 +623,7 @@ a {
   position: absolute;
   left: calc(var(--context-parent-width) + 8px);
   width: var(--context-child-width);
-  --context-panel-height: calc((var(--context-panel-items) * var(--context-item-height)) + ((var(--context-panel-items) - 1) * var(--context-row-gap)) + (2 * var(--context-card-padding)));
+  --context-panel-height: calc((var(--context-panel-items) * var(--context-item-height)) + ((var(--context-panel-items) - 1) * var(--context-row-gap)) + (2 * var(--context-card-padding)) + var(--context-card-block-border));
   top: calc(var(--context-card-padding) + (var(--context-panel-index) * (var(--context-item-height) + var(--context-row-gap))) + var(--context-item-height) - var(--context-panel-height) + 1px);
   height: var(--context-panel-height);
   padding: var(--context-card-padding);
@@ -701,15 +703,30 @@ a {
 .context-child-panel .context-upload-action {
   min-height: var(--context-item-height);
   height: var(--context-item-height);
+  display: grid;
+  align-items: center;
+  border-color: transparent;
+  background: transparent;
   padding: 7px 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .context-child-panel .context-upload-action strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
+  font-weight: 750;
   line-height: 18px;
 }
 
 .context-popover-wrap button.active,
+.context-child-panel button:hover,
+.context-child-panel .context-upload-action:hover,
 .context-upload-action:hover {
   border-color: rgba(79, 70, 229, 0.45);
   background: rgba(79, 70, 229, 0.08);
@@ -797,52 +814,192 @@ a {
   font-size: 13px;
 }
 
-.pill-popover {
+.direct-popover {
   position: absolute;
   left: 0;
-  top: calc(100% + 10px);
+  bottom: calc(100% + 10px);
   z-index: 30;
-  width: min(360px, 86vw);
+  width: 178px;
+  --direct-card-padding: 8px;
+  --direct-item-height: 34px;
+  --direct-row-gap: 6px;
+  --direct-card-border: 1px;
+  --direct-card-block-border: calc(2 * var(--direct-card-border));
+  --direct-panel-columns: 1;
+  --direct-panel-rows: round(up, calc(var(--direct-panel-items) / var(--direct-panel-columns)), 1);
+  height: calc((var(--direct-panel-rows) * var(--direct-item-height)) + ((var(--direct-panel-rows) - 1) * var(--direct-row-gap)) + (2 * var(--direct-card-padding)) + var(--direct-card-block-border));
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--surface);
-  padding: 10px;
+  padding: var(--direct-card-padding);
   box-shadow: var(--shadow);
 }
 
-.template-popover {
+.direct-option-list {
+  height: 100%;
   display: grid;
-  gap: 12px;
-  max-height: min(540px, 64vh);
-  overflow: auto;
+  gap: var(--direct-row-gap);
+  align-content: start;
 }
 
-.template-popover section {
-  display: grid;
-  gap: 7px;
-}
-
-.template-popover section + section {
-  border-top: 1px solid rgba(25, 23, 20, 0.08);
-  padding-top: 10px;
-}
-
-.pill-popover button,
-.popover-field input {
+.direct-option-list button {
   width: 100%;
-  border: 1px solid var(--line);
+  height: var(--direct-item-height);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.74);
-  padding: 10px 11px;
-  text-align: left;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--text);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 750;
 }
 
-.pill-popover button.active {
+.direct-option-list button.active,
+.direct-option-list button:hover {
   border-color: rgba(79, 70, 229, 0.45);
   background: rgba(79, 70, 229, 0.08);
 }
 
-.pill-popover button span,
+.paired-popover-wrap {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: 506px;
+  --paired-card-padding: 8px;
+  --paired-item-height: 34px;
+  --paired-row-gap: 6px;
+  --paired-parent-width: 178px;
+  --paired-child-width: 320px;
+  --paired-card-border: 1px;
+  --paired-card-block-border: calc(2 * var(--paired-card-border));
+  --paired-parent-height: calc((var(--paired-panel-count, 4) * var(--paired-item-height)) + ((var(--paired-panel-count, 4) - 1) * var(--paired-row-gap)) + (2 * var(--paired-card-padding)) + var(--paired-card-block-border));
+  height: var(--paired-parent-height);
+}
+
+.paired-parent-popover,
+.paired-child-popover {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.paired-parent-popover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--paired-parent-width);
+  height: var(--paired-parent-height);
+  padding: var(--paired-card-padding);
+}
+
+.paired-child-popover {
+  position: absolute;
+  left: calc(var(--paired-parent-width) + 8px);
+  width: var(--paired-child-width);
+  max-height: min(420px, 58vh);
+  --paired-panel-height: min(
+    min(420px, 58vh),
+    calc((var(--paired-panel-items) * var(--paired-item-height)) + ((var(--paired-panel-items) - 1) * var(--paired-row-gap)) + (2 * var(--paired-card-padding)) + var(--paired-card-block-border))
+  );
+  top: calc(var(--paired-card-padding) + (var(--paired-panel-index) * (var(--paired-item-height) + var(--paired-row-gap))) + var(--paired-item-height) - var(--paired-panel-height) + 1px);
+  height: var(--paired-panel-height);
+  padding: var(--paired-card-padding);
+}
+
+.paired-parent-list,
+.paired-child-panel,
+.paired-option-list {
+  display: grid;
+  gap: var(--paired-row-gap);
+  align-content: start;
+}
+
+.paired-parent-list,
+.paired-child-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.paired-child-panel {
+  overflow: auto;
+}
+
+.paired-popover-wrap button,
+.paired-input-row input {
+  width: 100%;
+  min-height: var(--paired-item-height);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.paired-parent-list button {
+  height: var(--paired-item-height);
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.paired-parent-list button > span {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.paired-parent-list button > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.paired-child-panel button,
+.paired-input-row input {
+  min-height: var(--paired-item-height);
+}
+
+.paired-child-panel button {
+  height: var(--paired-item-height);
+  display: grid;
+  align-items: center;
+  border-color: transparent;
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.paired-child-panel button > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.paired-popover-wrap button.active,
+.paired-child-panel button:hover {
+  border-color: rgba(79, 70, 229, 0.45);
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.paired-popover-wrap button span,
 .model-option-list button span {
   display: block;
   margin-top: 4px;
@@ -851,39 +1008,27 @@ a {
   line-height: 1.35;
 }
 
-.segmented-options {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
+.paired-child-panel button span {
+  display: none;
 }
 
-.segmented-options button {
+.variation-count-list {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.variation-count-list button {
+  height: var(--paired-item-height);
   text-align: center;
 }
 
-.popover-field {
+.paired-input-row {
   display: grid;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  min-height: var(--paired-item-height);
 }
 
-.template-popover .popover-field input {
-  margin-top: 6px;
-}
-
-.preset-list,
 .model-option-list,
 .capability-option-list {
-  display: grid;
-  gap: 7px;
-  margin-top: 8px;
-}
-
-.capability-option-list {
-  max-height: 340px;
-  overflow: auto;
+  margin-top: 0;
 }
 
 .swatch-row {
@@ -2482,7 +2627,8 @@ a {
     max-width: 100%;
   }
 
-  .pill-popover {
+  .direct-popover,
+  .paired-popover-wrap {
     left: auto;
     right: 0;
   }
@@ -2522,6 +2668,48 @@ a {
   }
 
   .context-child-panel {
+    height: 100%;
+  }
+
+  .direct-popover {
+    width: min(220px, calc(100vw - 36px));
+  }
+
+  .paired-popover-wrap {
+    width: min(360px, calc(100vw - 36px));
+    height: 320px;
+  }
+
+  .paired-parent-popover,
+  .paired-child-popover {
+    position: static;
+    width: 100%;
+  }
+
+  .paired-parent-popover {
+    height: auto;
+  }
+
+  .paired-child-popover {
+    height: 180px;
+  }
+
+  .paired-parent-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+  }
+
+  .paired-parent-list button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .paired-parent-list button > strong {
+    font-size: 11px;
+  }
+
+  .paired-child-panel {
     height: 100%;
   }
 

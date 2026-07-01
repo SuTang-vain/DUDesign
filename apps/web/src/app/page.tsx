@@ -29,6 +29,8 @@ const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', '
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
 type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
+type TemplatePanel = 'styles' | 'domain' | 'aesthetic' | 'palette'
+type ModelPanel = 'models'
 type CapabilityPreferenceDraft = {
   domainTemplateId?: string
   aestheticProfileId?: string
@@ -64,7 +66,9 @@ export default function HomePage(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
-  const [contextPanel, setContextPanel] = useState<ContextPanel>('files')
+  const [contextPanel, setContextPanel] = useState<ContextPanel | null>(null)
+  const [templatePanel, setTemplatePanel] = useState<TemplatePanel | null>(null)
+  const [modelPanel, setModelPanel] = useState<ModelPanel | null>(null)
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -338,7 +342,10 @@ export default function HomePage(): React.JSX.Element {
                   type="button"
                   aria-label={t('addContext')}
                   aria-expanded={openMenu === 'context'}
-                  onClick={() => setOpenMenu(current => current === 'context' ? null : 'context')}
+                  onClick={() => {
+                    setContextPanel(null)
+                    setOpenMenu(current => current === 'context' ? null : 'context')
+                  }}
                 >
                   +
                 </button>
@@ -388,15 +395,16 @@ export default function HomePage(): React.JSX.Element {
                         </button>
                       </div>
                     </div>
-                    <div
-                      className="context-child-popover"
-                      style={{
-                        '--context-panel-index': String(contextPanelIndex(contextPanel)),
-                        '--context-panel-items': String(contextPanelItemCount(contextPanel)),
-                      } as React.CSSProperties}
-                    >
-                      <div className="context-child-panel">
-                        {contextPanel === 'files' ? (
+                    {contextPanel ? (
+                      <div
+                        className="context-child-popover"
+                        style={{
+                          '--context-panel-index': String(contextPanelIndex(contextPanel)),
+                          '--context-panel-items': String(contextPanelItemCount(contextPanel)),
+                        } as React.CSSProperties}
+                      >
+                        <div className="context-child-panel">
+                          {contextPanel === 'files' ? (
                           <div className="context-option-list">
                             <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
                               setMode('new_html')
@@ -420,19 +428,19 @@ export default function HomePage(): React.JSX.Element {
                               />
                             </label>
                           </div>
-                        ) : null}
-                        {contextPanel === 'connectors' ? (
+                          ) : null}
+                          {contextPanel === 'connectors' ? (
                           <div className="context-option-list">
                             <button type="button" disabled>{t('connectors')}</button>
                             <button type="button" disabled>{t('mcp')}</button>
                           </div>
-                        ) : null}
-                        {contextPanel === 'plugins' ? (
+                          ) : null}
+                          {contextPanel === 'plugins' ? (
                           <div className="context-option-list">
                             <button type="button" disabled>{t('plugins')}</button>
                           </div>
-                        ) : null}
-                        {contextPanel === 'skills' ? (
+                          ) : null}
+                          {contextPanel === 'skills' ? (
                           <div className="context-option-list" data-testid="loop-profile-options">
                             {(capabilities?.automationLoopProfiles ?? []).map(profile => (
                               <button
@@ -450,14 +458,23 @@ export default function HomePage(): React.JSX.Element {
                               </button>
                             ))}
                           </div>
-                        ) : null}
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-              <PillMenu id="variations" label={t('variations')} value={`${variationCount} ${t('drafts')}`} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="segmented-options" data-testid="variation-count-input">
+              <DirectPillMenu
+                id="variations"
+                label={t('variations')}
+                value={`${variationCount} ${t('drafts')}`}
+                itemCount={variationOptions.length}
+                columnCount={3}
+                openMenu={openMenu}
+                setOpenMenu={setOpenMenu}
+              >
+                <div className="direct-option-list variation-count-list" data-testid="variation-count-input">
                   {variationOptions.map(count => (
                     <button
                       key={count}
@@ -472,87 +489,104 @@ export default function HomePage(): React.JSX.Element {
                     </button>
                   ))}
                 </div>
-              </PillMenu>
-              <PillMenu id="template" label={t('template')} value={selectedDomain?.name ?? t('choose')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="template-popover">
-                  <section>
-                    <strong className="context-popover-title">{t('styles')}</strong>
-                    <label className="popover-field">
-                      <input value={styles} onChange={event => setStyles(event.target.value)} />
+              </DirectPillMenu>
+              <PairedPillMenu<TemplatePanel>
+                id="template"
+                label={t('template')}
+                value={selectedDomain?.name ?? t('choose')}
+                panels={[
+                  { id: 'styles', icon: '✧', label: t('styles'), itemCount: stylePresets.length + 1 },
+                  { id: 'domain', icon: '▤', label: t('domain'), itemCount: Math.max(capabilities?.domainTemplates.length ?? 1, 1) },
+                  { id: 'aesthetic', icon: '◈', label: t('aesthetic'), itemCount: Math.max(capabilities?.aestheticProfiles.length ?? 1, 1) },
+                  { id: 'palette', icon: '◍', label: t('palette'), itemCount: Math.max(availablePalettes.length, 1) },
+                ]}
+                activePanel={templatePanel}
+                onActivePanelChange={setTemplatePanel}
+                openMenu={openMenu}
+                setOpenMenu={setOpenMenu}
+              >
+                {templatePanel === 'styles' ? (
+                  <div className="paired-option-list template-style-list">
+                    <label className="paired-input-row">
+                      <input aria-label={t('styles')} value={styles} onChange={event => setStyles(event.target.value)} />
                     </label>
-                    <div className="preset-list">
-                      {stylePresets.map(preset => (
-                        <button key={preset} type="button" onClick={() => setStyles(preset)}>
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <section>
-                    <strong className="context-popover-title">{t('domain')}</strong>
-                    <div className="capability-option-list" data-testid="domain-template-options">
-                      {(capabilities?.domainTemplates ?? []).map(template => (
-                        <button
-                          key={template.id}
-                          className={template.id === domainTemplateId ? 'active' : ''}
-                          type="button"
-                          onClick={() => {
-                            setDomainTemplateId(template.id)
-                            saveCapabilityPreference({ domainTemplateId: template.id })
-                          }}
-                        >
-                          <strong>{template.name}</strong>
-                          <span>{template.category} · {template.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <section>
-                    <strong className="context-popover-title">{t('aesthetic')}</strong>
-                    <div className="capability-option-list" data-testid="aesthetic-profile-options">
-                      {(capabilities?.aestheticProfiles ?? []).map(profile => (
-                        <button
-                          key={profile.id}
-                          className={profile.id === aestheticProfileId ? 'active' : ''}
-                          type="button"
-                          onClick={() => {
-                            const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
-                            setAestheticProfileId(profile.id)
-                            setColorPaletteId(nextPaletteId)
-                            saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
-                          }}
-                        >
-                          <strong>{profile.name}</strong>
-                          <span>{profile.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                  <section>
-                    <strong className="context-popover-title">{t('palette')}</strong>
-                    <div className="capability-option-list" data-testid="color-palette-options">
-                      {availablePalettes.map(palette => (
-                        <button
-                          key={palette.id}
-                          className={palette.id === colorPaletteId ? 'active' : ''}
-                          type="button"
-                          onClick={() => {
-                            setColorPaletteId(palette.id)
-                            saveCapabilityPreference({ colorPaletteId: palette.id })
-                          }}
-                        >
-                          <strong>{palette.name}</strong>
-                          <span className="swatch-row" aria-hidden>
-                            {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              </PillMenu>
-              <PillMenu id="model" label={t('model')} value={selectedModel ? modelLabel(selectedModel) : t('noModel')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
-                <div className="model-option-list">
+                    {stylePresets.map(preset => (
+                      <button key={preset} type="button" onClick={() => setStyles(preset)}>
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {templatePanel === 'domain' ? (
+                  <div className="paired-option-list capability-option-list" data-testid="domain-template-options">
+                    {(capabilities?.domainTemplates ?? []).map(template => (
+                      <button
+                        key={template.id}
+                        className={template.id === domainTemplateId ? 'active' : ''}
+                        type="button"
+                        onClick={() => {
+                          setDomainTemplateId(template.id)
+                          saveCapabilityPreference({ domainTemplateId: template.id })
+                        }}
+                      >
+                        <strong>{template.name}</strong>
+                        <span>{template.category} · {template.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {templatePanel === 'aesthetic' ? (
+                  <div className="paired-option-list capability-option-list" data-testid="aesthetic-profile-options">
+                    {(capabilities?.aestheticProfiles ?? []).map(profile => (
+                      <button
+                        key={profile.id}
+                        className={profile.id === aestheticProfileId ? 'active' : ''}
+                        type="button"
+                        onClick={() => {
+                          const nextPaletteId = profile.colorPaletteIds[0] ?? capabilities?.defaults.colorPaletteId ?? ''
+                          setAestheticProfileId(profile.id)
+                          setColorPaletteId(nextPaletteId)
+                          saveCapabilityPreference({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
+                        }}
+                      >
+                        <strong>{profile.name}</strong>
+                        <span>{profile.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {templatePanel === 'palette' ? (
+                  <div className="paired-option-list capability-option-list" data-testid="color-palette-options">
+                    {availablePalettes.map(palette => (
+                      <button
+                        key={palette.id}
+                        className={palette.id === colorPaletteId ? 'active' : ''}
+                        type="button"
+                        onClick={() => {
+                          setColorPaletteId(palette.id)
+                          saveCapabilityPreference({ colorPaletteId: palette.id })
+                        }}
+                      >
+                        <strong>{palette.name}</strong>
+                        <span className="swatch-row" aria-hidden>
+                          {palette.colors.map(color => <i key={color} style={{ background: color }} />)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </PairedPillMenu>
+              <PairedPillMenu<ModelPanel>
+                id="model"
+                label={t('model')}
+                value={selectedModel ? modelLabel(selectedModel) : t('noModel')}
+                panels={[{ id: 'models', icon: '◉', label: t('model'), itemCount: Math.max(bootstrap?.models.models.length ?? 1, 1) }]}
+                activePanel={modelPanel}
+                onActivePanelChange={setModelPanel}
+                openMenu={openMenu}
+                setOpenMenu={setOpenMenu}
+              >
+                <div className="paired-option-list model-option-list">
                   {(bootstrap?.models.models ?? []).map(model => (
                     <button
                       key={model.id}
@@ -568,7 +602,7 @@ export default function HomePage(): React.JSX.Element {
                     </button>
                   ))}
                 </div>
-              </PillMenu>
+              </PairedPillMenu>
               <button className="toolbar-icon send" type="button" data-testid="generate-button" disabled={!canSubmit} onClick={() => void submit()}>
                 {status === 'submitting' ? '...' : '↑'}
               </button>
@@ -642,10 +676,85 @@ function SessionGroup(props: {
   )
 }
 
-function PillMenu(props: {
+function PairedPillMenu<TPanel extends string>(props: {
   id: Exclude<OpenMenu, 'workspace' | null>
   label: string
   value: string
+  panels: Array<{
+    id: TPanel
+    icon: string
+    label: string
+    itemCount: number
+  }>
+  activePanel: TPanel | null
+  onActivePanelChange: (panel: TPanel | null) => void
+  children: React.ReactNode
+  openMenu: OpenMenu
+  setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
+}): React.JSX.Element {
+  const isOpen = props.openMenu === props.id
+  const activeIndex = props.activePanel ? Math.max(0, props.panels.findIndex(panel => panel.id === props.activePanel)) : 0
+  const activeItemCount = props.activePanel ? props.panels.find(panel => panel.id === props.activePanel)?.itemCount ?? 1 : 1
+  return (
+    <div className="pill-menu" data-menu-root="true">
+      <button
+        type="button"
+        className="pill-menu-trigger"
+        aria-expanded={isOpen}
+        onClick={() => {
+          props.onActivePanelChange(null)
+          props.setOpenMenu(current => current === props.id ? null : props.id)
+        }}
+      >
+        <span>{props.label}</span>
+        <strong>{props.value}</strong>
+      </button>
+      {isOpen ? (
+        <div
+          className="paired-popover-wrap"
+          data-testid={`${props.id}-paired-popover`}
+          style={{
+            '--paired-panel-index': String(activeIndex),
+            '--paired-panel-items': String(activeItemCount),
+            '--paired-panel-count': String(props.panels.length),
+          } as React.CSSProperties}
+        >
+          <div className="paired-parent-popover">
+            <div className="paired-parent-list" role="menu" aria-label={props.label} data-testid={`${props.id}-panel-options`}>
+              {props.panels.map(panel => (
+                <button
+                  key={panel.id}
+                  className={panel.id === props.activePanel ? 'active' : ''}
+                  type="button"
+                  onMouseEnter={() => props.onActivePanelChange(panel.id)}
+                  onFocus={() => props.onActivePanelChange(panel.id)}
+                  onClick={() => props.onActivePanelChange(panel.id)}
+                >
+                  <span aria-hidden>{panel.icon}</span>
+                  <strong>{panel.label}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+          {props.activePanel ? (
+            <div className="paired-child-popover">
+              <div className="paired-child-panel">
+                {props.children}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function DirectPillMenu(props: {
+  id: Exclude<OpenMenu, 'workspace' | null>
+  label: string
+  value: string
+  itemCount: number
+  columnCount?: number
   children: React.ReactNode
   openMenu: OpenMenu
   setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
@@ -663,7 +772,14 @@ function PillMenu(props: {
         <strong>{props.value}</strong>
       </button>
       {isOpen ? (
-        <div className="pill-popover">
+        <div
+          className="direct-popover"
+          data-testid={`${props.id}-direct-popover`}
+          style={{
+            '--direct-panel-items': String(props.itemCount),
+            '--direct-panel-columns': String(props.columnCount ?? 1),
+          } as React.CSSProperties}
+        >
           {props.children}
         </div>
       ) : null}
