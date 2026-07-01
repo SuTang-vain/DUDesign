@@ -90,6 +90,77 @@ export type BrandStyleReference = {
   forbiddenRules: string[]
 }
 
+export type DesignTemplatePackSource = 'official' | 'user' | 'workspace' | 'imported'
+
+export type DesignTemplatePackFormat = 'dudesign-template-v1' | 'design-md'
+
+export type DesignTemplatePackVisibility = 'private' | 'workspace' | 'public'
+
+export type DesignTemplatePackStatus = 'draft' | 'published' | 'archived' | 'disabled'
+
+export type DesignTemplatePackLintStatus = 'unknown' | 'passed' | 'warning' | 'failed'
+
+export type DesignTokenTypography = {
+  fontFamily?: string
+  fontSize?: string
+  fontWeight?: string | number
+  lineHeight?: string | number
+  letterSpacing?: string
+  fontFeature?: string
+  fontVariation?: string
+}
+
+export type DesignTemplatePack = {
+  schemaVersion: string
+  id: ID
+  source: DesignTemplatePackSource
+  format: DesignTemplatePackFormat
+  visibility: DesignTemplatePackVisibility
+  status: DesignTemplatePackStatus
+  name: string
+  description: string | null
+  version: string
+  designTokens: {
+    colors: Record<string, string>
+    typography: Record<string, DesignTokenTypography>
+    spacing: Record<string, string | number>
+    rounded: Record<string, string>
+    components: Record<string, Record<string, unknown>>
+  }
+  rationale: {
+    overview: string | null
+    colors: string | null
+    typography: string | null
+    layout: string | null
+    elevation: string | null
+    shapes: string | null
+    components: string | null
+    dos: string[]
+    donts: string[]
+    sections: Record<string, string>
+  }
+  previewArtifactId: ID | null
+  lintStatus: DesignTemplatePackLintStatus
+  createdByUserId: ID | null
+}
+
+export type DesignTemplatePackLintFinding = {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  path: string
+  message: string
+}
+
+export type DesignTemplatePackImportResult = {
+  pack: DesignTemplatePack
+  findings: DesignTemplatePackLintFinding[]
+  summary: {
+    errors: number
+    warnings: number
+    info: number
+  }
+}
+
 export type AdvancedTemplateConstraints = {
   colorPaletteId?: ID | null
   styleNotes?: string[]

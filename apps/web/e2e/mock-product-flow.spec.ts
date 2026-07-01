@@ -61,7 +61,7 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
   await expect(page.locator('.context-child-panel').getByRole('button', { name: 'Existing HTML' })).toBeVisible()
   await expect(page.locator('.context-child-panel').getByText('Upload HTML')).toBeVisible()
 
-  await page.getByRole('button', { name: /Design direction/ }).click()
+  await page.getByTestId('template-pill-trigger').click()
   await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeHidden()
   await expect(page.getByTestId('design-direction-picker')).toBeVisible()
   await expect(page.getByRole('tab', { name: /Scene/ })).toBeVisible()
@@ -84,14 +84,18 @@ test('workbench can choose capability distribution options', async ({ page }) =>
     }
   })
 
-  await page.getByRole('button', { name: /Design direction/ }).click()
+  await page.getByTestId('template-pill-trigger').click()
   await page.getByTestId('scene-options').getByRole('button', { name: /Premium Product Page/ }).click()
   await page.getByRole('tab', { name: /Visual/ }).click()
   await page.getByTestId('visual-options').getByRole('button', { name: /Premium Minimal/ }).click()
   await page.getByRole('tab', { name: /Advanced/ }).click()
+  await expect(page.getByTestId('advanced-options')).toBeVisible()
   await page.getByTestId('palette-options').getByRole('button', { name: /Minimal Mono/ }).click()
   await page.getByTestId('style-notes-input').fill('premium product storytelling')
-  await page.getByTestId('brand-reference-options').getByRole('button', { name: /Apple-inspired/ }).click()
+  const appleReference = page.getByTestId('brand-reference-options').locator('button').filter({ hasText: 'Apple-inspired' })
+  await appleReference.scrollIntoViewIfNeeded()
+  await expect(appleReference).toBeVisible()
+  await appleReference.click()
   await page.getByTestId('reference-brand-input').fill('Apple-inspired')
   await page.getByTestId('negative-requirements-input').fill('No busy gradients')
 
@@ -237,7 +241,7 @@ test('settings menu switches global language between English and Chinese', async
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
 })
 
-test('runtime activity hides raw delta by default and code view uses a tail buffer', async ({ page }) => {
+test('runtime activity hides raw delta and completed cards keep preview clean', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
   await page.getByTestId('prompt-input').fill('A long code tail buffer stress page with a private raw delta marker')
@@ -252,8 +256,7 @@ test('runtime activity hides raw delta by default and code view uses a tail buff
   await activity.getByText('Debug raw assistant stream').click()
   await expect(activity).toContainText('private raw delta marker')
 
-  await page.getByRole('button', { name: 'Code' }).first().click()
-  await page.getByRole('button', { name: 'styles.css' }).first().click()
-  await expect(page.getByTestId('variation-code-stream').first()).toContainText('tail buffer')
-  await expect(page.getByTestId('code-tail-notice').first()).toContainText('compacted')
+  await expect(page.getByText('3 of 3 variations completed')).toBeVisible()
+  await expect(page.locator('.variation-view-tabs')).toHaveCount(0)
+  await expect(page.locator('.code-stream-trace')).toHaveCount(0)
 })

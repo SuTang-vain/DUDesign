@@ -745,6 +745,7 @@ function DirectPillMenu(props: {
       <button
         type="button"
         className={`pill-menu-trigger${props.id === 'template' ? ' direction-pill-trigger' : ''}`}
+        data-testid={`${props.id}-pill-trigger`}
         aria-expanded={isOpen}
         onClick={() => props.setOpenMenu(current => current === props.id ? null : props.id)}
       >

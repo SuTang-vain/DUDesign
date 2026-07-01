@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignEvent } from '@dudesign/contracts'
 import { CapabilitySummary } from '@/components/CapabilitySummary'
-import { CodeFileTrace, CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
+import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { apiUrl, getDesignJob, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
 import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
@@ -41,8 +41,6 @@ type CodeFileSet = {
   activePath: string
 }
 
-type VariationViewMode = 'preview' | 'code'
-
 type JobOutcome = {
   kind: 'partial' | 'failed'
   title: string
@@ -56,7 +54,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const [rawStreamLines, setRawStreamLines] = useState<RawStreamLine[]>([])
   const [qualityByVariation, setQualityByVariation] = useState<Record<string, ArtifactQuality>>({})
   const [codeStreams, setCodeStreams] = useState<Record<string, CodeFileSet>>({})
-  const [viewModes, setViewModes] = useState<Record<string, VariationViewMode>>({})
   const [streamState, setStreamState] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [error, setError] = useState<string | null>(null)
   const activitySequence = useRef(0)
@@ -214,8 +211,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       <section data-testid="variation-grid" className="variation-grid">
         {variations.map(variation => {
           const codeFiles = codeStreams[variation.id]
-          const viewMode = viewModes[variation.id] ?? 'preview'
-          const showCode = Boolean(codeFiles) && (!variation.previewUrl || viewMode === 'code')
+          const showCode = Boolean(codeFiles) && !variation.previewUrl && !variation.screenshotUrl
           const quality = qualityByVariation[variation.id] ?? qualityForVariation(snapshot, variation)
           return (
             <article key={variation.id} data-testid="variation-card" className={`variation-card ${variation.status === 'failed' ? 'failed' : ''}`}>
@@ -227,24 +223,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 <div className={`quality-banner ${quality.status}`} data-testid="variation-quality-banner">
                   <strong>{quality.status === 'fail' ? 'Quality failed' : 'Quality warning'}</strong>
                   <span>{quality.issues[0] ?? 'Generated artifact needs attention.'}</span>
-                </div>
-              ) : null}
-              {variation.previewUrl && codeFiles ? (
-                <div className="variation-view-tabs" role="tablist" aria-label={`${variation.title ?? variation.id} view`}>
-                  <button
-                    type="button"
-                    className={viewMode === 'preview' ? 'active' : ''}
-                    onClick={() => setViewModes(current => ({ ...current, [variation.id]: 'preview' }))}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    type="button"
-                    className={viewMode === 'code' ? 'active' : ''}
-                    onClick={() => setViewModes(current => ({ ...current, [variation.id]: 'code' }))}
-                  >
-                    Code
-                  </button>
                 </div>
               ) : null}
               <div className="preview-frame">
@@ -286,9 +264,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
               </div>
               {variation.status === 'failed' ? (
                 <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = '/'} />
-              ) : null}
-              {codeFiles && variation.previewUrl && viewMode === 'preview' ? (
-                <CodeFileTrace files={codeFilesForViewer(codeFiles)} activePath={codeFiles.activePath} testId="variation-code-stream" />
               ) : null}
               <div className="variation-meta">
                 <span>{variation.outputTokens.toLocaleString()} tok</span>
