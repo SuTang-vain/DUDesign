@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { Pool } from 'pg'
+import type { DesignEvent } from '@dudesign/contracts'
 import { PostgresRepository } from './postgresRepository.js'
 
 const POSTGRES_TEST_URL = process.env.DUDESIGN_POSTGRES_TEST_URL
@@ -143,6 +144,16 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       colorPaletteId: 'pal_minimal_mono',
       loopProfileId: 'loop_standard',
     })
+    const driftedEvent = {
+      schemaVersion: '2026-06-26.dudesign-events.v1',
+      type: 'design.variation_streaming',
+      jobId: job.id,
+      sessionId: session.id,
+      variationId: variation.id,
+      payload: { message: 'Runtime event without timestamp' },
+    } as unknown as DesignEvent
+    const persistedEvent = await repository.appendDesignEvent(driftedEvent)
+    assert.match(persistedEvent.timestamp, /^\d{4}-/)
 
     await repository.flush()
     await repository.close()
@@ -248,6 +259,9 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(snapshot?.jobs.length, 1)
       assert.equal(snapshot?.variations.length, 1)
       assert.equal(snapshot?.artifacts.length, 3)
+      const events = await hydrated.listDesignEvents(job.id)
+      assert.equal(events.length, 1)
+      assert.match(events[0]?.timestamp ?? '', /^\d{4}-/)
     } finally {
       await hydrated.close()
     }

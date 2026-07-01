@@ -398,12 +398,14 @@ export class PostgresRepository extends InMemoryStore {
   }
 
   override async appendDesignEvent(event: DesignEvent): Promise<DesignEvent> {
-    if (!event.jobId) return event
-    await this.persistDesignEvent(event)
-    const events = this.designEvents.get(event.jobId) ?? []
-    events.push(event)
-    this.designEvents.set(event.jobId, events)
-    return event
+    const jobId = event.jobId
+    if (!jobId) return event
+    const normalized = normalizeDesignEventForPersistence(event)
+    await this.persistDesignEvent(normalized)
+    const events = this.designEvents.get(jobId) ?? []
+    events.push(normalized)
+    this.designEvents.set(jobId, events)
+    return normalized
   }
 
   override async listDesignEvents(jobId: string): Promise<DesignEvent[]> {
@@ -2062,18 +2064,19 @@ export class PostgresRepository extends InMemoryStore {
 
   private async persistDesignEvent(event: DesignEvent): Promise<void> {
     if (!event.jobId) return
+    const normalized = normalizeDesignEventForPersistence(event)
     await this.pool.query(`
       insert into design_events (job_id, session_id, variation_id, type, schema_version, payload, event, created_at)
       values ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)
     `, [
-      event.jobId,
-      event.sessionId ?? null,
-      event.variationId ?? null,
-      event.type,
-      event.schemaVersion,
-      JSON.stringify(event.payload),
-      JSON.stringify(event),
-      event.timestamp,
+      normalized.jobId,
+      normalized.sessionId ?? null,
+      normalized.variationId ?? null,
+      normalized.type,
+      normalized.schemaVersion,
+      JSON.stringify(normalized.payload),
+      JSON.stringify(normalized),
+      normalized.timestamp,
     ])
   }
 
@@ -2528,7 +2531,16 @@ function mapAuthSession(row: any): AuthSession {
 
 function mapDesignEvent(row: any): DesignEvent {
   const value = row.event
-  return (typeof value === 'string' ? JSON.parse(value) : value) as DesignEvent
+  return normalizeDesignEventForPersistence((typeof value === 'string' ? JSON.parse(value) : value) as DesignEvent)
+}
+
+function normalizeDesignEventForPersistence(event: DesignEvent): DesignEvent {
+  const record = event as DesignEvent & { createdAt?: string }
+  const timestamp = record.timestamp ?? record.createdAt ?? nowIso()
+  return {
+    ...event,
+    timestamp,
+  }
 }
 
 function authIdentityKey(provider: AuthIdentity['provider'], providerSubject: string): string {
