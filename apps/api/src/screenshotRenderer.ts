@@ -1,4 +1,5 @@
 import type { DeviceTarget } from '@dudesign/contracts'
+import { getPooledChromiumBrowser } from './playwrightBrowserPool.js'
 
 export type ScreenshotDevice = DeviceTarget
 
@@ -20,10 +21,10 @@ export async function renderHtmlScreenshots(
   devices: ScreenshotDevice[] = ['desktop', 'tablet', 'mobile'],
   timeoutMs = 8000,
 ): Promise<RenderedScreenshot[]> {
-  const { chromium } = await import('playwright')
-  const browser = await chromium.launch({ headless: true })
+  const browser = await getPooledChromiumBrowser()
+  const screenshots: RenderedScreenshot[] = []
+  const pages = []
   try {
-    const screenshots: RenderedScreenshot[] = []
     for (const device of devices) {
       const viewport = VIEWPORTS[device]
       const page = await browser.newPage({
@@ -31,6 +32,7 @@ export async function renderHtmlScreenshots(
         deviceScaleFactor: 1,
         isMobile: device === 'mobile',
       })
+      pages.push(page)
       try {
         page.setDefaultTimeout(timeoutMs)
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
@@ -52,6 +54,6 @@ export async function renderHtmlScreenshots(
     }
     return screenshots
   } finally {
-    await browser.close()
+    await Promise.allSettled(pages.map(page => page.close()))
   }
 }

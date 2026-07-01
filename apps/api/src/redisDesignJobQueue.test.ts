@@ -107,6 +107,7 @@ describe('RedisDesignJobQueue configuration', () => {
   it('keeps stable job names for cross-process producers and workers', () => {
     assert.equal(designJobQueueJobNames.designJob, 'design_job')
     assert.equal(designJobQueueJobNames.refineJob, 'refine_job')
+    assert.equal(designJobQueueJobNames.screenshotJob, 'screenshot_job')
   })
 })
 

@@ -7,8 +7,11 @@ import type {
   CreateSourceArtifactResponse,
   DesignJobSnapshotResponse,
   ExportVariationResponse,
+  ListDesignTemplatePacksResponse,
   RefineVariationResponse,
+  RepairVariationPreviewResponse,
   RestoreVariationVersionResponse,
+  SaveDesignTemplatePackResponse,
   SharedVariationResponse,
   ShareVariationResponse,
   VariationDetailResponse,
@@ -18,6 +21,7 @@ import type {
 import type { Artifact } from '@dudesign/domain'
 import { ApplicationService } from './service.js'
 import { createApiServer } from './server.js'
+import { closePooledChromiumBrowser } from './playwrightBrowserPool.js'
 
 type JobSnapshot = DesignJobSnapshotResponse
 
@@ -44,6 +48,7 @@ export async function startApiFlowHarness(service: ApplicationService): Promise<
           else resolve()
         })
       })
+      await closePooledChromiumBrowser()
     },
   }
 }
@@ -203,6 +208,45 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   const existingStoredJob = await harness.service.store.getJobById(existingJob.job.id)
   assert.equal(existingStoredJob?.sourceMode, 'from_existing_html')
 
+  const initialTemplates = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates')
+  assert.ok(initialTemplates.templates.length >= 6)
+  const importedTemplate = await postJson<SaveDesignTemplatePackResponse>('/api/design-templates/import-design-md', {
+    name: 'Smoke Private Template',
+    designMd: `---
+name: Smoke Private Template
+version: 1.0.0
+colors:
+  primary: "#102A43"
+  on-primary: "#FFFFFF"
+typography:
+  body:
+    fontFamily: Inter
+    fontSize: 16px
+spacing:
+  md: 24px
+rounded:
+  sm: 6px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.sm}"
+---
+
+## Overview
+
+Reusable smoke test template.
+
+## Do's and Don'ts
+
+- Do: Keep the saved direction clear.
+- Don't: Copy public brand trade dress.
+`,
+  })
+  assert.equal(importedTemplate.template.source, 'user')
+  assert.equal(importedTemplate.template.createdByUserId, 'usr_dev')
+  assert.equal(importedTemplate.summary.errors, 0)
+
   const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
     workspaceId: bootstrap.workspace.id,
     mode: 'new_html',
@@ -221,10 +265,16 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
         aestheticProfileId: 'aes_trustworthy_saas',
         colorPaletteId: 'pal_blue_white_trust',
         brandStyleReferenceId: 'brand_apple_inspired',
+        designTemplatePackIds: [importedTemplate.template.id],
+        autoDistributeTemplatePacks: true,
       },
       automation: {
         loopProfileId: 'loop_standard',
         maxRepairAttempts: 1,
+      },
+      plugins: {
+        skillIds: ['sk_static_export_safe', 'sk_accessibility_first'],
+        mcpToolIds: ['mcp_accessibility_validate'],
       },
     },
     templateRequirements: {
@@ -255,6 +305,8 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     automation?: {
       loopProfile?: { id?: string }
       maxRepairAttempts?: number
+      maxCostCents?: number | null
+      maxDurationMs?: number
     }
   } | undefined
   assert.equal(capabilitySnapshot?.schemaVersion, '2026-07-01.dudesign-capabilities.v2')
@@ -264,6 +316,8 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(capabilitySnapshot?.template?.brandStyleReference?.id, 'brand_apple_inspired')
   assert.equal(capabilitySnapshot?.automation?.loopProfile?.id, 'loop_standard')
   assert.equal(capabilitySnapshot?.automation?.maxRepairAttempts, 1)
+  assert.equal(capabilitySnapshot?.automation?.maxCostCents, 200)
+  assert.equal(capabilitySnapshot?.automation?.maxDurationMs, 300000)
   const advancedConstraints = storedCreatedJob?.templateRequirements.advancedConstraints as {
     brandStyleReferenceId?: string | null
     negativeRequirements?: string[]
@@ -275,6 +329,16 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.colorPalette.id, 'pal_blue_white_trust')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.brandStyleReference?.id, 'brand_apple_inspired')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_standard')
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.maxCostCents, 200)
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.maxDurationMs, 300000)
+  assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_static_export_safe', 'sk_accessibility_first'])
+  assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_accessibility_validate'])
+  assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.toolPolicy.allowedMcpToolIds, ['mcp_accessibility_validate'])
+  assert.equal(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.skills[0]?.id, 'sk_static_export_safe')
+  assert.equal(jobSnapshot.job.designTemplatePacks.length, 3)
+  assert.equal(jobSnapshot.job.designTemplatePacks[0]!.id, importedTemplate.template.id)
+  assert.equal(new Set(jobSnapshot.variations.map(variation => variation.designTemplatePack?.id)).size, 3)
+  assert.equal(jobSnapshot.variations[0]!.designTemplatePack?.id, importedTemplate.template.id)
   assert.equal(jobSnapshot.variations.length, 3)
   assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
   assert.equal(jobSnapshot.artifacts.filter(artifact => artifact.kind === 'html').length, 3)
@@ -295,6 +359,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(beforeRefine.currentArtifact?.version, 1)
   assert.equal(beforeRefine.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_fintech_trust')
   assert.equal(beforeRefine.job.capabilitySnapshot?.template.aestheticProfile.id, 'aes_trustworthy_saas')
+  assert.equal(beforeRefine.variation.designTemplatePack?.id, importedTemplate.template.id)
 
   const refined = await postJson<RefineVariationResponse>(`/api/variations/${variationId}/refine`, {
     prompt: 'Make the hero more confident and improve mobile spacing.',
@@ -316,6 +381,23 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     && artifact.url?.includes('/screenshots/'),
   ), true)
   assert.equal(afterRefine.artifacts.find(artifact => artifact.id === afterRefine.currentArtifact?.id)?.isCurrent, true)
+
+  const repairedPreview = await postJson<RepairVariationPreviewResponse>(`/api/variations/${variationId}/preview/repair`, {
+    artifactId: afterRefine.currentArtifact!.id,
+  })
+  assert.equal(repairedPreview.artifact.id, afterRefine.currentArtifact!.id)
+  assert.equal(repairedPreview.queueJob.kind, 'screenshot_job')
+  await waitForScreenshot(createdJob.job.id, variationId, afterRefine.currentArtifact?.id)
+
+  const savedTemplate = await postJson<SaveDesignTemplatePackResponse>(`/api/variations/${variationId}/save-template`, {
+    name: 'Saved Smoke Template',
+    artifactId: afterRefine.currentArtifact!.id,
+  })
+  assert.equal(savedTemplate.template.source, 'user')
+  assert.equal(savedTemplate.template.createdByUserId, 'usr_dev')
+  assert.equal(savedTemplate.template.previewArtifactId, afterRefine.currentArtifact!.id)
+  const templatesAfterSave = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates')
+  assert.equal(templatesAfterSave.templates.some(template => template.id === savedTemplate.template.id), true)
 
   const annotated = await postJson<CreateAnnotationBatchResponse>(`/api/variations/${variationId}/annotations`, {
     artifactId: afterRefine.currentArtifact!.id,
@@ -566,6 +648,51 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     && artifact.previewUrl === `/api/variations/${variationId}/preview`
     && artifact.shareCount >= 1,
   ))
+  const adminHtmlArtifact = adminArtifacts.artifacts.find(artifact =>
+    artifact.variationId === variationId
+    && artifact.kind === 'html'
+    && artifact.shareCount >= 1
+  )
+  assert.ok(adminHtmlArtifact)
+  const rebuiltScreenshot = await postJson<{
+    queueJob: { kind: string; status: string }
+    audit: { action: string }
+  }>(`/api/admin/artifacts/${adminHtmlArtifact.id}/rebuild-screenshot`, {
+    reason: 'Smoke rebuild screenshot',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'operator' },
+  })
+  assert.equal(rebuiltScreenshot.queueJob.kind, 'screenshot_job')
+  assert.equal(rebuiltScreenshot.audit.action, 'artifact.screenshot_rebuild')
+
+  const repairedExport = await postJson<{
+    exportArtifact: { id: string; kind: string; downloadUrl: string }
+    audit: { action: string }
+  }>(`/api/admin/artifacts/${adminHtmlArtifact.id}/repair-export`, {
+    reason: 'Smoke repair export',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'operator' },
+  })
+  assert.equal(repairedExport.exportArtifact.kind, 'export_zip')
+  assert.match(repairedExport.exportArtifact.downloadUrl, /^\/api\/artifacts\/.+\/download$/)
+  assert.equal(repairedExport.audit.action, 'artifact.export_repair')
+
+  const adminRevocableShare = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
+    visibility: 'public',
+  })
+  const adminRevocableShareDetail = await getJson<SharedVariationResponse>(`/api/shares/${adminRevocableShare.share.token}`)
+  const revokedArtifactShares = await postJson<{
+    revokedCount: number
+    audit: { action: string }
+  }>(`/api/admin/artifacts/${adminRevocableShareDetail.artifact.id}/revoke-shares`, {
+    reason: 'Smoke revoke shares',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'operator' },
+  })
+  assert.equal(revokedArtifactShares.revokedCount >= 1, true)
+  assert.equal(revokedArtifactShares.audit.action, 'artifact.shares_revoke')
+  const adminRevokedShareResponse = await fetch(`${baseUrl}/api/shares/${adminRevocableShare.share.token}`)
+  assert.equal(adminRevokedShareResponse.status, 410)
 
   const supportLookup = await getJson<{
     users: Array<{
@@ -632,6 +759,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     errorCode: 'RUNTIME_FAILED',
     errorMessage: 'Failed for owner@example.com with token=ghp_admin_redaction_123456789 at /Users/tangyaoyue/Desktop/private/input.html',
   })
+  await new Promise(resolve => setTimeout(resolve, 5))
   await harness.service.store.setJobStatus(failedJob.id, 'failed')
 
   const failedSupportLookup = await getJson<{

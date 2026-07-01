@@ -1,7 +1,10 @@
-export type QueueJobKind = 'design_job' | 'refine_job'
+import type { DeviceTarget } from '@dudesign/contracts'
+
+export type QueueJobKind = 'design_job' | 'refine_job' | 'screenshot_job'
 export const designJobQueueJobNames = {
   designJob: 'design_job',
   refineJob: 'refine_job',
+  screenshotJob: 'screenshot_job',
 } as const
 export type QueueJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
@@ -30,6 +33,24 @@ export type RefineJobQueuePayload = {
   workspaceId: string
   variationId: string
   baseArtifactId: string
+  prompt?: string | null
+  annotationPromptSuffix?: string | null
+  deviceContext?: DeviceTarget | null
+  source?: 'manual' | 'automation_loop'
+  attempt?: number | null
+  createdAt: string
+}
+
+export type ScreenshotJobQueuePayload = {
+  jobId: string | null
+  sessionId: string
+  variationId: string
+  artifactId: string
+  idempotencyKey: string
+  userId: string
+  workspaceId: string
+  source: 'mock-runtime' | 'babel-o-runtime' | 'babel-o-workspace' | 'repair'
+  reason: 'artifact_created' | 'repair_requested' | 'restore_requested'
   createdAt: string
 }
 
@@ -50,11 +71,13 @@ export type QueueJobState = {
 export type DesignJobQueueConsumer = {
   runDesignJob(payload: DesignJobQueuePayload): Promise<void>
   runRefineJob(payload: RefineJobQueuePayload): Promise<void>
+  runScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<void>
 }
 
 export type DesignJobQueue = {
   enqueueDesignJob(payload: DesignJobQueuePayload): Promise<QueueJobState>
   enqueueRefineJob(payload: RefineJobQueuePayload): Promise<QueueJobState>
+  enqueueScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<QueueJobState>
   cancelJob(idempotencyKey: string, reason?: string): Promise<QueueJobState | null>
   getJobState(idempotencyKey: string): Promise<QueueJobState | null>
   setConsumer?(consumer: DesignJobQueueConsumer): void
@@ -70,6 +93,11 @@ type QueueRecord =
   | {
       kind: 'refine_job'
       payload: RefineJobQueuePayload
+      state: QueueJobState
+    }
+  | {
+      kind: 'screenshot_job'
+      payload: ScreenshotJobQueuePayload
       state: QueueJobState
     }
 
@@ -98,6 +126,14 @@ export class InMemoryDesignJobQueue implements DesignJobQueue {
       kind: 'refine_job',
       payload,
       state: createState('refine_job', payload.idempotencyKey, payload.createdAt),
+    })
+  }
+
+  async enqueueScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<QueueJobState> {
+    return this.enqueue({
+      kind: 'screenshot_job',
+      payload,
+      state: createState('screenshot_job', payload.idempotencyKey, payload.createdAt),
     })
   }
 
@@ -155,7 +191,8 @@ export class InMemoryDesignJobQueue implements DesignJobQueue {
     this.records.set(record.state.idempotencyKey, record)
     try {
       if (record.kind === 'design_job') await this.consumer.runDesignJob(record.payload)
-      else await this.consumer.runRefineJob(record.payload)
+      else if (record.kind === 'refine_job') await this.consumer.runRefineJob(record.payload)
+      else await this.consumer.runScreenshotJob(record.payload)
       if (record.state.status !== 'cancelled') {
         record.state = {
           ...record.state,

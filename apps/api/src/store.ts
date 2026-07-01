@@ -9,6 +9,7 @@ import type {
   User,
   UserModelAccess,
   Workspace,
+  WorkspaceMember,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
 import type {
@@ -37,8 +38,9 @@ import type {
   VariationJobContext,
   VariationRefineContext,
 } from './repository.js'
-import type { UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
+import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 
 export type SessionMessage = {
   id: string
@@ -72,9 +74,33 @@ export type AuditLog = {
   createdAt: string
 }
 
+export type AuthIdentity = {
+  id: string
+  userId: string
+  provider: 'password'
+  providerSubject: string
+  passwordHash: string | null
+  verifiedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AuthSession = {
+  id: string
+  userId: string
+  tokenHash: string
+  userAgent: string | null
+  ipHash: string | null
+  expiresAt: string
+  revokedAt: string | null
+  createdAt: string
+  lastSeenAt: string
+}
+
 export class InMemoryStore implements ApplicationRepository {
   readonly users = new Map<string, User>()
   readonly workspaces = new Map<string, Workspace>()
+  readonly workspaceMembers = new Map<string, WorkspaceMember>()
   readonly sessions = new Map<string, DesignSession>()
   readonly messages = new Map<string, SessionMessage[]>()
   readonly jobs = new Map<string, DesignJob>()
@@ -84,9 +110,13 @@ export class InMemoryStore implements ApplicationRepository {
   readonly modelServices = new Map<string, ModelService>()
   readonly userModelAccess = new Map<string, UserModelAccess>()
   readonly userCapabilityPreferences = new Map<string, UserCapabilityPreference>()
+  readonly designTemplatePacks = new Map<string, DesignTemplatePack>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
   readonly auditLogs: AuditLog[] = []
   readonly usageEvents: UsageEvent[] = []
+  readonly designEvents = new Map<string, DesignEvent[]>()
+  readonly authIdentities = new Map<string, AuthIdentity>()
+  readonly authSessions = new Map<string, AuthSession>()
 
   readonly devUser: User
   readonly devWorkspace: Workspace
@@ -116,10 +146,159 @@ export class InMemoryStore implements ApplicationRepository {
     this.altUser = alternate.user
     this.altWorkspace = alternate.workspace
     this.seedModelServices(now)
+    this.seedDesignTemplatePacks()
   }
 
   getUserById(userId: string): MaybePromise<User | null> {
     return this.users.get(userId) ?? null
+  }
+
+  getUserByEmail(email: string): MaybePromise<User | null> {
+    const normalized = normalizeEmail(email)
+    return [...this.users.values()].find(user => user.email.toLowerCase() === normalized) ?? null
+  }
+
+  updateUserStatus(userId: string, status: User['status']): MaybePromise<User | null> {
+    const user = this.users.get(userId)
+    if (!user) return null
+    const updated = {
+      ...user,
+      status,
+      updatedAt: nowIso(),
+    }
+    this.users.set(userId, updated)
+    return updated
+  }
+
+  updateUserMetadata(userId: string, metadata: Record<string, unknown>): MaybePromise<User | null> {
+    const user = this.users.get(userId)
+    if (!user) return null
+    const updated = {
+      ...user,
+      metadata,
+      updatedAt: nowIso(),
+    }
+    this.users.set(userId, updated)
+    return updated
+  }
+
+  createUserWithWorkspace(input: {
+    email: string
+    name?: string | null
+  }): MaybePromise<{ user: User; workspace: Workspace }> {
+    const now = nowIso()
+    const userId = createId('usr')
+    const workspaceId = createId('ws')
+    const user: User = {
+      id: userId,
+      email: normalizeEmail(input.email),
+      name: input.name?.trim() || null,
+      avatarUrl: null,
+      status: 'active',
+      memoryNamespace: `memory:user:${userId}`,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    const workspace: Workspace = {
+      id: workspaceId,
+      ownerId: user.id,
+      teamId: null,
+      name: 'Personal Workspace',
+      mode: 'hosted',
+      visibility: 'private',
+      storageKey: `workspaces/${workspaceId}`,
+      status: 'active',
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.users.set(user.id, user)
+    this.workspaces.set(workspace.id, workspace)
+    this.workspaceMembers.set(workspaceMemberKey(workspace.id, user.id), {
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: 'owner',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    })
+    return { user, workspace }
+  }
+
+  getAuthIdentityByProvider(provider: AuthIdentity['provider'], providerSubject: string): MaybePromise<AuthIdentity | null> {
+    return this.authIdentities.get(authIdentityKey(provider, providerSubject)) ?? null
+  }
+
+  createAuthIdentity(input: {
+    userId: string
+    provider: AuthIdentity['provider']
+    providerSubject: string
+    passwordHash?: string | null
+    verifiedAt?: string | null
+  }): MaybePromise<AuthIdentity> {
+    const now = nowIso()
+    const identity: AuthIdentity = {
+      id: createId('aid'),
+      userId: input.userId,
+      provider: input.provider,
+      providerSubject: normalizeEmail(input.providerSubject),
+      passwordHash: input.passwordHash ?? null,
+      verifiedAt: input.verifiedAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.authIdentities.set(authIdentityKey(identity.provider, identity.providerSubject), identity)
+    return identity
+  }
+
+  createAuthSession(input: {
+    userId: string
+    tokenHash: string
+    userAgent?: string | null
+    ipHash?: string | null
+    expiresAt: string
+  }): MaybePromise<AuthSession> {
+    const now = nowIso()
+    const session: AuthSession = {
+      id: createId('authses'),
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      userAgent: input.userAgent ?? null,
+      ipHash: input.ipHash ?? null,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      createdAt: now,
+      lastSeenAt: now,
+    }
+    this.authSessions.set(session.tokenHash, session)
+    return session
+  }
+
+  getAuthSessionByTokenHash(tokenHash: string): MaybePromise<AuthSession | null> {
+    return this.authSessions.get(tokenHash) ?? null
+  }
+
+  touchAuthSession(tokenHash: string): MaybePromise<AuthSession | null> {
+    const session = this.authSessions.get(tokenHash)
+    if (!session) return null
+    const updated = {
+      ...session,
+      lastSeenAt: nowIso(),
+    }
+    this.authSessions.set(tokenHash, updated)
+    return updated
+  }
+
+  revokeAuthSession(tokenHash: string): MaybePromise<AuthSession | null> {
+    const session = this.authSessions.get(tokenHash)
+    if (!session) return null
+    const revoked = {
+      ...session,
+      revokedAt: nowIso(),
+    }
+    this.authSessions.set(tokenHash, revoked)
+    return revoked
   }
 
   getUserCapabilityPreference(userId: string): MaybePromise<UserCapabilityPreference | null> {
@@ -131,12 +310,63 @@ export class InMemoryStore implements ApplicationRepository {
     return preference
   }
 
+  listDesignTemplatePacks(userId: string, _workspaceId?: string | null): MaybePromise<DesignTemplatePack[]> {
+    return [...this.designTemplatePacks.values()]
+      .filter(template => template.source === 'official' || template.createdByUserId === userId)
+      .filter(template => template.status !== 'archived' && template.status !== 'disabled')
+      .sort((a, b) => Number(a.source !== 'official') - Number(b.source !== 'official') || a.name.localeCompare(b.name))
+  }
+
+  getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null> {
+    const template = this.designTemplatePacks.get(templateId) ?? null
+    if (!template) return null
+    if (template.source === 'official' && template.visibility === 'public') return template
+    if (template.createdByUserId === userId) return template
+    if (workspaceId && template.visibility === 'workspace' && template.id.startsWith(`dtp_ws_${workspaceId}_`)) return template
+    return null
+  }
+
+  saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack> {
+    this.designTemplatePacks.set(template.id, template)
+    return template
+  }
+
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
     return this.workspaces.get(workspaceId) ?? null
   }
 
   getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null> {
-    return [...this.workspaces.values()].find(candidate => candidate.ownerId === userId) ?? null
+    const activeMembershipWorkspaceIds = new Set(
+      [...this.workspaceMembers.values()]
+        .filter(member => member.userId === userId && member.status === 'active')
+        .map(member => member.workspaceId),
+    )
+    return [...this.workspaces.values()]
+      .find(candidate => candidate.ownerId === userId || activeMembershipWorkspaceIds.has(candidate.id)) ?? null
+  }
+
+  getWorkspaceMember(workspaceId: string, userId: string): MaybePromise<WorkspaceMember | null> {
+    return this.workspaceMembers.get(workspaceMemberKey(workspaceId, userId)) ?? null
+  }
+
+  upsertWorkspaceMember(input: {
+    workspaceId: string
+    userId: string
+    role: WorkspaceMember['role']
+    status?: WorkspaceMember['status']
+  }): MaybePromise<WorkspaceMember> {
+    const now = nowIso()
+    const existing = this.workspaceMembers.get(workspaceMemberKey(input.workspaceId, input.userId))
+    const member: WorkspaceMember = {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      role: input.role,
+      status: input.status ?? existing?.status ?? 'active',
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    this.workspaceMembers.set(workspaceMemberKey(member.workspaceId, member.userId), member)
+    return member
   }
 
   listUserModelOptions(userId: string): MaybePromise<{ models: Array<{
@@ -291,6 +521,7 @@ export class InMemoryStore implements ApplicationRepository {
       avatarUrl: null,
       status: 'active',
       memoryNamespace: `memory:user:${input.userId}`,
+      metadata: {},
       createdAt: input.now,
       updatedAt: input.now,
     }
@@ -309,6 +540,14 @@ export class InMemoryStore implements ApplicationRepository {
     }
     this.users.set(user.id, user)
     this.workspaces.set(workspace.id, workspace)
+    this.workspaceMembers.set(workspaceMemberKey(workspace.id, user.id), {
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: 'owner',
+      status: 'active',
+      createdAt: input.now,
+      updatedAt: input.now,
+    })
     return { user, workspace }
   }
 
@@ -364,6 +603,12 @@ export class InMemoryStore implements ApplicationRepository {
       },
     ]
     for (const model of models) this.modelServices.set(model.id, model)
+  }
+
+  private seedDesignTemplatePacks(): void {
+    for (const template of officialDesignTemplatePacks) {
+      this.designTemplatePacks.set(template.id, template)
+    }
   }
 
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage> {
@@ -604,6 +849,18 @@ export class InMemoryStore implements ApplicationRepository {
       .slice(0, limit)
   }
 
+  appendDesignEvent(event: DesignEvent): MaybePromise<DesignEvent> {
+    if (!event.jobId) return event
+    const events = this.designEvents.get(event.jobId) ?? []
+    events.push(event)
+    this.designEvents.set(event.jobId, events)
+    return event
+  }
+
+  listDesignEvents(jobId: string): MaybePromise<DesignEvent[]> {
+    return [...(this.designEvents.get(jobId) ?? [])]
+  }
+
   applyVariationEvent(input: {
     variationId: string
     status?: DesignVariation['status']
@@ -759,6 +1016,12 @@ export class InMemoryStore implements ApplicationRepository {
 
   getShareByToken(token: string): MaybePromise<Share | null> {
     return this.shares.get(token) ?? null
+  }
+
+  listSharesForArtifact(artifactId: string): MaybePromise<Share[]> {
+    return [...this.shares.values()]
+      .filter(share => share.artifactId === artifactId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
   getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null> {
@@ -1287,6 +1550,18 @@ function modelSyncDiffItem(
 function metadataText(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key]
   return typeof value === 'string' && value.trim() ? value : null
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function authIdentityKey(provider: AuthIdentity['provider'], providerSubject: string): string {
+  return `${provider}:${normalizeEmail(providerSubject)}`
+}
+
+function workspaceMemberKey(workspaceId: string, userId: string): string {
+  return `${workspaceId}:${userId}`
 }
 
 function artifactSortKey(artifact: Artifact): string {

@@ -9,9 +9,10 @@ import type {
   UserModelAccess,
   User,
   Workspace,
+  WorkspaceMember,
 } from '@dudesign/domain'
-import type { AnnotationBatch, AuditLog, SessionMessage } from './store.js'
-import type { UserCapabilityPreference } from '@dudesign/contracts'
+import type { AnnotationBatch, AuditLog, AuthIdentity, AuthSession, SessionMessage } from './store.js'
+import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 
 export type MaybePromise<T> = T | Promise<T>
 
@@ -389,6 +390,7 @@ export type AdminMemoryGovernance = {
 export type ApplicationRepository = {
   readonly users: Map<string, User>
   readonly workspaces: Map<string, Workspace>
+  readonly workspaceMembers: Map<string, WorkspaceMember>
   readonly sessions: Map<string, DesignSession>
   readonly messages: Map<string, SessionMessage[]>
   readonly jobs: Map<string, DesignJob>
@@ -400,16 +402,51 @@ export type ApplicationRepository = {
   readonly annotationBatches: Map<string, AnnotationBatch>
   readonly auditLogs: AuditLog[]
   readonly usageEvents: UsageEvent[]
+  readonly designEvents: Map<string, DesignEvent[]>
+  readonly authIdentities: Map<string, AuthIdentity>
+  readonly authSessions: Map<string, AuthSession>
 
   readonly devUser: User
   readonly devWorkspace: Workspace
 
   getUserById(userId: string): MaybePromise<User | null>
+  getUserByEmail(email: string): MaybePromise<User | null>
+  updateUserStatus(userId: string, status: User['status']): MaybePromise<User | null>
+  updateUserMetadata(userId: string, metadata: Record<string, unknown>): MaybePromise<User | null>
+  createUserWithWorkspace(input: { email: string; name?: string | null }): MaybePromise<{ user: User; workspace: Workspace }>
+  getAuthIdentityByProvider(provider: AuthIdentity['provider'], providerSubject: string): MaybePromise<AuthIdentity | null>
+  createAuthIdentity(input: {
+    userId: string
+    provider: AuthIdentity['provider']
+    providerSubject: string
+    passwordHash?: string | null
+    verifiedAt?: string | null
+  }): MaybePromise<AuthIdentity>
+  createAuthSession(input: {
+    userId: string
+    tokenHash: string
+    userAgent?: string | null
+    ipHash?: string | null
+    expiresAt: string
+  }): MaybePromise<AuthSession>
+  getAuthSessionByTokenHash(tokenHash: string): MaybePromise<AuthSession | null>
+  touchAuthSession(tokenHash: string): MaybePromise<AuthSession | null>
+  revokeAuthSession(tokenHash: string): MaybePromise<AuthSession | null>
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null>
   getPrimaryWorkspaceForUser(userId: string): MaybePromise<Workspace | null>
+  getWorkspaceMember(workspaceId: string, userId: string): MaybePromise<WorkspaceMember | null>
+  upsertWorkspaceMember(input: {
+    workspaceId: string
+    userId: string
+    role: WorkspaceMember['role']
+    status?: WorkspaceMember['status']
+  }): MaybePromise<WorkspaceMember>
   listUserModelOptions(userId: string): MaybePromise<{ models: UserModelOption[]; defaultModelId: string | null }>
   getUserCapabilityPreference(userId: string): MaybePromise<UserCapabilityPreference | null>
   saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): MaybePromise<UserCapabilityPreference>
+  listDesignTemplatePacks(userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack[]>
+  getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null>
+  saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
   canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>
@@ -445,6 +482,8 @@ export type ApplicationRepository = {
     variationId?: string
     limit?: number
   }): UsageEvent[]
+  appendDesignEvent(event: DesignEvent): MaybePromise<DesignEvent>
+  listDesignEvents(jobId: string): MaybePromise<DesignEvent[]>
   applyVariationEvent(input: ApplyVariationEventInput): MaybePromise<void>
   createMockArtifact(input: CreateHtmlArtifactInput): MaybePromise<Artifact>
   createArtifact(input: CreateArtifactInput): MaybePromise<Artifact>
@@ -452,6 +491,7 @@ export type ApplicationRepository = {
   createAnnotationBatch(input: CreateAnnotationBatchInput): MaybePromise<AnnotationBatch>
   createShare(input: CreateShareInput): MaybePromise<Share>
   getShareByToken(token: string): MaybePromise<Share | null>
+  listSharesForArtifact(artifactId: string): MaybePromise<Share[]>
   getSharedVariationSnapshot(token: string): MaybePromise<SharedVariationSnapshot | null>
   revokeShare(token: string): MaybePromise<Share | null>
   listAdminJobs(filter?: AdminJobsFilter): {

@@ -4,6 +4,7 @@ import {
   InMemoryDesignJobQueue,
   type DesignJobQueuePayload,
   type RefineJobQueuePayload,
+  type ScreenshotJobQueuePayload,
 } from './designJobQueue.js'
 import { ApplicationDesignJobWorker, attachDesignJobWorker } from './designJobWorker.js'
 
@@ -17,12 +18,16 @@ describe('ApplicationDesignJobWorker', () => {
       async processQueuedRefineJob(payload) {
         calls.push(`refine:${payload.variationId}`)
       },
+      async processQueuedScreenshotJob(payload) {
+        calls.push(`screenshot:${payload.artifactId}`)
+      },
     })
 
     await worker.runDesignJob(designPayload('job_1'))
     await worker.runRefineJob(refinePayload('refine_1'))
+    await worker.runScreenshotJob(screenshotPayload('art_1'))
 
-    assert.deepEqual(calls, ['design:job_1', 'refine:var_refine_1'])
+    assert.deepEqual(calls, ['design:job_1', 'refine:var_refine_1', 'screenshot:art_1'])
   })
 
   it('can attach after enqueue and consume pending jobs', async () => {
@@ -39,6 +44,9 @@ describe('ApplicationDesignJobWorker', () => {
       },
       async processQueuedRefineJob() {
         throw new Error('unexpected refine job')
+      },
+      async processQueuedScreenshotJob() {
+        throw new Error('unexpected screenshot job')
       },
     })
     await queue.flush()
@@ -60,6 +68,9 @@ describe('ApplicationDesignJobWorker', () => {
       },
       async processQueuedRefineJob() {
         throw new Error('unexpected refine job')
+      },
+      async processQueuedScreenshotJob() {
+        throw new Error('unexpected screenshot job')
       },
     })
     await queue.flush()
@@ -97,6 +108,21 @@ function refinePayload(id: string): RefineJobQueuePayload {
     workspaceId: 'wsp_1',
     variationId: 'var_refine_1',
     baseArtifactId: 'art_1',
+    createdAt: '2026-06-30T00:00:00.000Z',
+  }
+}
+
+function screenshotPayload(artifactId: string): ScreenshotJobQueuePayload {
+  return {
+    jobId: 'job_1',
+    sessionId: 'ses_1',
+    variationId: 'var_1',
+    artifactId,
+    idempotencyKey: `queue:screenshot:repair_requested:${artifactId}`,
+    userId: 'usr_1',
+    workspaceId: 'wsp_1',
+    source: 'repair',
+    reason: 'repair_requested',
     createdAt: '2026-06-30T00:00:00.000Z',
   }
 }

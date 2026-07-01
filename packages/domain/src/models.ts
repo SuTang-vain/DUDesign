@@ -4,6 +4,8 @@ export type ISODateTime = string
 export type WorkspaceMode = 'hosted'
 export type WorkspaceStatus = 'active' | 'archived'
 export type WorkspaceVisibility = 'private' | 'team' | 'public'
+export type WorkspaceMemberRole = 'owner' | 'admin' | 'editor' | 'viewer'
+export type WorkspaceMemberStatus = 'active' | 'invited' | 'removed'
 
 export type SessionStatus = 'active' | 'archived'
 export type SourceMode = 'new_html' | 'from_existing_html'
@@ -72,6 +74,7 @@ export type User = {
   avatarUrl: string | null
   status: 'active' | 'disabled'
   memoryNamespace: string
+  metadata: Record<string, unknown>
   createdAt: ISODateTime
   updatedAt: ISODateTime
 }
@@ -86,6 +89,15 @@ export type Workspace = {
   storageKey: string
   status: WorkspaceStatus
   metadata: Record<string, unknown>
+  createdAt: ISODateTime
+  updatedAt: ISODateTime
+}
+
+export type WorkspaceMember = {
+  workspaceId: ID
+  userId: ID
+  role: WorkspaceMemberRole
+  status: WorkspaceMemberStatus
   createdAt: ISODateTime
   updatedAt: ISODateTime
 }

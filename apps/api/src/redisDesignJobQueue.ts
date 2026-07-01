@@ -8,6 +8,7 @@ import {
   type QueueJobState,
   type QueueJobStatus,
   type RefineJobQueuePayload,
+  type ScreenshotJobQueuePayload,
 } from './designJobQueue.js'
 
 type RedisQueuePayload =
@@ -18,6 +19,10 @@ type RedisQueuePayload =
   | {
       kind: 'refine_job'
       payload: RefineJobQueuePayload
+    }
+  | {
+      kind: 'screenshot_job'
+      payload: ScreenshotJobQueuePayload
     }
 
 export type RedisDesignJobQueueOptions = {
@@ -99,6 +104,19 @@ export class RedisDesignJobQueue implements DesignJobQueue {
     return queueStateFromBullJob(job)
   }
 
+  async enqueueScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<QueueJobState> {
+    const job = await this.queue.add(
+      designJobQueueJobNames.screenshotJob,
+      { kind: 'screenshot_job', payload },
+      {
+        ...this.jobOptions,
+        jobId: payload.idempotencyKey,
+        timestamp: Date.parse(payload.createdAt),
+      },
+    )
+    return queueStateFromBullJob(job)
+  }
+
   async cancelJob(idempotencyKey: string, reason?: string): Promise<QueueJobState | null> {
     const job = await this.queue.getJob(idempotencyKey)
     if (!job) return null
@@ -140,9 +158,11 @@ export class RedisDesignJobQueue implements DesignJobQueue {
       this.queue.name,
       async job => {
         await withOptionalTimeout(
-          () => job.data.kind === 'design_job'
-            ? consumer.runDesignJob(job.data.payload)
-            : consumer.runRefineJob(job.data.payload),
+          () => {
+            if (job.data.kind === 'design_job') return consumer.runDesignJob(job.data.payload)
+            if (job.data.kind === 'refine_job') return consumer.runRefineJob(job.data.payload)
+            return consumer.runScreenshotJob(job.data.payload)
+          },
           this.reliabilityPolicy.jobTimeoutMs,
         )
       },

@@ -8,6 +8,7 @@ import { MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gatew
 import { ApplicationService } from './service.js'
 import { InMemoryStore } from './store.js'
 import { RedisDesignJobQueue } from './redisDesignJobQueue.js'
+import type { RequestContext } from './auth.js'
 
 const REDIS_TEST_URL = process.env.DUDESIGN_REDIS_TEST_URL
 
@@ -51,7 +52,7 @@ describe('RedisDesignJobQueue integration', { skip: !REDIS_TEST_URL }, () => {
     await workerService.queue.flush?.()
 
     const sessionResponse = await apiService.createSession(
-      { requestId: 'req_redis_session', userId: store.devUser.id, adminRole: null },
+      devContext('req_redis_session', store.devUser.id),
       {
         workspaceId: store.devWorkspace.id,
         mode: 'new_html',
@@ -59,7 +60,7 @@ describe('RedisDesignJobQueue integration', { skip: !REDIS_TEST_URL }, () => {
       },
     )
     const jobResponse = await apiService.createDesignJob(
-      { requestId: 'req_redis_job', userId: store.devUser.id, adminRole: null },
+      devContext('req_redis_job', store.devUser.id),
       {
         sessionId: sessionResponse.session.id,
         prompt: 'A concise landing page for Redis-backed queue integration.',
@@ -101,7 +102,7 @@ describe('RedisDesignJobQueue integration', { skip: !REDIS_TEST_URL }, () => {
     await workerService.queue.flush?.()
 
     const sessionResponse = await apiService.createSession(
-      { requestId: 'req_redis_unavailable_session', userId: store.devUser.id, adminRole: null },
+      devContext('req_redis_unavailable_session', store.devUser.id),
       {
         workspaceId: store.devWorkspace.id,
         mode: 'new_html',
@@ -111,7 +112,7 @@ describe('RedisDesignJobQueue integration', { skip: !REDIS_TEST_URL }, () => {
     assert.equal(sessionResponse.session.runtimeSessionId, null)
 
     const jobResponse = await apiService.createDesignJob(
-      { requestId: 'req_redis_unavailable_job', userId: store.devUser.id, adminRole: null },
+      devContext('req_redis_unavailable_job', store.devUser.id),
       {
         sessionId: sessionResponse.session.id,
         prompt: 'This queued job should fail clearly when the runtime is unavailable.',
@@ -143,6 +144,9 @@ describe('RedisDesignJobQueue integration', { skip: !REDIS_TEST_URL }, () => {
       },
       async runRefineJob() {
         throw new Error('unexpected refine job')
+      },
+      async runScreenshotJob() {
+        throw new Error('unexpected screenshot job')
       },
     })
     try {
@@ -179,13 +183,23 @@ async function waitForJobStatus(service: ApplicationService, jobId: string, stat
   const startedAt = Date.now()
   while (Date.now() - startedAt < 5000) {
     const snapshot = await service.getDesignJob(
-      { requestId: 'req_redis_wait', userId: 'usr_dev', adminRole: null },
+      devContext('req_redis_wait'),
       jobId,
     )
     if (snapshot.job.status === status) return snapshot
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   throw new Error(`Timed out waiting for Redis-backed job ${jobId} to become ${status}`)
+}
+
+function devContext(requestId: string, userId = 'usr_dev'): RequestContext {
+  return {
+    requestId,
+    userId,
+    adminRole: null,
+    authMode: 'dev',
+    authSessionTokenHash: null,
+  }
 }
 
 async function waitForQueueStatus(queue: RedisDesignJobQueue, idempotencyKey: string, status: 'failed' | 'completed') {

@@ -1,4 +1,5 @@
 import { inflateSync } from 'node:zlib'
+import { getPooledChromiumBrowser } from './playwrightBrowserPool.js'
 
 export type ArtifactQualityReport = {
   status: 'pass' | 'warn' | 'fail'
@@ -58,13 +59,12 @@ export async function analyzeHtmlArtifactQualityWithPixelGate(
 }
 
 async function analyzeRenderedPixelIssues(html: string, timeoutMs = 6000): Promise<string[]> {
-  const { chromium } = await import('playwright')
-  const browser = await chromium.launch({ headless: true })
+  const browser = await getPooledChromiumBrowser()
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 900 },
+    deviceScaleFactor: 1,
+  })
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 900 },
-      deviceScaleFactor: 1,
-    })
     page.setDefaultTimeout(timeoutMs)
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
     await page.waitForTimeout(250)
@@ -74,7 +74,7 @@ async function analyzeRenderedPixelIssues(html: string, timeoutMs = 6000): Promi
     })
     return analyzePngPixelIssues(screenshot)
   } finally {
-    await browser.close()
+    await page.close()
   }
 }
 

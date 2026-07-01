@@ -41,7 +41,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     sendCorsPreflight(res)
     return
   }
-  const ctx = createRequestContext(req.headers)
+  const ctx = await createRequestContext(req.headers, { store: service.store })
   res.setHeader('x-request-id', ctx.requestId)
 
   if (method === 'GET' && url.pathname === '/health') {
@@ -54,6 +54,32 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'POST' && url.pathname === '/api/auth/register') {
+    const result = await service.registerUser(ctx, await readJson(req), requestMeta(req))
+    res.setHeader('set-cookie', result.cookie)
+    sendJson(res, 201, result.body)
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/auth/login') {
+    const result = await service.loginUser(ctx, await readJson(req), requestMeta(req))
+    res.setHeader('set-cookie', result.cookie)
+    sendJson(res, 200, result.body)
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/auth/logout') {
+    const result = await service.logoutUser(ctx)
+    res.setHeader('set-cookie', result.cookie)
+    sendJson(res, 200, result.body)
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/auth/me') {
+    sendJson(res, 200, await service.getCurrentUser(ctx))
+    return
+  }
+
   if (method === 'GET' && url.pathname === '/api/models') {
     sendJson(res, 200, await service.listUserModels(ctx))
     return
@@ -61,6 +87,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (method === 'GET' && url.pathname === '/api/capabilities') {
     sendJson(res, 200, await service.listCapabilities(ctx))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/design-templates') {
+    sendJson(res, 200, await service.listDesignTemplatePacks(ctx, url.searchParams.get('workspaceId')))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/design-templates/import-design-md') {
+    sendJson(res, 201, await service.importDesignTemplatePack(ctx, await readJson(req)))
     return
   }
 
@@ -81,6 +117,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (method === 'GET' && url.pathname === '/api/admin/runtime/health') {
     sendJson(res, 200, await service.getAdminRuntimeHealth(ctx))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/admin/runtime/rollback') {
+    sendJson(res, 202, await service.rollbackAdminRuntimeConfig(ctx, await readJson(req)))
     return
   }
 
@@ -144,6 +185,36 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       variationId: url.searchParams.get('variationId'),
       kind: url.searchParams.get('kind'),
     }))
+    return
+  }
+
+  const adminArtifactScreenshotMatch = url.pathname.match(/^\/api\/admin\/artifacts\/([^/]+)\/rebuild-screenshot$/)
+  if (method === 'POST' && adminArtifactScreenshotMatch) {
+    sendJson(res, 200, await service.rebuildArtifactScreenshotAsAdmin(
+      ctx,
+      decodeURIComponent(adminArtifactScreenshotMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
+  const adminArtifactExportRepairMatch = url.pathname.match(/^\/api\/admin\/artifacts\/([^/]+)\/repair-export$/)
+  if (method === 'POST' && adminArtifactExportRepairMatch) {
+    sendJson(res, 200, await service.repairExportArtifactAsAdmin(
+      ctx,
+      decodeURIComponent(adminArtifactExportRepairMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
+  const adminArtifactRevokeSharesMatch = url.pathname.match(/^\/api\/admin\/artifacts\/([^/]+)\/revoke-shares$/)
+  if (method === 'POST' && adminArtifactRevokeSharesMatch) {
+    sendJson(res, 200, await service.revokeArtifactSharesAsAdmin(
+      ctx,
+      decodeURIComponent(adminArtifactRevokeSharesMatch[1]!),
+      await readJson(req),
+    ))
     return
   }
 
@@ -228,6 +299,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const variationPreviewRepairMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/preview\/repair$/)
+  if (method === 'POST' && variationPreviewRepairMatch) {
+    sendJson(res, 200, await service.repairVariationPreview(
+      ctx,
+      decodeURIComponent(variationPreviewRepairMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
   const variationFilesMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/files$/)
   if (method === 'GET' && variationFilesMatch) {
     sendJson(res, 200, await service.getVariationFiles(ctx, decodeURIComponent(variationFilesMatch[1]!), {
@@ -261,6 +342,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const variationRefineMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine$/)
   if (method === 'POST' && variationRefineMatch) {
     sendJson(res, 200, await service.refineVariation(ctx, decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const variationSaveTemplateMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/save-template$/)
+  if (method === 'POST' && variationSaveTemplateMatch) {
+    sendJson(res, 201, await service.saveVariationAsTemplate(ctx, decodeURIComponent(variationSaveTemplateMatch[1]!), await readJson(req)))
     return
   }
 
@@ -361,30 +448,77 @@ async function streamJobEvents(res: http.ServerResponse, service: ApplicationSer
     'access-control-allow-origin': '*',
   })
 
-  const replayedEvents = service.events.replay(jobId)
-  for (const event of replayedEvents) {
-    writeSse(res, event)
-  }
+  const seen = new Set<string>()
+  let closed = false
+  let unsubscribe: (() => void) | null = null
+  let persistedPoll: ReturnType<typeof setInterval> | null = null
 
-  if (replayedEvents.some(event => event.type === 'design.job_completed')) {
+  const closeStream = () => {
+    if (closed) return
+    closed = true
+    if (persistedPoll) clearInterval(persistedPoll)
+    unsubscribe?.()
     res.end()
-    return
+  }
+  const writeIfNew = (event: DesignEvent) => {
+    if (closed) return
+    const key = designEventReplayKey(event)
+    if (seen.has(key)) return
+    seen.add(key)
+    writeSse(res, event)
+    if (event.type === 'design.job_completed') closeStream()
+  }
+  const pollPersistedEvents = async () => {
+    try {
+      const events = await service.listDesignJobEvents(ctx, jobId)
+      for (const event of events) writeIfNew(event)
+    } catch {
+      closeStream()
+    }
   }
 
-  const unsubscribe = service.events.subscribe(jobId, event => {
-    writeSse(res, event)
-    if (event.type === 'design.job_completed') {
-      res.end()
-      unsubscribe()
-    }
-  })
+  const persistedEvents = await service.listDesignJobEvents(ctx, jobId)
+  for (const event of persistedEvents) writeIfNew(event)
+  for (const event of service.events.replay(jobId)) writeIfNew(event)
+  if (closed) return
 
-  res.on('close', unsubscribe)
+  unsubscribe = service.events.subscribe(jobId, writeIfNew)
+  persistedPoll = setInterval(() => {
+    void pollPersistedEvents()
+  }, 1000)
+
+  res.on('close', () => {
+    closed = true
+    if (persistedPoll) clearInterval(persistedPoll)
+    unsubscribe?.()
+  })
 }
 
 function writeSse(res: http.ServerResponse, event: DesignEvent): void {
   res.write(`event: ${event.type}\n`)
   res.write(`data: ${JSON.stringify(event)}\n\n`)
+}
+
+function designEventReplayKey(event: DesignEvent): string {
+  return [
+    event.timestamp,
+    event.type,
+    event.sessionId ?? '',
+    event.jobId ?? '',
+    event.variationId ?? '',
+    JSON.stringify(event.payload),
+  ].join('|')
+}
+
+function requestMeta(req: http.IncomingMessage): { userAgent: string | null; ip: string | null } {
+  const forwardedFor = req.headers['x-forwarded-for']
+  const ip = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : forwardedFor?.split(',')[0]?.trim() || req.socket.remoteAddress || null
+  const userAgent = Array.isArray(req.headers['user-agent'])
+    ? req.headers['user-agent'][0] ?? null
+    : req.headers['user-agent'] ?? null
+  return { userAgent, ip }
 }
 
 async function readJson(req: http.IncomingMessage): Promise<any> {

@@ -2,12 +2,29 @@ import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import type {
   AdminModelsResponse,
+  SyncAdminModelsResponse,
   AdminUserModelAccessResponse,
   CreateSessionResponse,
   ListUserModelsResponse,
 } from '@dudesign/contracts'
 import type { ModelService } from '@dudesign/domain'
+import type {
+  CancelRuntimeJobInput,
+  CancelRuntimeJobResult,
+  CreateRuntimeSessionInput,
+  RefineVariationInput,
+  ResumeRuntimeSessionInput,
+  RuntimeContract,
+  RuntimeGateway,
+  RuntimeHealth,
+  RuntimeModels,
+  RuntimeResumeResult,
+  RuntimeSessionRef,
+  SpawnVariationAgentsInput,
+} from '@dudesign/runtime-gateway'
+import type { DesignEvent } from '@dudesign/contracts'
 import { ApplicationService } from './service.js'
+import { InMemoryStore } from './store.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
 describe('Model governance API', () => {
@@ -158,13 +175,125 @@ describe('Model governance API', () => {
     assert.equal(missingModel.metadata.runtimeMissingSinceLastSync, true)
   })
 
+  it('preserves configured model services when runtime model discovery is unsupported', async () => {
+    const store = new InMemoryStore()
+    const runtimeModel: ModelService = {
+      id: 'mdl_runtime_preserved',
+      provider: 'babel-o',
+      modelId: 'provider/preserved',
+      displayName: 'Preserved Runtime Model',
+      description: 'Runtime model that must not be marked missing when discovery is unsupported.',
+      enabled: true,
+      isDefault: false,
+      capabilities: ['html_generation'],
+      contextWindow: 8192,
+      inputTokenCostCents: 1,
+      outputTokenCostCents: 2,
+      metadata: {
+        source: 'runtime_discovery',
+        runtimeProviderId: 'provider',
+        runtimeSyncedAt: '2026-01-01T00:00:00.000Z',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    await store.upsertDiscoveredModelServices([runtimeModel])
+    const unsupportedHarness = await startApiFlowHarness(new ApplicationService({
+      store,
+      runtime: new UnsupportedModelDiscoveryRuntimeGateway(),
+    }))
+    try {
+      const response = await fetch(`${unsupportedHarness.baseUrl}/api/admin/models/sync`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-dudesign-admin-role': 'operator',
+        },
+        body: JSON.stringify({}),
+      })
+      assert.equal(response.ok, true, `/api/admin/models/sync failed with ${response.status}`)
+      const synced = await response.json() as SyncAdminModelsResponse
+      const preserved = synced.models.find(model => model.id === runtimeModel.id)
+
+      assert.equal(synced.runtime.discoveryStatus, 'unsupported')
+      assert.equal(synced.createdCount, 0)
+      assert.equal(synced.updatedCount, 0)
+      assert.equal(synced.missingCount, 0)
+      assert.equal(synced.disabledMissingCount, 0)
+      assert.deepEqual(synced.diff, [])
+      assert.equal(preserved?.enabled, true)
+      assert.equal(preserved?.metadata.runtimeMissingSinceLastSync, undefined)
+    } finally {
+      await unsupportedHarness.close()
+    }
+  })
+
   async function getJson<T>(path: string): Promise<T> {
     const response = await fetch(`${harness.baseUrl}${path}`, {
       headers: { 'x-dudesign-admin-role': 'operator' },
     })
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
     return response.json() as Promise<T>
+}
+
+class UnsupportedModelDiscoveryRuntimeGateway implements RuntimeGateway {
+  async getRuntimeHealth(): Promise<RuntimeHealth> {
+    return {
+      status: 'degraded',
+      runtime: 'babel-o',
+      runtimeVersion: '0.3.8',
+      contractVersion: '2026-06-26.dudesign-runtime.v1',
+      checkedAt: new Date().toISOString(),
+      message: 'Runtime reachable; model discovery unsupported.',
+    }
   }
+
+  async getRuntimeContract(): Promise<RuntimeContract> {
+    return {
+      runtime: 'babel-o',
+      runtimeVersion: '0.3.8',
+      contractVersion: '2026-06-26.dudesign-runtime.v1',
+      status: 'degraded',
+      requiredEndpoints: ['GET /v1/health', 'GET /v1/contract'],
+      optionalEndpoints: [],
+      requiredEvents: [],
+      eventMappings: {},
+    }
+  }
+
+  async listRuntimeModels(): Promise<RuntimeModels> {
+    return {
+      type: 'runtime_models',
+      discoveryStatus: 'unsupported',
+      message: 'Runtime model discovery is unsupported by this BabeL-O version.',
+      version: '0.3.8',
+      providers: [],
+      defaultModel: null,
+      activeProfile: null,
+      syncedAt: new Date().toISOString(),
+    }
+  }
+
+  async createSession(_input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef> {
+    return { runtimeSessionId: 'unsupported_model_discovery_session' }
+  }
+
+  async resumeSession(_input: ResumeRuntimeSessionInput): Promise<RuntimeResumeResult> {
+    return { status: 'resumed', runtimeSessionId: 'unsupported_model_discovery_session' }
+  }
+
+  async *spawnVariationAgents(_input: SpawnVariationAgentsInput): AsyncIterable<DesignEvent> {
+    throw new Error('not used')
+  }
+
+  async *refineVariation(_input: RefineVariationInput): AsyncIterable<DesignEvent> {
+    throw new Error('not used')
+  }
+
+  async cancelRuntimeJob(_input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
+    return { cancelled: true }
+  }
+}
 
   async function postJson<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${harness.baseUrl}${path}`, {

@@ -127,7 +127,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
                   type: 'result',
                   artifactId: `runtime_quality_shell_${streamId}`,
                   entryPath: 'index.html',
-                  html: '<!doctype html><html><head><style>body{background:#000}</style><script src="https://cdn.example.com/app.js"></script></head><body><div id="root"></div></body></html>',
+                  html: '<!doctype html><html><head><style>html,body,#root{width:100%;height:100%;margin:0;background:#000}</style><script src="https://cdn.example.com/app.js"></script></head><body><div id="root"></div></body></html>',
                   inputTokens: 10,
                   outputTokens: 20,
                   costCents: 1,
@@ -331,9 +331,12 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
       const replay = await getText(`/api/design-jobs/${createdJob.job.id}/stream`)
 
       assert.equal(jobSnapshot.job.status, 'completed')
-      assert.equal(detail.currentArtifact?.version, 1)
-      assert.equal(detail.currentArtifact?.quality?.status, 'fail')
-      const artifact = jobSnapshot.artifacts.find(item => item.id === detail.currentArtifact?.id)
+      assert.ok((detail.currentArtifact?.version ?? 0) >= 1)
+      const artifact = jobSnapshot.artifacts.find(item =>
+        item.quality?.status === 'fail'
+        && item.quality.issues.some(issue => /black-screen|hydration|External scripts/.test(issue)),
+      )
+      assert.ok(artifact, 'expected at least one failed quality artifact')
       assert.equal(artifact?.quality?.status, 'fail')
       assert.ok(artifact?.quality?.issues.some(issue => /black-screen|hydration|External scripts/.test(issue)))
       assert.match(replay, /event: design\.runtime_warning/)
@@ -360,6 +363,12 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
         prompt: 'A runtime page that renders as a visually blank shell',
         sourceMode: 'new_html',
         variationCount: 1,
+        capabilityRequirements: {
+          automation: {
+            loopProfileId: 'loop_deep_repair',
+            maxRepairAttempts: 0,
+          },
+        },
         templateRequirements: {},
       })
       const jobSnapshot = await waitForJob(createdJob.job.id)

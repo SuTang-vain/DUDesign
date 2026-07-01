@@ -161,6 +161,66 @@ export type DesignTemplatePackImportResult = {
   }
 }
 
+export type PluginPermissionScope =
+  | 'readonly_context'
+  | 'asset_readonly'
+  | 'validation_only'
+  | 'artifact_write'
+  | 'external_network'
+
+export type PluginPermissionPolicy = {
+  scopes: PluginPermissionScope[]
+  maxPromptChars: number
+  allowRuntimeToolUse: boolean
+  requiresUserAuth: boolean
+  auditLevel: 'none' | 'usage' | 'full'
+}
+
+export type CapabilityPlugin = {
+  id: ID
+  type: 'skill' | 'mcp_tool'
+  visibility: 'official' | 'private' | 'workspace' | 'team'
+  name: string
+  description: string
+  category: string
+  safetyLevel: 'safe' | 'review_required' | 'disabled'
+  status: 'active' | 'archived' | 'disabled'
+  permissionPolicy: PluginPermissionPolicy
+}
+
+export type DesignSkill = {
+  id: ID
+  pluginId: ID
+  schemaVersion: string
+  rules: string[]
+  promptBlocks: string[]
+  negativeRules: string[]
+  qualityChecklist: string[]
+  allowedTemplateCategories: string[]
+}
+
+export type McpToolBinding = {
+  id: ID
+  pluginId: ID
+  serverName: string
+  toolName: string
+  scopes: PluginPermissionScope[]
+  requiresUserAuth: boolean
+  allowedTemplateCategories: string[]
+}
+
+export type CapabilityPluginSnapshot = {
+  plugins: CapabilityPlugin[]
+  skills: DesignSkill[]
+  mcpToolBindings: McpToolBinding[]
+  toolPolicy: {
+    allowedMcpToolIds: ID[]
+    scopes: PluginPermissionScope[]
+    requiresUserAuth: boolean
+    auditLevel: 'none' | 'usage' | 'full'
+  }
+}
+
 export type AdvancedTemplateConstraints = {
   colorPaletteId?: ID | null
   styleNotes?: string[]
@@ -174,8 +234,11 @@ export type AutomationLoopProfile = {
   name: string
   description: string
   maxRepairAttempts: number
+  maxCostCents: number | null
+  maxDurationMs: number
   enablePixelGate: boolean
   qualityGate: 'static' | 'pixel'
+  repairStrategy: 'none' | 'minimal_refine' | 'deep_refine'
 }
 
 export type CapabilityRequirements = {
@@ -184,6 +247,8 @@ export type CapabilityRequirements = {
     aestheticProfileId?: ID | null
     colorPaletteId?: ID | null
     brandStyleReferenceId?: ID | null
+    designTemplatePackIds?: ID[]
+    autoDistributeTemplatePacks?: boolean
   }
   plugins?: {
     skillIds?: ID[]
@@ -192,6 +257,8 @@ export type CapabilityRequirements = {
   automation?: {
     loopProfileId?: ID | null
     maxRepairAttempts?: number | null
+    maxCostCents?: number | null
+    maxDurationMs?: number | null
   }
 }
 
@@ -206,10 +273,13 @@ export type CapabilitySnapshot = {
   plugins: {
     skillIds: ID[]
     mcpToolIds: ID[]
+    pluginSnapshot?: CapabilityPluginSnapshot
   }
   automation: {
     loopProfile: AutomationLoopProfile
     maxRepairAttempts: number
+    maxCostCents: number | null
+    maxDurationMs: number
   }
 }
 
@@ -219,6 +289,9 @@ export type ListCapabilitiesResponse = {
   aestheticProfiles: AestheticProfile[]
   colorPalettes: ColorPalette[]
   brandStyleReferences: BrandStyleReference[]
+  plugins: CapabilityPlugin[]
+  skills: DesignSkill[]
+  mcpToolBindings: McpToolBinding[]
   automationLoopProfiles: AutomationLoopProfile[]
   defaults: {
     domainTemplateId: ID
@@ -274,6 +347,40 @@ export type AdminModelsResponse = {
   models: AdminModelService[]
 }
 
+export type RuntimeModelDiscoveryStatus = 'supported' | 'unsupported'
+
+export type SyncAdminModelsResponse = AdminModelsResponse & {
+  createdCount: number
+  updatedCount: number
+  missingCount: number
+  disabledMissingCount: number
+  diff: Array<{
+    modelServiceId: ID
+    modelId: string
+    displayName: string
+    runtimeProviderId: string | null
+    changeType: 'created' | 'updated' | 'missing'
+    previousContextWindow?: number | null
+    nextContextWindow?: number | null
+    previousInputTokenCostCents?: number
+    nextInputTokenCostCents?: number
+    previousOutputTokenCostCents?: number
+    nextOutputTokenCostCents?: number
+  }>
+  runtime: {
+    type: 'runtime_models'
+    discoveryStatus?: RuntimeModelDiscoveryStatus
+    message?: string | null
+    version: number | string | null
+    providerCount: number
+    modelCount: number
+    defaultModel: string | null
+    activeProfile: string | null
+    syncedAt: string
+  }
+  audit: unknown
+}
+
 export type UpdateAdminModelRequest = {
   enabled?: boolean
   isDefault?: boolean
@@ -288,6 +395,51 @@ export type UpdateUserModelAccessRequest = {
   enabled?: boolean
   dailyTokenLimit?: number | null
   monthlyCostLimitCents?: number | null
+}
+
+export type RegisterUserRequest = {
+  email: string
+  password: string
+  name?: string | null
+}
+
+export type LoginUserRequest = {
+  email: string
+  password: string
+}
+
+export type AuthWorkspace = {
+  id: ID
+  ownerId: ID
+  teamId: ID | null
+  name: string
+  mode: 'hosted'
+  visibility: 'private' | 'team' | 'public'
+  storageKey: string
+  status: 'active' | 'archived'
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type AuthUserResponse = {
+  user: {
+    id: ID
+    email: string
+    name: string | null
+    avatarUrl: string | null
+    status: 'active' | 'disabled'
+    memoryNamespace: string
+    metadata: Record<string, unknown>
+    createdAt: string
+    updatedAt: string
+  }
+  workspace: AuthWorkspace
+  workspaces: AuthWorkspace[]
+}
+
+export type LogoutResponse = {
+  ok: true
 }
 
 export type CreateSessionRequest = {
@@ -333,6 +485,13 @@ export type CreateDesignJobRequest = {
     notes?: string
     advancedConstraints?: AdvancedTemplateConstraints
     capabilitySnapshot?: CapabilitySnapshot
+    designTemplatePackIds?: ID[]
+    designTemplatePacks?: DesignTemplatePack[]
+    variationTemplateAssignments?: Array<{
+      variationIndex: number
+      designTemplatePackId: ID
+      designTemplatePack: DesignTemplatePack
+    }>
   }
 }
 
@@ -353,6 +512,31 @@ export type CreateSourceArtifactRequest = {
   workspaceId: ID
   filename: string
   html: string
+}
+
+export type ListDesignTemplatePacksResponse = {
+  templates: DesignTemplatePack[]
+}
+
+export type ImportDesignTemplatePackRequest = {
+  designMd: string
+  name?: string | null
+}
+
+export type SaveVariationTemplateRequest = {
+  name?: string | null
+  description?: string | null
+  artifactId?: ID | null
+}
+
+export type SaveDesignTemplatePackResponse = {
+  template: DesignTemplatePack
+  findings: DesignTemplatePackLintFinding[]
+  summary: {
+    errors: number
+    warnings: number
+    info: number
+  }
 }
 
 export type CreateSourceArtifactResponse = {
@@ -380,6 +564,7 @@ export type DesignJobSnapshotResponse = {
     prompt: string
     variationCount: number
     capabilitySnapshot: CapabilitySnapshot | null
+    designTemplatePacks: DesignTemplatePack[]
   }
   variations: Array<{
     id: ID
@@ -389,6 +574,7 @@ export type DesignJobSnapshotResponse = {
     currentArtifactId: ID | null
     previewUrl: string | null
     screenshotUrl: string | null
+    designTemplatePack: DesignTemplatePack | null
     inputTokens: number
     outputTokens: number
     costCents: number
@@ -441,6 +627,7 @@ export type VariationDetailResponse = {
     currentArtifactId: ID | null
     previewUrl: string | null
     screenshotUrl: string | null
+    designTemplatePack: DesignTemplatePack | null
     inputTokens: number
     outputTokens: number
     costCents: number
@@ -452,6 +639,7 @@ export type VariationDetailResponse = {
     prompt: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
     capabilitySnapshot: CapabilitySnapshot | null
+    designTemplatePacks: DesignTemplatePack[]
   }
   currentArtifact: {
     id: ID
@@ -491,6 +679,28 @@ export type RestoreVariationVersionResponse = {
     version: number
     entryPath: string | null
     createdAt: string
+  }
+}
+
+export type RepairVariationPreviewResponse = {
+  variation: {
+    id: ID
+    currentArtifactId: ID
+    previewUrl: string | null
+    screenshotUrl: string | null
+  }
+  artifact: {
+    id: ID
+    kind: 'html'
+    version: number
+    entryPath: string | null
+    createdAt: string
+    quality: ArtifactQualitySummary | null
+  }
+  queueJob: {
+    idempotencyKey: string
+    kind: 'screenshot_job'
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   }
 }
 

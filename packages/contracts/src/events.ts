@@ -130,6 +130,73 @@ export type DesignRuntimeWarningEvent = DesignEventEnvelope<
   }
 >
 
+export type DesignLoopStartedEvent = DesignEventEnvelope<
+  'design.loop_started',
+  {
+    profileId: string
+    maxRepairAttempts: number
+    qualityGate: 'static' | 'pixel'
+  }
+>
+
+export type DesignLoopQualityCheckedEvent = DesignEventEnvelope<
+  'design.loop_quality_checked',
+  {
+    artifactId: string
+    attempt: number
+    gate: 'static' | 'pixel'
+    status: 'pass' | 'warn' | 'fail'
+    issues: string[]
+  }
+>
+
+export type DesignLoopRepairPlannedEvent = DesignEventEnvelope<
+  'design.loop_repair_planned',
+  {
+    artifactId: string
+    attempt: number
+    reason: string
+    promptPreview: string
+  }
+>
+
+export type DesignLoopRepairStartedEvent = DesignEventEnvelope<
+  'design.loop_repair_started',
+  {
+    artifactId: string
+    attempt: number
+    runtimeChildSessionId: string | null
+  }
+>
+
+export type DesignLoopCompletedEvent = DesignEventEnvelope<
+  'design.loop_completed',
+  {
+    artifactId: string
+    attempts: number
+    reason: 'quality_passed' | 'warn_accepted'
+  }
+>
+
+export type DesignLoopStoppedEvent = DesignEventEnvelope<
+  'design.loop_stopped',
+  {
+    artifactId?: string
+    attempts: number
+    reason:
+      | 'max_attempts_reached'
+      | 'max_cost_reached'
+      | 'max_duration_reached'
+      | 'quality_failed'
+      | 'runtime_unavailable'
+      | 'runtime_contract_mismatch'
+      | 'repeated_failure'
+      | 'cancelled'
+    message: string
+    recoverable: boolean
+  }
+>
+
 export type DesignJobCompletedEvent = DesignEventEnvelope<
   'design.job_completed',
   {
@@ -150,6 +217,12 @@ export type DesignEvent =
   | DesignVariationFailedEvent
   | DesignPermissionRequiredEvent
   | DesignRuntimeWarningEvent
+  | DesignLoopStartedEvent
+  | DesignLoopQualityCheckedEvent
+  | DesignLoopRepairPlannedEvent
+  | DesignLoopRepairStartedEvent
+  | DesignLoopCompletedEvent
+  | DesignLoopStoppedEvent
   | DesignJobCompletedEvent
 
 export function createDesignEvent<TType extends DesignEvent['type']>(

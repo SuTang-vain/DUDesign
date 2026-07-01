@@ -3,11 +3,13 @@ import type {
   DesignJobQueueConsumer,
   DesignJobQueuePayload,
   RefineJobQueuePayload,
+  ScreenshotJobQueuePayload,
 } from './designJobQueue.js'
 
 export type QueuedDesignJobProcessor = {
   processQueuedDesignJob(payload: DesignJobQueuePayload): Promise<void>
   processQueuedRefineJob(payload: RefineJobQueuePayload): Promise<void>
+  processQueuedScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<void>
 }
 
 export class ApplicationDesignJobWorker implements DesignJobQueueConsumer {
@@ -19,6 +21,10 @@ export class ApplicationDesignJobWorker implements DesignJobQueueConsumer {
 
   async runRefineJob(payload: RefineJobQueuePayload): Promise<void> {
     await this.processor.processQueuedRefineJob(payload)
+  }
+
+  async runScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<void> {
+    await this.processor.processQueuedScreenshotJob(payload)
   }
 }
 

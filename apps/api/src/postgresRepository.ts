@@ -2,9 +2,9 @@ import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
-import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace } from '@dudesign/domain'
-import type { UserCapabilityPreference } from '@dudesign/contracts'
-import { InMemoryStore, type AnnotationBatch, type AuditLog, type SessionMessage } from './store.js'
+import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
+import type { DesignEvent, UserCapabilityPreference } from '@dudesign/contracts'
+import { InMemoryStore, type AnnotationBatch, type AuditLog, type AuthIdentity, type AuthSession, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import type {
@@ -118,8 +118,8 @@ export class PostgresRepository extends InMemoryStore {
   async seedDefaults(): Promise<void> {
     for (const user of [this.devUser, this.altUser]) {
       await this.pool.query(`
-        insert into users (id, email, name, avatar_url, status, memory_namespace, created_at, updated_at)
-        values ($1, $2, $3, $4, $5, $6, $7, $8)
+        insert into users (id, email, name, avatar_url, status, memory_namespace, metadata, created_at, updated_at)
+        values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
         on conflict (id) do nothing
       `, [
         user.id,
@@ -128,6 +128,7 @@ export class PostgresRepository extends InMemoryStore {
         user.avatarUrl,
         user.status,
         user.memoryNamespace,
+        JSON.stringify(user.metadata),
         user.createdAt,
         user.updatedAt,
       ])
@@ -150,6 +151,14 @@ export class PostgresRepository extends InMemoryStore {
         workspace.createdAt,
         workspace.updatedAt,
       ])
+      await this.persistWorkspaceMember({
+        workspaceId: workspace.id,
+        userId: workspace.ownerId,
+        role: 'owner',
+        status: 'active',
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt,
+      })
     }
     for (const model of this.modelServices.values()) {
       await this.persistModelService(model)
@@ -159,6 +168,7 @@ export class PostgresRepository extends InMemoryStore {
   async hydrate(): Promise<void> {
     this.users.clear()
     this.workspaces.clear()
+    this.workspaceMembers.clear()
     this.sessions.clear()
     this.messages.clear()
     this.jobs.clear()
@@ -171,9 +181,16 @@ export class PostgresRepository extends InMemoryStore {
     this.annotationBatches.clear()
     this.auditLogs.splice(0, this.auditLogs.length)
     this.usageEvents.splice(0, this.usageEvents.length)
+    this.designEvents.clear()
+    this.authIdentities.clear()
+    this.authSessions.clear()
 
     for (const row of (await this.pool.query('select * from users')).rows) this.users.set(row.id, mapUser(row))
     for (const row of (await this.pool.query('select * from workspaces')).rows) this.workspaces.set(row.id, mapWorkspace(row))
+    for (const row of (await this.pool.query('select * from workspace_members')).rows) {
+      const member = mapWorkspaceMember(row)
+      this.workspaceMembers.set(workspaceMemberKey(member.workspaceId, member.userId), member)
+    }
     for (const row of (await this.pool.query('select * from design_sessions')).rows) {
       const session = mapSession(row)
       this.sessions.set(session.id, session)
@@ -200,6 +217,21 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
     for (const row of (await this.pool.query('select * from usage_events order by created_at')).rows) this.usageEvents.push(mapUsageEvent(row))
+    for (const row of (await this.pool.query('select * from auth_identities')).rows) {
+      const identity = mapAuthIdentity(row)
+      this.authIdentities.set(authIdentityKey(identity.provider, identity.providerSubject), identity)
+    }
+    for (const row of (await this.pool.query('select * from auth_sessions')).rows) {
+      const session = mapAuthSession(row)
+      this.authSessions.set(session.tokenHash, session)
+    }
+    for (const row of (await this.pool.query('select event from design_events order by created_at, id')).rows) {
+      const event = mapDesignEvent(row)
+      if (!event.jobId) continue
+      const events = this.designEvents.get(event.jobId) ?? []
+      events.push(event)
+      this.designEvents.set(event.jobId, events)
+    }
   }
 
   override async createSession(input: CreateSessionInput): Promise<DesignSession> {
@@ -365,6 +397,25 @@ export class PostgresRepository extends InMemoryStore {
     return persisted
   }
 
+  override async appendDesignEvent(event: DesignEvent): Promise<DesignEvent> {
+    if (!event.jobId) return event
+    await this.persistDesignEvent(event)
+    const events = this.designEvents.get(event.jobId) ?? []
+    events.push(event)
+    this.designEvents.set(event.jobId, events)
+    return event
+  }
+
+  override async listDesignEvents(jobId: string): Promise<DesignEvent[]> {
+    const rows = (await this.pool.query(`
+      select event
+      from design_events
+      where job_id = $1
+      order by created_at, id
+    `, [jobId])).rows
+    return rows.map(mapDesignEvent)
+  }
+
   override async applyVariationEvent(input: ApplyVariationEventInput): Promise<void> {
     const existing = await this.getVariationById(input.variationId)
     if (!existing) return
@@ -490,6 +541,188 @@ export class PostgresRepository extends InMemoryStore {
     return row ? mapUser(row) : null
   }
 
+  override async getUserByEmail(email: string): Promise<User | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from users where lower(email) = lower($1)', [email.trim()])).rows[0]
+    return row ? mapUser(row) : null
+  }
+
+  override async updateUserStatus(userId: string, status: User['status']): Promise<User | null> {
+    const row = (await this.pool.query(`
+      update users
+      set status = $2,
+          updated_at = $3
+      where id = $1
+      returning *
+    `, [userId, status, nowIso()])).rows[0]
+    if (!row) return null
+    const user = mapUser(row)
+    this.users.set(user.id, user)
+    return user
+  }
+
+  override async updateUserMetadata(userId: string, metadata: Record<string, unknown>): Promise<User | null> {
+    const row = (await this.pool.query(`
+      update users
+      set metadata = $2::jsonb,
+          updated_at = $3
+      where id = $1
+      returning *
+    `, [userId, JSON.stringify(metadata), nowIso()])).rows[0]
+    if (!row) return null
+    const user = mapUser(row)
+    this.users.set(user.id, user)
+    return user
+  }
+
+  override async createUserWithWorkspace(input: { email: string; name?: string | null }): Promise<{ user: User; workspace: Workspace }> {
+    const now = nowIso()
+    const user: User = {
+      id: createId('usr'),
+      email: input.email.trim().toLowerCase(),
+      name: input.name?.trim() || null,
+      avatarUrl: null,
+      status: 'active',
+      memoryNamespace: '',
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    const normalizedUser = {
+      ...user,
+      memoryNamespace: `memory:user:${user.id}`,
+    }
+    const workspace: Workspace = {
+      id: createId('ws'),
+      ownerId: normalizedUser.id,
+      teamId: null,
+      name: 'Personal Workspace',
+      mode: 'hosted',
+      visibility: 'private',
+      storageKey: '',
+      status: 'active',
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    }
+    const normalizedWorkspace = {
+      ...workspace,
+      storageKey: `workspaces/${workspace.id}`,
+    }
+    await this.withWrite(async () => {
+      await this.persistUser(normalizedUser)
+      await this.persistWorkspace(normalizedWorkspace)
+      await this.persistWorkspaceMember({
+        workspaceId: normalizedWorkspace.id,
+        userId: normalizedUser.id,
+        role: 'owner',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+    })
+    this.users.set(normalizedUser.id, normalizedUser)
+    this.workspaces.set(normalizedWorkspace.id, normalizedWorkspace)
+    this.workspaceMembers.set(workspaceMemberKey(normalizedWorkspace.id, normalizedUser.id), {
+      workspaceId: normalizedWorkspace.id,
+      userId: normalizedUser.id,
+      role: 'owner',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    })
+    return { user: normalizedUser, workspace: normalizedWorkspace }
+  }
+
+  override async getAuthIdentityByProvider(provider: AuthIdentity['provider'], providerSubject: string): Promise<AuthIdentity | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select *
+      from auth_identities
+      where provider = $1 and provider_subject = $2
+    `, [provider, providerSubject.trim().toLowerCase()])).rows[0]
+    return row ? mapAuthIdentity(row) : null
+  }
+
+  override async createAuthIdentity(input: {
+    userId: string
+    provider: AuthIdentity['provider']
+    providerSubject: string
+    passwordHash?: string | null
+    verifiedAt?: string | null
+  }): Promise<AuthIdentity> {
+    const now = nowIso()
+    const identity: AuthIdentity = {
+      id: createId('aid'),
+      userId: input.userId,
+      provider: input.provider,
+      providerSubject: input.providerSubject.trim().toLowerCase(),
+      passwordHash: input.passwordHash ?? null,
+      verifiedAt: input.verifiedAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await this.persistAuthIdentity(identity)
+    this.authIdentities.set(authIdentityKey(identity.provider, identity.providerSubject), identity)
+    return identity
+  }
+
+  override async createAuthSession(input: {
+    userId: string
+    tokenHash: string
+    userAgent?: string | null
+    ipHash?: string | null
+    expiresAt: string
+  }): Promise<AuthSession> {
+    const now = nowIso()
+    const session: AuthSession = {
+      id: createId('authses'),
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      userAgent: input.userAgent ?? null,
+      ipHash: input.ipHash ?? null,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      createdAt: now,
+      lastSeenAt: now,
+    }
+    await this.persistAuthSession(session)
+    this.authSessions.set(session.tokenHash, session)
+    return session
+  }
+
+  override async getAuthSessionByTokenHash(tokenHash: string): Promise<AuthSession | null> {
+    await this.flush()
+    const row = (await this.pool.query('select * from auth_sessions where token_hash = $1', [tokenHash])).rows[0]
+    return row ? mapAuthSession(row) : null
+  }
+
+  override async touchAuthSession(tokenHash: string): Promise<AuthSession | null> {
+    const row = (await this.pool.query(`
+      update auth_sessions
+      set last_seen_at = $2
+      where token_hash = $1
+      returning *
+    `, [tokenHash, nowIso()])).rows[0]
+    if (!row) return null
+    const session = mapAuthSession(row)
+    this.authSessions.set(session.tokenHash, session)
+    return session
+  }
+
+  override async revokeAuthSession(tokenHash: string): Promise<AuthSession | null> {
+    const row = (await this.pool.query(`
+      update auth_sessions
+      set revoked_at = coalesce(revoked_at, $2)
+      where token_hash = $1
+      returning *
+    `, [tokenHash, nowIso()])).rows[0]
+    if (!row) return null
+    const session = mapAuthSession(row)
+    this.authSessions.set(session.tokenHash, session)
+    return session
+  }
+
   override async getWorkspaceById(workspaceId: string): Promise<Workspace | null> {
     await this.flush()
     const row = (await this.pool.query('select * from workspaces where id = $1', [workspaceId])).rows[0]
@@ -499,13 +732,49 @@ export class PostgresRepository extends InMemoryStore {
   override async getPrimaryWorkspaceForUser(userId: string): Promise<Workspace | null> {
     await this.flush()
     const row = (await this.pool.query(`
-      select *
-      from workspaces
-      where owner_id = $1
-      order by created_at asc, id asc
+      select w.*
+      from workspaces w
+      left join workspace_members wm
+        on wm.workspace_id = w.id
+        and wm.user_id = $1
+        and wm.status = 'active'
+      where w.owner_id = $1
+        or wm.user_id is not null
+      order by w.created_at asc, w.id asc
       limit 1
     `, [userId])).rows[0]
     return row ? mapWorkspace(row) : null
+  }
+
+  override async getWorkspaceMember(workspaceId: string, userId: string): Promise<WorkspaceMember | null> {
+    await this.flush()
+    const row = (await this.pool.query(`
+      select *
+      from workspace_members
+      where workspace_id = $1 and user_id = $2
+    `, [workspaceId, userId])).rows[0]
+    return row ? mapWorkspaceMember(row) : null
+  }
+
+  override async upsertWorkspaceMember(input: {
+    workspaceId: string
+    userId: string
+    role: WorkspaceMember['role']
+    status?: WorkspaceMember['status']
+  }): Promise<WorkspaceMember> {
+    const existing = await this.getWorkspaceMember(input.workspaceId, input.userId)
+    const now = nowIso()
+    const member: WorkspaceMember = {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      role: input.role,
+      status: input.status ?? existing?.status ?? 'active',
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await this.persistWorkspaceMember(member)
+    this.workspaceMembers.set(workspaceMemberKey(member.workspaceId, member.userId), member)
+    return member
   }
 
   override async listUserModelOptions(userId: string): Promise<{ models: UserModelOption[]; defaultModelId: string | null }> {
@@ -583,6 +852,16 @@ export class PostgresRepository extends InMemoryStore {
     await this.flush()
     const row = (await this.pool.query('select * from shares where token = $1', [token])).rows[0]
     return row ? mapShare(row) : null
+  }
+
+  override async listSharesForArtifact(artifactId: string): Promise<Share[]> {
+    await this.flush()
+    return (await this.pool.query(`
+      select *
+      from shares
+      where artifact_id = $1
+      order by created_at desc
+    `, [artifactId])).rows.map(mapShare)
   }
 
   override async revokeShare(token: string): Promise<Share | null> {
@@ -837,6 +1116,7 @@ export class PostgresRepository extends InMemoryStore {
         u.avatar_url,
         u.status as user_status,
         u.memory_namespace,
+        u.metadata as user_metadata,
         u.created_at as user_created_at,
         u.updated_at as user_updated_at,
         w.id as workspace_row_id,
@@ -866,6 +1146,7 @@ export class PostgresRepository extends InMemoryStore {
             avatar_url: row.avatar_url,
             status: row.user_status,
             memory_namespace: row.memory_namespace,
+            metadata: row.user_metadata,
             created_at: row.user_created_at,
             updated_at: row.user_updated_at,
           })
@@ -1575,6 +1856,85 @@ export class PostgresRepository extends InMemoryStore {
     return next
   }
 
+  private async persistUser(user: User): Promise<void> {
+    await this.pool.query(`
+      insert into users (id, email, name, avatar_url, status, memory_namespace, metadata, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+      on conflict (id) do update set
+        email = excluded.email,
+        name = excluded.name,
+        avatar_url = excluded.avatar_url,
+        status = excluded.status,
+        memory_namespace = excluded.memory_namespace,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      user.id, user.email, user.name, user.avatarUrl, user.status, user.memoryNamespace, JSON.stringify(user.metadata), user.createdAt, user.updatedAt,
+    ])
+  }
+
+  private async persistWorkspace(workspace: Workspace): Promise<void> {
+    await this.pool.query(`
+      insert into workspaces (id, owner_id, team_id, name, mode, visibility, storage_key, status, metadata, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+      on conflict (id) do update set
+        owner_id = excluded.owner_id,
+        team_id = excluded.team_id,
+        name = excluded.name,
+        visibility = excluded.visibility,
+        storage_key = excluded.storage_key,
+        status = excluded.status,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      workspace.id, workspace.ownerId, workspace.teamId, workspace.name, workspace.mode, workspace.visibility,
+      workspace.storageKey, workspace.status, JSON.stringify(workspace.metadata), workspace.createdAt, workspace.updatedAt,
+    ])
+  }
+
+  private async persistWorkspaceMember(member: WorkspaceMember): Promise<void> {
+    await this.pool.query(`
+      insert into workspace_members (workspace_id, user_id, role, status, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6)
+      on conflict (workspace_id, user_id) do update set
+        role = excluded.role,
+        status = excluded.status,
+        updated_at = excluded.updated_at
+    `, [
+      member.workspaceId, member.userId, member.role, member.status, member.createdAt, member.updatedAt,
+    ])
+  }
+
+  private async persistAuthIdentity(identity: AuthIdentity): Promise<void> {
+    await this.pool.query(`
+      insert into auth_identities (id, user_id, provider, provider_subject, password_hash, verified_at, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8)
+      on conflict (provider, provider_subject) do update set
+        password_hash = excluded.password_hash,
+        verified_at = excluded.verified_at,
+        updated_at = excluded.updated_at
+    `, [
+      identity.id, identity.userId, identity.provider, identity.providerSubject, identity.passwordHash,
+      identity.verifiedAt, identity.createdAt, identity.updatedAt,
+    ])
+  }
+
+  private async persistAuthSession(session: AuthSession): Promise<void> {
+    await this.pool.query(`
+      insert into auth_sessions (id, user_id, token_hash, user_agent, ip_hash, expires_at, revoked_at, created_at, last_seen_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      on conflict (token_hash) do update set
+        user_agent = excluded.user_agent,
+        ip_hash = excluded.ip_hash,
+        expires_at = excluded.expires_at,
+        revoked_at = excluded.revoked_at,
+        last_seen_at = excluded.last_seen_at
+    `, [
+      session.id, session.userId, session.tokenHash, session.userAgent, session.ipHash, session.expiresAt,
+      session.revokedAt, session.createdAt, session.lastSeenAt,
+    ])
+  }
+
   private async persistSession(session: DesignSession): Promise<void> {
     await this.pool.query(`
       insert into design_sessions (id, user_id, workspace_id, title, mode, source_artifact_id, runtime_session_id, status, last_prompt, metadata, created_at, updated_at)
@@ -1698,6 +2058,23 @@ export class PostgresRepository extends InMemoryStore {
     if (row) return mapUsageEvent(row)
     const existing = (await this.pool.query('select * from usage_events where idempotency_key = $1', [event.idempotencyKey])).rows[0]
     return mapUsageEvent(existing)
+  }
+
+  private async persistDesignEvent(event: DesignEvent): Promise<void> {
+    if (!event.jobId) return
+    await this.pool.query(`
+      insert into design_events (job_id, session_id, variation_id, type, schema_version, payload, event, created_at)
+      values ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)
+    `, [
+      event.jobId,
+      event.sessionId ?? null,
+      event.variationId ?? null,
+      event.type,
+      event.schemaVersion,
+      JSON.stringify(event.payload),
+      JSON.stringify(event),
+      event.timestamp,
+    ])
   }
 
   private async persistAuditLog(audit: AuditLog): Promise<void> {
@@ -1831,6 +2208,7 @@ function mapUser(row: any): User {
     avatarUrl: row.avatar_url,
     status: row.status,
     memoryNamespace: row.memory_namespace,
+    metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
@@ -1856,6 +2234,17 @@ function mapWorkspace(row: any): Workspace {
     storageKey: row.storage_key,
     status: row.status,
     metadata: row.metadata ?? {},
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapWorkspaceMember(row: any): WorkspaceMember {
+  return {
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    role: row.role,
+    status: row.status,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
@@ -2108,6 +2497,46 @@ function mapUsageEvent(row: any): UsageEvent {
     metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
   }
+}
+
+function mapAuthIdentity(row: any): AuthIdentity {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    providerSubject: row.provider_subject,
+    passwordHash: row.password_hash,
+    verifiedAt: row.verified_at ? toIso(row.verified_at) : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapAuthSession(row: any): AuthSession {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    userAgent: row.user_agent,
+    ipHash: row.ip_hash,
+    expiresAt: toIso(row.expires_at),
+    revokedAt: row.revoked_at ? toIso(row.revoked_at) : null,
+    createdAt: toIso(row.created_at),
+    lastSeenAt: toIso(row.last_seen_at),
+  }
+}
+
+function mapDesignEvent(row: any): DesignEvent {
+  const value = row.event
+  return (typeof value === 'string' ? JSON.parse(value) : value) as DesignEvent
+}
+
+function authIdentityKey(provider: AuthIdentity['provider'], providerSubject: string): string {
+  return `${provider}:${providerSubject.trim().toLowerCase()}`
+}
+
+function workspaceMemberKey(workspaceId: string, userId: string): string {
+  return `${workspaceId}:${userId}`
 }
 
 function userModelAccessKey(userId: string, modelServiceId: string): string {

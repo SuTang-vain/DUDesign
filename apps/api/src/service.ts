@@ -5,15 +5,18 @@ import type {
   CreateAnnotationBatchRequest,
   CreateSourceArtifactRequest,
   CreateSessionRequest,
+  DesignTemplatePack,
   DesignEvent,
+  ImportDesignTemplatePackRequest,
   RefineVariationRequest,
+  SaveVariationTemplateRequest,
   ShareVariationRequest,
   UpdateUserPreferencesRequest,
   UserCapabilityPreference,
 } from '@dudesign/contracts'
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import { MockRuntimeGateway, type RuntimeGateway, type RuntimeModels } from '@dudesign/runtime-gateway'
-import type { Artifact, DesignVariation, DesignVariationStatus, ModelService } from '@dudesign/domain'
+import type { Artifact, DesignVariation, DesignVariationStatus, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import {
@@ -25,16 +28,34 @@ import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
 import type { ApplicationRepository } from './repository.js'
-import type { RequestContext } from './auth.js'
+import {
+  clearSessionCookie,
+  createSessionToken,
+  hashIp,
+  hashPassword,
+  hashSessionToken,
+  normalizeAuthEmail,
+  sessionCookie,
+  validatePassword,
+  verifyPassword,
+  type RequestContext,
+} from './auth.js'
 import { createId } from './id.js'
 import { listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
+import { DESIGN_TEMPLATE_PACK_SCHEMA_VERSION, importDesignMd } from './designTemplatePack.js'
 import {
   InMemoryDesignJobQueue,
   type DesignJobQueue,
   type DesignJobQueuePayload,
   type RefineJobQueuePayload,
+  type ScreenshotJobQueuePayload,
 } from './designJobQueue.js'
 import { attachDesignJobWorker } from './designJobWorker.js'
+import {
+  buildAutomationRepairPrompt,
+  evaluateAutomationLoopStop,
+  type AutomationLoopStopReason,
+} from './automationLoop.js'
 
 export class ApplicationService {
   readonly store: ApplicationRepository
@@ -65,10 +86,12 @@ export class ApplicationService {
   }
 
   async flushBackgroundTasks(): Promise<void> {
-    await this.queue.flush?.()
-    while (this.backgroundTasks.size > 0) {
+    while (true) {
+      await this.queue.flush?.()
+      if (this.backgroundTasks.size === 0) break
       await Promise.allSettled([...this.backgroundTasks])
     }
+    await this.queue.flush?.()
   }
 
   async getBootstrap(ctx: RequestContext) {
@@ -79,6 +102,77 @@ export class ApplicationService {
     return { user, workspace, workspaces: [workspace], models }
   }
 
+  async registerUser(
+    _ctx: RequestContext,
+    input: { email?: string; password?: string; name?: string | null },
+    meta: { userAgent?: string | null; ip?: string | null } = {},
+  ) {
+    const email = normalizeAuthEmail(input.email)
+    const password = input.password ?? ''
+    validatePassword(password)
+    const existing = await this.store.getUserByEmail(email)
+    if (existing) throw createHttpError(409, 'USER_ALREADY_EXISTS', 'A user with this email already exists.')
+    const { user, workspace } = await this.store.createUserWithWorkspace({
+      email,
+      name: input.name ?? null,
+    })
+    await this.store.createAuthIdentity({
+      userId: user.id,
+      provider: 'password',
+      providerSubject: email,
+      passwordHash: await hashPassword(password),
+      verifiedAt: null,
+    })
+    const auth = await this.createAuthSessionForUser(user.id, meta)
+    return {
+      cookie: auth.cookie,
+      body: {
+        user,
+        workspace,
+        workspaces: [workspace],
+      },
+    }
+  }
+
+  async loginUser(
+    _ctx: RequestContext,
+    input: { email?: string; password?: string },
+    meta: { userAgent?: string | null; ip?: string | null } = {},
+  ) {
+    const email = normalizeAuthEmail(input.email)
+    const identity = await this.store.getAuthIdentityByProvider('password', email)
+    if (!identity?.passwordHash) throw createHttpError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.')
+    const valid = await verifyPassword(input.password ?? '', identity.passwordHash)
+    if (!valid) throw createHttpError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.')
+    const user = await this.requireUser(identity.userId)
+    const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
+    const auth = await this.createAuthSessionForUser(user.id, meta)
+    return {
+      cookie: auth.cookie,
+      body: {
+        user,
+        workspace,
+        workspaces: [workspace],
+      },
+    }
+  }
+
+  async logoutUser(ctx: RequestContext) {
+    if (ctx.authSessionTokenHash) await this.store.revokeAuthSession(ctx.authSessionTokenHash)
+    return {
+      cookie: clearSessionCookie(),
+      body: { ok: true },
+    }
+  }
+
+  async getCurrentUser(ctx: RequestContext) {
+    const user = await this.requireUser(ctx.userId)
+    const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
+    return { user, workspace, workspaces: [workspace] }
+  }
+
   async listUserModels(ctx: RequestContext) {
     const user = await this.requireUser(ctx.userId)
     return this.store.listUserModelOptions(user.id)
@@ -87,6 +181,70 @@ export class ApplicationService {
   async listCapabilities(ctx: RequestContext) {
     await this.requireUser(ctx.userId)
     return listCapabilities()
+  }
+
+  async listDesignTemplatePacks(ctx: RequestContext, workspaceId?: string | null) {
+    await this.requireUser(ctx.userId)
+    return {
+      templates: await this.store.listDesignTemplatePacks(ctx.userId, workspaceId ?? null),
+    }
+  }
+
+  async importDesignTemplatePack(ctx: RequestContext, input: ImportDesignTemplatePackRequest) {
+    await this.requireUser(ctx.userId)
+    if (!input.designMd?.trim()) throw createHttpError(400, 'INVALID_DESIGN_MD', 'designMd is required.')
+    const result = importDesignMd(input.designMd, {
+      id: createId('dtp'),
+      source: 'user',
+      visibility: 'private',
+      status: 'published',
+      createdByUserId: ctx.userId,
+    })
+    const template = {
+      ...result.pack,
+      name: input.name?.trim() || result.pack.name,
+      createdByUserId: ctx.userId,
+    }
+    await this.store.saveDesignTemplatePack(template)
+    return {
+      template,
+      findings: result.findings,
+      summary: result.summary,
+    }
+  }
+
+  async saveVariationAsTemplate(ctx: RequestContext, variationId: string, input: SaveVariationTemplateRequest = {}) {
+    const snapshot = await this.store.getVariationDetailSnapshot(variationId)
+    if (!snapshot) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    const { variation, job, currentArtifact } = snapshot
+    if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
+    await this.requireJobAccess(job.id, ctx.userId, 'editor')
+    const requestedArtifact = input.artifactId ? await this.store.getArtifactById(input.artifactId) : currentArtifact
+    if (!requestedArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', 'A current or requested artifact is required to save a template.')
+    if (requestedArtifact.variationId !== variation.id) throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+
+    const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
+    const assignedPack = assignedTemplatePackForVariation(variation.index, templateRequirements?.variationTemplateAssignments ?? [])
+    const template: DesignTemplatePack = {
+      ...(assignedPack ?? fallbackDesignTemplatePackFromVariation(variation, job)),
+      id: createId('dtp'),
+      source: 'user',
+      format: 'dudesign-template-v1',
+      visibility: 'private',
+      status: 'published',
+      name: input.name?.trim() || `${variation.title ?? `Variation ${variation.index}`} Template`,
+      description: input.description?.trim() || `Saved from ${variation.title ?? `variation ${variation.index}`} in job ${job.id}.`,
+      version: '1.0.0',
+      previewArtifactId: requestedArtifact.id,
+      lintStatus: assignedPack?.lintStatus ?? 'unknown',
+      createdByUserId: ctx.userId,
+    }
+    await this.store.saveDesignTemplatePack(template)
+    return {
+      template,
+      findings: [],
+      summary: { errors: 0, warnings: 0, info: 0 },
+    }
   }
 
   async getUserPreferences(ctx: RequestContext) {
@@ -110,7 +268,7 @@ export class ApplicationService {
     const user = await this.requireUser(ctx.userId)
     const workspace = await this.store.getWorkspaceById(input.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
-    await this.requireWorkspaceAccess(workspace.id, user.id)
+    await this.requireWorkspaceAccess(workspace.id, user.id, 'editor')
     const entryPath = normalizeUploadedHtmlFilename(input.filename)
     const html = validateUploadedHtml(input.html)
     const quality = await this.analyzeArtifactQuality(html)
@@ -172,7 +330,7 @@ export class ApplicationService {
     const user = await this.requireUser(ctx.userId)
     const workspace = await this.store.getWorkspaceById(input.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${input.workspaceId}`)
-    await this.requireWorkspaceAccess(workspace.id, user.id)
+    await this.requireWorkspaceAccess(workspace.id, user.id, 'editor')
     const session = await this.store.createSession({
       ...input,
       userId: user.id,
@@ -203,8 +361,12 @@ export class ApplicationService {
 
   async listSessions(ctx: RequestContext) {
     const sessions = await this.store.listSessions()
+    const visibleSessions = []
+    for (const session of sessions) {
+      if (await this.canAccessWorkspace(session.workspaceId, ctx.userId, 'viewer')) visibleSessions.push(session)
+    }
     return {
-      sessions: sessions.filter(session => session.userId === ctx.userId),
+      sessions: visibleSessions,
     }
   }
 
@@ -222,7 +384,7 @@ export class ApplicationService {
   async resumeSession(ctx: RequestContext, sessionId: string) {
     const snapshot = await this.store.getSessionSnapshot(sessionId)
     if (!snapshot) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
-    await this.requireSessionAccess(snapshot.session.id, ctx.userId)
+    await this.requireSessionAccess(snapshot.session.id, ctx.userId, 'editor')
     const workspace = await this.store.getWorkspaceById(snapshot.session.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${snapshot.session.workspaceId}`)
     const user = await this.requireUser(snapshot.session.userId)
@@ -256,10 +418,12 @@ export class ApplicationService {
     const context = await this.store.getSessionWorkspaceContext(input.sessionId)
     if (!context) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${input.sessionId}`)
     const { session, workspace } = context
-    await this.requireSessionAccess(session.id, ctx.userId)
+    await this.requireSessionAccess(session.id, ctx.userId, 'editor')
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
     const selectedModel = await this.resolveUserModel(ctx.userId, input.modelServiceId ?? null)
     const capabilitySnapshot = resolveCapabilitySnapshot(input.capabilityRequirements)
+    const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, input)
+    const variationTemplateAssignments = assignDesignTemplatePacks(input.variationCount, designTemplatePacks)
     await this.store.appendMessage({
       sessionId: session.id,
       role: 'user',
@@ -270,6 +434,11 @@ export class ApplicationService {
         variationCount: input.variationCount,
         modelServiceId: selectedModel.id,
         capabilitySnapshot,
+        designTemplatePackIds: designTemplatePacks.map(template => template.id),
+        variationTemplateAssignments: variationTemplateAssignments.map(assignment => ({
+          variationIndex: assignment.variationIndex,
+          designTemplatePackId: assignment.designTemplatePackId,
+        })),
       },
     })
     const job = await this.store.createJob({
@@ -280,6 +449,9 @@ export class ApplicationService {
       templateRequirements: {
         ...(input.templateRequirements ?? {}),
         capabilitySnapshot,
+        designTemplatePackIds: designTemplatePacks.map(template => template.id),
+        designTemplatePacks,
+        variationTemplateAssignments,
         modelServiceId: selectedModel.id,
         modelId: selectedModel.modelId,
         modelProvider: selectedModel.provider,
@@ -317,15 +489,19 @@ export class ApplicationService {
   async getDesignJob(ctx: RequestContext, jobId: string) {
     const snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
-    await this.requireJobAccess(snapshot.job.id, ctx.userId)
+    await this.requireJobAccess(snapshot.job.id, ctx.userId, 'viewer')
     const templateRequirements = normalizeTemplateRequirements(snapshot.job.templateRequirements)
+    const designTemplatePacks = templateRequirements?.designTemplatePacks ?? []
+    const assignments = templateRequirements?.variationTemplateAssignments ?? []
     return {
       job: {
         ...snapshot.job,
         capabilitySnapshot: templateRequirements?.capabilitySnapshot ?? null,
+        designTemplatePacks,
       },
       variations: snapshot.variations.map(variation => ({
         ...variation,
+        designTemplatePack: assignedTemplatePackForVariation(variation.index, assignments),
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
       })),
       artifacts: snapshot.artifacts.map(artifact => ({
@@ -347,17 +523,21 @@ export class ApplicationService {
     if (!snapshot) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const { variation, job, currentArtifact, artifacts } = snapshot
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
-    await this.requireJobAccess(job.id, ctx.userId)
+    await this.requireJobAccess(job.id, ctx.userId, 'viewer')
+    const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
+    const variationTemplatePack = assignedTemplatePackForVariation(variation.index, templateRequirements?.variationTemplateAssignments ?? [])
     return {
       variation: {
         ...variation,
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+        designTemplatePack: variationTemplatePack,
       },
       job: {
         id: job.id,
         prompt: job.prompt,
         status: job.status,
-        capabilitySnapshot: normalizeTemplateRequirements(job.templateRequirements)?.capabilitySnapshot ?? null,
+        capabilitySnapshot: templateRequirements?.capabilitySnapshot ?? null,
+        designTemplatePacks: templateRequirements?.designTemplatePacks ?? [],
       },
       currentArtifact: currentArtifact
         ? {
@@ -392,7 +572,7 @@ export class ApplicationService {
     const context = await this.store.getVariationArtifactContext(variationId, artifactId)
     const variation = context.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
     const artifact = context.artifact
     if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
     if (context.mismatch) {
@@ -404,6 +584,15 @@ export class ApplicationService {
     const previewUrl = `/api/variations/${variationId}/preview`
     const updated = await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
     if (!updated) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.enqueueScreenshotJob({
+      workspaceId: artifact.workspaceId,
+      sessionId: artifact.sessionId,
+      variation: updated,
+      htmlArtifactId: artifact.id,
+      source: 'repair',
+      reason: 'restore_requested',
+      jobId: updated.jobId,
+    })
     await this.store.appendMessage({
       sessionId: variation.sessionId,
       role: 'system',
@@ -431,12 +620,76 @@ export class ApplicationService {
     }
   }
 
+  async repairVariationPreview(ctx: RequestContext, variationId: string, input: { artifactId?: string | null } = {}) {
+    const snapshot = input.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, input.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    if (snapshot.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    const artifact = snapshot.artifact
+    if (!artifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an HTML artifact to repair.')
+    if (artifact.kind !== 'html') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Preview repair requires an HTML artifact.')
+    }
+    await this.readArtifactHtml(artifact.storageKey)
+    const previewUrl = `/api/variations/${encodeURIComponent(variationId)}/preview`
+    const updated = variation.currentArtifactId === artifact.id
+      ? await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
+      : variation
+    const queueJob = await this.enqueueScreenshotJob({
+      workspaceId: artifact.workspaceId,
+      sessionId: artifact.sessionId,
+      variation,
+      htmlArtifactId: artifact.id,
+      source: 'repair',
+      reason: 'repair_requested',
+      jobId: variation.jobId,
+    })
+    await this.store.appendMessage({
+      sessionId: variation.sessionId,
+      role: 'system',
+      content: `Queued preview repair for ${variation.title ?? variation.id} artifact v${artifact.version}.`,
+      metadata: {
+        kind: 'variation_preview_repair',
+        variationId,
+        artifactId: artifact.id,
+        artifactVersion: artifact.version,
+        queueJobIdempotencyKey: queueJob.idempotencyKey,
+      },
+    })
+    return {
+      variation: {
+        id: variation.id,
+        currentArtifactId: updated?.currentArtifactId ?? variation.currentArtifactId ?? artifact.id,
+        previewUrl: updated?.previewUrl ?? variation.previewUrl ?? previewUrl,
+        screenshotUrl: screenshotUrlForArtifactId(updated?.screenshotArtifactId ?? variation.screenshotArtifactId, variation.id),
+      },
+      artifact: {
+        id: artifact.id,
+        kind: 'html' as const,
+        version: artifact.version,
+        entryPath: artifact.entryPath,
+        createdAt: artifact.createdAt,
+        quality: artifactQualitySummary(artifact.metadata.quality),
+      },
+      queueJob: {
+        idempotencyKey: queueJob.idempotencyKey,
+        kind: 'screenshot_job' as const,
+        status: queueJob.status,
+      },
+    }
+  }
+
   async refineVariation(ctx: RequestContext, variationId: string, input: RefineVariationRequest) {
     const context = await this.store.getVariationRefineContext(variationId, input.baseArtifactId)
     if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const { variation, job, session, workspace, baseArtifact } = context
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
-    await this.requireJobAccess(job.id, ctx.userId)
+    await this.requireJobAccess(job.id, ctx.userId, 'editor')
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${variation.sessionId}`)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${job.workspaceId}`)
     if (!input.prompt.trim()) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
@@ -477,7 +730,7 @@ export class ApplicationService {
       modelProvider: modelContext.modelProvider,
     })) {
       await this.applyEventSideEffects(event)
-      this.events.publish(event)
+      await this.publishDesignEvent(event)
     }
 
     const current = await this.store.getCurrentVariationArtifactSnapshot(variationId)
@@ -505,7 +758,7 @@ export class ApplicationService {
     const context = await this.store.getVariationArtifactContext(variationId, input.artifactId)
     const variation = context.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
     const artifact = context.artifact
     if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.artifactId}`)
     if (context.mismatch) {
@@ -541,7 +794,7 @@ export class ApplicationService {
     const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
     const artifact = snapshot.artifact
     if (!artifact) return renderMockVariationHtml(variation, null)
     const html = await this.readArtifactHtml(artifact.storageKey)
@@ -557,7 +810,7 @@ export class ApplicationService {
     const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
     const htmlArtifact = snapshot.artifact
     if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
     const asset = await this.store.getVariationAssetArtifact(variationId, htmlArtifact.id, normalizedPath)
@@ -576,7 +829,7 @@ export class ApplicationService {
     const context = await this.store.getVariationArtifactContext(variationId, screenshotArtifactId)
     const variation = context.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
     if (context.mismatch) {
       throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
     }
@@ -598,7 +851,7 @@ export class ApplicationService {
       : await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
     if (snapshot.mismatch) {
       throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
     }
@@ -661,7 +914,7 @@ export class ApplicationService {
   }
 
   async exportVariation(ctx: RequestContext, variationId: string) {
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
     const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
     const job = await this.store.getJobById(variation.jobId)
     const html = await this.readArtifactHtml(artifact.storageKey)
@@ -724,7 +977,7 @@ export class ApplicationService {
     if (!artifact.variationId) {
       throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Export artifact is not attached to a variation.')
     }
-    await this.requireVariationAccess(artifact.variationId, ctx.userId)
+    await this.requireVariationAccess(artifact.variationId, ctx.userId, 'viewer')
     const stored = await this.artifacts.get(artifact.storageKey)
     return {
       filename: artifact.entryPath ?? `${artifact.id}.zip`,
@@ -734,7 +987,7 @@ export class ApplicationService {
   }
 
   async shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
-    await this.requireVariationAccess(variationId, ctx.userId)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
     const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
     if (!['public', 'private', 'password'].includes(input.visibility)) {
       throw createHttpError(400, 'INVALID_SHARE_VISIBILITY', 'visibility must be public, private, or password.')
@@ -839,9 +1092,72 @@ export class ApplicationService {
 
   async getAdminRuntimeHealth(ctx: RequestContext) {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    const startedAt = Date.now()
+    const [runtime, contract] = await Promise.all([
+      this.runtime.getRuntimeHealth(),
+      this.runtime.getRuntimeContract(),
+    ])
+    const latencyMs = Math.max(0, Date.now() - startedAt)
+    const degraded = runtime.status === 'degraded' || contract.status === 'degraded'
+    const unavailable = runtime.status === 'unavailable' || contract.status === 'unavailable'
+    const contractMismatch = runtime.status === 'contract_mismatch' || contract.status === 'contract_mismatch'
+    const drift = runtime.contractVersion !== contract.contractVersion || runtime.runtimeVersion !== contract.runtimeVersion
+    if (degraded || unavailable || contractMismatch || drift) {
+      await this.recordRuntimeObservation(ctx, {
+        runtime,
+        contract,
+        latencyMs,
+        degraded,
+        unavailable,
+        contractMismatch,
+        drift,
+      })
+    }
     return {
-      runtime: await this.runtime.getRuntimeHealth(),
-      contract: await this.runtime.getRuntimeContract(),
+      runtime,
+      contract,
+      observability: {
+        latencyMs,
+        degraded,
+        unavailable,
+        contractMismatch,
+        drift,
+        degradedMode: degraded ? 'read_existing_artifacts_and_block_unsafe_runtime_switch' : 'none',
+        rollbackAvailable: false,
+        rollbackMode: 'external_config_required',
+      },
+    }
+  }
+
+  async rollbackAdminRuntimeConfig(ctx: RequestContext, input: { reason?: string | null } = {}) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const [runtime, contract] = await Promise.all([
+      this.runtime.getRuntimeHealth(),
+      this.runtime.getRuntimeContract(),
+    ])
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'runtime.config.rollback.requested',
+      targetType: 'runtime_config',
+      targetId: 'babel-o',
+      reason: input.reason ?? null,
+      metadata: {
+        status: 'unsupported_external_config_required',
+        runtimeStatus: runtime.status,
+        contractStatus: contract.status,
+        runtimeVersion: runtime.runtimeVersion,
+        contractVersion: contract.contractVersion,
+        message: 'Runtime config rollback is recorded by DUDesign but must be executed by deployment/config management.',
+      },
+    })
+    return {
+      status: 'unsupported_external_config_required',
+      message: 'DUDesign recorded the rollback request. Switch the active runtime config through deployment/config management, then re-run runtime health.',
+      runtime,
+      contract,
+      audit,
     }
   }
 
@@ -869,6 +1185,145 @@ export class ApplicationService {
     return this.store.listAdminArtifacts(filter)
   }
 
+  async rebuildArtifactScreenshotAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const artifact = await this.store.getArtifactById(artifactId)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    if (artifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Screenshot rebuild requires an HTML artifact.')
+    if (!artifact.variationId) throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Artifact is not attached to a variation.')
+    const variation = await this.store.getVariationById(artifact.variationId)
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${artifact.variationId}`)
+    const queueJob = await this.enqueueScreenshotJob({
+      workspaceId: artifact.workspaceId,
+      sessionId: artifact.sessionId,
+      variation,
+      htmlArtifactId: artifact.id,
+      source: 'repair',
+      reason: 'repair_requested',
+      jobId: variation.jobId,
+    })
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'artifact.screenshot_rebuild',
+      targetType: 'artifact',
+      targetId: artifact.id,
+      reason: input.reason ?? null,
+      metadata: {
+        variationId: artifact.variationId,
+        queueJobIdempotencyKey: queueJob.idempotencyKey,
+        queueJobStatus: queueJob.status,
+      },
+    })
+    return {
+      artifact: {
+        id: artifact.id,
+        version: artifact.version,
+        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+      },
+      queueJob: {
+        idempotencyKey: queueJob.idempotencyKey,
+        kind: queueJob.kind,
+        status: queueJob.status,
+      },
+      variation: {
+        id: variation.id,
+        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+      },
+      audit,
+    }
+  }
+
+  async repairExportArtifactAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const artifact = await this.store.getArtifactById(artifactId)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    const sourceArtifact = await this.resolveExportRepairSourceArtifact(artifact)
+    if (!sourceArtifact.variationId) throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Export repair source is not attached to a variation.')
+    const variation = await this.store.getVariationById(sourceArtifact.variationId)
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${sourceArtifact.variationId}`)
+    const html = await this.readArtifactHtml(sourceArtifact.storageKey)
+    const filename = `${variation.title ?? variation.id}-v${sourceArtifact.version}.zip`.replaceAll(/\s+/g, '-').toLowerCase()
+    const exportArtifact = await this.createExportZipArtifact({
+      variation,
+      sourceArtifact,
+      filename,
+      html,
+    })
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'artifact.export_repair',
+      targetType: 'artifact',
+      targetId: artifact.id,
+      reason: input.reason ?? null,
+      metadata: {
+        variationId: variation.id,
+        sourceArtifactId: sourceArtifact.id,
+        exportArtifactId: exportArtifact.id,
+        repairedFromKind: artifact.kind,
+      },
+    })
+    return {
+      sourceArtifact: {
+        id: sourceArtifact.id,
+        version: sourceArtifact.version,
+      },
+      exportArtifact: {
+        id: exportArtifact.id,
+        kind: 'export_zip',
+        filename: exportArtifact.entryPath ?? filename,
+        sizeBytes: exportArtifact.sizeBytes,
+        contentHash: exportArtifact.contentHash,
+        downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
+        files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
+      },
+      audit,
+    }
+  }
+
+  async revokeArtifactSharesAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const artifact = await this.store.getArtifactById(artifactId)
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    const shares = await this.store.listSharesForArtifact(artifact.id)
+    const activeShares = shares.filter(share => !share.revokedAt)
+    const revoked = []
+    for (const share of activeShares) {
+      const next = await this.store.revokeShare(share.token)
+      if (next) revoked.push(next)
+    }
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'artifact.shares_revoke',
+      targetType: 'artifact',
+      targetId: artifact.id,
+      reason: input.reason ?? null,
+      metadata: {
+        variationId: artifact.variationId,
+        revokedCount: revoked.length,
+        totalShareCount: shares.length,
+      },
+    })
+    return {
+      artifact: {
+        id: artifact.id,
+        shareCount: shares.length,
+      },
+      revokedShares: revoked.map(share => ({
+        id: share.id,
+        token: share.token,
+        revokedAt: share.revokedAt!,
+      })),
+      revokedCount: revoked.length,
+      audit,
+    }
+  }
+
   async getAdminUserSupport(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     return this.store.getAdminUserSupport(filter)
@@ -892,6 +1347,43 @@ export class ApplicationService {
   async syncAdminModels(ctx: RequestContext) {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
     const runtimeModels = await this.runtime.listRuntimeModels()
+    if (runtimeModels.discoveryStatus === 'unsupported') {
+      const existing = await this.store.listAdminModels()
+      const audit = await this.store.createAuditLog({
+        requestId: ctx.requestId,
+        operatorUserId: ctx.userId,
+        operatorRole: ctx.adminRole!,
+        action: 'model.sync.unsupported',
+        targetType: 'model_service',
+        targetId: 'runtime_discovery',
+        reason: null,
+        metadata: {
+          runtimeDiscoveryStatus: 'unsupported',
+          runtimeMessage: runtimeModels.message ?? null,
+          runtimeVersion: runtimeModels.version,
+        },
+      })
+      return {
+        ...existing,
+        createdCount: 0,
+        updatedCount: 0,
+        missingCount: 0,
+        disabledMissingCount: 0,
+        diff: [],
+        runtime: {
+          type: runtimeModels.type,
+          discoveryStatus: runtimeModels.discoveryStatus,
+          message: runtimeModels.message ?? null,
+          version: runtimeModels.version,
+          providerCount: 0,
+          modelCount: 0,
+          defaultModel: runtimeModels.defaultModel,
+          activeProfile: runtimeModels.activeProfile ?? null,
+          syncedAt: runtimeModels.syncedAt,
+        },
+        audit,
+      }
+    }
     const discovered = runtimeModelsToModelServices(runtimeModels)
     const result = await this.store.upsertDiscoveredModelServices(discovered)
     const audit = await this.store.createAuditLog({
@@ -1119,10 +1611,28 @@ export class ApplicationService {
   }
 
   private async requireUser(userId: string) {
+    if (!userId) throw createHttpError(401, 'UNAUTHENTICATED', 'Authentication required.')
     const user = await this.store.getUserById(userId)
     if (!user) throw createHttpError(401, 'UNAUTHENTICATED', `Unknown user: ${userId}`)
     if (user.status !== 'active') throw createHttpError(403, 'USER_DISABLED', `User disabled: ${userId}`)
     return user
+  }
+
+  private async createAuthSessionForUser(userId: string, meta: { userAgent?: string | null; ip?: string | null }) {
+    const token = createSessionToken()
+    const maxAgeSeconds = 60 * 60 * 24 * 30
+    const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000).toISOString()
+    const session = await this.store.createAuthSession({
+      userId,
+      tokenHash: hashSessionToken(token),
+      userAgent: meta.userAgent ?? null,
+      ipHash: meta.ip ? hashIp(meta.ip) : null,
+      expiresAt,
+    })
+    return {
+      session,
+      cookie: sessionCookie(token, { maxAgeSeconds }),
+    }
   }
 
   private async requireAdminRole(ctx: RequestContext, allowed: Array<NonNullable<RequestContext['adminRole']>>): Promise<void> {
@@ -1132,34 +1642,45 @@ export class ApplicationService {
     }
   }
 
-  private async requireWorkspaceAccess(workspaceId: string, userId: string): Promise<void> {
-    const workspace = await this.store.getWorkspaceById(workspaceId)
-    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
-    if (workspace.ownerId !== userId) {
+  private async requireWorkspaceAccess(workspaceId: string, userId: string, minRole: WorkspaceMemberRole = 'viewer'): Promise<void> {
+    const allowed = await this.canAccessWorkspace(workspaceId, userId, minRole)
+    if (!allowed) {
       throw createHttpError(403, 'WORKSPACE_FORBIDDEN', 'You do not have access to this workspace.')
     }
   }
 
-  private async requireSessionAccess(sessionId: string, userId: string): Promise<void> {
+  private async canAccessWorkspace(workspaceId: string, userId: string, minRole: WorkspaceMemberRole = 'viewer'): Promise<boolean> {
+    const workspace = await this.store.getWorkspaceById(workspaceId)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
+    const member = await this.store.getWorkspaceMember(workspaceId, userId)
+    const effectiveRole = member?.status === 'active'
+      ? member.role
+      : workspace.ownerId === userId
+        ? 'owner'
+        : null
+    return Boolean(effectiveRole && roleAllows(effectiveRole, minRole))
+  }
+
+  private async requireSessionAccess(sessionId: string, userId: string, minRole: WorkspaceMemberRole = 'viewer'): Promise<void> {
     const session = await this.store.getSessionById(sessionId)
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
-    if (session.userId !== userId) {
+    if (!await this.canAccessWorkspace(session.workspaceId, userId, minRole)) {
       throw createHttpError(403, 'SESSION_FORBIDDEN', 'You do not have access to this session.')
     }
   }
 
-  private async requireJobAccess(jobId: string, userId: string): Promise<void> {
+  private async requireJobAccess(jobId: string, userId: string, minRole: WorkspaceMemberRole = 'viewer'): Promise<void> {
     const job = await this.store.getJobById(jobId)
     if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
-    if (job.userId !== userId) {
+    if (!await this.canAccessWorkspace(job.workspaceId, userId, minRole)) {
       throw createHttpError(403, 'JOB_FORBIDDEN', 'You do not have access to this design job.')
     }
   }
 
-  private async requireVariationAccess(variationId: string, userId: string): Promise<void> {
+  private async requireVariationAccess(variationId: string, userId: string, minRole: WorkspaceMemberRole = 'viewer'): Promise<void> {
     const variation = await this.store.getVariationById(variationId)
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireJobAccess(variation.jobId, userId)
+    await this.requireJobAccess(variation.jobId, userId, minRole)
   }
 
   private async resolveUserModel(userId: string, requestedModelServiceId: string | null) {
@@ -1171,6 +1692,37 @@ export class ApplicationService {
     const model = await this.store.getModelServiceById(modelServiceId)
     if (!model || !model.enabled) throw createHttpError(404, 'MODEL_NOT_FOUND', `Model service not found: ${modelServiceId}`)
     return model
+  }
+
+  private async resolveDesignTemplatePacksForJob(
+    userId: string,
+    workspaceId: string,
+    input: CreateDesignJobRequest,
+  ): Promise<DesignTemplatePack[]> {
+    const explicitIds = [
+      ...(input.templateRequirements?.designTemplatePackIds ?? []),
+      ...(input.capabilityRequirements?.template?.designTemplatePackIds ?? []),
+    ].filter((id, index, all) => typeof id === 'string' && id.trim().length > 0 && all.indexOf(id) === index)
+
+    const resolved: DesignTemplatePack[] = []
+    for (const templateId of explicitIds) {
+      const template = await this.store.getDesignTemplatePackById(templateId, userId, workspaceId)
+      if (!template) throw createHttpError(404, 'DESIGN_TEMPLATE_NOT_FOUND', `Design template not found: ${templateId}`)
+      resolved.push(template)
+    }
+
+    const shouldAutoDistribute = input.capabilityRequirements?.template?.autoDistributeTemplatePacks
+      ?? explicitIds.length === 0
+    if (shouldAutoDistribute && resolved.length < input.variationCount) {
+      const available = await this.store.listDesignTemplatePacks(userId, workspaceId)
+      for (const template of available) {
+        if (resolved.some(existing => existing.id === template.id)) continue
+        resolved.push(template)
+        if (resolved.length >= input.variationCount) break
+      }
+    }
+
+    return resolved.slice(0, Math.max(input.variationCount, explicitIds.length))
   }
 
   async processQueuedDesignJob(payload: DesignJobQueuePayload): Promise<void> {
@@ -1205,7 +1757,107 @@ export class ApplicationService {
   }
 
   async processQueuedRefineJob(_payload: RefineJobQueuePayload): Promise<void> {
-    throw createHttpError(501, 'REFINE_QUEUE_NOT_IMPLEMENTED', 'Queued refine execution is not enabled yet.')
+    const prompt = _payload.prompt?.trim() ?? ''
+    if (!prompt) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
+    const context = await this.store.getVariationRefineContext(_payload.variationId, _payload.baseArtifactId)
+    if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${_payload.variationId}`)
+    const { variation, job, session, workspace, baseArtifact } = context
+    if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
+    if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${variation.sessionId}`)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${job.workspaceId}`)
+    if (!baseArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${_payload.baseArtifactId}`)
+    if (_payload.jobId && _payload.jobId !== job.id) {
+      throw createHttpError(400, 'JOB_VARIATION_MISMATCH', 'Queued refine job does not match the variation job.')
+    }
+    if (_payload.sessionId !== session.id) {
+      throw createHttpError(400, 'SESSION_VARIATION_MISMATCH', 'Queued refine job does not match the variation session.')
+    }
+    if (_payload.workspaceId !== workspace.id) {
+      throw createHttpError(400, 'WORKSPACE_VARIATION_MISMATCH', 'Queued refine job does not match the variation workspace.')
+    }
+    const baseArtifactHtml = await this.readArtifactHtml(baseArtifact.storageKey)
+    const modelContext = modelContextFromTemplateRequirements(job.templateRequirements)
+    const attempt = _payload.attempt ?? Math.max(1, baseArtifact.version)
+
+    if (_payload.source === 'automation_loop') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_repair_started',
+        sessionId: session.id,
+        jobId: job.id,
+        variationId: variation.id,
+        payload: {
+          artifactId: baseArtifact.id,
+          attempt,
+          runtimeChildSessionId: variation.runtimeChildSessionId,
+        },
+      }))
+      await this.store.appendMessage({
+        sessionId: session.id,
+        role: 'system',
+        content: `Automation loop started repair attempt ${attempt} for ${variation.title ?? variation.id}.`,
+        metadata: {
+          kind: 'automation_loop_repair',
+          variationId: variation.id,
+          artifactId: baseArtifact.id,
+          attempt,
+          queueJobIdempotencyKey: _payload.idempotencyKey,
+        },
+      })
+    } else {
+      await this.store.appendMessage({
+        sessionId: session.id,
+        role: 'user',
+        content: prompt,
+        metadata: {
+          kind: 'variation_refine',
+          variationId: variation.id,
+          baseArtifactId: baseArtifact.id,
+          deviceContext: _payload.deviceContext ?? null,
+          queueJobIdempotencyKey: _payload.idempotencyKey,
+        },
+      })
+    }
+
+    try {
+      for await (const event of this.runtime.refineVariation({
+        userId: session.userId,
+        workspaceId: workspace.id,
+        sessionId: session.id,
+        jobId: job.id,
+        variationId: variation.id,
+        variationIndex: variation.index,
+        runtimeChildSessionId: variation.runtimeChildSessionId,
+        baseArtifactId: baseArtifact.id,
+        baseArtifactHtml,
+        baseArtifactEntryPath: baseArtifact.entryPath,
+        baseArtifactVersion: baseArtifact.version,
+        prompt,
+        annotationPromptSuffix: _payload.annotationPromptSuffix ?? undefined,
+        workspaceRoot: workspace.storageKey,
+        deviceContext: _payload.deviceContext ?? undefined,
+        modelServiceId: _payload.modelServiceId ?? modelContext.modelServiceId,
+        modelId: modelContext.modelId,
+        modelProvider: modelContext.modelProvider,
+      })) {
+        await this.applyEventSideEffects(event)
+        await this.publishDesignEvent(event)
+      }
+    } catch (error) {
+      if (_payload.source === 'automation_loop') {
+        await this.publishAutomationLoopStoppedForRepair(
+          {
+            sessionId: session.id,
+            job,
+            variation,
+            artifact: baseArtifact,
+            attempt,
+          },
+          'runtime_unavailable',
+          error instanceof Error ? error.message : 'Automation repair failed because the runtime is unavailable.',
+        )
+      }
+      throw error
+    }
   }
 
   private async runMockJob(input: {
@@ -1244,20 +1896,18 @@ export class ApplicationService {
       })) {
         const normalized = this.rewriteRuntimeVariationId(event, input.variationIdsByIndex)
         await this.applyEventSideEffects(normalized)
-        this.events.publish(normalized)
+        await this.publishDesignEvent(normalized)
       }
-      await this.store.setJobStatus(input.jobId, 'completed')
+      await this.failUnfinishedVariations(
+        input.jobId,
+        input.variationIdsByIndex,
+        new Error('Runtime completed before all variations reached a terminal state.'),
+        'RUNTIME_INCOMPLETE',
+      )
     } catch (error) {
-      await this.store.setJobStatus(input.jobId, 'failed')
-      for (const variationId of input.variationIdsByIndex.values()) {
-        await this.store.applyVariationEvent({
-          variationId,
-          status: 'failed',
-          errorCode: 'RUNTIME_UNAVAILABLE',
-          errorMessage: error instanceof Error ? error.message : 'Runtime unavailable.',
-        })
-      }
+      await this.failUnfinishedVariations(input.jobId, input.variationIdsByIndex, error)
     }
+    await this.finalizeQueuedDesignJob(input.jobId)
   }
 
   private rewriteRuntimeVariationId(event: DesignEvent, idsByIndex: Map<number, string>): DesignEvent {
@@ -1388,6 +2038,26 @@ export class ApplicationService {
           }
         }
         break
+      case 'design.runtime_warning':
+        if (event.payload.code === 'UNKNOWN_RUNTIME_EVENT') {
+          await this.store.createAuditLog({
+            requestId: event.requestId ?? createId('req_runtime_drift'),
+            operatorUserId: this.store.devUser.id,
+            operatorRole: 'developer',
+            action: 'runtime.drift_detected',
+            targetType: 'variation',
+            targetId: event.variationId,
+            reason: event.payload.message,
+            metadata: {
+              sessionId: event.sessionId ?? null,
+              jobId: event.jobId ?? null,
+              variationId: event.variationId,
+              severity: event.payload.severity,
+              code: event.payload.code,
+            },
+          })
+        }
+        break
       case 'design.variation_failed':
         await this.store.applyVariationEvent({
           variationId: event.variationId,
@@ -1401,8 +2071,110 @@ export class ApplicationService {
     }
   }
 
+  async listDesignJobEvents(ctx: RequestContext, jobId: string): Promise<DesignEvent[]> {
+    await this.requireJobAccess(jobId, ctx.userId, 'viewer')
+    return this.store.listDesignEvents(jobId)
+  }
+
+  private async publishDesignEvent(event: DesignEvent): Promise<void> {
+    await this.store.appendDesignEvent(event)
+    this.events.publish(event)
+  }
+
+  private async failUnfinishedVariations(
+    jobId: string,
+    variationIdsByIndex: Map<number, string>,
+    error: unknown,
+    errorCode = 'RUNTIME_UNAVAILABLE',
+  ): Promise<void> {
+    const snapshot = await this.store.getJobSnapshot(jobId)
+    const terminalStatuses = new Set<DesignVariationStatus>(['completed', 'failed', 'cancelled'])
+    const message = error instanceof Error ? error.message : 'Runtime unavailable.'
+    for (const variationId of variationIdsByIndex.values()) {
+      const variation = snapshot?.variations.find(candidate => candidate.id === variationId)
+      if (variation && terminalStatuses.has(variation.status)) continue
+      const failedEvent = createDesignEvent({
+        type: 'design.variation_failed',
+        sessionId: snapshot?.job.sessionId,
+        jobId,
+        variationId,
+        payload: {
+          errorCode,
+          message,
+          recoverable: true,
+        },
+      })
+      await this.applyEventSideEffects(failedEvent)
+      await this.publishDesignEvent(failedEvent)
+    }
+  }
+
+  private async finalizeQueuedDesignJob(jobId: string): Promise<void> {
+    const snapshot = await this.store.getJobSnapshot(jobId)
+    if (!snapshot) return
+    const completedVariationCount = snapshot.variations.filter(variation => variation.status === 'completed').length
+    const failedVariationCount = snapshot.variations.filter(variation => variation.status === 'failed').length
+    const cancelledVariationCount = snapshot.variations.filter(variation => variation.status === 'cancelled').length
+    const terminalCount = completedVariationCount + failedVariationCount + cancelledVariationCount
+    const status = completedVariationCount > 0
+      ? 'completed'
+      : terminalCount === snapshot.variations.length && cancelledVariationCount === snapshot.variations.length
+        ? 'cancelled'
+        : 'failed'
+    await this.store.setJobStatus(jobId, status)
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.job_completed',
+      sessionId: snapshot.job.sessionId,
+      jobId,
+      payload: {
+        completedVariationCount,
+        failedVariationCount,
+      },
+    }))
+  }
+
   private async recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]): Promise<void> {
     await this.store.createUsageEvent(input)
+  }
+
+  private async recordRuntimeObservation(ctx: RequestContext, input: {
+    runtime: Awaited<ReturnType<RuntimeGateway['getRuntimeHealth']>>
+    contract: Awaited<ReturnType<RuntimeGateway['getRuntimeContract']>>
+    latencyMs: number
+    degraded: boolean
+    unavailable: boolean
+    contractMismatch: boolean
+    drift: boolean
+  }): Promise<void> {
+    const action = input.contractMismatch
+      ? 'runtime.contract_mismatch'
+      : input.unavailable
+        ? 'runtime.unavailable'
+        : input.drift
+          ? 'runtime.drift_detected'
+          : 'runtime.degraded'
+    await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole ?? 'support',
+      action,
+      targetType: 'runtime',
+      targetId: 'babel-o',
+      reason: input.runtime.message ?? input.contract.status,
+      metadata: {
+        latencyMs: input.latencyMs,
+        runtimeStatus: input.runtime.status,
+        contractStatus: input.contract.status,
+        runtimeVersion: input.runtime.runtimeVersion,
+        runtimeContractVersion: input.runtime.contractVersion,
+        contractRuntimeVersion: input.contract.runtimeVersion,
+        contractVersion: input.contract.contractVersion,
+        degraded: input.degraded,
+        unavailable: input.unavailable,
+        contractMismatch: input.contractMismatch,
+        drift: input.drift,
+      },
+    })
   }
 
   private async writeMockArtifactBody(artifactId: string): Promise<void> {
@@ -1433,19 +2205,15 @@ export class ApplicationService {
       },
     })
     if (artifact.kind === 'html' && variation) {
-      this.trackBackgroundTask(this.createScreenshotArtifacts({
+      await this.enqueueScreenshotJob({
         workspaceId: artifact.workspaceId,
         sessionId: artifact.sessionId,
         variation,
-        htmlArtifact: {
-          ...artifact,
-          storageKey: stored.storageKey,
-          contentHash: stored.contentHash,
-          sizeBytes: stored.sizeBytes,
-        },
-        html: renderMockVariationHtml(variation, artifact),
+        htmlArtifactId: artifact.id,
         source: 'mock-runtime',
-      }))
+        reason: 'artifact_created',
+        jobId: variation.jobId,
+      })
     }
   }
 
@@ -1509,7 +2277,7 @@ export class ApplicationService {
   }): Promise<Artifact> {
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const artifactId = input.runtimeArtifactId?.startsWith('art_') ? input.runtimeArtifactId : `art_${input.variation.id}_runtime_${version}`
-    const quality = await this.analyzeArtifactQuality(input.html)
+    const quality = await this.analyzeArtifactQuality(input.html, input.jobId)
     const stored = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId,
@@ -1546,14 +2314,16 @@ export class ApplicationService {
       },
     })
     this.publishArtifactQualityWarnings(input.sessionId, input.jobId, input.variation.id, artifact, quality)
-    this.trackBackgroundTask(this.createScreenshotArtifacts({
+    this.publishAutomationLoopEventsForArtifact(input.sessionId, input.jobId, input.variation.id, artifact, quality)
+    await this.enqueueScreenshotJob({
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
       variation: input.variation,
-      htmlArtifact: artifact,
-      html: input.html,
+      htmlArtifactId: artifact.id,
       source: 'babel-o-runtime',
-    }))
+      reason: 'artifact_created',
+      jobId: input.jobId ?? input.variation.jobId,
+    })
     return artifact
   }
 
@@ -1575,7 +2345,7 @@ export class ApplicationService {
     }
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const htmlArtifactId = `art_${input.variation.id}_workspace_${version}`
-    const quality = await this.analyzeArtifactQuality(entry.content)
+    const quality = await this.analyzeArtifactQuality(entry.content, input.jobId)
     const storedEntry = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId: htmlArtifactId,
@@ -1612,6 +2382,7 @@ export class ApplicationService {
       },
     })
     this.publishArtifactQualityWarnings(input.sessionId, input.jobId, input.variation.id, htmlArtifact, quality)
+    this.publishAutomationLoopEventsForArtifact(input.sessionId, input.jobId, input.variation.id, htmlArtifact, quality)
 
     for (const file of files.filter(file => file.path !== entry.path)) {
       const assetArtifactId = `asset_${input.variation.id}_${version}_${stablePathId(file.path)}`
@@ -1647,16 +2418,60 @@ export class ApplicationService {
       })
     }
 
-    this.trackBackgroundTask(this.createScreenshotArtifacts({
+    await this.enqueueScreenshotJob({
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
       variation: input.variation,
-      htmlArtifact,
-      html: entry.content,
+      htmlArtifactId: htmlArtifact.id,
       source: 'babel-o-workspace',
-    }))
+      reason: 'artifact_created',
+      jobId: input.jobId ?? input.variation.jobId,
+    })
 
     return htmlArtifact
+  }
+
+  private async enqueueScreenshotJob(input: {
+    workspaceId: string
+    sessionId: string
+    variation: DesignVariation
+    htmlArtifactId: string
+    source: ScreenshotJobQueuePayload['source']
+    reason: ScreenshotJobQueuePayload['reason']
+    jobId?: string | null
+  }) {
+    const job = input.jobId ? await this.store.getJobById(input.jobId) : null
+    return await this.queue.enqueueScreenshotJob({
+      jobId: input.jobId ?? input.variation.jobId,
+      sessionId: input.sessionId,
+      variationId: input.variation.id,
+      artifactId: input.htmlArtifactId,
+      idempotencyKey: screenshotQueueIdempotencyKey(input.htmlArtifactId, input.reason),
+      userId: job?.userId ?? this.store.devUser.id,
+      workspaceId: input.workspaceId,
+      source: input.source,
+      reason: input.reason,
+      createdAt: new Date().toISOString(),
+    })
+  }
+
+  async processQueuedScreenshotJob(payload: ScreenshotJobQueuePayload): Promise<void> {
+    const context = await this.store.getVariationArtifactContext(payload.variationId, payload.artifactId)
+    const variation = context.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${payload.variationId}`)
+    if (context.mismatch) throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    const artifact = context.artifact
+    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${payload.artifactId}`)
+    if (artifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Screenshot jobs require an HTML artifact.')
+    const html = await this.readArtifactHtml(artifact.storageKey)
+    await this.createScreenshotArtifacts({
+      workspaceId: payload.workspaceId,
+      sessionId: payload.sessionId,
+      variation,
+      htmlArtifact: artifact,
+      html,
+      source: payload.source,
+    })
   }
 
   private async createScreenshotArtifacts(input: {
@@ -1749,7 +2564,7 @@ export class ApplicationService {
     quality: ArtifactQualityReport,
   ): void {
     if (quality.status === 'pass') return
-    this.events.publish(createDesignEvent({
+    const event = createDesignEvent({
       type: 'design.runtime_warning',
       sessionId,
       jobId,
@@ -1759,14 +2574,221 @@ export class ApplicationService {
         code: 'ARTIFACT_QUALITY_GATE',
         message: `Artifact v${artifact.version} needs attention: ${quality.issues.join('; ')}`,
       },
+    })
+    this.trackBackgroundTask(this.publishDesignEvent(event))
+  }
+
+  private publishAutomationLoopEventsForArtifact(
+    sessionId: string,
+    jobId: string | undefined,
+    variationId: string,
+    artifact: Artifact,
+    quality: ArtifactQualityReport,
+  ): void {
+    if (!jobId) return
+    this.trackBackgroundTask(this.publishAutomationLoopEventsForArtifactNow({
+      sessionId,
+      jobId,
+      variationId,
+      artifact,
+      quality,
     }))
   }
 
-  private async analyzeArtifactQuality(html: string): Promise<ArtifactQualityReport> {
+  private async publishAutomationLoopEventsForArtifactNow(input: {
+    sessionId: string
+    jobId: string
+    variationId: string
+    artifact: Artifact
+    quality: ArtifactQualityReport
+  }): Promise<void> {
+    const job = await this.store.getJobById(input.jobId)
+    const variation = await this.store.getVariationById(input.variationId)
+    if (!job || !variation) return
+    const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
+    const capabilitySnapshot = templateRequirements?.capabilitySnapshot
+    const automation = capabilitySnapshot?.automation
+    if (!automation) return
+
+    const profile = automation.loopProfile
+    const attempt = Math.max(0, input.artifact.version - 1)
+    const startedAt = job.startedAt ? Date.parse(job.startedAt) : Date.parse(job.createdAt)
+    const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : 0
+    const costCents = Math.max(job.totalCostCents, variation.costCents)
+    const decision = evaluateAutomationLoopStop({
+      profile: {
+        ...profile,
+        maxRepairAttempts: automation.maxRepairAttempts,
+        maxCostCents: automation.maxCostCents,
+        maxDurationMs: automation.maxDurationMs,
+      },
+      attempts: attempt,
+      elapsedMs,
+      costCents,
+      quality: input.quality,
+    })
+
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.loop_started',
+      sessionId: input.sessionId,
+      jobId: input.jobId,
+      variationId: input.variationId,
+      payload: {
+        profileId: profile.id,
+        maxRepairAttempts: automation.maxRepairAttempts,
+        qualityGate: profile.qualityGate,
+      },
+    }))
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.loop_quality_checked',
+      sessionId: input.sessionId,
+      jobId: input.jobId,
+      variationId: input.variationId,
+      payload: {
+        artifactId: input.artifact.id,
+        attempt,
+        gate: profile.qualityGate,
+        status: input.quality.status,
+        issues: input.quality.issues,
+      },
+    }))
+
+    if (!decision.shouldStop) {
+      const prompt = buildAutomationRepairPrompt({
+        issues: input.quality.issues,
+        originalPrompt: job.prompt,
+        templateSummary: automationTemplateSummaryForVariation(variation.index, job.templateRequirements),
+      })
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_repair_planned',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: input.variationId,
+        payload: {
+          artifactId: input.artifact.id,
+          attempt: attempt + 1,
+          reason: `quality_${input.quality.status}`,
+          promptPreview: prompt.slice(0, 500),
+        },
+      }))
+      await this.enqueueAutomationLoopRepair({
+        sessionId: input.sessionId,
+        job,
+        variation,
+        artifact: input.artifact,
+        prompt,
+        attempt: attempt + 1,
+      })
+      return
+    }
+
+    if (decision.reason === 'quality_passed') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_completed',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: input.variationId,
+        payload: {
+          artifactId: input.artifact.id,
+          attempts: attempt,
+          reason: 'quality_passed',
+        },
+      }))
+      return
+    }
+
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.loop_stopped',
+      sessionId: input.sessionId,
+      jobId: input.jobId,
+      variationId: input.variationId,
+      payload: {
+        artifactId: input.artifact.id,
+        attempts: attempt,
+        reason: loopStoppedEventReason(decision.reason),
+        message: decision.message ?? 'Automation loop stopped.',
+        recoverable: decision.recoverable,
+      },
+    }))
+  }
+
+  private async enqueueAutomationLoopRepair(input: {
+    sessionId: string
+    job: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobById']>>>
+    variation: DesignVariation
+    artifact: Artifact
+    prompt: string
+    attempt: number
+  }): Promise<void> {
+    const sessionContext = await this.store.getSessionWorkspaceContext(input.sessionId)
+    const session = sessionContext?.session
+    const workspace = sessionContext?.workspace
+    if (!session || !workspace) {
+      await this.publishAutomationLoopStoppedForRepair(input, 'runtime_unavailable', 'Automation repair could not start because the session workspace is unavailable.')
+      return
+    }
+    const modelContext = modelContextFromTemplateRequirements(input.job.templateRequirements)
+    await this.queue.enqueueRefineJob({
+      jobId: input.job.id,
+      sessionId: input.sessionId,
+      variationIds: [input.variation.id],
+      sourceArtifactId: input.artifact.id,
+      runtimeSessionId: input.variation.runtimeChildSessionId,
+      modelServiceId: modelContext.modelServiceId ?? null,
+      idempotencyKey: automationRepairQueueIdempotencyKey(input.artifact.id, input.attempt),
+      userId: session.userId,
+      workspaceId: workspace.id,
+      variationId: input.variation.id,
+      baseArtifactId: input.artifact.id,
+      prompt: input.prompt,
+      source: 'automation_loop',
+      attempt: input.attempt,
+      createdAt: new Date().toISOString(),
+    })
+  }
+
+  private async publishAutomationLoopStoppedForRepair(
+    input: {
+      sessionId: string
+      job: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobById']>>>
+      variation: DesignVariation
+      artifact: Artifact
+      attempt: number
+    },
+    reason: 'runtime_unavailable' | 'runtime_contract_mismatch' | 'cancelled',
+    message: string,
+  ): Promise<void> {
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.loop_stopped',
+      sessionId: input.sessionId,
+      jobId: input.job.id,
+      variationId: input.variation.id,
+      payload: {
+        artifactId: input.artifact.id,
+        attempts: input.attempt,
+        reason,
+        message,
+        recoverable: reason !== 'cancelled',
+      },
+    }))
+  }
+
+  private async analyzeArtifactQuality(html: string, jobId?: string | null): Promise<ArtifactQualityReport> {
+    const profileGate = jobId ? await this.resolveArtifactQualityGateForJob(jobId) : null
     return analyzeHtmlArtifactQualityWithPixelGate(html, {
-      enabled: pixelQualityGateEnabled(),
+      enabled: profileGate?.enablePixelGate ?? pixelQualityGateEnabled(),
       timeoutMs: pixelQualityGateTimeoutMs(),
     })
+  }
+
+  private async resolveArtifactQualityGateForJob(jobId: string): Promise<{ enablePixelGate: boolean } | null> {
+    const job = await this.store.getJobById(jobId)
+    if (!job) return null
+    const automation = normalizeTemplateRequirements(job.templateRequirements)?.capabilitySnapshot?.automation
+    if (!automation) return null
+    return {
+      enablePixelGate: automation.loopProfile.enablePixelGate || automation.loopProfile.qualityGate === 'pixel',
+    }
   }
 
   private async nextHtmlArtifactVersion(variationId: string): Promise<number> {
@@ -1891,6 +2913,23 @@ export class ApplicationService {
     })
   }
 
+  private async resolveExportRepairSourceArtifact(artifact: Artifact): Promise<Artifact> {
+    if (artifact.kind === 'html') return artifact
+    if (artifact.kind !== 'export_zip') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Export repair requires an HTML or export artifact.')
+    }
+    const sourceArtifactId = typeof artifact.metadata.sourceArtifactId === 'string'
+      ? artifact.metadata.sourceArtifactId
+      : artifact.parentArtifactId
+    if (!sourceArtifactId) {
+      throw createHttpError(400, 'EXPORT_SOURCE_ARTIFACT_MISSING', 'Export artifact does not record its source HTML artifact.')
+    }
+    const sourceArtifact = await this.store.getArtifactById(sourceArtifactId)
+    if (!sourceArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Source artifact not found: ${sourceArtifactId}`)
+    if (sourceArtifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Export source artifact must be HTML.')
+    return sourceArtifact
+  }
+
   private async findExistingExportArtifact(variationId: string, sourceArtifactId: string): Promise<Artifact | null> {
     return this.store.getExportArtifactForSource(variationId, sourceArtifactId)
   }
@@ -1958,6 +2997,108 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
     notes: typeof value.notes === 'string' ? value.notes : undefined,
     advancedConstraints: normalizeAdvancedTemplateConstraints(value.advancedConstraints),
     capabilitySnapshot: isCapabilitySnapshot(value.capabilitySnapshot) ? value.capabilitySnapshot : undefined,
+    designTemplatePackIds: Array.isArray(value.designTemplatePackIds)
+      ? value.designTemplatePackIds.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    designTemplatePacks: Array.isArray(value.designTemplatePacks)
+      ? value.designTemplatePacks.filter(isDesignTemplatePack)
+      : undefined,
+    variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
+      ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
+      : undefined,
+  }
+}
+
+function assignDesignTemplatePacks(
+  variationCount: number,
+  designTemplatePacks: DesignTemplatePack[],
+): NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']> {
+  if (designTemplatePacks.length === 0) return []
+  return Array.from({ length: variationCount }, (_, index) => {
+    const template = designTemplatePacks[index % designTemplatePacks.length]!
+    return {
+      variationIndex: index + 1,
+      designTemplatePackId: template.id,
+      designTemplatePack: template,
+    }
+  })
+}
+
+function assignedTemplatePackForVariation(
+  variationIndex: number,
+  assignments: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']>,
+): DesignTemplatePack | null {
+  return assignments.find(assignment => assignment.variationIndex === variationIndex)?.designTemplatePack ?? null
+}
+
+function automationTemplateSummaryForVariation(variationIndex: number, templateRequirements: Record<string, unknown>): string | null {
+  const normalized = normalizeTemplateRequirements(templateRequirements)
+  const templatePack = assignedTemplatePackForVariation(variationIndex, normalized?.variationTemplateAssignments ?? [])
+  if (!templatePack) return null
+  return [
+    templatePack.name,
+    templatePack.description,
+    templatePack.rationale.overview,
+    ...templatePack.rationale.dos.slice(0, 3).map(item => `Do: ${item}`),
+    ...templatePack.rationale.donts.slice(0, 3).map(item => `Do not: ${item}`),
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join('\n')
+}
+
+function loopStoppedEventReason(reason: AutomationLoopStopReason | null): Exclude<AutomationLoopStopReason, 'quality_passed'> {
+  return reason && reason !== 'quality_passed' ? reason : 'quality_failed'
+}
+
+function isVariationTemplateAssignment(value: unknown): value is NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']>[number] {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.variationIndex === 'number'
+    && typeof record.designTemplatePackId === 'string'
+    && isDesignTemplatePack(record.designTemplatePack)
+}
+
+function isDesignTemplatePack(value: unknown): value is DesignTemplatePack {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.id === 'string'
+    && typeof record.name === 'string'
+    && typeof record.schemaVersion === 'string'
+    && typeof record.designTokens === 'object'
+    && typeof record.rationale === 'object'
+}
+
+function fallbackDesignTemplatePackFromVariation(variation: DesignVariation, job: { id: string; prompt: string }): DesignTemplatePack {
+  return {
+    schemaVersion: DESIGN_TEMPLATE_PACK_SCHEMA_VERSION,
+    id: createId('dtp_fallback'),
+    source: 'user',
+    format: 'dudesign-template-v1',
+    visibility: 'private',
+    status: 'draft',
+    name: `${variation.title ?? `Variation ${variation.index}`} Template`,
+    description: `Template inferred from job prompt: ${job.prompt.slice(0, 120)}`,
+    version: '1.0.0',
+    designTokens: {
+      colors: {},
+      typography: {},
+      spacing: {},
+      rounded: {},
+      components: {},
+    },
+    rationale: {
+      overview: `Saved from ${variation.title ?? `variation ${variation.index}`}.`,
+      colors: null,
+      typography: null,
+      layout: null,
+      elevation: null,
+      shapes: null,
+      components: null,
+      dos: ['Preserve the saved variation direction as reusable inspiration.'],
+      donts: ['Do not copy public brand trade dress or proprietary assets.'],
+      sections: {},
+    },
+    previewArtifactId: null,
+    lintStatus: 'unknown',
+    createdByUserId: null,
   }
 }
 
@@ -2092,6 +3233,15 @@ function stringValue(value: unknown): string | null {
 
 function designJobQueueIdempotencyKey(jobId: string): string {
   return `queue:design-job:${jobId}`
+}
+
+function screenshotQueueIdempotencyKey(artifactId: string, reason: ScreenshotJobQueuePayload['reason']): string {
+  if (reason === 'repair_requested') return `queue:screenshot:${reason}:${artifactId}:${createId('repair')}`
+  return `queue:screenshot:${reason}:${artifactId}`
+}
+
+function automationRepairQueueIdempotencyKey(artifactId: string, attempt: number): string {
+  return `queue:refine:automation-loop:${artifactId}:attempt:${attempt}`
 }
 
 function artifactQualitySummary(value: unknown): ArtifactQualityReport | null {
@@ -2380,6 +3530,17 @@ export function createHttpError(status: number, code: string, message: string): 
   error.status = status
   error.code = code
   return error
+}
+
+const WORKSPACE_ROLE_RANK: Record<WorkspaceMemberRole, number> = {
+  viewer: 1,
+  editor: 2,
+  admin: 3,
+  owner: 4,
+}
+
+function roleAllows(actual: WorkspaceMemberRole, required: WorkspaceMemberRole): boolean {
+  return WORKSPACE_ROLE_RANK[actual] >= WORKSPACE_ROLE_RANK[required]
 }
 
 function escapeHtml(value: string): string {
