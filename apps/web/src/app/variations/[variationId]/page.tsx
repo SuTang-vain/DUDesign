@@ -420,13 +420,24 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
       <section className="variation-editor-grid">
         <div className={`device-preview ${device}`}>
-          <div className="editor-view-tabs" role="tablist" aria-label="Editor view">
-            <button className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}>
-              Preview
-            </button>
-            <button className={viewMode === 'code' ? 'active' : ''} onClick={() => setViewMode('code')} disabled={files.length === 0}>
-              Code
-            </button>
+          <div className="editor-preview-toolbar">
+            <div className="editor-view-tabs" role="tablist" aria-label="Editor view">
+              <button className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}>
+                Preview
+              </button>
+              <button className={viewMode === 'code' ? 'active' : ''} onClick={() => setViewMode('code')} disabled={files.length === 0}>
+                Code
+              </button>
+            </div>
+            {viewMode === 'preview' ? (
+              <div className="device-toggle editor-device-toggle" aria-label="Preview device">
+                {(['desktop', 'tablet', 'mobile'] as const).map(item => (
+                  <button key={item} className={device === item ? 'active' : ''} onClick={() => setDevice(item)}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {viewMode === 'code' ? (
             <div className="editor-code-view">
@@ -473,14 +484,6 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         </div>
 
         <aside className="refine-panel">
-          <div className="device-toggle" aria-label="Preview device">
-            {(['desktop', 'tablet', 'mobile'] as const).map(item => (
-              <button key={item} className={device === item ? 'active' : ''} onClick={() => setDevice(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
-
           <label className="refine-field">
             Refine prompt
             <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={6} />

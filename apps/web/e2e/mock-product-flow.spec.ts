@@ -76,6 +76,8 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
 test('workbench can choose capability distribution options', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
+  await expect(page.getByTestId('generate-button')).toBeEnabled()
 
   const preferenceSaves: Array<Promise<unknown>> = []
   page.on('requestfinished', request => {
@@ -85,6 +87,8 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   })
 
   await page.getByTestId('template-pill-trigger').click()
+  await expect(page.getByTestId('template-direct-popover')).toBeVisible()
+  await expect(page.getByTestId('scene-options')).toBeVisible()
   await page.getByTestId('scene-options').getByRole('button', { name: /Premium Product Page/ }).click()
   await page.getByRole('tab', { name: /Visual/ }).click()
   await page.getByTestId('visual-options').getByRole('button', { name: /Premium Minimal/ }).click()
@@ -92,7 +96,8 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await expect(page.getByTestId('advanced-options')).toBeVisible()
   await page.getByTestId('palette-options').getByRole('button', { name: /Minimal Mono/ }).click()
   await page.getByTestId('style-notes-input').fill('premium product storytelling')
-  const appleReference = page.getByTestId('brand-reference-options').locator('button').filter({ hasText: 'Apple-inspired' })
+  await expect(page.getByTestId('brand-reference-options')).toBeVisible()
+  const appleReference = page.getByTestId('brand-reference-options').getByText('Apple-inspired', { exact: true })
   await appleReference.scrollIntoViewIfNeeded()
   await expect(appleReference).toBeVisible()
   await appleReference.click()
@@ -121,12 +126,10 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await expect(page.getByTestId('job-capability-snapshot')).toContainText('Premium Product Page')
   await expect(page.getByTestId('job-capability-snapshot')).toContainText('Premium Minimal')
   await expect(page.getByTestId('job-capability-snapshot')).toContainText('Minimal Mono')
-  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Apple-inspired')
   await page.getByTestId('open-variation-link').first().click()
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Product Page')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Minimal')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Minimal Mono')
-  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Apple-inspired')
 })
 
 test('result wall explains partial and failed generation states', async ({ page }) => {

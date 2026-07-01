@@ -36,6 +36,10 @@ type CapabilityPreferenceDraft = {
   aestheticProfileId?: string
   colorPaletteId?: string
   loopProfileId?: string
+  brandStyleReferenceId?: string
+  referenceBrand?: string
+  styleNotes?: string
+  negativeRequirements?: string
 }
 
 const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
@@ -85,6 +89,10 @@ export default function HomePage(): React.JSX.Element {
         setAestheticProfileId(localPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
         setColorPaletteId(localPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
         setLoopProfileId(localPreference.loopProfileId ?? data[2].defaults.loopProfileId)
+        setBrandStyleReferenceId(localPreference.brandStyleReferenceId ?? data[2].defaults.brandStyleReferenceId ?? '')
+        setReferenceBrand(localPreference.referenceBrand ?? '')
+        setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
+        setNegativeRequirements(localPreference.negativeRequirements ?? '')
         setStatus('idle')
         return getUserPreferences()
           .then(preferences => {
@@ -92,6 +100,10 @@ export default function HomePage(): React.JSX.Element {
             setAestheticProfileId(localPreference.aestheticProfileId ?? preferences.capabilityPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
             setColorPaletteId(localPreference.colorPaletteId ?? preferences.capabilityPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
             setLoopProfileId(localPreference.loopProfileId ?? preferences.capabilityPreference.loopProfileId ?? data[2].defaults.loopProfileId)
+            setBrandStyleReferenceId(localPreference.brandStyleReferenceId ?? data[2].defaults.brandStyleReferenceId ?? '')
+            setReferenceBrand(localPreference.referenceBrand ?? '')
+            setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
+            setNegativeRequirements(localPreference.negativeRequirements ?? '')
           })
           .catch(err => {
             console.warn('Failed to load capability preferences', err)
@@ -222,10 +234,19 @@ export default function HomePage(): React.JSX.Element {
       aestheticProfileId: next.aestheticProfileId ?? aestheticProfileId,
       colorPaletteId: next.colorPaletteId ?? colorPaletteId,
       loopProfileId: next.loopProfileId ?? loopProfileId,
+      brandStyleReferenceId: next.brandStyleReferenceId ?? brandStyleReferenceId,
+      referenceBrand: next.referenceBrand ?? referenceBrand,
+      styleNotes: next.styleNotes ?? styles,
+      negativeRequirements: next.negativeRequirements ?? negativeRequirements,
     }
     writeCapabilityPreference(capabilityPreference)
     void updateUserPreferences({
-      capabilityPreference,
+      capabilityPreference: {
+        domainTemplateId: capabilityPreference.domainTemplateId,
+        aestheticProfileId: capabilityPreference.aestheticProfileId,
+        colorPaletteId: capabilityPreference.colorPaletteId,
+        loopProfileId: capabilityPreference.loopProfileId,
+      },
     }).catch(err => {
       console.warn('Failed to save capability preferences', err)
     })
@@ -549,10 +570,22 @@ export default function HomePage(): React.JSX.Element {
                       setColorPaletteId(nextPaletteId)
                       saveCapabilityPreference({ aestheticProfileId: nextAestheticId, colorPaletteId: nextPaletteId })
                     }
-                    if (next.styleNotes !== undefined) setStyles(next.styleNotes)
-                    if (next.brandStyleReferenceId !== undefined) setBrandStyleReferenceId(next.brandStyleReferenceId)
-                    if (next.referenceBrand !== undefined) setReferenceBrand(next.referenceBrand)
-                    if (next.negativeRequirements !== undefined) setNegativeRequirements(next.negativeRequirements)
+                    if (next.styleNotes !== undefined) {
+                      setStyles(next.styleNotes)
+                      saveCapabilityPreference({ styleNotes: next.styleNotes })
+                    }
+                    if (next.brandStyleReferenceId !== undefined) {
+                      setBrandStyleReferenceId(next.brandStyleReferenceId)
+                      saveCapabilityPreference({ brandStyleReferenceId: next.brandStyleReferenceId, referenceBrand: next.referenceBrand })
+                    }
+                    if (next.referenceBrand !== undefined) {
+                      setReferenceBrand(next.referenceBrand)
+                      saveCapabilityPreference({ referenceBrand: next.referenceBrand })
+                    }
+                    if (next.negativeRequirements !== undefined) {
+                      setNegativeRequirements(next.negativeRequirements)
+                      saveCapabilityPreference({ negativeRequirements: next.negativeRequirements })
+                    }
                   }}
                 />
               </DirectPillMenu>
