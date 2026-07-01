@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -31,6 +31,54 @@ describe('DUDesign BabeL-O runtime adapter', () => {
         }
         if (href.endsWith('/v1/runtime/version')) {
           return jsonResponse({ type: 'runtime_version', serverVersion: '0.3.9' })
+        }
+        if (href.endsWith('/v1/runtime/config')) {
+          return jsonResponse({
+            type: 'runtime_config',
+            version: 4,
+            modelId: 'openai/gpt-5',
+            modelName: 'GPT-5',
+            providerId: 'openai',
+            providerName: 'OpenAI-compatible',
+            authMode: 'bearer',
+            modelSource: 'profile',
+            hasApiKey: true,
+            apiKeySource: 'env',
+            activeProfile: 'prod',
+            contextWindow: 400000,
+            defaultMaxTokens: 8192,
+            capabilities: {
+              toolCalling: true,
+              jsonOutput: true,
+              structuredOutput: true,
+              streaming: true,
+            },
+          })
+        }
+        if (href.endsWith('/v1/runtime/config/profiles')) {
+          return jsonResponse({
+            type: 'runtime_config_profiles',
+            version: 4,
+            activeProfile: 'prod',
+            profiles: [
+              {
+                name: 'prod',
+                active: true,
+                model: 'openai/gpt-5',
+                provider: 'openai',
+                modelName: 'GPT-5',
+                providerName: 'OpenAI-compatible',
+                contextWindow: 400000,
+                defaultMaxTokens: 8192,
+                capabilities: {
+                  toolCalling: true,
+                  jsonOutput: true,
+                  structuredOutput: true,
+                  streaming: true,
+                },
+              },
+            ],
+          })
         }
         if (href.endsWith('/v1/sessions')) {
           sessionSequence += 1
@@ -94,8 +142,67 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.equal(contract.contractVersion, DUDESIGN_RUNTIME_CONTRACT_VERSION)
     assert.equal(contract.status, 'compatible')
     assert.ok(contract.requiredEndpoints.includes('POST /v1/agents/refine'))
+    assert.ok((contract as { optionalEndpoints?: string[] }).optionalEndpoints?.includes('GET /v1/models'))
     assert.ok(contract.requiredEvents.includes('file_delta'))
     assert.equal(contract.eventMappings.file_delta, 'design.variation_code_delta')
+  })
+
+  it('serves normalized DUDesign runtime models from raw Nexus runtime config', async () => {
+    const models = await getJson<{
+      type: string
+      discoveryStatus: string
+      version: number
+      defaultModel: string
+      activeProfile: string
+      providers: Array<{
+        id: string
+        displayName: string
+        authSource: string
+        authConfigured: boolean
+        active: boolean
+        models: Array<{ id: string; contextWindow: number; capabilities: { toolCalling: boolean; jsonOutput: boolean; streaming: boolean } }>
+      }>
+    }>('/v1/models')
+
+    assert.equal(models.type, 'runtime_models')
+    assert.equal(models.discoveryStatus, 'supported')
+    assert.equal(models.version, 4)
+    assert.equal(models.defaultModel, 'openai/gpt-5')
+    assert.equal(models.activeProfile, 'prod')
+    assert.equal(models.providers[0]?.id, 'openai')
+    assert.equal(models.providers[0]?.authSource, 'env')
+    assert.equal(models.providers[0]?.authConfigured, true)
+    assert.equal(models.providers[0]?.active, true)
+    assert.equal(models.providers[0]?.models[0]?.id, 'openai/gpt-5')
+    assert.equal(models.providers[0]?.models[0]?.contextWindow, 400000)
+    assert.equal(models.providers[0]?.models[0]?.capabilities.toolCalling, true)
+  })
+
+  it('returns explicit unsupported model discovery when raw Nexus lacks config endpoints', async () => {
+    const unsupportedHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: new NexusClient({
+        baseUrl: 'https://nexus.example.test',
+        fetch: async url => {
+          const href = String(url)
+          if (href.endsWith('/v1/runtime/version')) return jsonResponse({ type: 'runtime_version', serverVersion: '0.3.9' })
+          return jsonResponse({ type: 'error', code: 'NOT_FOUND' }, 404)
+        },
+      }),
+    }))
+    try {
+      const models = await getJsonWithBase<{
+        type: string
+        discoveryStatus: string
+        providers?: unknown[]
+        message: string
+      }>(unsupportedHarness.baseUrl, '/v1/models')
+
+      assert.equal(models.type, 'runtime_models_unsupported')
+      assert.equal(models.discoveryStatus, 'unsupported')
+      assert.match(models.message, /does not expose runtime model discovery/i)
+    } finally {
+      await unsupportedHarness.close()
+    }
   })
 
   it('falls back to bearer authorization when Nexus auth header name is blank', async () => {
@@ -164,7 +271,9 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.match(spawned.agentJobId, /^execute_/)
     assert.equal(spawned.runtimeChildSessionId, 'nexus_session_2')
     assert.match(stream, /"type":"thinking_delta"/)
+    assert.match(stream, /"delta":"Planning the page structure\."/)
     assert.match(stream, /"type":"assistant_delta"/)
+    assert.match(stream, /"delta":"Finishing the generated page\."/)
     assert.match(stream, /"type":"file_delta"/)
     assert.match(stream, /"path":"index.html"/)
     assert.match(stream, /"path":"styles.css"/)
@@ -182,6 +291,59 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.equal(body.model, 'anthropic/claude-3-5-sonnet')
     assert.equal(body.cwd, variationWorkspaceRoot)
     assert.match(body.prompt ?? '', /Model selection: service=mdl_babelo_default, provider=babel-o, model=anthropic\/claude-3-5-sonnet/)
+  })
+
+  it('streams workspace file changes as near-real-time code_delta before final artifact result', async () => {
+    const liveWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-live-code-'))
+    let executeStarted = false
+    const liveHarness = await startHarness(createRuntimeAdapterServer({
+      workspacePollIntervalMs: 5,
+      nexus: createMockNexus({
+        executeEvents: [
+          { type: 'thinking_delta', delta: 'private raw delta marker about layout constraints' },
+          { type: 'assistant_delta', delta: 'private raw delta marker writing index.html' },
+        ],
+        beforeExecuteReturn: async () => {
+          executeStarted = true
+          await writeFile(join(liveWorkspaceRoot, 'index.html'), '<!doctype html><h1>Live draft</h1>', 'utf8')
+          await delay(20)
+          await writeFile(join(liveWorkspaceRoot, 'index.html'), '<!doctype html><h1>Live final</h1>', 'utf8')
+          await writeFile(join(liveWorkspaceRoot, 'styles.css'), 'body { color: teal; }', 'utf8')
+        },
+      }),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(liveHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_live',
+        jobId: 'job_live_code',
+        prompt: 'Build a live streamed page',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: liveWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(liveHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+      const firstCodeDelta = stream.indexOf('"type":"code_delta"')
+      const finalResult = stream.indexOf('"type":"result"')
+
+      assert.equal(executeStarted, true)
+      assert.ok(firstCodeDelta >= 0, stream)
+      assert.ok(finalResult > firstCodeDelta, stream)
+      assert.match(stream, /"type":"code_delta"/)
+      assert.match(stream, /Live draft|Live final/)
+      assert.match(stream, /"path":"styles.css"/)
+      assert.match(stream, /"type":"file_delta"/)
+      assert.match(stream, /"isFinal":true/)
+      assert.match(stream, /"delta":"Checking the brief and design constraints\."/)
+      assert.match(stream, /"delta":"Writing index.html\."/)
+      assert.doesNotMatch(stream, /private raw delta marker/)
+    } finally {
+      await liveHarness.close()
+    }
   })
 
   it('refines and reads artifacts from the supplied variation workspace root', async () => {
@@ -385,7 +547,8 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       const stream = await getTextWithBase(retryHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
 
       assert.equal(executeAttempts, 2)
-      assert.match(stream, /Retried successfully/)
+      assert.match(stream, /Finishing the generated page/)
+      assert.doesNotMatch(stream, /Retried successfully/)
       assert.match(stream, /"type":"result"/)
     } finally {
       await retryHarness.close()
@@ -468,6 +631,41 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('does not follow symlinks when reading workspace artifacts', async () => {
+    const symlinkWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-symlink-'))
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-outside-'))
+    await writeFile(join(symlinkWorkspaceRoot, 'index.html'), '<!doctype html><h1>Safe artifact</h1>', 'utf8')
+    await writeFile(join(outsideRoot, 'secret.css'), 'body::before { content: "leaked-secret"; }', 'utf8')
+    await symlink(join(outsideRoot, 'secret.css'), join(symlinkWorkspaceRoot, 'styles.css'))
+    const symlinkHarness = await startHarness(createRuntimeAdapterServer({
+      workspacePollIntervalMs: 5,
+      nexus: createMockNexus(),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(symlinkHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_symlink',
+        jobId: 'job_symlink',
+        prompt: 'Build a page without following symlinks',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: symlinkWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(symlinkHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.match(stream, /"type":"result"/)
+      assert.match(stream, /Safe artifact/)
+      assert.doesNotMatch(stream, /leaked-secret/)
+      assert.doesNotMatch(stream, /"path":"styles.css"/)
+    } finally {
+      await symlinkHarness.close()
+    }
+  })
+
   it('cancels Nexus agent jobs from DUDesign variation handles', async () => {
     const cancelled = await postJson<{ cancelled: boolean; cancelledVariationCount: number }>('/v1/agents/cancel', {
       jobId: 'job_1',
@@ -503,6 +701,7 @@ describe('DUDesign BabeL-O runtime adapter', () => {
 function createMockNexus(options: {
   onExecuteBody?: (body: Record<string, unknown>) => void
   executeEvents?: Array<Record<string, unknown>>
+  beforeExecuteReturn?: () => Promise<void>
 } = {}): NexusClient {
   let sessionSequence = 0
   return new NexusClient({
@@ -526,6 +725,7 @@ function createMockNexus(options: {
         if (init?.body) {
           options.onExecuteBody?.(JSON.parse(String(init.body)) as Record<string, unknown>)
         }
+        await options.beforeExecuteReturn?.()
         return jsonResponse({
           type: 'execute_result',
           sessionId: 'nexus_session_1',
@@ -541,10 +741,20 @@ function createMockNexus(options: {
   })
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 async function getTextWithBase(baseUrl: string, path: string): Promise<string> {
   const response = await fetch(`${baseUrl}${path}`)
   assert.equal(response.ok, true, `${path} failed with ${response.status}`)
   return response.text()
+}
+
+async function getJsonWithBase<T>(baseUrl: string, path: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`)
+  assert.equal(response.ok, true, `${path} failed with ${response.status}`)
+  return response.json() as Promise<T>
 }
 
 async function postJsonWithBase<T>(baseUrl: string, path: string, body: unknown): Promise<T> {

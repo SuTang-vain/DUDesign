@@ -87,9 +87,10 @@ describe('BabelORuntimeClient', () => {
     const client = new BabelORuntimeClient({
       baseUrl: 'https://runtime.example.test',
       fetch: async url => {
-        assert.equal(String(url), 'https://runtime.example.test/v1/runtime/models')
+        assert.equal(String(url), 'https://runtime.example.test/v1/models')
         return jsonResponse({
           type: 'runtime_models',
+          discoveryStatus: 'supported',
           version: 7,
           defaultModel: 'openai/gpt-5',
           activeProfile: 'prod',
@@ -128,6 +129,7 @@ describe('BabelORuntimeClient', () => {
     const models = await client.listRuntimeModels()
 
     assert.equal(models.type, 'runtime_models')
+    assert.equal(models.discoveryStatus, 'supported')
     assert.equal(models.version, 7)
     assert.equal(models.defaultModel, 'openai/gpt-5')
     assert.equal(models.activeProfile, 'prod')
@@ -136,6 +138,69 @@ describe('BabelORuntimeClient', () => {
     assert.equal(models.providers[0]?.models[0]?.contextWindow, 400000)
     assert.equal(models.providers[0]?.models[0]?.capabilities.toolCalling, true)
     assert.doesNotMatch(JSON.stringify(models), /must-not-leak/)
+  })
+
+  it('falls back to the legacy runtime model endpoint before reporting unsupported discovery', async () => {
+    const calls: string[] = []
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async url => {
+        calls.push(String(url))
+        if (String(url).endsWith('/v1/models')) {
+          return jsonResponseWithStatus({ type: 'error', code: 'NOT_FOUND' }, 404)
+        }
+        return jsonResponse({
+          type: 'runtime_models',
+          version: 8,
+          defaultModel: 'local/coding-runtime',
+          providers: [
+            {
+              id: 'local',
+              displayName: 'Local',
+              adapter: 'local',
+              authMode: 'none',
+              defaultModel: 'local/coding-runtime',
+              configured: true,
+              authConfigured: true,
+              authSource: 'none',
+              active: true,
+              models: [
+                {
+                  id: 'local/coding-runtime',
+                  name: 'Local Coding Runtime',
+                  contextWindow: 8192,
+                  defaultMaxTokens: 4096,
+                  capabilities: { toolCalling: true, jsonOutput: false, streaming: true },
+                },
+              ],
+            },
+          ],
+        })
+      },
+    })
+
+    const models = await client.listRuntimeModels()
+
+    assert.deepEqual(calls, [
+      'https://runtime.example.test/v1/models',
+      'https://runtime.example.test/v1/runtime/models',
+    ])
+    assert.equal(models.discoveryStatus, 'supported')
+    assert.equal(models.providers[0]?.models[0]?.id, 'local/coding-runtime')
+  })
+
+  it('returns unsupported runtime models when neither discovery endpoint is available', async () => {
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async () => jsonResponseWithStatus({ type: 'error', code: 'NOT_FOUND', message: 'not found' }, 404),
+    })
+
+    const models = await client.listRuntimeModels()
+
+    assert.equal(models.type, 'runtime_models')
+    assert.equal(models.discoveryStatus, 'unsupported')
+    assert.deepEqual(models.providers, [])
+    assert.match(models.message ?? '', /404|not found/i)
   })
 
   it('creates a runtime session with isolated workspace and memory context', async () => {
@@ -423,6 +488,98 @@ describe('BabelORuntimeClient', () => {
           referenceBrand: 'Apple-inspired',
           negativeRequirements: ['No busy gradients'],
         },
+        capabilitySnapshot: {
+          schemaVersion: '2026-07-01.dudesign-capabilities.v2',
+          template: {
+            domainTemplate: {
+              id: 'tpl_fintech_trust',
+              name: 'Fintech Trust Landing',
+              category: 'finance',
+              description: 'Trust-oriented fintech landing page.',
+              contentVersion: '1.0.0',
+              structure: {
+                sections: ['hero', 'trust', 'pricing'],
+                requiredElements: ['headline', 'cta'],
+                optionalElements: ['faq'],
+              },
+              constraints: ['Use clear compliance-safe copy.'],
+              variationDirections: ['Minimal trust-led layout.'],
+            },
+            aestheticProfile: {
+              id: 'aes_trustworthy_saas',
+              name: 'Trustworthy SaaS',
+              description: 'Calm SaaS visual system.',
+              colorPaletteIds: ['pal_blue_white_trust'],
+              mood: ['calm'],
+              occasion: ['launch'],
+              tone: ['professional'],
+              formality: 'medium',
+              density: 'balanced',
+              bestFor: ['finance'],
+              avoidFor: ['games'],
+              typographyTone: 'clear geometric sans',
+              layoutTone: 'spacious grid',
+              motionTone: 'subtle',
+              negativeRules: ['Avoid hype-heavy visuals.'],
+            },
+            colorPalette: {
+              id: 'pal_blue_white_trust',
+              name: 'Blue White Trust',
+              colors: ['#ffffff', '#1d4ed8'],
+              usage: { background: '#ffffff', accent: '#1d4ed8' },
+              accessibilityNotes: ['Keep CTA contrast AA compliant.'],
+            },
+            brandStyleReference: null,
+          },
+          plugins: {
+            skillIds: ['sk_static_export_safe'],
+            mcpToolIds: ['mcp_accessibility_validate'],
+            pluginSnapshot: {
+              plugins: [],
+              skills: [{
+                id: 'sk_static_export_safe',
+                pluginId: 'plug_static_export_safe',
+                schemaVersion: '2026-07-01.dudesign-skill.v1',
+                rules: ['Produce a complete static HTML document.'],
+                promptBlocks: ['The artifact must work in a sandboxed iframe and as a downloaded file.'],
+                negativeRules: ['Do not require package installation or absolute filesystem paths.'],
+                qualityChecklist: ['HTML has a doctype, viewport meta, title, and semantic landmarks.'],
+                allowedTemplateCategories: ['finance'],
+              }],
+              mcpToolBindings: [{
+                id: 'mcp_accessibility_validate',
+                pluginId: 'plug_accessibility_validate',
+                serverName: 'quality-tools',
+                toolName: 'validateAccessibility',
+                scopes: ['validation_only'],
+                requiresUserAuth: false,
+                allowedTemplateCategories: ['finance'],
+              }],
+              toolPolicy: {
+                allowedMcpToolIds: ['mcp_accessibility_validate'],
+                scopes: ['validation_only'],
+                requiresUserAuth: false,
+                auditLevel: 'usage',
+              },
+            },
+          },
+          automation: {
+            loopProfile: {
+              id: 'loop_standard',
+              name: 'Standard',
+              description: 'Standard quality loop.',
+              maxRepairAttempts: 1,
+              maxCostCents: 200,
+              maxDurationMs: 300000,
+              enablePixelGate: true,
+              qualityGate: 'static',
+              repairStrategy: 'minimal_refine',
+            },
+            maxRepairAttempts: 1,
+            maxCostCents: 200,
+            maxDurationMs: 300000,
+          },
+        },
       },
     })
     const events = []
@@ -447,10 +604,30 @@ describe('BabelORuntimeClient', () => {
     assert.match(agentPrompt, /Supplemental style notes: premium product storytelling/)
     assert.match(agentPrompt, /Selected brand style reference id: brand_apple_inspired/)
     assert.match(agentPrompt, /Freeform reference brand: Apple-inspired/)
+    assert.match(agentPrompt, /DUDesign plugin context:/)
+    assert.match(agentPrompt, /Skill: sk_static_export_safe/)
+    assert.match(agentPrompt, /Produce a complete static HTML document/)
+    assert.match(agentPrompt, /MCP policy: mcp_accessibility_validate maps to quality-tools.validateAccessibility/)
     assert.match(agentPrompt, /DUDesign advanced direction notes:/)
     assert.match(agentPrompt, /Reference brand inspiration: Apple-inspired/)
     assert.match(agentPrompt, /Negative requirements: No busy gradients/)
-    assert.deepEqual(agentBody, {
+    assert.deepEqual({
+      userId: agentBody.userId,
+      workspaceId: agentBody.workspaceId,
+      sessionId: agentBody.sessionId,
+      jobId: agentBody.jobId,
+      prompt: agentBody.prompt,
+      sourceMode: agentBody.sourceMode,
+      sourceArtifactId: agentBody.sourceArtifactId,
+      variationCount: agentBody.variationCount,
+      variationIndex: agentBody.variationIndex,
+      workspaceRoot: agentBody.workspaceRoot,
+      parentWorkspaceRoot: agentBody.parentWorkspaceRoot,
+      memoryNamespace: agentBody.memoryNamespace,
+      modelServiceId: agentBody.modelServiceId,
+      modelId: agentBody.modelId,
+      modelProvider: agentBody.modelProvider,
+    }, {
       userId: 'user_1',
       workspaceId: 'workspace_1',
       sessionId: 'session_1',
@@ -466,19 +643,30 @@ describe('BabelORuntimeClient', () => {
       modelServiceId: 'mdl_babelo_default',
       modelId: 'anthropic/claude-3-5-sonnet',
       modelProvider: 'babel-o',
-      templateRequirements: {
-        styles: ['minimal'],
-        notes: 'Reference brand inspiration: Apple-inspired. Use as inspiration only.\nNegative requirements: No busy gradients',
-        advancedConstraints: {
-          colorPaletteId: 'pal_minimal_mono',
-          styleNotes: ['premium product storytelling'],
-          brandStyleReferenceId: 'brand_apple_inspired',
-          referenceBrand: 'Apple-inspired',
-          negativeRequirements: ['No busy gradients'],
-        },
-        variationStyleDirection: 'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent. Interpret the user-requested style tags through this direction: minimal.',
-      },
     })
+    const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
+    const capabilitySnapshot = templateRequirements.capabilitySnapshot as Record<string, unknown>
+    const templateSnapshot = capabilitySnapshot.template as Record<string, Record<string, unknown>>
+    assert.deepEqual(templateRequirements.styles, ['minimal'])
+    assert.equal(templateRequirements.variationStyleDirection, 'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent. Interpret the user-requested style tags through this direction: minimal.')
+    assert.deepEqual(templateRequirements.toolPolicy, {
+      allowedMcpToolIds: ['mcp_accessibility_validate'],
+      scopes: ['validation_only'],
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+      mode: 'policy_only',
+    })
+    assert.equal(capabilitySnapshot.schemaVersion, '2026-07-01.dudesign-capabilities.v2')
+    assert.equal(templateSnapshot.domainTemplate?.id, 'tpl_fintech_trust')
+    assert.equal(templateSnapshot.domainTemplate?.description, 'Trust-oriented fintech landing page.')
+    assert.equal(templateSnapshot.aestheticProfile?.typographyTone, 'clear geometric sans')
+    assert.deepEqual(templateSnapshot.colorPalette?.colors, ['#ffffff', '#1d4ed8'])
+    const pluginSnapshot = (capabilitySnapshot.plugins as Record<string, unknown>).pluginSnapshot as {
+      skills?: Array<{ id: string }>
+      mcpToolBindings?: Array<{ id: string }>
+    }
+    assert.equal(pluginSnapshot.skills?.[0]?.id, 'sk_static_export_safe')
+    assert.equal(pluginSnapshot.mcpToolBindings?.[0]?.id, 'mcp_accessibility_validate')
     assert.equal(calls[1]?.url, 'https://runtime.example.test/v1/stream?streamId=stream_1')
     assert.deepEqual(events, [
       { type: 'assistant_delta', delta: 'hello' },
@@ -633,8 +821,12 @@ describe('BabelORuntimeClient', () => {
 })
 
 function jsonResponse(payload: unknown): Response {
+  return jsonResponseWithStatus(payload, 200)
+}
+
+function jsonResponseWithStatus(payload: unknown, status: number): Response {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: {
       'content-type': 'application/json',
     },

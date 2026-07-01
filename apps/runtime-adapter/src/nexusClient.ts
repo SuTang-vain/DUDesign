@@ -58,6 +58,15 @@ export type NexusExecuteResponse = {
   events?: Array<Record<string, unknown>>
 }
 
+export type NexusRuntimeConfigResponse = Record<string, unknown>
+
+export type NexusRuntimeProfilesResponse = {
+  type?: string
+  version?: number | string
+  activeProfile?: string
+  profiles?: Array<Record<string, unknown>>
+}
+
 export class NexusClient {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
@@ -73,6 +82,14 @@ export class NexusClient {
 
   version(): Promise<Record<string, unknown>> {
     return this.requestJson('/v1/runtime/version')
+  }
+
+  runtimeConfig(): Promise<NexusRuntimeConfigResponse> {
+    return this.requestJson('/v1/runtime/config')
+  }
+
+  runtimeProfiles(): Promise<NexusRuntimeProfilesResponse> {
+    return this.requestJson('/v1/runtime/config/profiles')
   }
 
   async createSession(input: {

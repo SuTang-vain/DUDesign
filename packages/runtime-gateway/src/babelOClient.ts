@@ -20,6 +20,7 @@ export type RuntimeGatewayErrorCode =
   | 'RUNTIME_UNAVAILABLE'
   | 'RUNTIME_CONTRACT_MISMATCH'
   | 'RUNTIME_BAD_RESPONSE'
+  | 'RUNTIME_MODEL_DISCOVERY_UNSUPPORTED'
   | 'RUNTIME_REQUEST_TIMEOUT'
   | 'RUNTIME_STREAM_IDLE_TIMEOUT'
   | 'RUNTIME_STREAM_NOT_IMPLEMENTED'
@@ -62,6 +63,7 @@ export type BabelORuntimeContractResponse = {
   version?: string
   contractVersion?: string
   requiredEndpoints?: string[]
+  optionalEndpoints?: string[]
   requiredEvents?: string[]
   eventMappings?: Record<string, string>
   status?: string
@@ -153,6 +155,7 @@ export class BabelORuntimeClient {
         contractVersion,
         status,
         requiredEndpoints: stringArray(response.requiredEndpoints),
+        optionalEndpoints: stringArray(response.optionalEndpoints),
         requiredEvents: stringArray(response.requiredEvents),
         eventMappings: designEventMappings(response.eventMappings),
       }
@@ -170,8 +173,19 @@ export class BabelORuntimeClient {
   }
 
   async listRuntimeModels(): Promise<RuntimeModels> {
-    const response = await this.requestJson<BabelORuntimeModelsResponse>('/v1/runtime/models')
-    return normalizeRuntimeModels(response)
+    try {
+      const response = await this.requestJson<BabelORuntimeModelsResponse>('/v1/models')
+      return normalizeRuntimeModels(response)
+    } catch (error) {
+      if (isExplicitUnsupportedModelDiscoveryError(error)) return unsupportedRuntimeModels(error)
+      try {
+        const response = await this.requestJson<BabelORuntimeModelsResponse>('/v1/runtime/models')
+        return normalizeRuntimeModels(response)
+      } catch (fallbackError) {
+        if (isUnsupportedModelDiscoveryError(fallbackError)) return unsupportedRuntimeModels(fallbackError)
+        throw fallbackError
+      }
+    }
   }
 
   async createSession(input: CreateRuntimeSessionInput): Promise<RuntimeSessionRef> {
@@ -272,6 +286,7 @@ export class BabelORuntimeClient {
         templateRequirements: {
           ...(input.templateRequirements ?? {}),
           variationStyleDirection: styleDirection,
+          toolPolicy: runtimeToolPolicy(input.templateRequirements?.capabilitySnapshot),
         },
       },
     })
@@ -505,6 +520,8 @@ function buildVariationRuntimePrompt(
     input.prompt,
     '',
     capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
+    pluginPromptBlock(input.templateRequirements?.capabilitySnapshot),
+    designTemplatePackPromptBlock(input.variationIndex, input.templateRequirements),
     advancedConstraintsPromptBlock(input.templateRequirements?.advancedConstraints),
     input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
     '',
@@ -558,6 +575,76 @@ function capabilityPromptBlock(snapshot: CapabilitySnapshot | undefined): string
   ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
+function pluginPromptBlock(snapshot: CapabilitySnapshot | undefined): string {
+  const pluginSnapshot = snapshot?.plugins?.pluginSnapshot
+  if (!pluginSnapshot) return ''
+  const skillLines = pluginSnapshot.skills.flatMap(skill => [
+    `- Skill: ${skill.id}`,
+    skill.rules.length ? `  Rules: ${skill.rules.join(' ')}` : '',
+    skill.promptBlocks.length ? `  Prompt guidance: ${skill.promptBlocks.join(' ')}` : '',
+    skill.negativeRules.length ? `  Avoid: ${skill.negativeRules.join(' ')}` : '',
+    skill.qualityChecklist.length ? `  Checklist: ${skill.qualityChecklist.join(' ')}` : '',
+  ]).filter(line => line.length > 0)
+  const toolLines = pluginSnapshot.mcpToolBindings.map(binding =>
+    `- MCP policy: ${binding.id} maps to ${binding.serverName}.${binding.toolName} with scopes ${binding.scopes.join(', ')}. Treat as policy context only unless DUDesign runtime explicitly provides the tool.`,
+  )
+  if (skillLines.length === 0 && toolLines.length === 0) return ''
+  return [
+    'DUDesign plugin context:',
+    ...skillLines,
+    ...toolLines,
+    '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+  ].join('\n')
+}
+
+function runtimeToolPolicy(snapshot: CapabilitySnapshot | undefined): Record<string, unknown> {
+  const policy = snapshot?.plugins?.pluginSnapshot?.toolPolicy
+  if (!policy) {
+    return {
+      allowedMcpToolIds: [],
+      scopes: [],
+      requiresUserAuth: false,
+      auditLevel: 'none',
+    }
+  }
+  return {
+    allowedMcpToolIds: policy.allowedMcpToolIds,
+    scopes: policy.scopes,
+    requiresUserAuth: policy.requiresUserAuth,
+    auditLevel: policy.auditLevel,
+    mode: 'policy_only',
+  }
+}
+
+function designTemplatePackPromptBlock(
+  variationIndex: number,
+  templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
+): string {
+  const assignment = templateRequirements?.variationTemplateAssignments?.find(item => item.variationIndex === variationIndex)
+  const pack = assignment?.designTemplatePack
+  if (!pack) return ''
+  const colors = Object.entries(pack.designTokens.colors).map(([key, value]) => `${key}=${value}`).join(', ')
+  const typography = Object.entries(pack.designTokens.typography)
+    .map(([key, value]) => `${key}=${value.fontFamily ?? 'system'}${value.fontSize ? ` ${value.fontSize}` : ''}${value.fontWeight ? ` weight ${value.fontWeight}` : ''}`)
+    .join('; ')
+  const spacing = Object.entries(pack.designTokens.spacing).map(([key, value]) => `${key}=${value}`).join(', ')
+  const components = Object.keys(pack.designTokens.components).join(', ')
+  return [
+    'DUDesign assigned Template Pack:',
+    `- Template: ${pack.name} (${pack.id})${pack.description ? ` — ${pack.description}` : ''}`,
+    pack.rationale.overview ? `- Overview: ${pack.rationale.overview}` : undefined,
+    colors ? `- Color tokens: ${colors}.` : undefined,
+    typography ? `- Typography tokens: ${typography}.` : undefined,
+    spacing ? `- Spacing tokens: ${spacing}.` : undefined,
+    components ? `- Component rules available: ${components}.` : undefined,
+    pack.rationale.layout ? `- Layout rationale: ${pack.rationale.layout}` : undefined,
+    pack.rationale.components ? `- Component rationale: ${pack.rationale.components}` : undefined,
+    pack.rationale.dos.length ? `- Do: ${pack.rationale.dos.join(' ')}` : undefined,
+    pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
+    '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
+  ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
 function advancedConstraintsPromptBlock(constraints: AdvancedTemplateConstraints | undefined): string {
   if (!constraints || typeof constraints !== 'object') return ''
   const record = constraints as {
@@ -608,11 +695,25 @@ function designEventMappings(value: unknown): RuntimeContract['eventMappings'] {
 }
 
 function normalizeRuntimeModels(value: Record<string, unknown>): RuntimeModels {
+  if (value.type === 'runtime_models_unsupported' || value.discoveryStatus === 'unsupported') {
+    return {
+      type: 'runtime_models',
+      discoveryStatus: 'unsupported',
+      message: optionalString(value.message) ?? 'Runtime model discovery is unsupported by this BabeL-O version.',
+      version: optionalString(value.version) ?? optionalNumber(value.version) ?? null,
+      defaultModel: null,
+      activeProfile: optionalString(value.activeProfile) ?? null,
+      syncedAt: new Date().toISOString(),
+      providers: [],
+    }
+  }
   if (value.type !== 'runtime_models' || !Array.isArray(value.providers)) {
     throw new RuntimeGatewayError('RUNTIME_BAD_RESPONSE', 'BabeL-O runtime returned an invalid runtime models payload.')
   }
   return {
     type: 'runtime_models',
+    discoveryStatus: 'supported',
+    message: optionalString(value.message),
     version: optionalString(value.version) ?? optionalNumber(value.version) ?? null,
     defaultModel: optionalString(value.defaultModel) ?? null,
     activeProfile: optionalString(value.activeProfile) ?? null,
@@ -646,6 +747,31 @@ function normalizeRuntimeModels(value: Record<string, unknown>): RuntimeModels {
             }))
           : [],
       })),
+  }
+}
+
+function isExplicitUnsupportedModelDiscoveryError(error: unknown): boolean {
+  if (!(error instanceof RuntimeGatewayError)) return false
+  if (error.code === 'RUNTIME_MODEL_DISCOVERY_UNSUPPORTED') return true
+  return /(?:501|MODEL_DISCOVERY_UNSUPPORTED|model discovery.*unsupported)/i.test(error.message)
+}
+
+function isUnsupportedModelDiscoveryError(error: unknown): boolean {
+  if (isExplicitUnsupportedModelDiscoveryError(error)) return true
+  if (!(error instanceof RuntimeGatewayError)) return false
+  return error.code === 'RUNTIME_UNAVAILABLE' && /(?:404|501|MODEL_DISCOVERY_UNSUPPORTED|model discovery.*unsupported|not found)/i.test(error.message)
+}
+
+function unsupportedRuntimeModels(error: unknown): RuntimeModels {
+  return {
+    type: 'runtime_models',
+    discoveryStatus: 'unsupported',
+    message: error instanceof Error ? error.message : 'Runtime model discovery is unsupported by this BabeL-O version.',
+    version: null,
+    providers: [],
+    defaultModel: null,
+    activeProfile: null,
+    syncedAt: new Date().toISOString(),
   }
 }
 

@@ -1,5 +1,5 @@
 import http from 'node:http'
-import { mkdir, readFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
@@ -13,6 +13,7 @@ export type RuntimeAdapterOptions = {
   stateStore?: RuntimeAdapterStateStore
   executeRetryAttempts?: number
   executeRetryBaseDelayMs?: number
+  workspacePollIntervalMs?: number
 }
 
 type RuntimeStream = {
@@ -35,6 +36,10 @@ const REQUIRED_ENDPOINTS = [
   'POST /v1/agents/refine',
   'POST /v1/agents/cancel',
   'GET /v1/stream',
+]
+
+const OPTIONAL_ENDPOINTS = [
+  'GET /v1/models',
 ]
 
 const REQUIRED_EVENTS = [
@@ -76,6 +81,7 @@ class RuntimeAdapterApp {
   private readonly stateStore: RuntimeAdapterStateStore
   private readonly executeRetryAttempts: number
   private readonly executeRetryBaseDelayMs: number
+  private readonly workspacePollIntervalMs: number
   private readonly ready: Promise<void>
   private persistQueue: Promise<void> = Promise.resolve()
   private sequence = 1
@@ -84,6 +90,7 @@ class RuntimeAdapterApp {
     this.stateStore = options.stateStore ?? new NoopRuntimeAdapterStateStore()
     this.executeRetryAttempts = nonNegativeInteger(options.executeRetryAttempts, 2)
     this.executeRetryBaseDelayMs = nonNegativeInteger(options.executeRetryBaseDelayMs, 750)
+    this.workspacePollIntervalMs = positiveInteger(options.workspacePollIntervalMs, 250)
     this.ready = this.restoreState()
   }
 
@@ -98,6 +105,10 @@ class RuntimeAdapterApp {
     }
     if (method === 'GET' && url.pathname === '/v1/contract') {
       await this.handleContract(res)
+      return
+    }
+    if (method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/v1/runtime/models')) {
+      await this.handleModels(res)
       return
     }
     if (method === 'POST' && url.pathname === '/v1/sessions') {
@@ -151,6 +162,30 @@ class RuntimeAdapterApp {
   private async handleContract(res: http.ServerResponse): Promise<void> {
     const version = await this.options.nexus.version().catch(() => null)
     sendJson(res, 200, contractPayload(runtimeVersionFrom(version) ?? this.options.runtimeVersion))
+  }
+
+  private async handleModels(res: http.ServerResponse): Promise<void> {
+    const version = await this.options.nexus.version().catch(() => null)
+    try {
+      const [config, profiles] = await Promise.all([
+        this.options.nexus.runtimeConfig(),
+        this.options.nexus.runtimeProfiles().catch(() => null),
+      ])
+      sendJson(res, 200, runtimeModelsPayload(config, profiles, runtimeVersionFrom(version) ?? this.options.runtimeVersion))
+    } catch (error) {
+      if (isUnsupportedNexusModelDiscovery(error)) {
+        sendJson(res, 200, {
+          type: 'runtime_models_unsupported',
+          discoveryStatus: 'unsupported',
+          runtime: 'babel-o',
+          runtimeVersion: runtimeVersionFrom(version) ?? this.options.runtimeVersion ?? null,
+          contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+          message: 'BabeL-O Nexus does not expose runtime model discovery endpoints; DUDesign should keep seed/configured model services.',
+        })
+        return
+      }
+      throw error
+    }
   }
 
   private async handleCreateSession(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -268,13 +303,19 @@ class RuntimeAdapterApp {
       connection: 'keep-alive',
     })
     try {
-      writeNdjson(res, { type: 'assistant_delta', delta: 'BabeL-O execution started.' })
-      const executed = await this.executeWithCapacityRetry({
-        sessionId: stream.runtimeSessionId,
-        prompt: stream.prompt,
-        cwd: stream.workspaceRoot,
-        modelId: stream.modelId,
-      })
+      writeNdjson(res, { type: 'assistant_delta', delta: 'Starting the BabeL-O design run.' })
+      const workspaceWatcher = createWorkspaceCodeDeltaWatcher(stream.workspaceRoot, this.workspacePollIntervalMs, event => writeNdjson(res, event))
+      let executed: NexusExecuteResponse
+      try {
+        executed = await this.executeWithCapacityRetry({
+          sessionId: stream.runtimeSessionId,
+          prompt: stream.prompt,
+          cwd: stream.workspaceRoot,
+          modelId: stream.modelId,
+        })
+      } finally {
+        await workspaceWatcher.stop()
+      }
       for (const event of executed.events ?? []) {
         const mapped = normalizeTranscriptEvent(event)
         if (mapped) writeNdjson(res, mapped)
@@ -454,6 +495,10 @@ function nonNegativeInteger(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : fallback
 }
 
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -471,9 +516,136 @@ function contractPayload(runtimeVersion?: string): Record<string, unknown> {
     contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
     status: 'compatible',
     requiredEndpoints: REQUIRED_ENDPOINTS,
+    optionalEndpoints: OPTIONAL_ENDPOINTS,
     requiredEvents: REQUIRED_EVENTS,
     eventMappings: EVENT_MAPPINGS,
   }
+}
+
+function runtimeModelsPayload(
+  config: Record<string, unknown>,
+  profiles: { profiles?: Array<Record<string, unknown>>; activeProfile?: string; version?: number | string } | null,
+  runtimeVersion?: string,
+): Record<string, unknown> {
+  const syncedProfiles = profiles?.profiles ?? []
+  const profileProviders = syncedProfiles.map(profile => modelProviderFromConfig(profile)).filter((provider): provider is RuntimeModelProviderPayload => Boolean(provider))
+  const activeProvider = modelProviderFromConfig(config)
+  const providers = mergeModelProviders(activeProvider ? [activeProvider, ...profileProviders] : profileProviders)
+  const defaultModel = stringField(config, 'modelId') ?? providers.find(provider => provider.active)?.defaultModel ?? providers[0]?.defaultModel ?? null
+  return {
+    type: 'runtime_models',
+    discoveryStatus: 'supported',
+    runtime: 'babel-o',
+    runtimeVersion: runtimeVersion ?? null,
+    contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+    version: profiles?.version ?? config.version ?? null,
+    defaultModel,
+    activeProfile: stringField(config, 'activeProfile') ?? profiles?.activeProfile ?? null,
+    providers,
+  }
+}
+
+type RuntimeModelProviderPayload = {
+  id: string
+  displayName: string
+  adapter: string
+  authMode: string
+  defaultBaseUrl?: string
+  defaultModel: string
+  configured: boolean
+  authConfigured: boolean
+  authSource: 'none' | 'env' | 'profile' | 'provider_config'
+  active: boolean
+  models: Array<{
+    id: string
+    name: string
+    contextWindow: number
+    defaultMaxTokens: number
+    capabilities: {
+      toolCalling: boolean
+      jsonOutput: boolean
+      streaming: boolean
+    }
+  }>
+}
+
+function modelProviderFromConfig(value: Record<string, unknown>): RuntimeModelProviderPayload | null {
+  const modelId = stringField(value, 'modelId') ?? stringField(value, 'model')
+  const providerId = stringField(value, 'providerId') ?? stringField(value, 'provider') ?? providerIdFromModelId(modelId)
+  if (!providerId || !modelId) return null
+  return {
+    id: providerId,
+    displayName: stringField(value, 'providerName') ?? providerId,
+    adapter: stringField(value, 'adapter') ?? stringField(value, 'authMode') ?? 'unknown',
+    authMode: stringField(value, 'authMode') ?? 'unknown',
+    defaultModel: modelId,
+    configured: Boolean(stringField(value, 'modelSource') ?? modelId),
+    authConfigured: booleanField(value, 'hasApiKey') ?? false,
+    authSource: runtimeAuthSource(stringField(value, 'apiKeySource')),
+    active: booleanField(value, 'active') ?? stringField(value, 'activeProfile') === stringField(value, 'name'),
+    models: [{
+      id: modelId,
+      name: stringField(value, 'modelName') ?? modelId,
+      contextWindow: numberField(value, 'contextWindow') ?? 0,
+      defaultMaxTokens: numberField(value, 'defaultMaxTokens') ?? 0,
+      capabilities: {
+        toolCalling: capabilityBoolean(value, 'toolCalling'),
+        jsonOutput: capabilityBoolean(value, 'jsonOutput') || capabilityBoolean(value, 'structuredOutput'),
+        streaming: capabilityBoolean(value, 'streaming'),
+      },
+    }],
+  }
+}
+
+function mergeModelProviders(providers: RuntimeModelProviderPayload[]): RuntimeModelProviderPayload[] {
+  const merged = new Map<string, RuntimeModelProviderPayload>()
+  for (const provider of providers) {
+    const existing = merged.get(provider.id)
+    if (!existing) {
+      merged.set(provider.id, {
+        ...provider,
+        models: uniqueModels(provider.models),
+      })
+      continue
+    }
+    merged.set(provider.id, {
+      ...existing,
+      displayName: existing.displayName || provider.displayName,
+      adapter: existing.adapter !== 'unknown' ? existing.adapter : provider.adapter,
+      authMode: existing.authMode !== 'unknown' ? existing.authMode : provider.authMode,
+      defaultModel: existing.active ? existing.defaultModel : provider.defaultModel,
+      configured: existing.configured || provider.configured,
+      authConfigured: existing.authConfigured || provider.authConfigured,
+      active: existing.active || provider.active,
+      models: uniqueModels([...existing.models, ...provider.models]),
+    })
+  }
+  return [...merged.values()].sort((left, right) => Number(right.active) - Number(left.active) || left.displayName.localeCompare(right.displayName))
+}
+
+function uniqueModels(models: RuntimeModelProviderPayload['models']): RuntimeModelProviderPayload['models'] {
+  return [...new Map(models.map(model => [model.id, model])).values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function providerIdFromModelId(modelId: string | undefined): string | undefined {
+  if (!modelId) return undefined
+  const slash = modelId.indexOf('/')
+  return slash > 0 ? modelId.slice(0, slash) : undefined
+}
+
+function runtimeAuthSource(value: string | undefined): RuntimeModelProviderPayload['authSource'] {
+  if (value === 'env' || value === 'profile' || value === 'provider_config') return value
+  return 'none'
+}
+
+function capabilityBoolean(value: Record<string, unknown>, key: string): boolean {
+  const capabilities = value.capabilities
+  if (!capabilities || typeof capabilities !== 'object') return false
+  return booleanField(capabilities as Record<string, unknown>, key) ?? false
+}
+
+function isUnsupportedNexusModelDiscovery(error: unknown): boolean {
+  return error instanceof NexusClientError && (error.status === 404 || error.status === 501)
 }
 
 function buildVariationPrompt(body: Record<string, unknown>): string {
@@ -543,9 +715,11 @@ function formatModelSelection(body: Record<string, unknown>): string {
 function normalizeTranscriptEvent(event: Record<string, unknown>): Record<string, unknown> | null {
   const type = stringField(event, 'type')
   if (type === 'assistant_delta' || type === 'thinking_delta') {
+    const rawDelta = stringField(event, 'delta') ?? stringField(event, 'text') ?? ''
     return {
       type,
-      delta: stringField(event, 'delta') ?? stringField(event, 'text') ?? '',
+      channel: type === 'thinking_delta' ? 'thinking' : 'assistant',
+      delta: summarizeTranscriptDelta(rawDelta, type),
     }
   }
   if (type === 'error') {
@@ -556,6 +730,23 @@ function normalizeTranscriptEvent(event: Record<string, unknown>): Record<string
     }
   }
   return null
+}
+
+function summarizeTranscriptDelta(delta: string, type: 'assistant_delta' | 'thinking_delta'): string {
+  const normalized = delta.replace(/\s+/g, ' ').trim()
+  if (!normalized) return type === 'thinking_delta' ? 'Planning the next design step.' : 'Continuing the design run.'
+  const lower = normalized.toLowerCase()
+  if (type === 'thinking_delta') {
+    if (/constraint|requirement|brief|prompt/.test(lower)) return 'Checking the brief and design constraints.'
+    if (/plan|approach|structure|layout/.test(lower)) return 'Planning the page structure.'
+    if (/file|index\.html|css|javascript|artifact/.test(lower)) return 'Preparing the artifact update.'
+    return 'Reasoning through the next design step.'
+  }
+  if (/index\.html|write|edit|created?|updated?|saving/.test(lower)) return 'Writing index.html.'
+  if (/css|style|spacing|typography|color|layout/.test(lower)) return 'Refining visual styles.'
+  if (/asset|image|script|javascript|component/.test(lower)) return 'Updating supporting page assets.'
+  if (/done|complete|finished|success/.test(lower)) return 'Finishing the generated page.'
+  return 'Working on the page.'
 }
 
 function languageForPath(path: string): string {
@@ -592,14 +783,118 @@ async function readWorkspaceArtifact(workspaceRoot: string): Promise<{
   return null
 }
 
+function createWorkspaceCodeDeltaWatcher(
+  workspaceRoot: string,
+  intervalMs: number,
+  emit: (event: Record<string, unknown>) => void,
+): { stop: () => Promise<void> } {
+  const root = resolve(workspaceRoot)
+  const snapshots = new Map<string, string>()
+  let sequence = 1
+  let running: Promise<void> | null = null
+  let stopped = false
+  const scan = async () => {
+    if (stopped) return
+    const files = await readWorkspaceCodeFiles(root)
+    for (const file of files) {
+      const previous = snapshots.get(file.path)
+      if (previous === file.content) continue
+      snapshots.set(file.path, file.content)
+      emit({
+        type: 'code_delta',
+        path: file.path,
+        language: languageForPath(file.path),
+        delta: file.content,
+        sequence,
+        isFinal: false,
+      })
+      sequence += 1
+    }
+  }
+  const runScan = () => {
+    if (running) return
+    running = scan().catch(() => undefined).finally(() => {
+      running = null
+    })
+  }
+  runScan()
+  const timer = setInterval(runScan, intervalMs)
+  return {
+    stop: async () => {
+      clearInterval(timer)
+      if (running) await running
+      await scan().catch(() => undefined)
+      stopped = true
+    },
+  }
+}
+
+async function readWorkspaceCodeFiles(root: string): Promise<Array<{ path: string; content: string }>> {
+  const paths = await listWorkspaceCodePaths(root)
+  const files: Array<{ path: string; content: string }> = []
+  for (const path of paths) {
+    const content = await readWorkspaceFile(root, path)
+    if (content !== null) files.push({ path, content })
+  }
+  return files
+}
+
+async function listWorkspaceCodePaths(root: string): Promise<string[]> {
+  const discovered = new Set<string>()
+  for (const path of ['index.html', 'styles.css', 'script.js', 'assets.json', 'dist/index.html', 'dist/styles.css', 'dist/script.js', 'dist/assets.json']) {
+    discovered.add(path)
+  }
+  await collectWorkspaceCodePaths(root, '', discovered, 0).catch(() => undefined)
+  return [...discovered].sort((left, right) => fileSortKey(left).localeCompare(fileSortKey(right)))
+}
+
+async function collectWorkspaceCodePaths(root: string, relativeDir: string, discovered: Set<string>, depth: number): Promise<void> {
+  if (depth > 2) return
+  const dir = resolve(root, relativeDir)
+  if (!isPathInside(dir, root)) return
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.isSymbolicLink()) continue
+    const path = relativeDir ? `${relativeDir}/${entry.name}` : entry.name
+    if (!isSafeWorkspaceEntryPath(path)) continue
+    if (entry.isDirectory()) {
+      await collectWorkspaceCodePaths(root, path, discovered, depth + 1)
+    } else if (entry.isFile() && isCodeFilePath(path)) {
+      discovered.add(path)
+    }
+  }
+}
+
+function fileSortKey(path: string): string {
+  return path === 'index.html' ? `0:${path}` : `1:${path}`
+}
+
+function isCodeFilePath(path: string): boolean {
+  return /\.(html?|css|m?js|tsx?|json|txt|md)$/i.test(path)
+}
+
 async function readWorkspaceFile(root: string, entryPath: string): Promise<string | null> {
+  if (!isSafeWorkspaceEntryPath(entryPath)) return null
   const fullPath = resolve(root, entryPath)
   if (!fullPath.startsWith(root)) return null
   try {
+    const [rootRealPath, fileInfo] = await Promise.all([
+      realpath(root),
+      lstat(fullPath),
+    ])
+    if (!fileInfo.isFile() || fileInfo.isSymbolicLink()) return null
+    const fileRealPath = await realpath(fullPath)
+    if (!isPathInside(fileRealPath, rootRealPath)) return null
     return await readFile(fullPath, 'utf8')
   } catch {
     return null
   }
+}
+
+function isSafeWorkspaceEntryPath(entryPath: string): boolean {
+  if (!entryPath || isAbsolute(entryPath) || entryPath.includes('\\')) return false
+  const parts = entryPath.split('/')
+  return parts.every(part => part.length > 0 && part !== '.' && part !== '..' && !part.startsWith('.'))
 }
 
 function runtimeCwdDrift(events: Array<Record<string, unknown>>, expectedCwd: string): { expectedCwd: string; actualCwd: string } | null {
@@ -692,4 +987,10 @@ function numberField(value: unknown, field: string): number | undefined {
   if (!value || typeof value !== 'object') return undefined
   const fieldValue = (value as Record<string, unknown>)[field]
   return typeof fieldValue === 'number' && Number.isFinite(fieldValue) ? fieldValue : undefined
+}
+
+function booleanField(value: unknown, field: string): boolean | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const fieldValue = (value as Record<string, unknown>)[field]
+  return typeof fieldValue === 'boolean' ? fieldValue : undefined
 }

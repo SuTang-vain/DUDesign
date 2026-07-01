@@ -23,12 +23,14 @@ describe('BabelONexusEventAdapter', () => {
       },
       {
         type: 'assistant_delta',
-        delta: 'Building hero copy',
+        delta: 'Working on the page.',
+        channel: 'assistant',
         timestamp: '2026-06-27T00:00:01.000Z',
       },
       {
         type: 'thinking_delta',
-        text: 'Checking layout constraints',
+        text: 'Planning the page structure.',
+        channel: 'thinking',
         timestamp: '2026-06-27T00:00:02.000Z',
       },
       {
@@ -99,6 +101,8 @@ describe('BabelONexusEventAdapter', () => {
     assert.equal(asEvent(output[0], 'design.session_started').payload.runtimeSessionRef, 'runtime_ses_1')
     assert.equal(asEvent(output[1], 'design.variation_streaming').payload.channel, 'assistant')
     assert.equal(asEvent(output[2], 'design.variation_streaming').payload.channel, 'thinking')
+    assert.equal(asEvent(output[1], 'design.variation_streaming').payload.delta, 'Working on the page.')
+    assert.equal(asEvent(output[2], 'design.variation_streaming').payload.delta, 'Planning the page structure.')
     assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.path, 'index.html')
     assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.language, 'html')
     assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.sequence, 1)

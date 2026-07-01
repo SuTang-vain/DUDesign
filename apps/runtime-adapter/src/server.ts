@@ -19,6 +19,7 @@ const server = createRuntimeAdapterServer({
   workspaceBase: process.env.RUNTIME_ADAPTER_WORKSPACE_BASE,
   executeRetryAttempts: parseNonNegativeInteger(process.env.RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS),
   executeRetryBaseDelayMs: parseNonNegativeInteger(process.env.RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS),
+  workspacePollIntervalMs: parseNonNegativeInteger(process.env.RUNTIME_ADAPTER_WORKSPACE_POLL_INTERVAL_MS),
   ...(process.env.RUNTIME_ADAPTER_STATE_FILE && {
     stateStore: new FileRuntimeAdapterStateStore(process.env.RUNTIME_ADAPTER_STATE_FILE),
   }),

@@ -1,4 +1,4 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 
@@ -17,6 +17,7 @@ export type RuntimeContract = {
   contractVersion: string
   status: RuntimeContractStatus
   requiredEndpoints: string[]
+  optionalEndpoints?: string[]
   requiredEvents: string[]
   eventMappings: Record<string, DesignEvent['type']>
 }
@@ -69,6 +70,13 @@ export type SpawnVariationAgentsInput = {
     notes?: string
     advancedConstraints?: AdvancedTemplateConstraints
     capabilitySnapshot?: CapabilitySnapshot
+    designTemplatePackIds?: ID[]
+    designTemplatePacks?: DesignTemplatePack[]
+    variationTemplateAssignments?: Array<{
+      variationIndex: number
+      designTemplatePackId: ID
+      designTemplatePack: DesignTemplatePack
+    }>
   }
 }
 
@@ -140,6 +148,8 @@ export type RuntimeModelProvider = {
 
 export type RuntimeModels = {
   type: 'runtime_models'
+  discoveryStatus?: 'supported' | 'unsupported'
+  message?: string
   version: number | string | null
   providers: RuntimeModelProvider[]
   defaultModel: string | null
