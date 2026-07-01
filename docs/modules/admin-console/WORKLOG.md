@@ -609,3 +609,45 @@
   - support 不能 cancel/retry。
   - operator 可以 retry variation。
   - 筛选条件 user/workspace/session/status/time 可以传到 Admin API。
+
+## 2026-07-01 ADM-M16 Artifact Repair Actions
+
+### 已完成
+
+- Artifact Explorer 增加三类治理动作：
+  - `Rebuild shot`：对 HTML artifact 重新入队截图任务。
+  - `Repair export`：从 HTML artifact 或 export artifact 的源 HTML 重新生成导出包。
+  - `Revoke shares`：撤销某个 artifact 下仍然 active 的分享链接。
+- Admin API 新增：
+  - `POST /api/admin/artifacts/:artifactId/rebuild-screenshot`
+  - `POST /api/admin/artifacts/:artifactId/repair-export`
+  - `POST /api/admin/artifacts/:artifactId/revoke-shares`
+- repository 增加 `listSharesForArtifact()`，InMemoryStore 与 PostgresRepository 均实现。
+- 所有 artifact 写操作继续通过 Application Service 执行，并写入审计：
+  - `artifact.screenshot_rebuild`
+  - `artifact.export_repair`
+  - `artifact.shares_revoke`
+- 管理端 UI 对 support 角色禁用这些写操作；operator/developer 可执行。
+- API mock flow 增加端到端断言：
+  - screenshot rebuild 返回 screenshot queue job。
+  - export repair 返回新的 export zip 下载入口。
+  - revoke share 后原分享 token 访问返回 `410`。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test -- --test-name-pattern "DUDesign mock API flow"`
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- `rebuild screenshot` 不直接同步生成截图，而是入队 screenshot job，保持与现有 artifact preview 管线一致。
+- `export repair` 优先解析源 HTML artifact；如果从 export artifact 发起修复，则必须能通过 metadata 或 parent artifact 找回源 HTML。
+- `revoke share` 以 artifact 为治理边界，一次撤销该 artifact 的所有 active shares，避免只撤销单个 token 后仍有其它公开链接泄漏。
+
+### 下一步
+
+- 给 Artifact Explorer 补浏览器 smoke：
+  - support 只读不可执行 repair/revoke。
+  - operator 可触发 rebuild screenshot/export repair/revoke share。
+- 后续可继续将 Artifact Explorer 拆成独立组件，减少 `app/page.tsx` 的治理面复杂度。

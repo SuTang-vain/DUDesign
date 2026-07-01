@@ -439,3 +439,390 @@
 - 增加 `POST /api/design-templates/import-design-md` 和 `POST /api/design-templates/from-variation`。
 - 将官方 Template Pack seed 接入 capability listing 或独立 template listing API。
 - 用户端模板选择器合并官方模板、用户私有模板和当前轻量 Scene / Visual / Advanced 选择。
+
+## 2026-07-01 CAP-M3.7 Private Templates and Template Pack Snapshot
+
+### 已完成
+
+- 新增用户私有模板 API MVP：
+  - `GET /api/design-templates`
+  - `POST /api/design-templates/import-design-md`
+  - `POST /api/variations/:id/save-template`
+- `DESIGN.md` 上传/粘贴导入：
+  - 继续复用 `importDesignMd` lint。
+  - 导入结果保存为 `source=user`、`visibility=private`、`status=published` 的 `DesignTemplatePack`。
+  - 私有模板按 `createdByUserId` 隔离。
+- 从 variation 保存私有模板：
+  - 使用当前 variation 已分配的 `DesignTemplatePack` 作为基础。
+  - 将当前 artifact 写入 `previewArtifactId`。
+  - 如果没有已分配模板，则生成 fallback private pack。
+- 多 variation 自动分配：
+  - 创建 job 时解析显式 `designTemplatePackIds`。
+  - 当 `autoDistributeTemplatePacks=true` 或未显式选择模板时，从官方/用户模板 registry 补足 variation 数量。
+  - 每个 variation 保存 `{ variationIndex, designTemplatePackId, designTemplatePack }` assignment。
+- Snapshot 不漂移：
+  - `templateRequirements.designTemplatePacks` 保存完整 pack snapshot。
+  - `templateRequirements.variationTemplateAssignments` 保存每个 variation 的 pack snapshot。
+  - `GET /api/design-jobs/:id` 和 `GET /api/variations/:id` 返回固定 snapshot，不依赖 registry latest。
+- Runtime Gateway：
+  - 将当前 variation 分配到的 Template Pack 编译进 BabeL-O prompt。
+  - Prompt 只传摘要化 token、rationale、dos/donts，避免泄露无关内部对象。
+- API smoke：
+  - 覆盖导入私有 `DESIGN.md` 模板。
+  - 覆盖 3 variation 自动分配不同 Template Pack。
+  - 覆盖 job snapshot 中的 template assignment 不漂移。
+  - 覆盖从 variation 保存私有模板。
+
+### 决策
+
+- 本阶段先做 API + InMemoryRepository MVP，确保产品语义跑通。
+- Postgres 真实持久化表仍作为后续 M：需要新增 `design_templates` / `design_template_versions` migration。
+- 用户端 UI 暂未接入保存/导入按钮；后续需要接入模板选择器和 variation 页保存入口。
+- Runtime 只消费标准化后的 Template Pack snapshot，不直接读取用户原始 `DESIGN.md`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api run test -- designTemplatePack.test.js officialDesignTemplatePacks.test.js mock-flow.test.js`
+
+说明：本次曾启动一次完整 `npm --workspace @dudesign/api run test`，但环境中已有另一个旧的 `babel-runtime-api-flow.test.js` 进程挂起；为避免混淆，已停止本次完整测试并改跑相关测试集。
+
+### 下一步
+
+- 增加 Postgres `design_templates` / `design_template_versions` migration 与 repository 实现。
+- 用户端接入：
+  - 设计首页模板选择器读取 `GET /api/design-templates`。
+  - Advanced/Template Pack 选择写入 `designTemplatePackIds`。
+  - Variation 页增加“保存为模板”入口。
+  - DESIGN.md 粘贴/上传入口。
+- 增加 resume/regression 测试：registry 中模板被修改后，旧 job 仍使用 job snapshot。
+
+## 2026-07-01 CAP-2.1 Plugin Registry and Runtime Policy
+
+### 已完成
+
+- 扩展 contracts：
+  - `CapabilityPlugin`
+  - `DesignSkill`
+  - `McpToolBinding`
+  - `PluginPermissionPolicy`
+  - `CapabilityPluginSnapshot`
+- 新增官方 CAP-2 registry seed：
+  - `Static Export Safe`
+  - `Mobile-first Landing`
+  - `Accessibility First`
+  - `Asset Library Readonly`
+  - `Accessibility Validate`
+- 明确 MVP 安全边界：
+  - Skill 只允许声明式规则、prompt block、负向规则和 checklist。
+  - Skill 不允许 shell、安装命令、绝对路径、runtime/system override。
+  - MCP tool binding MVP 只允许 `readonly_context`、`asset_readonly`、`validation_only`。
+  - `artifact_write` 和 `external_network` 暂不开放。
+- Application Service / capability resolver：
+  - 校验 skill / MCP id 是否存在。
+  - 校验插件 active / safety 状态。
+  - 校验 template category 适配范围。
+  - 生成 `plugins.pluginSnapshot` 并写入 job capability snapshot。
+- Runtime Gateway：
+  - 将 selected skills 编译为 `DUDesign plugin context` prompt block。
+  - 将 MCP binding 编译为 `toolPolicy`，以 `policy_only` 形式传给 runtime。
+  - 明确插件不能覆盖 runtime guardrails、workspace path、model choice 和 artifact 输出要求。
+- API smoke：
+  - job 创建时选择 `sk_static_export_safe`、`sk_accessibility_first`、`mcp_accessibility_validate`。
+  - job snapshot 保留完整 plugin snapshot 和 tool policy。
+
+### 决策
+
+- CAP-2 第一版只做声明式 plugin，不做任意代码插件。
+- MCP 当前只做 tool policy 编译，不在 DUDesign API 层直接执行外部 MCP 调用。
+- `CapabilityProfile` 先内嵌在 job `CapabilitySnapshot`，暂不新增持久化 profile table。
+- 管理端 skill/MCP 治理和用户自定义 skill 留到后续阶段。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- capabilities.test.js mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 下一步
+
+- 用户端 composer 增加插件/skill 选择入口。
+- 管理端增加官方 skill/MCP registry 管理页。
+- 增加真实 MCP authorization / audit 记录。
+- 增加 plugin usage events，用于统计采用率、失败率和成本。
+
+## 2026-07-01 CAP-3.1 Automation Loop Planning and Test Baseline
+
+### 已完成
+
+- 系统梳理 CAP-3 与 BabeL-O 的测试关系：
+  - Loop profile、stop condition、event contract、quality gate、repair prompt builder 属于 DUDesign 后端服务层，可用 mock runtime 测试。
+  - 真实 refine 修复、BabeL-O event drift、runtime unavailable、resume 需要 staging BabeL-O smoke。
+- 重写 `automation-loop.md` 为可开发规格：
+  - 定义 `fast / standard / deep repair` 目标配置。
+  - 定义 stop conditions：
+    - max attempts
+    - max cost
+    - max duration
+    - quality pass/fail
+    - runtime unavailable
+    - contract mismatch
+    - repeated failure
+    - cancelled
+  - 定义 loop event contract 草案：
+    - `design.loop_started`
+    - `design.loop_quality_checked`
+    - `design.loop_repair_planned`
+    - `design.loop_repair_started`
+    - `design.loop_completed`
+    - `design.loop_stopped`
+  - 定义最小自动修复 prompt 模板。
+  - 定义 mock integration、Runtime Gateway contract、BabeL-O staging smoke 测试矩阵。
+- 明确现有可复用底座：
+  - `AutomationLoopProfile` 初版。
+  - 静态 artifact quality gate。
+  - 可选 Playwright pixel gate。
+  - `design.runtime_warning` artifact quality warning。
+  - `refineVariation` current artifact context。
+  - 事件持久化和 SSE replay。
+
+### 决策
+
+- CAP-3 不应把所有测试绑定真实 BabeL-O；默认 CI 先使用 unit/mock/contract。
+- BabeL-O staging smoke 是上线门禁，不作为默认本地测试。
+- MVP 先实现 `maxRepairAttempts`、`maxDurationMs`、`quality pass/fail`、`runtime unavailable`；`maxCostCents` 先预留，待真实计费稳定后启用硬门禁。
+- Pixel gate 应由 loop profile 控制，后续逐步替代纯 env 开关。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- runtime-unavailable.test.js babel-runtime-api-flow.test.js designJobEvents.test.js mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 下一步
+
+- CAP-3.2：扩展 `AutomationLoopProfile` contract，加入 `maxCostCents`、`maxDurationMs`、`repairStrategy`。
+- CAP-3.2：实现 stop condition evaluator 和 user-facing stop reason mapper。
+- CAP-3.2：将 loop event contract 写入 `packages/contracts/src/events.ts`。
+- CAP-3.3：实现 mock runtime repair loop：static fail -> repair -> pass / stopped。
+
+## 2026-07-01 CAP-3.2 Loop Domain Contract and Stop Conditions
+
+### 已完成
+
+- 扩展 `AutomationLoopProfile`：
+  - `maxCostCents`
+  - `maxDurationMs`
+  - `repairStrategy`
+- 更新官方 loop profile：
+  - `loop_fast`：不自动修复，120s，静态 gate。
+  - `loop_standard`：1 次 minimal refine，200 cents，300s，静态 gate。
+  - `loop_deep_repair`：2 次 deep refine，500 cents，720s，pixel gate。
+- 扩展 `CapabilitySnapshot.automation`：
+  - 保存 `maxRepairAttempts`
+  - 保存 `maxCostCents`
+  - 保存 `maxDurationMs`
+- 新增 DUDesign loop event contract：
+  - `design.loop_started`
+  - `design.loop_quality_checked`
+  - `design.loop_repair_planned`
+  - `design.loop_repair_started`
+  - `design.loop_completed`
+  - `design.loop_stopped`
+- 新增 `automationLoop.ts`：
+  - `evaluateAutomationLoopStop`
+  - `automationLoopUserMessage`
+  - `automationIssueFingerprint`
+  - `buildAutomationRepairPrompt`
+- 覆盖 stop conditions：
+  - quality pass
+  - max attempts
+  - max cost
+  - max duration
+  - runtime unavailable
+  - runtime contract mismatch
+  - repeated failure
+  - cancelled
+- 新增单元测试：
+  - loop profile 默认字段。
+  - loop override clamp。
+  - stop condition evaluator。
+  - user-facing reason mapper。
+  - minimal repair prompt builder。
+
+### 决策
+
+- 本阶段只落 domain/evaluator/event contract，不自动触发 refine。
+- `maxCostCents` 现在进入 snapshot 和 evaluator，真实费用硬门禁后续接 usage/cost 数据。
+- repair prompt builder 只生成受控修复请求，不允许 shell、安装命令、绝对路径或外部依赖。
+- `quality_passed` 作为 stop reason 保留在 evaluator，但 loop event 中会映射为 `design.loop_completed`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/capabilities.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 补充修复
+
+- `apiFlowSmoke` 关闭测试 harness 时同步关闭 pooled Chromium browser，避免 mock API flow 输出全绿后因为浏览器池 handle 未释放而悬挂。
+
+### 下一步
+
+- CAP-3.3：生成后发布 loop events。
+- CAP-3.3：standard loop 自动调用一次 refine repair。
+- CAP-3.3：mock runtime 覆盖 static fail -> repair -> pass / stopped。
+- CAP-3.4：让 pixel gate 由 loop profile 控制，而不是仅由 env 开关控制。
+
+## 2026-07-01 CAP-3.3 Automation Loop Events and Static Gate Planning
+
+### 已完成
+
+- 将生成后的 HTML artifact 质量检查接入 Automation Loop：
+  - runtime HTML artifact。
+  - runtime workspace artifact。
+- 生成后发布标准 loop events：
+  - `design.loop_started`
+  - `design.loop_quality_checked`
+  - `design.loop_completed`
+  - `design.loop_stopped`
+  - `design.loop_repair_planned`
+- `loop_standard` 在质量未通过且仍有修复次数时，会生成最小自动修复 prompt preview，并发布 `design.loop_repair_planned`。
+- job event persistence / SSE replay 已覆盖 loop events，刷新或重连后仍能看到自动化状态。
+- mock API flow 更新：
+  - 兼容 workspace membership guard 返回 `WORKSPACE_FORBIDDEN`。
+  - support failure smoke 使用微小时间间隔避免 latest job 排序同毫秒抖动。
+
+### 决策
+
+- 本阶段只做 loop eventization 和 repair planning，不自动调用 runtime refine。
+- loop events 作为 job event 旁路持久化，不改变 variation/job 的完成状态。
+- `quality_passed` 映射为 `design.loop_completed`；质量失败但未触发修复时映射为 `design.loop_stopped`。
+- `design.loop_repair_planned` 的 prompt 只暴露 preview，供后续 worker/refine 执行阶段消费。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/designJobEvents.test.js apps/api/dist/mock-flow.test.js`
+
+### 下一步
+
+- CAP-3.3：standard loop 自动调用一次 refine repair，并发布 `design.loop_repair_started`。
+- CAP-3.3：mock runtime 覆盖 static fail -> repair -> pass / max attempts stopped。
+- CAP-3.4：让 pixel gate 由 loop profile 控制，而不是仅由 env 开关控制。
+
+## 2026-07-01 CAP-3.3 Standard Loop Automatic Repair
+
+### 已完成
+
+- `loop_standard` 在质量检查失败且仍有修复次数时，自动执行一次 runtime refine repair。
+- 发布完整自动修复事件链：
+  - `design.loop_repair_planned`
+  - `design.loop_repair_started`
+  - runtime `design.variation_streaming`
+  - runtime `design.variation_completed`
+  - 新 artifact 的 `design.loop_quality_checked`
+  - 新 artifact 通过时 `design.loop_completed`
+- 自动修复使用内部 system message 记录，不伪装成用户手动 prompt。
+- 自动修复复用当前 variation runtime session、当前 artifact HTML、workspace root、model context。
+- 通过 artifact version 作为 attempts 边界，避免 standard loop 在同一任务中无限递归。
+- mock runtime 测试覆盖 `static fail -> automatic repair -> pass`，并断言 current artifact 升级到 v2。
+
+### 决策
+
+- MVP 先以内联后台任务执行 automatic repair，不新增队列表；后续 Queue/Redis worker 化时可把同一逻辑迁移到 worker。
+- 自动 repair 不改变 job completed 的定义；它通过 artifact、variation current version 和 loop events 表达修复结果。
+- runtime 异常会发布 `design.loop_stopped`，reason 为 `runtime_unavailable`，当前 artifact 保留。
+- `deep_repair` 暂不增加更多策略差异；先复用 attempts/quality gate 决策，后续再扩展。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/designJobEvents.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 下一步
+
+- CAP-3.3：补 max attempts stopped 的 mock test。
+- CAP-3.4：让 pixel gate 由 loop profile 控制，而不是仅由 env 开关控制。
+- 后端服务层：将 automatic repair 从 inline background task 迁移到 queue worker，支持恢复、限流和观测。
+
+## 2026-07-01 CAP-3.4 Max Attempts and Profile-Controlled Pixel Gate
+
+### 已完成
+
+- 补充 mock integration：`static fail -> automatic repair -> fail -> max_attempts_reached`。
+- 验证 standard loop 只启动一次 automatic repair，不会继续递归。
+- 验证修复失败后保留 v2 artifact，并发布 `design.loop_stopped`：
+  - `reason = max_attempts_reached`
+  - `attempts = 1`
+- Artifact quality gate 改为优先读取 job capability snapshot：
+  - `loop_standard` 使用 static gate。
+  - `loop_deep_repair` 通过 `enablePixelGate=true` / `qualityGate=pixel` 启用 pixel gate。
+  - 没有 job/capability snapshot 的路径继续使用 `DUDESIGN_ARTIFACT_PIXEL_GATE` env fallback。
+
+### 决策
+
+- Pixel gate 的产品开关归属 CAP-3 loop profile，不再只依赖进程环境变量。
+- `DUDESIGN_ARTIFACT_PIXEL_GATE` 保留为无 job 上下文或运维强制开启的 fallback。
+- 当前 pixel gate 仍复用现有 Playwright screenshot / pixel analysis；后续可以继续增加更细的视觉规则和阈值配置。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/designJobEvents.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway run test`
+
+### 下一步
+
+- 后端服务层：将 automatic repair 从 inline background task 迁移到 queue worker。
+- 前端交互层：在 job/variation 页面展示 loop event timeline、repair attempt 和 stopped reason。
+- Runtime Compatibility：真实 BabeL-O staging smoke 覆盖 automatic refine repair。
+
+## 2026-07-01 CAP-3.5 Queue-backed Automatic Repair
+
+### 已完成
+
+- 将 Automation Loop automatic repair 从 inline background task 迁移到 `refine_job` queue worker。
+- 扩展 `RefineJobQueuePayload`，支持：
+  - `prompt`
+  - `annotationPromptSuffix`
+  - `deviceContext`
+  - `source = automation_loop | manual`
+  - `attempt`
+- `processQueuedRefineJob()` 从 501 占位变为真实执行路径：
+  - 校验 job/session/workspace/variation/artifact 归属。
+  - 读取 base HTML artifact。
+  - 调用 runtime `refineVariation()`。
+  - 应用并持久化标准 runtime events。
+- Automation Loop 在 `design.loop_repair_planned` 后只 enqueue repair，不直接调用 runtime。
+- worker 消费 repair 时发布 `design.loop_repair_started`，runtime 不可用时发布 `design.loop_stopped`。
+- 自动修复队列使用稳定幂等键：
+  - `queue:refine:automation-loop:{artifactId}:attempt:{attempt}`
+- `flushBackgroundTasks()` 更新为循环 flush queue/background tasks，确保后台 task 入队的新任务也会在测试和 smoke 中完成。
+- 补充 runtime unavailable 回归测试：
+  - 初始 artifact 质量失败后成功 enqueue automatic repair。
+  - worker 消费 repair 时 runtime refine 抛错。
+  - 发布 `design.loop_stopped`，`reason = runtime_unavailable`。
+  - 对应 `refine_job` queue state 标记为 `failed`。
+  - current artifact 保持在原始版本，不产生漂移。
+
+### 决策
+
+- 用户手动 refine API 暂时保持同步执行，避免在本阶段同时改造前端交互和用户等待语义。
+- Automation repair 先复用 `refine_job` 队列，不新增单独 `automation_repair_job` 类型；后续如果需要更细 observability，再拆分 job kind。
+- `design.loop_repair_started` 表示 worker 开始消费，而不是 planner 入队成功。
+- 队列 payload 中只保存执行上下文，业务事实仍以 job/variation/artifact/event 为准。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/designJobEvents.test.js apps/api/dist/designJobQueue.test.js apps/api/dist/designJobWorker.test.js apps/api/dist/mock-flow.test.js apps/api/dist/redisDesignJobQueue.test.js`
+
+### 下一步
+
+- 后端服务层：将手动 refine API 也可选切到 queue-backed 模式，用于长任务和跨进程 worker。
+- Runtime Compatibility：真实 BabeL-O staging smoke 覆盖 automatic refine repair。
+- 后端服务层：Redis worker staging smoke 覆盖 automatic repair failed/completed 两条路径。
+- 前端交互层：展示 loop timeline、repair queue status、stopped reason。

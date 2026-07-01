@@ -23,9 +23,9 @@
 ## Phase RTC-1：BabeL-O Adapter 基础连接
 
 - [x] 实现 runtime health check。
-- [ ] 定义并实现 runtime model discovery contract：`GET /v1/models` 或等价 adapter 端点。
-- [ ] 从 BabeL-O/provider 真实模型列表归一化为 DUDesign `RuntimeModel`。
-- [ ] 对不支持模型发现的 BabeL-O 版本返回明确 `unsupported`，由业务层保留 seed/config 模型。
+- [x] 定义并实现 runtime model discovery contract：`GET /v1/models` 或等价 adapter 端点。
+- [x] 从 BabeL-O/provider 真实模型列表归一化为 DUDesign `RuntimeModel`。
+- [x] 对不支持模型发现的 BabeL-O 版本返回明确 `unsupported`，由业务层保留 seed/config 模型。
 - [x] 实现 `/v1/sessions` 创建。
 - [x] 实现 `/v1/sessions/:id/resume`。
 - [x] 实现 `/v1/stream` 最小 NDJSON/SSE client。
@@ -58,8 +58,8 @@
 - [x] 映射 `error` -> `design.variation_failed`。
 - [x] 对 unknown event 做 debug 记录，不影响主流程。
 - [x] 将真实 Babel-O adapter service 的最终 workspace artifact bundle 输出为多条 `file_delta`。
-- [ ] 将真实 Babel-O adapter service 的 transcript/workspace 文件变化升级为近实时 `code_delta`。
-- [ ] 将 raw assistant/thinking transcript 归一化为可读 activity 摘要，避免用户端直接展示碎片文本。
+- [x] 将真实 Babel-O adapter service 的 transcript/workspace 文件变化升级为近实时 `code_delta`。
+- [x] 将 raw assistant/thinking transcript 归一化为可读 activity 摘要，避免用户端直接展示碎片文本。
 - [x] 为 `variation_code_delta` 增加 golden replay 覆盖真实文件增量和恢复场景。
 
 验收：
@@ -87,7 +87,7 @@
 
 ## Phase RTC-4：Artifact Bridge
 
-- [ ] 定义 workspace root 安全策略。
+- [x] 定义 workspace root 安全策略。
 - [x] 检测 runtime 写入的 HTML/CSS/JS。
 - [x] 解析入口 `index.html`。
 - [x] 支持 runtime result inline HTML 同步为业务 artifact。
@@ -97,9 +97,10 @@
 - [x] `artifact_updated` 事件落成增量 artifact snapshot。
 - [x] 增加最小静态 artifact quality gate，识别空 body、纯加载壳、外部脚本依赖、大面积全黑/空白风险等不合格产物。
 - [x] 增加可选 Playwright screenshot pixel gate，识别真实渲染后的全黑/空白页面。
-- [ ] 将 Playwright pixel gate 池化或拆到 preview quality worker，避免生成链路被浏览器启动成本拖慢。
+- [x] 将 Playwright pixel gate 池化或拆到 preview quality worker，避免生成链路被浏览器启动成本拖慢。
+- [ ] 将 Playwright pixel gate 拆到独立 preview quality worker。
 - [x] 防止 path traversal。
-- [ ] 防止 symlink escape。
+- [x] 防止 symlink escape。
 
 验收：
 
@@ -122,7 +123,7 @@
 
 - [x] 建立 runtime contract manifest 初稿。
 - [x] 建立 contract tests。
-- [ ] 将 model discovery 能力纳入 contract manifest 和 contract tests。
+- [x] 将 model discovery 能力纳入 contract manifest 和 contract tests。
 - [x] 建立 golden event replay。
 - [x] 建立 mock parallel generation smoke test。
 - [x] 建立 resume smoke test。
@@ -136,12 +137,13 @@
 
 ## Phase RTC-7：可观测性与降级
 
-- [ ] 记录 runtime latency。
-- [ ] 记录 drift 事件。
-- [ ] 记录 runtime unavailable。
-- [ ] 记录 contract mismatch。
-- [ ] 支持 degraded 模式。
-- [ ] 支持切回上一 runtime 配置。
+- [x] 记录 runtime latency。
+- [x] 记录 drift 事件。
+- [x] 记录 runtime unavailable。
+- [x] 记录 contract mismatch。
+- [x] 支持 degraded 模式。
+- [x] 支持切回上一 runtime 配置请求记录。
+- [ ] 支持由 DUDesign 控制面直接切换上一 runtime 配置。
 
 验收：
 

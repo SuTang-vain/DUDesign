@@ -42,11 +42,11 @@
 - [x] 设计首批官方领域模板。
 - [x] 设计首批官方审美 profile。
 - [x] 将官方 registry 中混合了品牌/视觉/场景的条目拆分，例如 `Premium Product Page`。
-- [ ] 支持用户从 variation 保存私有模板。
-- [ ] 支持用户上传或粘贴 `DESIGN.md` 保存为私有模板。
-- [ ] 支持多 variation 自动分配不同 Design Template Pack。
+- [x] 支持用户从 variation 保存私有模板。
+- [x] 支持用户上传或粘贴 `DESIGN.md` 保存为私有模板。
+- [x] 支持多 variation 自动分配不同 Design Template Pack。
 - [x] 支持用户保存默认审美偏好。
-- [ ] 模板选择写入 job snapshot，保证 resume 不漂移。
+- [x] 模板选择写入 job snapshot，保证 resume 不漂移。
 
 验收：
 
@@ -54,17 +54,17 @@
 
 ## Phase CAP-2：Plugins
 
-- [ ] 定义 `CapabilityPlugin` domain model。
-- [ ] 定义 `DesignSkill` domain model。
-- [ ] 定义 `McpToolBinding` domain model。
-- [ ] 定义 `PluginPermissionPolicy`。
-- [ ] 明确 Design Skill 与 Design Template 的边界：skill 管生成方法，template 管视觉系统。
-- [ ] 定义 `CapabilityProfile`：template + skill + loop + 用户偏好组合快照。
-- [ ] Skill 只支持声明式规则，不支持任意代码执行。
-- [ ] MCP 插件支持只读/写入/验证等 scope。
-- [ ] Application Service 校验插件可见性和授权。
-- [ ] Runtime Gateway 将 skill 编译为受控 prompt block。
-- [ ] Runtime Gateway 将 MCP 插件编译为 tool policy。
+- [x] 定义 `CapabilityPlugin` domain model。
+- [x] 定义 `DesignSkill` domain model。
+- [x] 定义 `McpToolBinding` domain model。
+- [x] 定义 `PluginPermissionPolicy`。
+- [x] 明确 Design Skill 与 Design Template 的边界：skill 管生成方法，template 管视觉系统。
+- [x] 定义 `CapabilityProfile`：template + skill + loop + 用户偏好组合快照。
+- [x] Skill 只支持声明式规则，不支持任意代码执行。
+- [x] MCP 插件支持只读/写入/验证等 scope。
+- [x] Application Service 校验插件可见性和授权。
+- [x] Runtime Gateway 将 skill 编译为受控 prompt block。
+- [x] Runtime Gateway 将 MCP 插件编译为 tool policy。
 
 验收：
 
@@ -72,18 +72,19 @@
 
 ## Phase CAP-3：Automation Loop
 
-- [ ] 定义 `AutomationLoopProfile` domain model。
-- [ ] 支持 loop profile：fast、standard、deep repair。
-- [ ] 定义 loop stop conditions：
-  - [ ] max attempts。
-  - [ ] max cost。
-  - [ ] max duration。
-  - [ ] quality pass/fail。
-- [ ] 定义 loop event contract。
-- [ ] 支持生成后自动静态质量检查。
-- [ ] 支持生成后 preview/pixel gate 检查。
-- [ ] 支持最小自动修复 prompt。
-- [ ] 支持 loop 失败时输出用户可理解原因。
+- [x] 定义 `AutomationLoopProfile` domain model。
+- [x] 支持 loop profile：fast、standard、deep repair。
+- [x] 细化 CAP-3 测试分层：unit、mock integration、runtime contract、BabeL-O staging smoke。
+- [x] 定义 loop stop conditions：
+  - [x] max attempts。
+  - [x] max cost。
+  - [x] max duration。
+  - [x] quality pass/fail。
+- [x] 定义 loop event contract。
+- [x] 支持生成后自动静态质量检查。
+- [x] 支持生成后 preview/pixel gate 检查。
+- [x] 支持最小自动修复 prompt。
+- [x] 支持 loop 失败时输出用户可理解原因。
 
 验收：
 
@@ -152,11 +153,11 @@
 - [x] 模板 schema 单元测试。
 - [x] `DESIGN.md` import/lint 单元测试。
 - [x] Design Template Pack adapter 单元测试。
-- [ ] skill safety validator 单元测试。
-- [ ] MCP permission policy 单元测试。
-- [ ] automation loop stop condition 单元测试。
+- [x] skill safety validator 单元测试。
+- [x] MCP permission policy 单元测试。
+- [x] automation loop stop condition 单元测试。
 - [x] API smoke：官方模板创建 job。
-- [ ] API smoke：插件授权失败不能创建 job。
+- [x] API smoke：插件授权失败不能创建 job。
 - [ ] API smoke：保存 variation 为模板。
 - [x] Runtime Gateway golden：capability context 编译稳定。
 - [ ] E2E：模板 + 插件 + standard loop 生成。

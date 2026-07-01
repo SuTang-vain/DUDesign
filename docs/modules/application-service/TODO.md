@@ -76,19 +76,58 @@
 - 不依赖 BabeL-O 时，也能读取会话和历史消息。
 - session resume 返回 jobs、variations、artifacts 关联快照。
 
+## Phase APP-1.5：真实多用户访问
+
+> 规划详见 `docs/modules/application-service/multi-user-access-plan.md`。
+
+- [x] MU-1 Auth Repository 与 Session Cookie。
+  - [x] 新增 `auth_sessions` migration，只存 session token hash。
+  - [x] 新增 `auth_identities` migration，支持 password provider。
+  - [x] 新增 auth repository methods：创建 identity、按 email 查找、创建/撤销 session、按 token hash 解析 session。
+  - [x] 新增 password hash / verify 工具。
+  - [x] 新增 session cookie set/clear，生产 cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`。
+  - [x] `createRequestContext()` 支持从 cookie 解析 userId。
+  - [x] dev header fallback 仅在 `DUDESIGN_AUTH_MODE=dev` 时启用。
+  - [x] 实现 `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`。
+- [x] MU-2 Workspace Membership Guard。
+  - [x] 用户注册时创建个人 hosted workspace。
+  - [x] 用户注册时写入 owner membership。
+  - [x] 抽象 `requireWorkspaceAccess(workspaceId, minRole)`。
+  - [x] 将 session/job/variation/artifact/share 权限从 owner-only 迁移到 membership-aware guard。
+  - [x] viewer/editor/admin/owner role guard 单测覆盖。
+- [x] MU-3 Admin Auth 收口。
+  - [x] 定义 admin role 来源：MVP 使用 `users.metadata.adminRole`；独立 `admin_roles` 表作为后续增强。
+  - [x] Admin API 从真实 session user 解析 support/operator/developer。
+  - [x] production/session mode 下禁用 header-based admin role。
+  - [x] Admin 写操作继续写 audit log，并记录真实 operator user id。
+  - [ ] 后续补管理端 UI/接口用于授予、撤销、审计 admin role。
+- [x] MU-4 多用户隔离 Smoke。
+  - [x] user A 注册并创建 session/job/artifact。
+  - [x] user B 注册后无法读取 user A 的私有资源。
+  - [x] user A 创建 public share 后，user B 只能通过 share token 只读访问固定 artifact。
+  - [x] disabled user 无法登录或继续调用私有 API。
+  - [x] PostgreSQL no-hydrate 模式跑同一套多用户隔离 smoke。
+
+验收：
+
+- 真实用户可注册、登录、登出。
+- 登录态由可信 cookie/session 解析，不依赖 dev header。
+- 无 membership 用户不能访问他人 workspace/session/job/artifact。
+- production mode 下伪造 user/admin header 无效。
+
 ## Phase APP-3：Design Job 与 Variation
 
 - [x] 实现 `POST /api/design-jobs`。
 - [x] 实现 `GET /api/design-jobs/:id`。
 - [x] 实现 M1 内存版 job/variation 状态机。
-- [ ] 实现队列入队。
+- [x] 实现队列入队。
   - [x] `POST /api/design-jobs` 从直接执行 runtime 改为创建 job 后 enqueue。
   - [x] `InMemoryDesignJobQueue` 默认立即消费 design job，保持本地/dev/test 行为不变。
   - [x] dev/test worker handler 消费队列并驱动 variation runtime sessions。
   - [x] production worker process 可消费 Redis/BullMQ 队列并驱动 variation runtime sessions。
-  - [ ] SSE 继续通过 persisted events / event bus 聚合状态。
+  - [x] SSE 继续通过 persisted events / event bus 聚合状态。
 - [x] 实现 `GET /api/design-jobs/:id/stream`。
-- [ ] 实现部分失败状态。
+- [x] 实现部分失败状态。
 
 验收：
 
@@ -107,7 +146,7 @@
   - [x] `design_variations.screenshot_artifact_id` 指向 desktop screenshot，结果墙优先使用。
   - [x] screenshot artifact 通过 `/api/variations/:id/screenshots/:artifactId` 读取。
   - [x] screenshot 生成失败不阻断 job/refine 主流程，错误写入 HTML artifact metadata。
-  - [ ] 将当前进程内异步截图生成迁移到 queue worker。
+  - [x] 将当前进程内异步截图生成迁移到 queue worker。
 - [x] 实现 mock HTML export。
 - [x] 实现 mock `export_zip` artifact。
 - [x] variation detail 返回完整 artifact snapshot，并区分 `html` / `asset` / `export_zip`。
@@ -147,7 +186,7 @@
 - [x] 实现模型发现同步 Admin API：`POST /api/admin/models/sync`。
 - [x] 将 runtime/provider 发现结果合并进 `model_services`，保留本地 enabled/default/access 治理字段。
 - [x] 记录模型同步审计日志和最近同步快照。
-- [ ] 实现 artifact repair/rebuild preview。
+- [x] 实现 artifact repair/rebuild preview。
 - [x] 实现 runtime health 读取代理。
 - [x] 实现 cost 聚合接口。
 - [x] 将 cost 聚合口径切换到 immutable usage events。

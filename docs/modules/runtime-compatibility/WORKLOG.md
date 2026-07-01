@@ -1423,3 +1423,139 @@
 - 已在仓库侧通过 migration 文件过滤和 Docker ignore 策略收口：
   - migration 只加载数字开头的 `.sql` 文件。
   - Docker context 排除 `._*` / `**/._*`。
+
+## 2026-07-01 M26 Runtime Model Discovery Contract
+
+### 已完成
+
+- 定义 DUDesign Runtime Model Discovery contract：
+  - 标准端点：`GET /v1/models`。
+  - 兼容旧端点：`GET /v1/runtime/models`。
+  - 标准响应：`type=runtime_models`，并带 `discoveryStatus=supported`。
+  - 不支持响应：`type=runtime_models_unsupported` 或 `discoveryStatus=unsupported`。
+- Runtime Adapter 新增 `/v1/models` 和 `/v1/runtime/models`：
+  - 优先读取 raw BabeL-O Nexus `/v1/runtime/config`。
+  - 同步读取 `/v1/runtime/config/profiles`。
+  - 将 active config/profile 归一化为 DUDesign `RuntimeModels.providers[].models[]`。
+  - 不透出 provider API key 等敏感字段。
+- Gateway client 更新：
+  - 先请求 `/v1/models`。
+  - `/v1/models` 404 时回退 `/v1/runtime/models`。
+  - 两个端点都不可用或 runtime 明确不支持时，返回 `discoveryStatus=unsupported`，而不是抛出普通 runtime failure。
+- Runtime contract manifest 增加 `optionalEndpoints`，当前声明 `GET /v1/models`。
+- Application Service 管理端模型同步增加 unsupported 降级：
+  - `POST /api/admin/models/sync` 遇到 `discoveryStatus=unsupported` 时不写入 discovered model。
+  - 不把已有 `runtime_discovery` 模型标记 missing。
+  - 返回 `model.sync.unsupported` audit log。
+  - 管理端 sync summary 显示 discovery unsupported，并提示保留已配置模型。
+
+### 验证
+
+- `npm run typecheck`
+- `npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter`
+- `npx tsc -b packages/runtime-gateway apps/runtime-adapter && node --test packages/runtime-gateway/dist/babelOClient.test.js apps/runtime-adapter/dist/app.test.js`
+- `npx tsc -b apps/api && node --test apps/api/dist/model-governance.test.js`
+
+### 决策
+
+- `/v1/models` 是 DUDesign 后续稳定 contract，`/v1/runtime/models` 仅作为兼容 fallback。
+- Model discovery 是 optional runtime capability，不作为生成/恢复/预览的硬依赖。
+- 不支持 discovery 的 BabeL-O 版本必须被识别为 `unsupported`，业务层保留 seed/config 模型，避免误禁用管理员已配置模型。
+- 后续可把模型级并发、成本、可用区域等字段扩展到 `RuntimeModels.providers[].models[].metadata` 或 model service 配置层。
+
+## 2026-07-01 M27 Runtime Activity And Near-Realtime Code Delta
+
+### 已完成
+
+- Runtime Adapter `/v1/stream` 增加 workspace code polling：
+  - 默认 `250ms` 轮询当前 variation workspace。
+  - 支持 `RUNTIME_ADAPTER_WORKSPACE_POLL_INTERVAL_MS` 配置。
+  - 执行期间发现 `index.html`、`styles.css`、`script.js`、`assets.json`、`dist/*` 等代码文件变化时输出 `code_delta`。
+  - 最终 workspace artifact bundle 仍输出 `file_delta`，并由 `result` 作为最终 artifact 事实来源。
+- Runtime Adapter 将 raw `assistant_delta` / `thinking_delta` 归一化为可读 activity 摘要：
+  - thinking 侧输出如“Planning the page structure.”、“Checking the brief and design constraints.”。
+  - assistant 侧输出如“Writing index.html.”、“Refining visual styles.”、“Finishing the generated page.”。
+  - 不再把 raw provider/transcript 碎片直接作为用户端默认 activity 文案。
+- Gateway golden adapter 测试补充摘要化 delta 和 channel 断言。
+- Runtime Adapter smoke 覆盖：
+  - execute 期间写入 workspace 文件，stream 先输出 `code_delta`，后输出 final `file_delta/result`。
+  - raw transcript 中的私有碎片不进入默认 stream 文案。
+
+### 验证
+
+- `npx tsc -b apps/runtime-adapter && node --test apps/runtime-adapter/dist/app.test.js`
+- `npx tsc -b packages/runtime-gateway && node --test packages/runtime-gateway/dist/babelOAdapter.test.js`
+
+### 决策
+
+- 近实时 code stream 暂先使用 adapter-side polling，不切换 raw BabeL-O WebSocket `/v1/stream`，避免扩大传输协议风险。
+- `code_delta` 是用户端生成卡片的实时可视反馈；最终 artifact 落库仍以 `file_delta/result` 为准。
+- 后续如果 raw BabeL-O HTTP/WS 直接提供稳定 file/code event，可把 polling 替换为原生事件，但 DUDesign 标准事件不变。
+
+## 2026-07-01 M28 Runtime Observability And Degraded Governance
+
+### 已完成
+
+- Admin runtime health 增加 observability 摘要：
+  - `latencyMs`
+  - `degraded`
+  - `unavailable`
+  - `contractMismatch`
+  - `drift`
+  - `degradedMode`
+  - `rollbackAvailable`
+  - `rollbackMode`
+- `GET /api/admin/runtime/health` 在发现异常状态时记录 audit log：
+  - `runtime.contract_mismatch`
+  - `runtime.unavailable`
+  - `runtime.degraded`
+  - `runtime.drift_detected`
+- Application Service 在收到标准 `design.runtime_warning` 且 code 为 `UNKNOWN_RUNTIME_EVENT` 时记录 `runtime.drift_detected`，用于追踪 BabeL-O event drift。
+- 新增 `POST /api/admin/runtime/rollback`：
+  - 记录 `runtime.config.rollback.requested` audit。
+  - 返回 `unsupported_external_config_required`。
+  - 明确不在 API 进程内直接修改 runtime 环境变量或远端部署配置。
+- Phase RTC-7 的 MVP 治理闭环已落地：
+  - 可观测性：health latency/status/audit。
+  - 降级识别：degraded/unavailable/contract mismatch。
+  - 回滚治理：先记录请求，实际切换仍由 deployment/config management 执行。
+
+### 验证
+
+- `node --test apps/api/dist/admin-runtime-health.test.js`
+- `npm run typecheck`
+- `npx tsc -b packages/runtime-gateway apps/runtime-adapter && node --test packages/runtime-gateway/dist/babelOClient.test.js packages/runtime-gateway/dist/babelOAdapter.test.js apps/runtime-adapter/dist/app.test.js`
+
+### 决策
+
+- 当前 MVP 不让 DUDesign API 直接改 `BABELO_BASE_URL` / `DUDESIGN_RUNTIME_PROVIDER` 等部署级配置，避免控制面越权或造成不可审计的进程漂移。
+- “切回上一 runtime 配置”先作为审计化请求进入系统；真正自动切换需要后续引入 runtime config registry、active config table、版本化 secret reference 和部署编排器。
+- Degraded 模式当前语义是：管理端可见、审计可追踪、业务侧继续允许读取既有 artifact，runtime 新任务是否可执行仍由 Gateway contract 状态和业务失败路径控制。
+
+## 2026-07-01 M29 Workspace Root Safety And Pixel Gate Pooling
+
+### 已完成
+
+- 定义并落实 runtime workspace root 读取策略：
+  - runtime adapter 只读取 DUDesign 指定 workspace root 内的相对文件。
+  - 拒绝绝对路径、反斜杠路径、`.` / `..` 段、隐藏路径段。
+  - workspace 文件读取前使用 `lstat` 和 `realpath` 校验。
+  - symlink 文件不会被 artifact bundle 或 near-real-time `code_delta` 读取。
+  - 目录扫描跳过 dotfile、`node_modules` 和 symlink entry。
+- 防止 symlink escape：
+  - 新增 adapter smoke：workspace 内 `styles.css` 指向 workspace 外部 secret 文件时，stream 不输出外部内容，也不把 symlink 当作 artifact file。
+- Playwright pixel gate 池化：
+  - 新增 API 侧共享 Chromium browser pool。
+  - `artifactQuality` pixel gate 改为复用 pooled browser，仅按次创建/关闭 page。
+  - `screenshotRenderer` 同样复用 pooled browser，减少截图/质量检查反复启动浏览器的成本。
+
+### 验证
+
+- `npx tsc -b apps/runtime-adapter --pretty false`
+- `node --test apps/runtime-adapter/dist/app.test.js`
+
+### 决策
+
+- 本轮采用 browser pooling 作为低风险优化，先避免每个 artifact quality gate 都启动一个 Chromium。
+- 独立 preview quality worker 暂不在本轮拆出；后续如 pixel gate 成为生成链路瓶颈，再把 screenshot/pixel analysis 全部移到 worker queue，并让生成链路只记录 pending quality status。
+- workspace root 安全策略由 adapter 执行，业务服务层继续只消费 DUDesign 标准 artifact/file event，不直接信任 raw runtime 文件路径。

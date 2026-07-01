@@ -48,9 +48,9 @@
 
 - [x] 按 job 查看 artifact。
 - [x] 查看 artifact version、hash、size、storage_key、preview_url。
-- [ ] 支持 rebuild screenshot。
-- [ ] 支持 export repair。
-- [ ] 支持 revoke share。
+- [x] 支持 rebuild screenshot。
+- [x] 支持 export repair。
+- [x] 支持 revoke share。
 
 验收：
 

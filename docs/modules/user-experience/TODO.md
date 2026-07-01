@@ -49,7 +49,7 @@
 - [x] “设计方向”选择器使用 tabs：场景、视觉、高级。
 - [x] 场景/视觉选择支持搜索、分类和右侧详情预览。
 - [x] 将色板、补充风格词、参考品牌、负面要求移动到高级入口。
-- [ ] 高级入口预留 Design System / 参考品牌升级路径。
+- [x] 高级入口预留 Design System / 参考品牌升级路径。
 - [x] 在结果墙和单变体详情页展示本次生成使用的 Capability Snapshot。
 - [x] 支持用户默认 Capability 偏好恢复：优先本地体验兜底，并通过用户偏好 API 保存。
 - [x] 展示用户可用模型列表并支持选择生成模型。
@@ -150,8 +150,8 @@
 - [x] 建立 annotation browser E2E。
 - [x] 建立 annotation serialization unit test。
 - [x] 建立 preview iframe sandbox test。
-- [ ] 建立 artifact preview 可见性检查，识别全黑/空白/加载壳页面。
-- [ ] 建立用户端可访问性基础检查。
+- [x] 建立 artifact preview 可见性检查，识别全黑/空白/加载壳页面。
+- [x] 建立用户端可访问性基础检查。
 
 验收：
 

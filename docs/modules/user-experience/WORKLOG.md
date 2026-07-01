@@ -1137,3 +1137,28 @@
 
 - 继续迁移结果墙 `/jobs/:jobId` 主体文案。
 - 再迁移单变体编辑页 `/variations/:variationId` 主体文案。
+
+## 2026-07-01 UX-M23 Quality And Accessibility Gates
+
+### 已完成
+
+- 在“设计方向 > 高级”中增加 Design System 预留入口：
+  - 标记当前为 Alpha reserve。
+  - 为参考品牌升级到 tokens、components、brand rules 的路径保留产品位置。
+- 结果墙新增 artifact preview 可见性回归覆盖：
+  - 模拟全黑、空白或 loading shell 风险的 artifact quality 结果。
+  - 验证 variation 卡片必须展示用户可理解的质量失败提示。
+- 用户前端新增基础可访问性 smoke：
+  - 验证主 landmark、首页标题、全局设置/更多/头像按钮 accessible name。
+  - 验证 prompt 输入 aria-label、生成按钮 disabled/enabled 状态。
+  - 验证设计方向 tablist 和 Scene/Visual/Advanced tab 的基础语义。
+
+### 验收
+
+- `TODO.md` 中 UX-2 高级入口预留已完成。
+- `TODO.md` 中 UX-7 artifact preview 可见性检查和用户端可访问性基础检查已完成。
+
+### 下一步
+
+- 将可见性检查结果接入更细分的用户动作：重新生成、查看 debug、继续 refine。
+- 后续可引入 axe-core 或等价工具，把 smoke 扩展为系统化 a11y audit。

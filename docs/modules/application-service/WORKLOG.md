@@ -3,6 +3,285 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-01 APP-M28 Admin Auth Session Role
+
+### 已完成
+
+- 收口 MU-3 Admin Auth：
+  - `users` 增加 `metadata jsonb` migration，MVP 使用 `metadata.adminRole` 作为 Admin role 来源。
+  - domain / contracts 的 `User` 增加 `metadata` 字段。
+  - `ApplicationRepository` 增加 `updateUserMetadata()`。
+  - `InMemoryStore` / `PostgresRepository` 实现用户 metadata 更新；Postgres 使用 SQL-first `update users set metadata = ...`。
+  - `createRequestContext()` 在 `session` / `production` mode 下从真实 session user 的 `metadata.adminRole` 解析 `support` / `operator` / `developer`。
+  - `x-dudesign-admin-role` 只在 dev mode 生效；session/production mode 下伪造 admin header 不会授予权限。
+- 新增 session-mode Admin Auth 测试：
+  - 普通登录用户携带伪造 `x-dudesign-admin-role: developer` 访问 Admin API 返回 403。
+  - 写入 `metadata.adminRole=operator` 后，同一 session 可访问 Admin API。
+  - Admin 写操作 audit log 记录真实 session user id 和 operator role。
+
+### 验证
+
+- `npm run typecheck`
+- `npx tsc -b apps/api packages/contracts packages/domain && node --test apps/api/dist/auth-flow.test.js apps/api/dist/admin-runtime-health.test.js apps/api/dist/model-governance.test.js`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- MVP 不新增独立 `admin_roles` 表，先用 `users.metadata.adminRole` 快速建立真实 session RBAC 边界。
+- 独立 `admin_roles` 表、授予/撤销 API、审批和审计历史作为后续管理治理增强项。
+- 现有 dev header role 保留，便于本地 Admin Console 和默认 smoke；生产/session 模式不会信任该 header。
+
+## 2026-07-01 APP-M27 Disabled User and Postgres No-hydrate Multi-user Smoke
+
+### 已完成
+
+- 收口 MU-4 多用户隔离 smoke 的剩余项：
+  - 抽出 `multiUserAccessSmoke.ts`，让 InMemory 默认门禁和 PostgreSQL integration 可以复用同一套 HTTP/session-cookie 多用户隔离流程。
+  - 覆盖 disabled user 场景：已禁用用户的旧 cookie 调用 `/api/auth/me` 返回 403，重新登录也返回 403。
+  - `postgres-api-flow.test.ts` 在 `hydrateOnStart:false` harness 中复用同一套 multi-user smoke，用于真实 PostgreSQL opt-in 环境验证 no-hydrate 多用户访问隔离链路。
+- Repository 补齐用户状态更新能力：
+  - `ApplicationRepository.updateUserStatus()`。
+  - `InMemoryStore.updateUserStatus()`。
+  - `PostgresRepository.updateUserStatus()` SQL-first 更新 `users.status` 与 `updated_at`。
+- 保持 public share 的 artifact-pinned 语义：owner 后续切换 current artifact 后，旧 share 仍固定读取创建时 artifact。
+
+### 验证
+
+- `npm run typecheck`
+- `npx tsc -b apps/api packages/contracts packages/domain && node --test apps/api/dist/multi-user-access-flow.test.js apps/api/dist/postgres-api-flow.test.js`
+- `npm --workspace @dudesign/api run test`
+
+> 本轮本机未配置 `DUDESIGN_POSTGRES_TEST_URL`，PostgreSQL integration suite 按既有规则跳过；no-hydrate 多用户 smoke 已接入该 suite，配置真实 PostgreSQL URL 后会执行。
+
+### 决策
+
+- disabled user 测试通过 Repository 更新状态，不直接改内部 Map，避免 no-hydrate / SQL-first 模式下测试语义漂移。
+- PostgreSQL no-hydrate smoke 作为 opt-in integration 保持在 `DUDESIGN_POSTGRES_TEST_URL` 存在时运行；默认测试门禁继续无外部数据库依赖。
+- MU-4 至此完成，下一步应进入 MU-3 Admin Auth 收口或继续补 PostgreSQL/Redis 真实环境组合 smoke。
+
+## 2026-07-01 APP-M26 Multi-user Access HTTP Smoke
+
+### 已完成
+
+- 推进 MU-4 多用户隔离 smoke 的 HTTP/session-cookie 主路径：
+  - 新增 `multi-user-access-flow.test.ts`。
+  - 在 `DUDESIGN_AUTH_MODE=session` 下通过真实 HTTP API 注册 user A / user B。
+  - user A 创建 session/job，并绑定一份稳定 HTML artifact。
+  - user B 访问 user A 的 job、variation detail、preview 均返回 403。
+  - user A 创建 public share 后，匿名访问和 user B cookie 访问均只能通过 share token 读取固定 artifact。
+  - user A 后续切换 current artifact 后，旧 share 仍固定指向创建 share 时的 artifact，不随版本漂移。
+  - user B 不能对 user A variation 创建 share。
+- 加固 `babel-runtime-api-flow.test.ts`：
+  - quality gate 测试不再假设失败 artifact 永远是 current artifact v1。
+  - 自动修复可能生成新 current artifact，因此测试改为检查 job artifacts 中存在带质量失败的 artifact，并继续验证 SSE runtime warning。
+
+### 验证
+
+- `npm run typecheck`
+- `npx tsc -b apps/api packages/contracts packages/domain && node --test apps/api/dist/multi-user-access-flow.test.js apps/api/dist/workspace-membership.test.js apps/api/dist/auth-flow.test.js`
+- `npx tsc -b apps/api packages/contracts packages/domain && node --test apps/api/dist/babel-runtime-api-flow.test.js`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- MU-4 HTTP smoke 先覆盖 InMemory/session-cookie 主路径，保证默认门禁稳定。
+- PostgreSQL no-hydrate 多用户隔离 smoke 仍保留为后续独立项，避免一次改动同时扩大 DB 环境依赖。
+- share 的安全语义继续保持 artifact-pinned：用户后续 refine/restore 不影响已创建 public share。
+
+## 2026-07-01 APP-M25 Workspace Membership Guard
+
+### 已完成
+
+- 落地 MU-2 Workspace Membership Guard：
+  - 在 domain 增加 `WorkspaceMember`、`WorkspaceMemberRole`、`WorkspaceMemberStatus`。
+  - `ApplicationRepository` 增加 `workspaceMembers`、`getWorkspaceMember()`、`upsertWorkspaceMember()`。
+  - `InMemoryStore` seed user / 注册用户时写入 owner membership。
+  - `PostgresRepository` hydrate `workspace_members`，seed / 注册用户时 SQL-first 写入 owner membership。
+  - `PostgresRepository` 增加 SQL-native `getWorkspaceMember()` 和 `upsertWorkspaceMember()`。
+- 权限 guard 从 owner-only 迁移到 membership-aware：
+  - `requireWorkspaceAccess(workspaceId, userId, minRole)`。
+  - `requireSessionAccess()`、`requireJobAccess()`、`requireVariationAccess()` 通过 workspace membership 判断。
+  - viewer 可读详情/预览/files/export zip 下载。
+  - editor 可创建 session/job、refine、annotation、restore、repair、export、share。
+  - owner 字段保留为旧数据兼容兜底；缺少 member 行但 owner 匹配时仍视作 owner。
+- `listSessions()` 改为按 workspace viewer 可见性过滤，支持后续协作用户看到同 workspace 会话。
+- 新增 `workspace-membership.test.ts`：
+  - viewer 可读 job，但不能创建 job。
+  - editor 可创建 job。
+  - non-member / removed member 无法 resume 私有 session。
+- 更新 API flow smoke 断言，保持资源级 forbidden code：job 访问失败返回 `JOB_FORBIDDEN`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- MVP 暂不开放团队协作 UI，但后端权限模型已从 owner-only 过渡到 role-based membership。
+- `viewer/editor/admin/owner` 采用单调角色等级；后续邀请、移除、团队 UI 和 audit 可直接复用该 guard。
+- 资源级 forbidden code 继续保留，避免前端和 smoke 对错误类型的判断漂移。
+
+## 2026-07-01 APP-M24 Auth Repository and Session Cookie MVP
+
+### 已完成
+
+- 落地 MU-1 Auth Repository 与 Session Cookie：
+  - 新增 `auth_identities` / `auth_sessions` PostgreSQL migration。
+  - `InMemoryStore` / `PostgresRepository` 增加 auth identity、auth session、按 email 查 user、注册时创建个人 workspace 的 repository methods。
+  - `PostgresRepository` 对 auth identity/session 使用 SQL-first 读写，并纳入 startup hydrate。
+- `createRequestContext()` 支持两种 auth mode：
+  - `DUDESIGN_AUTH_MODE=dev` 保留 header-based dev user。
+  - `DUDESIGN_AUTH_MODE=session|production` 从 `dudesign_session` HttpOnly cookie 解析真实 user，并忽略 user/admin dev header。
+- 新增认证 API：
+  - `POST /api/auth/register`
+  - `POST /api/auth/login`
+  - `POST /api/auth/logout`
+  - `GET /api/auth/me`
+- 新增密码与 session 工具：
+  - email normalize。
+  - scrypt password hash / verify。
+  - session token 生成、hash 存储、cookie set/clear。
+  - IP hash 记录，避免存明文 IP。
+- 新增 `auth-flow.test.ts`：
+  - session mode 下 dev header 无法通过 `/api/dev/bootstrap`。
+  - register 返回 cookie。
+  - cookie 可访问 `/api/auth/me` 和创建 session。
+  - logout 后旧 cookie 失效。
+  - login 可重新签发 cookie。
+- 修复 `designJobEvents.test.ts`：
+  - 使用 no-op screenshot queue，避免 SSE/event persistence 测试拉起 screenshot worker/browser 池导致测试进程不退出。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test`
+
+### 决策
+
+- MVP 先采用 server-side session cookie，不在业务库中保存明文 token。
+- 生产/session mode 下禁用 header-based user/admin spoofing；真实 admin role 归属留到 MU-3。
+- 注册时已创建个人 hosted workspace；owner membership 写入和 membership-aware guard 放入 MU-2 继续推进。
+
+## 2026-07-01 APP-M23 Real Multi-user Access Planning
+
+### 已完成
+
+- 新增 `multi-user-access-plan.md`，将真实多用户访问从零散方向拆成可执行治理规划。
+- 明确当前状态：
+  - 已有 `users`、`workspaces`、`workspace_members` 数据底座。
+  - 已有 owner guard 和用户级 memory namespace。
+  - 当前仍依赖 header-based dev user context，不适合真实用户开放。
+- 明确真实多用户访问 MVP 范围：
+  - 注册、登录、登出。
+  - server-side session cookie。
+  - 个人 hosted workspace。
+  - membership-aware workspace guard。
+  - production 禁用 dev header auth/admin role。
+- 在 `application-service/TODO.md` 增加 `Phase APP-1.5：真实多用户访问`：
+  - MU-1 Auth Repository 与 Session Cookie。
+  - MU-2 Workspace Membership Guard。
+  - MU-3 Admin Auth 收口。
+  - MU-4 多用户隔离 Smoke。
+
+### 决策
+
+- 优先推进 MU-1，而不是先做团队协作 UI；真实身份来源是对外开放的第一道门。
+- MVP 默认采用 server-side session cookie，Bearer token 作为后续 API client / automation 扩展。
+- `workspace_members` 先落 owner membership 和 guard 抽象，邀请、移除、团队 UI 延后。
+- Dev header fallback 只允许在 `DUDESIGN_AUTH_MODE=dev` 下启用，production mode 必须无效。
+
+## 2026-07-01 APP-M22.10 Test Gate Closure For Screenshot Queue
+
+### 已完成
+
+- 修复默认 `npm run typecheck` 中 screenshot queue contract 引发的测试门禁噪音：
+  - `DesignJobQueueConsumer` 测试 mock 补齐 `runScreenshotJob()`。
+  - `QueuedDesignJobProcessor` 测试 mock 补齐 `processQueuedScreenshotJob()`。
+  - Redis queue integration synthetic failure mock 补齐 screenshot consumer。
+- 收紧 queue/worker 单元测试：
+  - `InMemoryDesignJobQueue` 覆盖 screenshot job 幂等去重。
+  - `ApplicationDesignJobWorker` 覆盖 screenshot job delegation。
+- 修正 runtime gateway client 测试中的 capability snapshot mock，使其符合完整 contract 类型，并将请求断言从整对象 deepEqual 调整为关键字段 + capability snapshot 局部断言。
+
+### 验证
+
+- `npm run typecheck`
+- `npx tsc -b apps/api packages/runtime-gateway apps/runtime-adapter && node --test apps/api/dist/designJobQueue.test.js apps/api/dist/designJobWorker.test.js packages/runtime-gateway/dist/babelOClient.test.js packages/runtime-gateway/dist/babelOAdapter.test.js apps/runtime-adapter/dist/app.test.js`
+
+### 决策
+
+- Queue consumer interface 增加新 job kind 后，默认测试 mock 必须同步补齐，避免“生产逻辑已可用但类型门禁失败”的噪音。
+- Runtime gateway 测试不再复制完整 capability snapshot 作为 expected object，避免 contract 对象变完整后测试过度脆弱。
+
+## 2026-07-01 APP-M22.9 Screenshot Queue Worker and Preview Repair
+
+### 已完成
+
+- 将 screenshot 生成从当前 API 进程内 `trackBackgroundTask()` 迁移到 queue worker：
+  - 新增 `screenshot_job` 队列任务类型。
+  - 新增 `ScreenshotJobQueuePayload`。
+  - `DesignJobQueue` 增加 `enqueueScreenshotJob()`。
+  - `DesignJobQueueConsumer` 增加 `runScreenshotJob()`。
+  - `ApplicationDesignJobWorker` 增加 screenshot job 分发。
+  - `RedisDesignJobQueue` 支持 screenshot job 入队、消费和状态归一。
+- HTML artifact 创建、runtime HTML artifact 创建、runtime workspace artifact 创建后，不再直接在当前调用栈生成截图，而是入队 screenshot job。
+- `ApplicationService.processQueuedScreenshotJob()` 作为 worker 消费入口：
+  - 校验 variation / artifact 归属。
+  - 读取 HTML artifact。
+  - 复用既有 `createScreenshotArtifacts()` 生成 desktop/tablet/mobile screenshot artifacts。
+  - 更新 `design_variations.screenshot_artifact_id` 指向 desktop screenshot。
+- 新增 artifact preview repair/rebuild API：
+  - `POST /api/variations/:id/preview/repair`
+  - 支持指定 `artifactId` 修复历史/当前 HTML artifact 的 screenshot preview。
+  - 返回目标 HTML artifact、preview URL、当前 screenshot URL 和 screenshot queue job 状态。
+- restore 历史 HTML artifact 后，自动入队 `restore_requested` screenshot rebuild，避免恢复版本后仍沿用旧截图。
+- 新增/扩展测试：
+  - `InMemoryDesignJobQueue` 覆盖 screenshot job dedupe。
+  - `ApplicationDesignJobWorker` 覆盖 screenshot job delegation。
+  - Redis queue stable job names 覆盖 `screenshot_job`。
+  - API smoke 覆盖 `POST /api/variations/:id/preview/repair` 并等待 screenshot artifact 可读。
+- `application-service/TODO.md` 将 screenshot queue worker 和 artifact repair/rebuild preview 标记完成。
+
+### 决策
+
+- 自动 artifact-created / restore-requested screenshot job 使用稳定 idempotency key，避免同一 artifact 重复入队。
+- 手动 repair-requested screenshot job 使用带 repair run id 的 idempotency key，允许用户或管理端多次触发重建。
+- repair API 不直接重新生成 HTML artifact；它校验并重建 preview/screenshot 产物，保持 HTML artifact version 不变。
+
+## 2026-07-01 APP-M22.8 Persisted Job Events and Partial Failure State
+
+### 已完成
+
+- 新增 design job event ledger：
+  - `ApplicationRepository.appendDesignEvent()`
+  - `ApplicationRepository.listDesignEvents()`
+  - `InMemoryStore.designEvents`
+  - PostgreSQL migration `0006_design_events.sql`
+  - `PostgresRepository` SQL-native design event append/list。
+- `ApplicationService` 将 runtime event side effects 与 event publish 收敛为：
+  - 先写业务快照 side effect。
+  - 再 append persisted event。
+  - 最后 publish 到当前进程 `JobEventBus`。
+- `GET /api/design-jobs/:id/stream` 改为聚合：
+  - persisted events 初始 replay。
+  - 当前进程 event bus 低延迟推送。
+  - persisted events 短轮询兜底，支持 API 与 Redis worker 分进程部署。
+- 生成任务支持部分失败：
+  - runtime 正常返回 `variation_failed` 时，失败 variation 保持 failed。
+  - 其它 variation 完成时，job 以 `completed` 收尾，并通过 `design.job_completed` 输出 completed/failed count。
+  - runtime 抛错或提前结束时，仅将未进入 terminal 状态的 variation 标记失败，避免覆盖已完成成果。
+- 新增 `designJobEvents.test.ts`：
+  - 验证 producing event bus 消失后，SSE 仍可通过 persisted events replay。
+  - 验证 1 个 completed + 1 个 failed variation 时 job 进入 completed，且 SSE 输出 failed count。
+- `application-service/TODO.md` 将队列入队、SSE persisted/event bus 聚合、部分失败状态标记完成。
+
+### 决策
+
+- `design.job_completed` 是当前 SSE 终止事件，即便 job 快照状态为 `failed`，也会输出 completed/failed count 让客户端收口连接。
+- MVP 暂不新增 `partial_completed` job status；部分失败由 job `completed` + `failedVariationCount > 0` 表达，避免扩大 domain enum 和前端状态面。
+- 事件账本不是计费来源；计费仍以 immutable `usage_events` 为准。design events 用于 UI 进度恢复、worker 跨进程状态聚合和 runtime replay 排查。
+
 ## 2026-07-01 APP-M22.7 Queue Reliability Policy and Redis Degradation Coverage
 
 ### 已完成
@@ -1615,3 +1894,26 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 偏好表只保存 capability id，不保存完整 capability snapshot，避免官方 registry 更新后用户偏好持有陈旧对象。
 - 完整生成依据仍继续随 job 存储在 `template_requirements.capabilitySnapshot` 中，保证历史 job 可审计。
+
+## 2026-07-01 M33 Queue-backed Automation Repair
+
+### 已完成
+
+- 补齐 `processQueuedRefineJob()`，让 `refine_job` worker 能真实执行 variation refine。
+- Automation Loop automatic repair 改为 enqueue `refine_job`，不再由 application background task 直接调用 runtime。
+- Queue refine payload 增加 prompt、annotation、device、source、attempt 字段，供 worker 跨进程恢复执行上下文。
+- Worker 执行 automation repair 时发布 `design.loop_repair_started`，runtime 失败时发布 `design.loop_stopped`。
+- `flushBackgroundTasks()` 改为循环等待 queue/background task，覆盖 background task 入队后续 job 的场景。
+- 补充 queued automation repair runtime unavailable 专项测试：
+  - loop stopped event 与 queue failed state 同步。
+  - 失败时 current artifact 保持原始版本。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/designJobEvents.test.js apps/api/dist/designJobQueue.test.js apps/api/dist/designJobWorker.test.js apps/api/dist/mock-flow.test.js apps/api/dist/redisDesignJobQueue.test.js`
+
+### 后续建议
+
+- 评估手动 refine API 是否在长任务模式下也切到 queue-backed。
+- Redis worker staging smoke 覆盖 automatic repair。
