@@ -14,8 +14,11 @@ import {
   getRuntimeHealth,
   getUserModelAccess,
   getUserSupport,
+  rebuildArtifactScreenshot,
+  repairArtifactExport,
   retryJob,
   retryVariation,
+  revokeArtifactShares,
   syncAdminModels,
   updateAdminModel,
   updateUserModelAccess,
@@ -295,6 +298,35 @@ export default function AdminHomePage(): React.JSX.Element {
       const result = await retryVariation(role, jobId, variationId, `Retry variation ${variationId} from admin console`)
       setNotice(`Retried ${variationId}; new job ${result.retry.job.id}`)
       await refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function runArtifactAction(
+    artifact: AdminArtifact,
+    action: 'rebuild-screenshot' | 'repair-export' | 'revoke-shares',
+  ): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      if (action === 'rebuild-screenshot') {
+        const result = await rebuildArtifactScreenshot(role, artifact.id, `Rebuild screenshot for ${artifact.id}`)
+        setNotice(`Queued screenshot rebuild for ${artifact.id}; queue ${result.queueJob?.id ?? 'n/a'}`)
+      } else if (action === 'repair-export') {
+        const result = await repairArtifactExport(role, artifact.id, `Repair export for ${artifact.id}`)
+        setNotice(`Repaired export ${result.exportArtifact?.id ?? artifact.id}`)
+      } else {
+        const result = await revokeArtifactShares(role, artifact.id, `Revoke shares for ${artifact.id}`)
+        setNotice(`Revoked ${result.revokedCount ?? 0} shares for ${artifact.id}`)
+      }
+      await Promise.all([
+        refreshArtifacts(),
+        role === 'support' ? Promise.resolve() : getAuditLogs(role).then(data => setAuditLogs(data.auditLogs)),
+      ])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -657,6 +689,7 @@ export default function AdminHomePage(): React.JSX.Element {
                   <span>Version</span>
                   <span>Size</span>
                   <span>Links</span>
+                  <span>Actions</span>
                 </div>
                 {artifacts.map(artifact => (
                   <article className="artifact-row" key={artifact.id}>
@@ -682,6 +715,26 @@ export default function AdminHomePage(): React.JSX.Element {
                       ) : (
                         <span className="muted">No preview</span>
                       )}
+                    </div>
+                    <div className="row-actions artifact-actions">
+                      {artifact.kind === 'html' ? (
+                        <button className="secondary-button" type="button" onClick={() => void runArtifactAction(artifact, 'rebuild-screenshot')} disabled={loading || role === 'support'}>
+                          Rebuild shot
+                        </button>
+                      ) : null}
+                      {artifact.kind === 'html' || artifact.kind === 'export_zip' ? (
+                        <button className="secondary-button" type="button" onClick={() => void runArtifactAction(artifact, 'repair-export')} disabled={loading || role === 'support'}>
+                          Repair export
+                        </button>
+                      ) : null}
+                      {artifact.shareCount > 0 ? (
+                        <button className="secondary-button danger-button" type="button" onClick={() => void runArtifactAction(artifact, 'revoke-shares')} disabled={loading || role === 'support'}>
+                          Revoke shares
+                        </button>
+                      ) : null}
+                      {artifact.kind !== 'html' && artifact.kind !== 'export_zip' && artifact.shareCount === 0 ? (
+                        <span className="muted">No actions</span>
+                      ) : null}
                     </div>
                   </article>
                 ))}

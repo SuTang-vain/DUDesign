@@ -20,6 +20,16 @@ export type RuntimeHealthResponse = {
     requiredEvents: string[]
     eventMappings: Record<string, string>
   }
+  observability?: {
+    latencyMs: number
+    degraded: boolean
+    unavailable: boolean
+    contractMismatch: boolean
+    drift: boolean
+    degradedMode: string
+    rollbackAvailable: boolean
+    rollbackMode: string
+  }
 }
 
 export type AdminModel = {
@@ -63,6 +73,8 @@ export type SyncAdminModelsResponse = AdminModelsResponse & {
   }>
   runtime: {
     type: 'runtime_models'
+    discoveryStatus?: 'supported' | 'unsupported'
+    message?: string | null
     version: number | string | null
     providerCount: number
     modelCount: number
@@ -172,6 +184,41 @@ export type AdminArtifact = {
 
 export type AdminArtifactsResponse = {
   artifacts: AdminArtifact[]
+}
+
+export type AdminArtifactActionResponse = {
+  artifact?: {
+    id: string
+    version?: number
+    screenshotUrl?: string | null
+    shareCount?: number
+  }
+  sourceArtifact?: {
+    id: string
+    version: number
+  }
+  exportArtifact?: {
+    id: string
+    kind: 'export_zip'
+    filename: string
+    sizeBytes: number
+    contentHash: string
+    downloadUrl: string
+    files: string[]
+  }
+  queueJob?: {
+    id: string
+    idempotencyKey: string
+    kind: string
+    status: string
+  }
+  revokedShares?: Array<{
+    id: string
+    token: string
+    revokedAt: string
+  }>
+  revokedCount?: number
+  audit: AuditLog
 }
 
 export type CancelJobResponse = {
@@ -366,6 +413,18 @@ export async function getAdminArtifacts(role: AdminRole, filter: { jobId?: strin
   if (filter.variationId) params.set('variationId', filter.variationId)
   if (filter.kind) params.set('kind', filter.kind)
   return getJson(`/api/admin/artifacts${params.size ? `?${params.toString()}` : ''}`, role)
+}
+
+export async function rebuildArtifactScreenshot(role: AdminRole, artifactId: string, reason?: string): Promise<AdminArtifactActionResponse> {
+  return postJson(`/api/admin/artifacts/${encodeURIComponent(artifactId)}/rebuild-screenshot`, role, { reason })
+}
+
+export async function repairArtifactExport(role: AdminRole, artifactId: string, reason?: string): Promise<AdminArtifactActionResponse> {
+  return postJson(`/api/admin/artifacts/${encodeURIComponent(artifactId)}/repair-export`, role, { reason })
+}
+
+export async function revokeArtifactShares(role: AdminRole, artifactId: string, reason?: string): Promise<AdminArtifactActionResponse> {
+  return postJson(`/api/admin/artifacts/${encodeURIComponent(artifactId)}/revoke-shares`, role, { reason })
 }
 
 export async function getCostSummary(role: AdminRole): Promise<CostSummaryResponse> {

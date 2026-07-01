@@ -96,6 +96,9 @@ function ModelSyncSummary({ summary }: { summary: SyncAdminModelsResponse }): Re
   return (
     <div className="model-sync-panel" data-testid="model-sync-summary">
       <div className="model-sync-metrics">
+        {summary.runtime.discoveryStatus === 'unsupported' ? (
+          <span className="status-pill unavailable">discovery unsupported</span>
+        ) : null}
         <span>{summary.createdCount} created</span>
         <span>{summary.updatedCount} updated</span>
         <span>{summary.missingCount} missing</span>
@@ -117,7 +120,11 @@ function ModelSyncSummary({ summary }: { summary: SyncAdminModelsResponse }): Re
           ))}
         </div>
       ) : (
-        <p className="muted">No model definition changes detected in the last sync.</p>
+        <p className="muted">
+          {summary.runtime.discoveryStatus === 'unsupported'
+            ? summary.runtime.message ?? 'Runtime model discovery is unsupported; configured model services were preserved.'
+            : 'No model definition changes detected in the last sync.'}
+        </p>
       )}
     </div>
   )
