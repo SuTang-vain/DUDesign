@@ -3,6 +3,60 @@
 > 模块：Capability Distribution System
 > 维护方式：按日期追加。记录模板、插件、自动化 loop、能力编译策略和跨层治理决策。
 
+## 2026-07-03 CAP-M5 User-Facing Capability Library
+
+### 已完成
+
+- 用户前端接入 Design Template Pack 库：
+  - 官方模板。
+  - 我的模板。
+  - 最近使用。
+  - 收藏。
+- 模板卡片展示能力治理需要的核心摘要：
+  - color swatch。
+  - display/body 字体摘要。
+  - rationale / 适用场景。
+  - preview artifact 状态。
+- 用户私有模板入口接入 `DESIGN.md` import：
+  - 前端支持粘贴 `DESIGN.md` 内容。
+  - 调用 `POST /api/design-templates/import-design-md`。
+  - import 成功后刷新模板库并自动选中新模板。
+- Job 创建接入 Design Template Pack 选择：
+  - `capabilityRequirements.template.designTemplatePackIds`。
+  - `capabilityRequirements.template.autoDistributeTemplatePacks`。
+- 用户端插件入口接入 Capability Plugin / Design Skill / MCP Tool Binding registry：
+  - MVP 只展示官方 active plugin。
+  - skill 写入 `capabilityRequirements.plugins.skillIds`。
+  - MCP tool binding 写入 `capabilityRequirements.plugins.mcpToolBindingIds`，仍保持 `policy_only` 治理语义。
+  - 插件卡展示类型、scope、规则摘要和安全等级。
+- 用户偏好入口扩展：
+  - 默认 Design Template Pack。
+  - 默认 skill。
+  - 默认 loop。
+  - 色板、参考品牌、负面要求等高级约束。
+- 单变体页接入保存当前版本为模板：
+  - 调用 `POST /api/variations/:id/save-template`。
+  - 保持来源 artifact/version 由后端记录。
+
+### 验证
+
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/web run test:e2e`
+
+### 决策
+
+- 用户端负责选择和展示能力，不在浏览器侧拼接 BabeL-O 私有 prompt。
+- Capability 选择继续通过 Application Service 授权和快照化，再由 Runtime Gateway 编译为受控 prompt/tool policy。
+- `DESIGN.md` 是导入格式，DUDesign 内部仍以 `DesignTemplatePack` 作为稳定契约。
+
+### 后续关注
+
+- CAP-7 仍需补专门 E2E：
+  - 上传或粘贴 `DESIGN.md` -> 保存私有模板 -> 用该模板生成。
+  - 选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
+- Runtime Gateway golden 仍需覆盖 safe skill 选择后的 prompt block 和 tool policy。
+- 管理端 Capability Governance 仍未实现，后续需要展示模板、skill、MCP policy 和 usage events。
+
 ## 2026-06-29 TPL-M0 Template & Skill Module Planning
 
 ### 背景

@@ -125,17 +125,17 @@
 - [x] 设计方向选择器支持搜索、分类、右侧详情预览。
 - [x] 视觉卡片展示 mood、density、formality、best for、avoid for 的摘要。
 - [x] 预留 Design System picker 入口，MVP 可隐藏或放入高级。
-- [ ] 增加官方模板 / 我的模板 / 最近使用 / 收藏的选择入口。
-- [ ] 模板卡片展示 color swatch、字体摘要、适用场景、preview artifact。
-- [ ] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
-- [ ] 支持选择一个或多个 Design Template Pack，并写入 `capabilityRequirements.template.designTemplatePackIds`。
-- [ ] 支持“自动分配模板”，让 N 个 variation 自动使用不同官方/用户模板。
-- [ ] 工作台 composer 增加插件/skill 选择。
-- [ ] 插件/skill 选择 MVP 先只开放官方 safe skill，并写入 `capabilityRequirements.plugins.skillIds`。
-- [ ] 插件面板展示每个 skill 的适用场景、规则摘要、负向约束和安全等级。
-- [ ] 工作台 composer 增加 automation loop 强度选择。
-- [ ] 增加“保存为我的模板”入口。
-- [ ] 增加“我的偏好”入口。
+- [x] 增加官方模板 / 我的模板 / 最近使用 / 收藏的选择入口。
+- [x] 模板卡片展示 color swatch、字体摘要、适用场景、preview artifact。
+- [x] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
+- [x] 支持选择一个或多个 Design Template Pack，并写入 `capabilityRequirements.template.designTemplatePackIds`。
+- [x] 支持“自动分配模板”，让 N 个 variation 自动使用不同官方/用户模板。
+- [x] 工作台 composer 增加插件/skill 选择。
+- [x] 插件/skill 选择 MVP 先只开放官方 safe skill，并写入 `capabilityRequirements.plugins.skillIds`。
+- [x] 插件面板展示每个 skill 的适用场景、规则摘要、负向约束和安全等级。
+- [x] 工作台 composer 增加 automation loop 强度选择。
+- [x] 增加“保存为我的模板”入口。
+- [x] 增加“我的偏好”入口。
 - [ ] Activity Stream 展示 loop 阶段和修复动作。
 
 验收：

@@ -3,6 +3,50 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-03 UX-M24 Template Library And Capability Controls
+
+### 已完成
+
+- 首页 composer 从单一 `DesignDirectionPicker` 拆分为更清晰的能力入口：
+  - `DesignSystemPicker` 作为设计系统总入口。
+  - `TemplateLibraryPicker` 管官方模板、我的模板、最近使用和收藏。
+  - `PluginsPicker` 管官方 safe skill / MCP policy-only 插件展示与选择。
+  - `PreferencesPanel` 管用户默认模板、默认 skill、默认 loop 和高级约束。
+- 模板库入口接入 User API：
+  - `GET /api/design-templates` 读取官方和用户私有模板。
+  - `POST /api/design-templates/import-design-md` 支持粘贴 `DESIGN.md` 创建私有模板。
+  - `POST /api/variations/:id/save-template` 支持在单变体页将当前版本保存为“我的模板”。
+- 模板卡片展示：
+  - color swatch。
+  - 字体摘要。
+  - 适用场景 / rationale。
+  - preview artifact 是否存在。
+- 创建 job 时将模板选择写入 `capabilityRequirements.template.designTemplatePackIds`，并支持多模板自动分配到 variation。
+- Add context 菜单补齐 automation loop 和 plugins 入口，插件卡片展示类型、权限 scope、规则摘要和安全等级。
+- 设置菜单接入“我的偏好”弹层，支持保存默认模板、默认 skill、默认 loop、色板和高级约束。
+- 单变体页新增 `Save as my template` 入口。
+- 更新浏览器 E2E 以适配新组件结构：
+  - 模板库入口可见。
+  - capability distribution 选择后可创建 job。
+  - annotation / version / language smoke 适配新侧栏结构。
+
+### 验证
+
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/web run test:e2e`
+
+### 决策
+
+- 官方模板和用户私有模板统一通过 `DesignTemplatePack` 展示，前端不区分后端存储实现。
+- 最近使用和收藏在用户端先作为交互偏好保存，后续可升级为后端持久化偏好。
+- `DESIGN.md` 导入先支持粘贴文本，文件上传可在后续模板库增强阶段补齐。
+
+### 后续关注
+
+- 补专门 E2E：粘贴 `DESIGN.md` -> 创建私有模板 -> 使用该模板生成。
+- 补专门 E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
+- 将最近使用、收藏、锁定版本等 localStorage 状态逐步迁移到 User API，便于跨设备恢复。
+
 ## 2026-06-26
 
 ### 已完成

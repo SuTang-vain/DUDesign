@@ -52,14 +52,14 @@
 - [x] 高级入口预留 Design System / 参考品牌升级路径。
 - [x] 在结果墙和单变体详情页展示本次生成使用的 Capability Snapshot。
 - [x] 支持用户默认 Capability 偏好恢复：优先本地体验兜底，并通过用户偏好 API 保存。
-- [ ] 增加模板库入口：官方模板 / 我的模板 / 最近使用 / 收藏。
-- [ ] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
-- [ ] 支持从 variation 编辑页保存当前版本为“我的模板”。
-- [ ] 模板卡片展示 color swatch、字体摘要、适用场景和 preview artifact。
-- [ ] 支持选择一个或多个 Design Template Pack，并支持“自动分配模板”生成多个 variation。
-- [ ] 增加官方 safe skill 多选入口，写入 `capabilityRequirements.plugins.skillIds`。
-- [ ] 插件/skill 卡片展示适用场景、规则摘要、负向约束和安全等级。
-- [ ] “我的偏好”支持保存默认模板、默认 skill、默认 loop 和高级约束。
+- [x] 增加模板库入口：官方模板 / 我的模板 / 最近使用 / 收藏。
+- [x] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
+- [x] 支持从 variation 编辑页保存当前版本为“我的模板”。
+- [x] 模板卡片展示 color swatch、字体摘要、适用场景和 preview artifact。
+- [x] 支持选择一个或多个 Design Template Pack，并支持“自动分配模板”生成多个 variation。
+- [x] 增加官方 safe skill 多选入口，写入 `capabilityRequirements.plugins.skillIds`。
+- [x] 插件/skill 卡片展示适用场景、规则摘要、负向约束和安全等级。
+- [x] “我的偏好”支持保存默认模板、默认 skill、默认 loop 和高级约束。
 - [x] 展示用户可用模型列表并支持选择生成模型。
 - [x] 胶囊下拉菜单支持向下展开、切换互斥、点击外部/Esc 自动收起。
 - [x] 调用 `POST /api/design-jobs` 创建生成任务。
