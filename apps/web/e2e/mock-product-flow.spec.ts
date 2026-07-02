@@ -24,6 +24,28 @@ test('UX-M1 mock product flow works through browser clicks', async ({ page }) =>
   await expect(sharePage.getByTestId('share-preview')).toBeVisible()
 })
 
+test('share page hydrates with stored Chinese language preference', async ({ page }) => {
+  const hydrationErrors: string[] = []
+  page.on('console', message => {
+    if (message.type() === 'error' && message.text().includes('Hydration failed')) {
+      hydrationErrors.push(message.text())
+    }
+  })
+
+  await createVariationThroughUi(page, 'A share hydration smoke page for DUDesign')
+  await page.evaluate(() => window.localStorage.setItem('dudesign.language', 'zh'))
+  await page.getByTestId('share-button').click()
+  const shareLink = page.getByTestId('share-link')
+  await expect(shareLink).toBeVisible()
+  const shareHref = await shareLink.getAttribute('href')
+
+  await page.goto(shareHref ?? '')
+  await expect(page).toHaveURL(/\/share\/share_/)
+  await expect(page.getByTestId('share-preview')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
+  expect(hydrationErrors).toEqual([])
+})
+
 test('workbench can start from uploaded HTML', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
@@ -52,8 +74,7 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
   await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Connectors' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Plugins' })).toBeVisible()
-  await expect(page.locator('.context-child-panel')).toBeHidden()
-  await page.getByRole('button', { name: 'Files or photos' }).click()
+  await expect(page.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'files')
   await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeVisible()
   await expect(page.locator('.context-child-panel').getByRole('button', { name: 'Existing HTML' })).toBeVisible()
   await expect(page.locator('.context-child-panel').getByText('Upload HTML')).toBeVisible()
@@ -68,6 +89,52 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
 
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('design-direction-picker')).toBeHidden()
+})
+
+test('context child preview remains stable while hovering skills', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add context' }).click()
+  const addContextMenu = page.locator('.paired-popover-wrap').first()
+  await expect(addContextMenu).toBeVisible()
+
+  const skills = page.getByRole('button', { name: /Skills/ })
+  await skills.hover()
+  await expect(page.getByTestId('loop-profile-options')).toBeVisible()
+  await expect(addContextMenu.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'skills')
+
+  const firstBox = await addContextMenu.boundingBox()
+  await page.waitForTimeout(120)
+  await expect(page.getByTestId('loop-profile-options')).toBeVisible()
+  const secondBox = await addContextMenu.boundingBox()
+  expect(Math.round(secondBox?.width ?? 0)).toBe(Math.round(firstBox?.width ?? 0))
+  expect(Math.round(secondBox?.height ?? 0)).toBe(Math.round(firstBox?.height ?? 0))
+
+  await page.getByRole('button', { name: /Plugins/ }).hover()
+  await expect(addContextMenu.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'plugins')
+  await page.getByRole('button', { name: /Skills/ }).hover()
+  await expect(page.getByTestId('loop-profile-options')).toBeVisible()
+})
+
+test('design direction and model menus render within the composer viewport', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByTestId('template-pill-trigger').click()
+  const directionPopover = page.getByTestId('template-direct-popover')
+  await expect(directionPopover).toBeVisible()
+  await expect(page.getByTestId('design-direction-picker')).toBeVisible()
+  await expect(directionPopover).toContainText(/Portfolio|Product|Dashboard|Landing/)
+  await expect(directionPopover).toContainText('Standard')
+  await expectPopoverInViewport(page, directionPopover)
+
+  await page.getByTestId('model-pill-trigger').click()
+  const modelPopover = page.locator('.paired-popover-model')
+  await expect(modelPopover).toBeVisible()
+  await expect(page.getByTestId('model-paired-popover')).toBeVisible()
+  await expect(modelPopover).toContainText('BabeL-O')
+  await expectPopoverInViewport(page, modelPopover)
 })
 
 test('workbench can choose capability distribution options', async ({ page }) => {
@@ -135,6 +202,17 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Minimal')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Minimal Mono')
 })
+
+async function expectPopoverInViewport(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator): Promise<void> {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  const viewport = page.viewportSize()
+  expect(viewport).not.toBeNull()
+  expect(Math.floor(box!.x)).toBeGreaterThanOrEqual(0)
+  expect(Math.ceil(box!.x + box!.width)).toBeLessThanOrEqual(viewport!.width)
+  expect(Math.floor(box!.y)).toBeGreaterThanOrEqual(0)
+  expect(Math.ceil(box!.y + box!.height)).toBeLessThanOrEqual(viewport!.height)
+}
 
 test('result wall explains partial and failed generation states', async ({ page }) => {
   await page.route('**/api/design-jobs/job_failed_case/stream', async route => {
@@ -331,10 +409,10 @@ test('settings menu switches global language between English and Chinese', async
   await expect(page.getByTestId('language-switcher')).toContainText('Language')
   await page.getByTestId('language-switcher').getByRole('button', { name: '中文' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
-  await expect(page.getByTestId('user-action-menu')).toContainText('模型偏好')
-  await expect(page.getByRole('heading', { name: '今天想设计什么？' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '新建 HTML' })).toBeVisible()
-  await expect(page.getByPlaceholder('描述页面、产品、受众与语气...')).toBeVisible()
+  await expect(page.getByTestId('user-action-menu')).toContainText('模型与生成偏好')
+  await expect(page.getByRole('heading', { name: '今天我们设计点什么?' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '全新 HTML' })).toBeVisible()
+  await expect(page.getByPlaceholder('描述你想要的页面:行业、用途、风格、关键模块…')).toBeVisible()
 
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
@@ -353,15 +431,24 @@ test('runtime activity hides raw delta and completed cards keep preview clean', 
 
   await expect(page).toHaveURL(/\/jobs\/job_/)
   const activity = page.getByTestId('runtime-activity')
-  await expect(activity).toContainText('Live status')
-  await expect(activity).toContainText(/Generating|Completed|Rendering preview/)
-  expect((await activity.locator('.runtime-status-card').allTextContents()).join('\n')).not.toContain('private raw delta marker')
-  expect((await activity.locator('.runtime-recent').allTextContents()).join('\n')).not.toContain('private raw delta marker')
+  await expect(activity).toContainText('Overall')
+  await expect(activity).toContainText('Variation status')
+  await expect(activity).toContainText(/Generating|Completed|Rendering preview|DONE|readying preview/)
+  const streamGridHeight = await page.locator('.stream-grid').evaluate(node => node.clientHeight)
+  expect(streamGridHeight).toBeLessThanOrEqual(680)
+  const codePaneMetrics = await page.locator('.stream-code pre').evaluate(node => ({
+    clientHeight: node.clientHeight,
+    scrollHeight: node.scrollHeight,
+  }))
+  expect(codePaneMetrics.clientHeight).toBeLessThanOrEqual(680)
+  expect(codePaneMetrics.scrollHeight).toBeGreaterThanOrEqual(codePaneMetrics.clientHeight)
+  expect((await activity.locator('.runtime-status-card, .rt-card').allTextContents()).join('\n')).not.toContain('private raw delta marker')
+  expect((await activity.locator('.runtime-recent, .activity').allTextContents()).join('\n')).not.toContain('private raw delta marker')
 
   await activity.getByText('Debug raw assistant stream').click()
   await expect(activity).toContainText('private raw delta marker')
 
-  await expect(page.getByText('3 of 3 variations completed')).toBeVisible()
+  await expect(page.getByText(/3\s*\/\s*3 variations completed/)).toBeVisible()
   await expect(page.locator('.variation-view-tabs')).toHaveCount(0)
   await expect(page.locator('.code-stream-trace')).toHaveCount(0)
 })

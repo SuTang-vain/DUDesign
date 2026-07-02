@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Icon } from '@/components/Icon'
+import { useCapabilityI18n } from '@/lib/capabilityI18n'
 import type {
   AestheticProfile,
   ColorPalette,
@@ -39,6 +41,7 @@ export function DesignDirectionPicker(props: {
 }): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<DirectionTab>('scene')
   const [query, setQuery] = useState('')
+  const c18n = useCapabilityI18n()
 
   const selectedScene = props.capabilities?.domainTemplates.find(item => item.id === props.value.domainTemplateId)
   const selectedVisual = props.capabilities?.aestheticProfiles.find(item => item.id === props.value.aestheticProfileId)
@@ -47,7 +50,8 @@ export function DesignDirectionPicker(props: {
   ) ?? []
   const selectedPalette = availablePalettes.find(item => item.id === props.value.colorPaletteId)
     ?? props.capabilities?.colorPalettes.find(item => item.id === props.value.colorPaletteId)
-  const detail = selectedDetail(activeTab, selectedScene, selectedVisual, selectedPalette)
+  const sep = c18n.language === 'zh' ? '、' : ', '
+  const detail = localizedDetail(activeTab, selectedScene, selectedVisual, selectedPalette, c18n, sep, props.labels)
 
   const sceneOptions = useMemo(() => {
     return filterByQuery(props.capabilities?.domainTemplates ?? [], query, item => [
@@ -105,7 +109,7 @@ export function DesignDirectionPicker(props: {
 
       {activeTab !== 'advanced' ? (
         <label className="direction-search">
-          <span>⌕</span>
+          <Icon name="search" size={15} />
           <input
             value={query}
             placeholder={props.labels.search}
@@ -126,8 +130,8 @@ export function DesignDirectionPicker(props: {
                   className={template.id === props.value.domainTemplateId ? 'active' : ''}
                   onClick={() => props.onChange({ domainTemplateId: template.id })}
                 >
-                  <strong>{template.name}</strong>
-                  <span>{template.category} · {template.description}</span>
+                  <strong>{c18n.domainName(template.id, template.name)}</strong>
+                  <span>{c18n.domainCategory(template.id, template.category)} · {c18n.domainDesc(template.id, template.description)}</span>
                 </button>
               ))}
             </div>
@@ -145,9 +149,9 @@ export function DesignDirectionPicker(props: {
                     props.onChange({ aestheticProfileId: profile.id, colorPaletteId: nextPaletteId })
                   }}
                 >
-                  <strong>{profile.name}</strong>
-                  <span>{profile.mood.join(', ')} · {profile.density} density · {profile.formality}</span>
-                  <small>{profile.bestFor.slice(0, 2).join(', ')}</small>
+                  <strong>{c18n.aestheticName(profile.id, profile.name)}</strong>
+                  <span>{c18n.phraseList(profile.mood).join(c18n.language === 'zh' ? '、' : ', ')} · {c18n.phrase(profile.density)} · {c18n.phrase(profile.formality)}</span>
+                  <small>{c18n.phraseList(profile.bestFor.slice(0, 2)).join(c18n.language === 'zh' ? '、' : ', ')}</small>
                 </button>
               ))}
             </div>
@@ -165,7 +169,7 @@ export function DesignDirectionPicker(props: {
                       className={palette.id === props.value.colorPaletteId ? 'active' : ''}
                       onClick={() => props.onChange({ colorPaletteId: palette.id })}
                     >
-                      <span>{palette.name}</span>
+                      <span>{c18n.paletteName(palette.id, palette.name)}</span>
                       <i aria-hidden>
                         {palette.colors.slice(0, 5).map(color => <b key={color} style={{ background: color }} />)}
                       </i>
@@ -195,7 +199,7 @@ export function DesignDirectionPicker(props: {
                         referenceBrand: reference.id === props.value.brandStyleReferenceId ? '' : reference.name,
                       })}
                     >
-                      <span>{reference.name}</span>
+                      <span>{c18n.brandName(reference.id, reference.name)}</span>
                     </button>
                   ))}
                 </div>
@@ -260,49 +264,51 @@ function filterByQuery<T>(items: T[], query: string, getText: (item: T) => strin
   return items.filter(item => getText(item).join(' ').toLowerCase().includes(needle))
 }
 
-function selectedDetail(
+type CapabilityI18n = ReturnType<typeof useCapabilityI18n>
+type DirectionDetail = { title: string; description: string; items: Array<{ label: string; value: string }> }
+
+function localizedDetail(
   tab: DirectionTab,
   scene: DomainTemplate | undefined,
   visual: AestheticProfile | undefined,
   palette: ColorPalette | undefined,
-): { title: string; description: string; items: Array<{ label: string; value: string }> } {
+  c18n: CapabilityI18n,
+  sep: string,
+  labels: { designDirection: string; choose: string },
+): DirectionDetail {
   if (tab === 'visual' && visual) {
     return {
-      title: visual.name,
-      description: visual.description,
+      title: c18n.aestheticName(visual.id, visual.name),
+      description: c18n.aestheticDesc(visual.id, visual.description),
       items: [
-        { label: 'Typography', value: visual.typographyTone },
-        { label: 'Layout', value: visual.layoutTone },
-        { label: 'Motion', value: visual.motionTone },
-        { label: 'Mood', value: visual.mood.join(', ') },
-        { label: 'Density', value: `${visual.density} / ${visual.formality}` },
-        { label: 'Best for', value: visual.bestFor.join(', ') },
-        { label: 'Avoid for', value: visual.avoidFor.join(', ') },
-        { label: 'Avoid', value: visual.negativeRules.join(' ') },
+        { label: c18n.phrase('Typography'), value: c18n.aestheticField(visual.id, 'typo', visual.typographyTone) },
+        { label: c18n.phrase('Layout'), value: c18n.aestheticField(visual.id, 'layout', visual.layoutTone) },
+        { label: c18n.phrase('Motion'), value: c18n.aestheticField(visual.id, 'motion', visual.motionTone) },
+        { label: c18n.phrase('Mood'), value: c18n.phraseList(visual.mood).join(sep) },
+        { label: c18n.phrase('Density'), value: `${c18n.phrase(visual.density)} / ${c18n.phrase(visual.formality)}` },
+        { label: c18n.phrase('Best for'), value: c18n.phraseList(visual.bestFor).join(sep) },
+        { label: c18n.phrase('Avoid for'), value: c18n.phraseList(visual.avoidFor).join(sep) },
+        { label: c18n.phrase('Avoid'), value: visual.negativeRules.join(sep) },
       ],
     }
   }
   if (tab === 'advanced' && palette) {
     return {
-      title: palette.name,
-      description: palette.accessibilityNotes.join(' '),
-      items: Object.entries(palette.usage).map(([label, value]) => ({ label, value })),
+      title: c18n.paletteName(palette.id, palette.name),
+      description: c18n.paletteNotes(palette.id, palette.accessibilityNotes).join(sep === '、' ? '' : ' '),
+      items: Object.entries(palette.usage).map(([key, value]) => ({ label: c18n.phrase(key), value })),
     }
   }
   if (scene) {
     return {
-      title: scene.name,
-      description: scene.description,
+      title: c18n.domainName(scene.id, scene.name),
+      description: c18n.domainDesc(scene.id, scene.description),
       items: [
-        { label: 'Sections', value: scene.structure.sections.join(', ') },
-        { label: 'Required', value: scene.structure.requiredElements.join(', ') },
-        { label: 'Constraints', value: scene.constraints.join(' ') },
+        { label: c18n.phrase('Sections'), value: c18n.phraseList(scene.structure.sections).join(sep) },
+        { label: c18n.phrase('Required'), value: c18n.phraseList(scene.structure.requiredElements).join(sep) },
+        { label: c18n.phrase('Constraints'), value: scene.constraints.join(sep) },
       ],
     }
   }
-  return {
-    title: 'Choose a direction',
-    description: 'Pick a scene, visual style, and optional advanced constraints.',
-    items: [],
-  }
+  return { title: labels.designDirection, description: labels.choose, items: [] }
 }

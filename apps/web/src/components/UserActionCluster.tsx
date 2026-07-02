@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useLanguage, type AppLanguage } from './LanguageProvider'
+import { Icon } from './Icon'
+import { ThemeToggle } from './ThemeToggle'
 
 export type UserActionIdentity = {
   name?: string | null
@@ -43,19 +45,20 @@ export function UserActionCluster(props: { user?: UserActionIdentity | null }): 
 
   return (
     <div className="user-action-cluster" data-user-actions="true" data-testid="user-action-cluster">
+      <ThemeToggle />
       <ActionButton
         label={t('settings')}
         active={openMenu === 'settings'}
         onClick={() => setOpenMenu(current => current === 'settings' ? null : 'settings')}
       >
-        ⚙
+        <Icon name="sliders" size={16} />
       </ActionButton>
       <ActionButton
         label={t('more')}
         active={openMenu === 'more'}
         onClick={() => setOpenMenu(current => current === 'more' ? null : 'more')}
       >
-        ⋯
+        <Icon name="moreHorizontal" size={18} />
       </ActionButton>
       <button
         type="button"

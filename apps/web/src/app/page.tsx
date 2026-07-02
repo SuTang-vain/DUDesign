@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   createDesignJob,
   createSession,
@@ -19,6 +20,9 @@ import {
 import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { DesignDirectionPicker } from '@/components/DesignDirectionPicker'
+import { Logo } from '@/components/Logo'
+import { Icon, type IconName } from '@/components/Icon'
+import { useCapabilityI18n } from '@/lib/capabilityI18n'
 
 const promptExamples = [
   'A landing page for an invoicing app for freelancers: send invoices, get paid faster, track expenses.',
@@ -26,7 +30,6 @@ const promptExamples = [
   'A calm productivity timer for deep work sessions.',
 ]
 
-const stylePresets = ['minimal, trustworthy', 'bold editorial, high contrast', 'calm SaaS, spacious', 'playful mobile, colorful']
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
 type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
@@ -46,6 +49,7 @@ const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
 export default function HomePage(): React.JSX.Element {
   const { t } = useLanguage()
+  const c18n = useCapabilityI18n()
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null)
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [prompt, setPrompt] = useState(promptExamples[0]!)
@@ -152,6 +156,10 @@ export default function HomePage(): React.JSX.Element {
       && prompt.trim().length > 0
       && (mode === 'new_html' || Boolean(sourceArtifact))
   }, [bootstrap, mode, prompt, sourceArtifact, sourceUploadStatus, status])
+
+  function selectContextPanel(panel: ContextPanel): void {
+    setContextPanel(current => current === panel ? current : panel)
+  }
 
   async function uploadSourceFile(file: File | null): Promise<void> {
     if (!file || !bootstrap) return
@@ -271,21 +279,33 @@ export default function HomePage(): React.JSX.Element {
     }
   }
 
+  const headingWord = t('design')
+  const headingLine = t('whatShallWeDesign')
+
   return (
-    <main className="workspace-shell">
-      <aside className="workspace-sidebar" aria-label={t('recent')}>
-        <div className="sidebar-brand">
+    <main className="home-shell">
+      <aside className="home-side" aria-label={t('recent')}>
+        <div className="side-brand">
+          <span className="brand-mark"><Logo size={32} /></span>
           <strong>DUDesign</strong>
-          <span className="product-stage-badge">Alpha</span>
+          <span className="stage-badge">Alpha</span>
         </div>
-        <div className="sidebar-tabs" role="tablist" aria-label="Workspace scope">
+
+        <div className="side-tabs" role="tablist" aria-label="Workspace scope">
           <button className="active">{t('mySessions')}</button>
           <button>{t('shared')}</button>
         </div>
-        <label className="sidebar-search">
-          <span>⌕</span>
-          <input aria-label={t('searchSessions')} placeholder={t('searchSessions')} />
+
+        <label className="side-search">
+          <Icon name="search" size={16} />
+          <input placeholder={t('searchSessions')} aria-label={t('searchSessions')} />
+          <span className="kbd">⌘K</span>
         </label>
+
+        <button className="side-new" type="button" onClick={() => setPrompt('')}>
+          <span className="plus"><Icon name="plus" size={12} /></span>{t('newSession')}
+        </button>
+
         <SessionGroup
           title={t('recent')}
           sessions={sessions.slice(0, 5)}
@@ -302,13 +322,14 @@ export default function HomePage(): React.JSX.Element {
         />
       </aside>
 
-      <section className="workspace-main">
-        <header className="workspace-topbar">
+      <section className="home-main">
+        <header className="home-topbar">
           <div>
-            <h1>{t('whatShallWeDesign')}</h1>
+            <span className="eyebrow">{t('workbench')}</span>
+            <h1>{renderHeading(headingLine, headingWord)}</h1>
           </div>
-          <div className="workspace-topbar-actions">
-            <div className="workspace-selector" data-menu-root="true">
+          <div className="top-actions">
+            <div className="ws-select" data-menu-root="true">
               <button
                 type="button"
                 className="workspace-selector-trigger"
@@ -316,8 +337,12 @@ export default function HomePage(): React.JSX.Element {
                 aria-expanded={openMenu === 'workspace'}
                 onClick={() => setOpenMenu(current => current === 'workspace' ? null : 'workspace')}
               >
-                <span>{workspace?.name ?? t('connectingWorkspace')}</span>
-                <small>{t('mvpHosted')}</small>
+                <span className="brand-mark"><Logo size={22} /></span>
+                <span>
+                  <span className="ws-name">{workspace?.name ?? t('connectingWorkspace')}</span>
+                  <span className="ws-sub"> · {t('mvpHosted')}</span>
+                </span>
+                <Icon name="chevronDown" size={14} className="chev" />
               </button>
               {openMenu === 'workspace' ? (
                 <div className="workspace-menu">
@@ -339,13 +364,16 @@ export default function HomePage(): React.JSX.Element {
                 </div>
               ) : null}
             </div>
+            <button className="icon-btn" aria-label={t('notifications')} title={t('notifications')}>
+              <Icon name="bell" size={17} />
+            </button>
             <UserActionCluster user={bootstrap?.user} />
           </div>
         </header>
 
-        <section className="workbench-composer" aria-label={t('generateDesignVariations')}>
-          <div className="composer-heading">
-            <div className="mode-tabs compact" role="tablist" aria-label={t('sourceMode')}>
+        <section className="composer" aria-label={t('generateDesignVariations')}>
+          <div className="composer-head">
+            <div className="mode-tabs" role="tablist" aria-label={t('sourceMode')}>
               <button className={mode === 'new_html' ? 'active' : ''} onClick={() => setMode('new_html')}>
                 {t('newHtml')}
               </button>
@@ -353,153 +381,146 @@ export default function HomePage(): React.JSX.Element {
                 {t('existingHtml')}
               </button>
             </div>
-            <button className="start-design-button" type="button" onClick={() => setPrompt('')}>
+            <button className="btn ghost sm" type="button" onClick={() => setPrompt('')}>
               {t('startWithYourDesign')}
             </button>
           </div>
-          <div className="prompt-box">
-            <textarea
-              data-testid="prompt-input"
-              aria-label={t('designPrompt')}
-              placeholder={t('describePromptPlaceholder')}
-              value={prompt}
-              onChange={event => setPrompt(event.target.value)}
-              rows={8}
-            />
-            <div className="composer-toolbar">
-              <div className="toolbar-menu" data-menu-root="true">
+
+          <div className="composer-card">
+            <div className="prompt-area">
+              <textarea
+                data-testid="prompt-input"
+                aria-label={t('designPrompt')}
+                placeholder={t('describePromptPlaceholder')}
+                value={prompt}
+                onChange={event => setPrompt(event.target.value)}
+                rows={8}
+              />
+            </div>
+            <div className="composer-tools">
+              <div className="menu-root" data-menu-root="true">
                 <button
-                  className="toolbar-icon"
+                  className="tool icon"
                   type="button"
                   aria-label={t('addContext')}
                   aria-expanded={openMenu === 'context'}
                   onClick={() => {
-                    setContextPanel(null)
-                    setOpenMenu(current => current === 'context' ? null : 'context')
+                    const nextOpen = openMenu !== 'context'
+                    setContextPanel(nextOpen ? 'files' : null)
+                    setOpenMenu(nextOpen ? 'context' : null)
                   }}
                 >
-                  +
+                  <Icon name="plus" size={16} />
                 </button>
                 {openMenu === 'context' ? (
-                  <div className="context-popover-wrap">
-                    <div className="context-parent-popover">
-                      <div className="context-parent-list" role="menu" aria-label={t('addContext')}>
-                        <button
-                          className={contextPanel === 'files' ? 'active' : ''}
-                          type="button"
-                          onMouseEnter={() => setContextPanel('files')}
-                          onFocus={() => setContextPanel('files')}
-                          onClick={() => setContextPanel('files')}
-                        >
-                          <span className="context-menu-icon" aria-hidden>↥</span>
-                          <strong>{t('addFilesOrPhotos')}</strong>
-                          <i aria-hidden>›</i>
-                        </button>
-                        <button
-                          className={contextPanel === 'skills' ? 'active' : ''}
-                          type="button"
-                          onMouseEnter={() => setContextPanel('skills')}
-                          onFocus={() => setContextPanel('skills')}
-                          onClick={() => setContextPanel('skills')}
-                        >
-                          <span className="context-menu-icon" aria-hidden>✦</span>
-                          <strong>{t('skills')}</strong>
-                          <i aria-hidden>›</i>
-                        </button>
-                        <button
-                          className={contextPanel === 'connectors' ? 'active' : ''}
-                          type="button"
-                          onMouseEnter={() => setContextPanel('connectors')}
-                          onFocus={() => setContextPanel('connectors')}
-                          onClick={() => setContextPanel('connectors')}
-                        >
-                          <span className="context-menu-icon" aria-hidden>ↄ</span>
-                          <strong>{t('addConnector')}</strong>
-                          <i aria-hidden>›</i>
-                        </button>
-                        <button
-                          className={contextPanel === 'plugins' ? 'active' : ''}
-                          type="button"
-                          onMouseEnter={() => setContextPanel('plugins')}
-                          onFocus={() => setContextPanel('plugins')}
-                          onClick={() => setContextPanel('plugins')}
-                        >
-                          <span className="context-menu-icon" aria-hidden>✣</span>
-                          <strong>{t('addPlugins')}</strong>
-                          <i aria-hidden>›</i>
-                        </button>
-                      </div>
-                    </div>
-                    {contextPanel ? (
-                      <div
-                        className="context-child-popover"
-                        style={{
-                          '--context-panel-index': String(contextPanelIndex(contextPanel)),
-                          '--context-panel-items': String(contextPanelItemCount(contextPanel)),
-                        } as React.CSSProperties}
+                  <div className="paired-popover-wrap">
+                    <div className="context-parent-list" role="menu" aria-label={t('addContext')}>
+                      <button
+                        className={contextPanel === 'files' ? 'active' : ''}
+                        type="button"
+                        onPointerEnter={() => selectContextPanel('files')}
+                        onFocus={() => selectContextPanel('files')}
+                        onClick={() => selectContextPanel('files')}
                       >
-                        <div className="context-child-panel">
-                          {contextPanel === 'files' ? (
-                          <div className="context-option-list">
-                            <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
-                              setMode('new_html')
-                              setOpenMenu(null)
-                            }}>
-                              {t('newHtml')}
-                              <span>{t('generateFreshStandalonePage')}</span>
-                            </button>
-                            <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
-                              {t('existingHtml')}
-                              <span>{t('continueFromUploadedPage')}</span>
-                            </button>
-                            <label className="context-upload-action">
-                              <strong>{sourceUploadStatus === 'uploading' ? t('uploading') : sourceArtifact ? sourceArtifact.entryPath : t('uploadHtml')}</strong>
-                              <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : t('useLocalHtmlFile')}</span>
-                              <input
-                                data-testid="source-html-input"
-                                type="file"
-                                accept=".html,.htm,text/html"
-                                onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
-                              />
-                            </label>
-                          </div>
-                          ) : null}
-                          {contextPanel === 'connectors' ? (
-                          <div className="context-option-list">
-                            <button type="button" disabled>{t('connectors')}</button>
-                            <button type="button" disabled>{t('mcp')}</button>
-                          </div>
-                          ) : null}
-                          {contextPanel === 'plugins' ? (
-                          <div className="context-option-list">
-                            <button type="button" disabled>{t('plugins')}</button>
-                          </div>
-                          ) : null}
-                          {contextPanel === 'skills' ? (
-                          <div className="context-option-list" data-testid="loop-profile-options">
-                            {(capabilities?.automationLoopProfiles ?? []).map(profile => (
-                              <button
-                                key={profile.id}
-                                className={profile.id === loopProfileId ? 'active' : ''}
-                                type="button"
-                                onClick={() => {
-                                  setLoopProfileId(profile.id)
-                                  saveCapabilityPreference({ loopProfileId: profile.id })
-                                  setOpenMenu(null)
-                                }}
-                              >
-                                {profile.name}
-                                <span>{profile.description}</span>
-                              </button>
-                            ))}
-                          </div>
-                          ) : null}
+                        <span className="context-menu-icon" aria-hidden><Icon name="upload" size={16} /></span>
+                        <strong>{t('addFilesOrPhotos')}</strong>
+                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                      </button>
+                      <button
+                        className={contextPanel === 'skills' ? 'active' : ''}
+                        type="button"
+                        onPointerEnter={() => selectContextPanel('skills')}
+                        onFocus={() => selectContextPanel('skills')}
+                        onClick={() => selectContextPanel('skills')}
+                      >
+                        <span className="context-menu-icon" aria-hidden><Icon name="sparkles" size={16} /></span>
+                        <strong>{t('skills')}</strong>
+                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                      </button>
+                      <button
+                        className={contextPanel === 'connectors' ? 'active' : ''}
+                        type="button"
+                        onPointerEnter={() => selectContextPanel('connectors')}
+                        onFocus={() => selectContextPanel('connectors')}
+                        onClick={() => selectContextPanel('connectors')}
+                      >
+                        <span className="context-menu-icon" aria-hidden><Icon name="plug" size={16} /></span>
+                        <strong>{t('addConnector')}</strong>
+                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                      </button>
+                      <button
+                        className={contextPanel === 'plugins' ? 'active' : ''}
+                        type="button"
+                        onPointerEnter={() => selectContextPanel('plugins')}
+                        onFocus={() => selectContextPanel('plugins')}
+                        onClick={() => selectContextPanel('plugins')}
+                      >
+                        <span className="context-menu-icon" aria-hidden><Icon name="puzzle" size={16} /></span>
+                        <strong>{t('addPlugins')}</strong>
+                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                      </button>
+                    </div>
+                    <div className="context-child-panel" data-active-panel={contextPanel ?? 'none'}>
+                        {contextPanel === 'files' ? (
+                        <div className="context-option-list">
+                          <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
+                            setMode('new_html')
+                            setOpenMenu(null)
+                          }}>
+                            {t('newHtml')}
+                            <span>{t('generateFreshStandalonePage')}</span>
+                          </button>
+                          <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
+                            {t('existingHtml')}
+                            <span>{t('continueFromUploadedPage')}</span>
+                          </button>
+                          <label className="context-upload-action">
+                            <strong>{sourceUploadStatus === 'uploading' ? t('uploading') : sourceArtifact ? sourceArtifact.entryPath : t('uploadHtml')}</strong>
+                            <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : t('useLocalHtmlFile')}</span>
+                            <input
+                              data-testid="source-html-input"
+                              type="file"
+                              accept=".html,.htm,text/html"
+                              onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
+                            />
+                          </label>
                         </div>
-                      </div>
-                    ) : null}
+                        ) : null}
+                        {contextPanel === 'connectors' ? (
+                        <div className="context-option-list">
+                          <button type="button" disabled>{t('connectors')}</button>
+                          <button type="button" disabled>{t('mcp')}</button>
+                        </div>
+                        ) : null}
+                        {contextPanel === 'plugins' ? (
+                        <div className="context-option-list">
+                          <button type="button" disabled>{t('plugins')}</button>
+                        </div>
+                        ) : null}
+                        {contextPanel === 'skills' ? (
+                        <div className="context-option-list" data-testid="loop-profile-options">
+                          {(capabilities?.automationLoopProfiles ?? []).map(profile => (
+                            <button
+                              key={profile.id}
+                              className={profile.id === loopProfileId ? 'active' : ''}
+                              type="button"
+                              onClick={() => {
+                                setLoopProfileId(profile.id)
+                                saveCapabilityPreference({ loopProfileId: profile.id })
+                                setOpenMenu(null)
+                              }}
+                            >
+                              {c18n.loopName(profile.id, profile.name)}
+                              <span>{profile.description}</span>
+                            </button>
+                          ))}
+                        </div>
+                        ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>
+
               <DirectPillMenu
                 id="variations"
                 label={t('variations')}
@@ -509,7 +530,7 @@ export default function HomePage(): React.JSX.Element {
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
               >
-                <div className="direct-option-list variation-count-list" data-testid="variation-count-input">
+                <div className="option-list grid-3" data-testid="variation-count-input">
                   {variationOptions.map(count => (
                     <button
                       key={count}
@@ -525,10 +546,11 @@ export default function HomePage(): React.JSX.Element {
                   ))}
                 </div>
               </DirectPillMenu>
+
               <DirectPillMenu
                 id="template"
                 label={t('designDirection')}
-                value={selectedDomain?.name ?? t('choose')}
+                value={selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('choose')}
                 itemCount={1}
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
@@ -544,7 +566,7 @@ export default function HomePage(): React.JSX.Element {
                     referenceBrand,
                     negativeRequirements,
                   }}
-                  selectedLoopName={selectedLoop?.name}
+                  selectedLoopName={selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : undefined}
                   labels={{
                     designDirection: t('designDirection'),
                     scene: t('scene'),
@@ -589,17 +611,18 @@ export default function HomePage(): React.JSX.Element {
                   }}
                 />
               </DirectPillMenu>
+
               <PairedPillMenu<ModelPanel>
                 id="model"
                 label={t('model')}
                 value={selectedModel ? modelLabel(selectedModel) : t('noModel')}
-                panels={[{ id: 'models', icon: '◉', label: t('model'), itemCount: Math.max(bootstrap?.models.models.length ?? 1, 1) }]}
+                panels={[{ id: 'models', icon: 'circleDot', label: t('model'), itemCount: Math.max(bootstrap?.models.models.length ?? 1, 1) }]}
                 activePanel={modelPanel}
                 onActivePanelChange={setModelPanel}
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
               >
-                <div className="paired-option-list model-option-list">
+                <div className="option-list">
                   {(bootstrap?.models.models ?? []).map(model => (
                     <button
                       key={model.id}
@@ -616,52 +639,78 @@ export default function HomePage(): React.JSX.Element {
                   ))}
                 </div>
               </PairedPillMenu>
-              <button className="toolbar-icon send" type="button" data-testid="generate-button" disabled={!canSubmit} onClick={() => void submit()}>
-                {status === 'submitting' ? '...' : '↑'}
+
+              <button className="tool send" type="button" data-testid="generate-button" aria-label={t('generateDesignVariations')} disabled={!canSubmit} onClick={() => void submit()}>
+                {status === 'submitting' ? '...' : <Icon name="arrowUp" size={16} />}
               </button>
             </div>
           </div>
-          <div className="example-row workbench-examples">
+
+          <div className="examples">
             {promptExamples.map(example => (
               <button key={example} onClick={() => setPrompt(example)}>
                 {example}
               </button>
             ))}
           </div>
+
           {mode === 'from_existing_html' ? (
-            <div className={`source-artifact-status ${sourceArtifact?.qualityStatus ?? sourceUploadStatus}`} data-testid="source-artifact-status">
+            <div className={`source-upload-status ${sourceArtifact?.qualityStatus ?? sourceUploadStatus}`} data-testid="source-artifact-status">
               {sourceArtifact
-                ? `Using ${sourceArtifact.entryPath} · ${formatBytes(sourceArtifact.sizeBytes)}${sourceArtifact.qualityStatus ? ` · ${sourceArtifact.qualityStatus}` : ''}`
+                ? `${sourceArtifact.entryPath} · ${formatBytes(sourceArtifact.sizeBytes)}${sourceArtifact.qualityStatus ? ` · ${sourceArtifact.qualityStatus}` : ''}`
                 : t('uploadHtmlToContinue')}
             </div>
           ) : null}
+
           {capabilities ? (
-            <div className="capability-summary" data-testid="capability-summary">
-              <span>{selectedDomain?.name ?? t('domain')}</span>
-              <span>{selectedAesthetic?.name ?? t('aesthetic')}</span>
-              <span>{selectedPalette?.name ?? t('palette')}</span>
-              <span>{selectedLoop?.name ?? t('loop')}</span>
+            <div className="cap-strip" data-testid="capability-summary">
+              <span className="chip"><span className="k">{t('scene')}</span>{selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('domain')}</span>
+              <span className="chip"><span className="k">{t('visual')}</span>{selectedAesthetic ? c18n.aestheticName(selectedAesthetic.id, selectedAesthetic.name) : t('aesthetic')}</span>
+              <span className="chip"><span className="k">{t('palette')}</span>{selectedPalette ? c18n.paletteName(selectedPalette.id, selectedPalette.name) : t('palette')}</span>
+              <span className="chip"><span className="k">{t('loop')}</span>{selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : t('loop')}</span>
             </div>
           ) : null}
+
           {error ? <p className="error-text">{error}</p> : null}
         </section>
 
-        <section className="inspiration-strip" aria-label={t('designInspiration')}>
-          <div className="section-heading">
-            <strong>{t('needInspiration')}</strong>
+        <section className="inspire" aria-label={t('designInspiration')}>
+          <div className="inspire-head">
+            <div>
+              <strong>{t('needInspiration')}</strong>
+            </div>
             <span>{sessions.length} {t('saved')}</span>
           </div>
-          <div className="inspiration-grid">
+          <div className="inspire-grid">
             {promptExamples.map((example, index) => (
-              <button key={example} className="inspiration-card" type="button" onClick={() => setPrompt(example)}>
-                <span>0{index + 1}</span>
+              <button key={example} className="inspire-card" type="button" onClick={() => setPrompt(example)}>
+                <span className="num">0{index + 1}</span>
                 <strong>{example.split(':')[0]}</strong>
+                <span className="chip tag info">{String(index + 1).padStart(2, '0')}</span>
               </button>
             ))}
           </div>
         </section>
       </section>
     </main>
+  )
+}
+
+function renderHeading(line: string, accent: string): React.ReactNode {
+  // 子串匹配,兼容无空格的中文(如"今天我们设计点什么?"里的"设计")
+  const idx = line.toLowerCase().indexOf(accent.toLowerCase())
+  if (!accent || idx === -1) {
+    return line.split(' ').map((word, i) => <span key={i}>{word} </span>)
+  }
+  const before = line.slice(0, idx)
+  const match = line.slice(idx, idx + accent.length)
+  const after = line.slice(idx + accent.length)
+  return (
+    <>
+      {before ? <span>{before}</span> : null}
+      <span className="grad">{match}</span>
+      {after ? <span>{after}</span> : null}
+    </>
   )
 }
 
@@ -673,16 +722,17 @@ function SessionGroup(props: {
   onResume: (session: SessionSnapshot) => Promise<void>
 }): React.JSX.Element {
   return (
-    <section className="sidebar-session-group">
-      <h2>{props.title}</h2>
-      {props.sessions.length === 0 ? <p>{props.emptyText ?? 'Create your first design session.'}</p> : null}
+    <section className="side-section">
+      <h3>{props.title}</h3>
+      {props.sessions.length === 0 ? <p className="side-empty">{props.emptyText ?? 'Create your first design session.'}</p> : null}
       {props.sessions.map(session => (
-        <button key={session.id} className="sidebar-session-card" type="button" onClick={() => void props.onResume(session)}>
-          <span className="session-thumb" aria-hidden>{session.mode === 'new_html' ? 'N' : 'H'}</span>
-          <span>
+        <button key={session.id} className={`side-session${props.resumeId === session.id ? ' active' : ''}`} type="button" onClick={() => void props.onResume(session)}>
+          <span className="thumb" aria-hidden>{session.mode === 'new_html' ? 'N' : 'H'}</span>
+          <span className="meta">
             <strong>{session.title}</strong>
             <small>{formatRelativeTime(session.updatedAt)} · {props.resumeId === session.id ? 'resuming' : session.mode === 'new_html' ? 'new html' : 'existing html'}</small>
           </span>
+          <span className="menu" aria-hidden><Icon name="moreHorizontal" size={16} /></span>
         </button>
       ))}
     </section>
@@ -695,7 +745,7 @@ function PairedPillMenu<TPanel extends string>(props: {
   value: string
   panels: Array<{
     id: TPanel
-    icon: string
+    icon: IconName
     label: string
     itemCount: number
   }>
@@ -706,58 +756,51 @@ function PairedPillMenu<TPanel extends string>(props: {
   setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
 }): React.JSX.Element {
   const isOpen = props.openMenu === props.id
-  const activeIndex = props.activePanel ? Math.max(0, props.panels.findIndex(panel => panel.id === props.activePanel)) : 0
-  const activeItemCount = props.activePanel ? props.panels.find(panel => panel.id === props.activePanel)?.itemCount ?? 1 : 1
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   return (
-    <div className="pill-menu" data-menu-root="true">
+    <div className={`menu-root menu-root-${props.id}`} data-menu-root="true">
       <button
+        ref={triggerRef}
         type="button"
-        className="pill-menu-trigger"
+        className="tool"
+        data-testid={`${props.id}-pill-trigger`}
         aria-expanded={isOpen}
         onClick={() => {
-          props.onActivePanelChange(null)
-          props.setOpenMenu(current => current === props.id ? null : props.id)
+          const nextOpen = props.openMenu !== props.id
+          props.onActivePanelChange(nextOpen ? props.panels[0]?.id ?? null : null)
+          props.setOpenMenu(nextOpen ? props.id : null)
         }}
       >
-        <span>{props.label}</span>
-        <strong>{props.value}</strong>
+        <span className="k">{props.label}</span>
+        <span className="v">{props.value}</span>
       </button>
-      {isOpen ? (
-        <div
-          className="paired-popover-wrap"
-          data-testid={`${props.id}-paired-popover`}
-          style={{
-            '--paired-panel-index': String(activeIndex),
-            '--paired-panel-items': String(activeItemCount),
-            '--paired-panel-count': String(props.panels.length),
-          } as React.CSSProperties}
-        >
-          <div className="paired-parent-popover">
-            <div className="paired-parent-list" role="menu" aria-label={props.label} data-testid={`${props.id}-panel-options`}>
-              {props.panels.map(panel => (
-                <button
-                  key={panel.id}
-                  className={panel.id === props.activePanel ? 'active' : ''}
-                  type="button"
-                  onMouseEnter={() => props.onActivePanelChange(panel.id)}
-                  onFocus={() => props.onActivePanelChange(panel.id)}
-                  onClick={() => props.onActivePanelChange(panel.id)}
-                >
-                  <span aria-hidden>{panel.icon}</span>
-                  <strong>{panel.label}</strong>
-                </button>
-              ))}
-            </div>
+      <FloatingMenu
+        open={isOpen}
+        anchorRef={triggerRef}
+        align={props.id === 'model' ? 'end' : 'start'}
+        className={`paired-popover-wrap paired-popover-${props.id}`}
+      >
+          <div className="paired-parent-list" role="menu" aria-label={props.label} data-testid={`${props.id}-panel-options`}>
+            {props.panels.map(panel => (
+              <button
+                key={panel.id}
+                className={panel.id === props.activePanel ? 'active' : ''}
+                type="button"
+                onMouseEnter={() => props.onActivePanelChange(panel.id)}
+                onFocus={() => props.onActivePanelChange(panel.id)}
+                onClick={() => props.onActivePanelChange(panel.id)}
+              >
+                <span aria-hidden><Icon name={panel.icon} size={16} /></span>
+                <strong>{panel.label}</strong>
+              </button>
+            ))}
           </div>
           {props.activePanel ? (
-            <div className="paired-child-popover">
-              <div className="paired-child-panel">
-                {props.children}
-              </div>
+            <div className="context-child-panel" data-testid={`${props.id}-paired-popover`}>
+              {props.children}
             </div>
           ) : null}
-        </div>
-      ) : null}
+      </FloatingMenu>
     </div>
   )
 }
@@ -773,31 +816,156 @@ function DirectPillMenu(props: {
   setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
 }): React.JSX.Element {
   const isOpen = props.openMenu === props.id
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
   return (
-    <div className="pill-menu" data-menu-root="true">
+    <div className={`menu-root menu-root-${props.id}`} data-menu-root="true">
       <button
+        ref={triggerRef}
         type="button"
-        className={`pill-menu-trigger${props.id === 'template' ? ' direction-pill-trigger' : ''}`}
+        className="tool"
         data-testid={`${props.id}-pill-trigger`}
         aria-expanded={isOpen}
         onClick={() => props.setOpenMenu(current => current === props.id ? null : props.id)}
       >
-        <span>{props.label}</span>
-        <strong>{props.value}</strong>
+        <span className="k">{props.label}</span>
+        <span className="v">{props.value}</span>
       </button>
-      {isOpen ? (
-        <div
-          className={`direct-popover${props.id === 'template' ? ' design-direction-popover' : ''}`}
-          data-testid={`${props.id}-direct-popover`}
-          style={{
-            '--direct-panel-items': String(props.itemCount),
-            '--direct-panel-columns': String(props.columnCount ?? 1),
-          } as React.CSSProperties}
-        >
+      <FloatingMenu
+        open={isOpen}
+        anchorRef={triggerRef}
+        align={props.id === 'template' ? 'center' : 'start'}
+        matchWidthSelector={props.id === 'template' ? '.composer-card' : undefined}
+        fillAbove={props.id === 'template'}
+        className={`popover popover-${props.id}`}
+        testId={`${props.id}-direct-popover`}
+      >
           {props.children}
-        </div>
-      ) : null}
+      </FloatingMenu>
     </div>
+  )
+}
+
+function FloatingMenu(props: {
+  open: boolean
+  anchorRef: React.RefObject<HTMLElement | null>
+  align: 'start' | 'center' | 'end'
+  className: string
+  testId?: string
+  children: React.ReactNode
+  /** 若提供,菜单宽度与左边缘对齐到 anchor 的该祖先元素(如 .composer-card) */
+  matchWidthSelector?: string
+  /** 是否限制高度并出现外层滚动条;为 false 时菜单按内容自然撑高(无外层滚动条) */
+  constrainHeight?: boolean
+  /** 底部锚定在 anchor 上方、顶部被视口限制;菜单内部自行滚动(用于方向菜单) */
+  fillAbove?: boolean
+}): React.JSX.Element | null {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [style, setStyle] = useState<React.CSSProperties | null>(null)
+  const constrainHeight = props.constrainHeight ?? true
+  const fillAbove = props.fillAbove ?? false
+
+  useLayoutEffect(() => {
+    if (!props.open) {
+      setStyle(null)
+      return
+    }
+
+    function updatePosition(): void {
+      const anchor = props.anchorRef.current
+      const menu = menuRef.current
+      if (!anchor || !menu) return
+
+      const rect = anchor.getBoundingClientRect()
+      const viewportPadding = 12
+      const availableAbove = Math.max(180, rect.top - viewportPadding - 8)
+      const matchEl = props.matchWidthSelector ? anchor.closest(props.matchWidthSelector) : null
+      const matchRect = matchEl?.getBoundingClientRect()
+
+      let left: number
+      let width: number | undefined
+      if (matchRect) {
+        left = matchRect.left
+        width = matchRect.width
+      } else {
+        const menuWidth = menu.offsetWidth || 320
+        left = rect.left
+        if (props.align === 'center') left = rect.left + rect.width / 2 - menuWidth / 2
+        if (props.align === 'end') left = rect.right - menuWidth
+      }
+      left = Math.min(Math.max(viewportPadding, left), window.innerWidth - (width ?? menu.offsetWidth ?? 320) - viewportPadding)
+
+      if (fillAbove) {
+        // 固定高度:上方够则向上开,不够则向下开(flip);菜单内部左右栏各自滚动
+        const fixedHeight = Math.min(440, window.innerHeight - 2 * viewportPadding)
+        const spaceAbove = rect.top - 8 - viewportPadding
+        const spaceBelow = window.innerHeight - rect.bottom - 8 - viewportPadding
+        const above = spaceAbove >= fixedHeight || spaceAbove >= spaceBelow
+        const height = above ? Math.min(fixedHeight, spaceAbove) : Math.min(fixedHeight, spaceBelow)
+        const top = above ? rect.top - 8 - height : rect.bottom + 8
+        setStyle({
+          position: 'fixed',
+          top,
+          left,
+          width,
+          height,
+          right: 'auto',
+          bottom: 'auto',
+          overflow: 'hidden',
+          transform: 'none',
+          visibility: 'visible',
+        })
+        return
+      }
+
+      const menuHeight = constrainHeight
+        ? Math.min(menu.offsetHeight || availableAbove, Math.min(420, availableAbove))
+        : menu.offsetHeight
+
+      setStyle({
+        position: 'fixed',
+        top: Math.max(viewportPadding, rect.top - menuHeight - 8),
+        left,
+        width,
+        right: 'auto',
+        bottom: 'auto',
+        maxHeight: constrainHeight ? Math.min(420, availableAbove) : undefined,
+        overflow: constrainHeight ? 'auto' : 'visible',
+        transform: 'none',
+        visibility: 'visible',
+      })
+    }
+
+    updatePosition()
+    const frame = window.requestAnimationFrame(updatePosition)
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [props.align, props.anchorRef, props.open, props.matchWidthSelector, constrainHeight, fillAbove])
+
+  if (!props.open || typeof document === 'undefined') return null
+  return createPortal(
+    <div
+      ref={menuRef}
+      className={props.className}
+      data-menu-root="true"
+      data-testid={props.testId}
+      style={style ?? {
+        position: 'fixed',
+        left: 0,
+        top: 0,
+        right: 'auto',
+        bottom: 'auto',
+        transform: 'none',
+        visibility: 'hidden',
+      }}
+    >
+      {props.children}
+    </div>,
+    document.body,
   )
 }
 
@@ -809,19 +977,6 @@ function modelDescription(model: ModelOption | undefined): string {
   if (!model) return 'No model is currently available.'
   const capabilityText = model.capabilities.join(', ')
   return `${model.provider} · ${model.modelId}${capabilityText ? ` · ${capabilityText}` : ''}`
-}
-
-function contextPanelIndex(panel: ContextPanel): number {
-  if (panel === 'files') return 0
-  if (panel === 'skills') return 1
-  if (panel === 'connectors') return 2
-  return 3
-}
-
-function contextPanelItemCount(panel: ContextPanel): number {
-  if (panel === 'files') return 3
-  if (panel === 'connectors') return 2
-  return 1
 }
 
 function formatRelativeTime(value: string): string {

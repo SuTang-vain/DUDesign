@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
+import { Icon, type IconName } from '@/components/Icon'
+import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, shareVariation } from '@/lib/api'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
@@ -32,6 +34,7 @@ const otherPreviewDevices: Array<{ id: PreviewDevice; label: string; size: strin
 ]
 
 export default function VariationPage(props: { params: Promise<{ variationId: string }> }): React.JSX.Element {
+  const { t } = useLanguage()
   const [variationId, setVariationId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VariationDetailResponse | null>(null)
   const [prompt, setPrompt] = useState('Make the hero bolder and switch the accent color to teal.')
@@ -212,7 +215,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       anchor.remove()
       URL.revokeObjectURL(url)
       setLastExport(exported.exportArtifact)
-      setNotice(`Downloaded ${exported.exportArtifact.filename}`)
+      setNotice(`${t('downloaded')} ${exported.exportArtifact.filename}`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -229,7 +232,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       const shared = await shareVariation(variationId, { visibility: 'public' })
       const absoluteUrl = new URL(shared.share.url, window.location.origin).toString()
       setShareUrl(absoluteUrl)
-      setNotice('Share link created.')
+      setNotice(t('shareLinkCreated'))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -247,7 +250,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       setSelectedArtifactId(restored.artifact.id)
       setViewMode('preview')
       setPreviewVersion(version => version + 1)
-      setNotice(`Restored v${restored.artifact.version} as the current artifact.`)
+      setNotice(`${t('restoredBefore')}${restored.artifact.version}${t('restoredAfter')}`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -266,7 +269,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     }
     writeLockedVariationVersion(locked)
     setLockedVersion(locked)
-    setNotice(`Locked v${locked.version} as the selected direction for this variation.`)
+    setNotice(`${t('lockedBefore')}${locked.version}${t('lockedAfter')}`)
   }
 
   function normalizedPoint(event: React.PointerEvent<HTMLDivElement>): { x: number; y: number } {
@@ -338,7 +341,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     if (currentShape.type === 'pen') {
       const points = [...currentShape.points, point]
       if (points.length >= 2) {
-        appendAnnotation({ type: 'pen', points, color: '#4f46e5', note: 'Freehand marked area to refine' })
+        appendAnnotation({ type: 'pen', points, color: '#6487FA', note: 'Freehand marked area to refine' })
       }
     } else {
       const x = Math.min(currentShape.startX, point.x)
@@ -347,14 +350,14 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       const h = Math.abs(point.y - currentShape.startY)
       if (w > 0.01 && h > 0.01) {
         if (currentShape.type === 'rect') {
-          appendAnnotation({ type: 'rect', x, y, w, h, color: '#4f46e5', note: 'Marked area to refine' })
+          appendAnnotation({ type: 'rect', x, y, w, h, color: '#6487FA', note: 'Marked area to refine' })
         } else if (currentShape.type === 'circle') {
           appendAnnotation({
             type: 'circle',
             cx: x + w / 2,
             cy: y + h / 2,
             r: Math.max(w, h) / 2,
-            color: '#4f46e5',
+            color: '#6487FA',
             note: 'Circular marked area to refine',
           })
         } else {
@@ -362,7 +365,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             type: 'arrow',
             from: { x: currentShape.startX, y: currentShape.startY },
             to: point,
-            color: '#4f46e5',
+            color: '#6487FA',
             note: 'Arrow points to the area to refine',
           })
         }
@@ -401,38 +404,42 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     setSelectedAnnotationIndex(index)
   }
 
+  const headingTitle = detail?.variation.title ?? 'Variation'
+
   return (
-    <main className="variation-editor-shell">
-      <header className="variation-editor-header">
-        <a href={detail ? `/jobs/${detail.job.id}` : '/'} className="back-link">← All variations</a>
+    <main className="ed-shell">
+      <header className="ed-topbar">
+        <a href={detail ? `/jobs/${detail.job.id}` : '/'} className="back-link back"><Icon name="arrowLeft" size={15} /> {t('allVariations')}</a>
         <div>
-          <span className="eyebrow">Refine this design</span>
-          <h1>{detail?.variation.title ?? 'Variation'}</h1>
-          <p>{detail?.job.prompt ?? 'Loading variation context...'}</p>
+          <span className="eyebrow">{t('refineThisDesign')} · {detail?.currentArtifact ? `v${detail.currentArtifact.version}` : '—'}</span>
+          <h1>{headingTitle}</h1>
+          <p>{detail?.job.prompt ?? t('loadingVariation')}</p>
         </div>
-        <div className="editor-command-bar" aria-label="Variation actions">
-          <UserActionCluster />
+        <div className="ed-cmd" aria-label="Variation actions">
           <button
+            className="btn"
             data-testid="download-html-button"
             onClick={() => void downloadZip()}
             disabled={!detail?.variation.currentArtifactId || exportStatus === 'exporting'}
           >
-            {exportStatus === 'exporting' ? 'Exporting' : 'ZIP'}
+            <Icon name="external" size={14} /> {exportStatus === 'exporting' ? t('exporting') : t('exportHtml')}
           </button>
           <button
+            className="btn"
             data-testid="share-button"
             onClick={() => void createShareLink()}
             disabled={!detail?.variation.currentArtifactId || shareStatus === 'creating'}
           >
-            {shareStatus === 'creating' ? 'Sharing' : 'Share'}
+            <Icon name="link" size={14} /> {shareStatus === 'creating' ? t('sharing') : t('shareLink')}
           </button>
+          <UserActionCluster />
           <button
-            className="lock-variation-button"
+            className="lock"
             data-testid="lock-version-button"
             onClick={lockCurrentVersion}
             disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
           >
-            {lockedVersion?.artifactId === detail?.currentArtifact?.id ? 'Locked' : 'Lock this version'}
+            <Icon name="lock" size={14} /> {lockedVersion && lockedVersion.artifactId === detail?.currentArtifact?.id ? `${t('locked')} v${lockedVersion.version}` : t('lockThisVersion')}
           </button>
         </div>
       </header>
@@ -442,40 +449,34 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         <p data-testid="variation-notice" className="notice-text">
           {notice}
           {lastExport ? <> <span>{formatExportSummary(lastExport)}</span></> : null}
-          {shareUrl ? <> <a data-testid="share-link" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
+          {shareUrl ? <> · <a data-testid="share-link" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
         </p>
       ) : null}
 
-      <section className="variation-editor-grid">
-        <div className={`device-preview ${device}`}>
-          <div className="editor-preview-toolbar">
-            <div className="editor-view-tabs" role="tablist" aria-label="Editor view">
+      <section className="ed-grid">
+        <section className={`device ${device}`}>
+          <div className="device-toolbar">
+            <div className="view-tabs" role="tablist" aria-label="Editor view">
               <button className={viewMode === 'preview' ? 'active' : ''} onClick={() => setViewMode('preview')}>
-                Preview
+                {t('preview')}
               </button>
               <button className={viewMode === 'code' ? 'active' : ''} onClick={() => setViewMode('code')} disabled={files.length === 0}>
-                Code
+                {t('code')}
               </button>
             </div>
             {viewMode === 'preview' ? (
               <div className="device-toggle editor-device-toggle" data-testid="preview-device-toggle" aria-label="Preview device">
                 <button
                   className={device === 'desktop' ? 'active' : ''}
-                  onClick={() => {
-                    setDevice('desktop')
-                    setOtherDeviceMenuOpen(false)
-                  }}
+                  onClick={() => { setDevice('desktop'); setOtherDeviceMenuOpen(false) }}
                 >
-                  desktop
+                  {t('desktop')}
                 </button>
                 <button
                   className={device === 'mobile' ? 'active' : ''}
-                  onClick={() => {
-                    setDevice('mobile')
-                    setOtherDeviceMenuOpen(false)
-                  }}
+                  onClick={() => { setDevice('mobile'); setOtherDeviceMenuOpen(false) }}
                 >
-                  mobile
+                  {t('mobile')}
                 </button>
                 <div className="preview-other-menu" ref={previewDeviceMenuRef}>
                   <button
@@ -484,7 +485,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                     aria-expanded={otherDeviceMenuOpen}
                     onClick={() => setOtherDeviceMenuOpen(open => !open)}
                   >
-                    other
+                    {t('otherDevices')} <Icon name="chevronDown" size={13} />
                   </button>
                   {otherDeviceMenuOpen ? (
                     <div className="preview-other-list" data-testid="preview-other-list">
@@ -493,10 +494,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                           key={item.id}
                           type="button"
                           className={device === item.id ? 'active' : ''}
-                          onClick={() => {
-                            setDevice(item.id)
-                            setOtherDeviceMenuOpen(false)
-                          }}
+                          onClick={() => { setDevice(item.id); setOtherDeviceMenuOpen(false) }}
                         >
                           <span>{item.label}</span>
                           <small>{item.size}</small>
@@ -508,6 +506,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
               </div>
             ) : null}
           </div>
+
           {viewMode === 'code' ? (
             <div className="editor-code-view">
               <CodeFileViewer
@@ -519,59 +518,50 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
               />
             </div>
           ) : previewUrl ? (
-            <div data-testid="variation-preview" className="annotated-preview-wrap">
-              <iframe
-                data-testid="variation-preview-frame"
-                title={detail?.variation.title ?? 'Variation preview'}
-                src={previewUrl}
-                sandbox=""
-              />
-              <div
-                ref={overlayRef}
-                data-testid="annotation-overlay"
-                className={`annotation-overlay ${annotationMode ? 'active' : ''}`}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerLeave}
-              >
-                {annotations.map((shape, index) => (
-                  <AnnotationView
-                    key={index}
-                    shape={shape}
-                    index={index}
-                    selected={selectedAnnotationIndex === index}
-                    onSelect={() => selectAnnotation(index)}
-                  />
-                ))}
-                {draftShape ? <DraftShapeView shape={draftShape} /> : null}
+            <div data-testid="variation-preview" className="canvas">
+              <div className="annotated-preview-wrap">
+                <iframe
+                  data-testid="variation-preview-frame"
+                  title={detail?.variation.title ?? 'Variation preview'}
+                  src={previewUrl}
+                  sandbox=""
+                />
+                <div
+                  ref={overlayRef}
+                  data-testid="annotation-overlay"
+                  className={`annotation-overlay ${annotationMode ? 'active' : ''}`}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerLeave={handlePointerLeave}
+                >
+                  {annotations.map((shape, index) => (
+                    <AnnotationView
+                      key={index}
+                      shape={shape}
+                      index={index}
+                      selected={selectedAnnotationIndex === index}
+                      onSelect={() => selectAnnotation(index)}
+                    />
+                  ))}
+                  {draftShape ? <DraftShapeView shape={draftShape} /> : null}
+                  {annotationMode ? (
+                    <div className="annotation-empty">{t('drawHint')} · {annotationTool}</div>
+                  ) : null}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="preview-placeholder">Waiting for preview</div>
+            <div className="preview-placeholder">{t('waitingPreview')}</div>
           )}
-        </div>
+        </section>
 
-        <aside className="refine-panel">
-          <div className="refine-fixed-area">
-            <label className="refine-field">
-              Refine prompt
-              <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={6} />
-            </label>
-            <button
-              className="generate-button"
-              disabled={status === 'refining' || !detail?.variation.currentArtifactId}
-              onClick={() => void submitRefine()}
-            >
-              {status === 'refining' ? 'Refining...' : 'Refine variation'}
-            </button>
-          </div>
-
-          <div className="side-panel-tabs" role="tablist" aria-label="Variation tools">
+        <aside className="refine">
+          <div className="refine-tabs" role="tablist" aria-label="Variation tools">
             {([
-              { id: 'annotate', label: 'Annotate' },
-              { id: 'direction', label: 'Direction' },
-              { id: 'inspect', label: 'Inspect' },
+              { id: 'annotate', label: t('tabAnnotate') },
+              { id: 'direction', label: t('tabDirection') },
+              { id: 'inspect', label: t('tabInspect') },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -587,72 +577,88 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             ))}
           </div>
 
-          <div className="side-panel-body">
+          <div className="refine-body">
+            <div className="field">
+              <label>{t('refinePrompt')}</label>
+              <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} />
+            </div>
+            <div className="refine-actions">
+              <button onClick={() => { setPrompt('') }} disabled={status === 'refining'}>{t('clear')}</button>
+              <button
+                className="primary"
+                data-testid="refine-button"
+                disabled={status === 'refining' || !detail?.variation.currentArtifactId}
+                onClick={() => void submitRefine()}
+              >
+                {status === 'refining' ? t('refining') : t('submitRefine')} <Icon name="arrowRight" size={14} />
+              </button>
+            </div>
+
+            <hr className="divider" />
+
             {sidePanelTab === 'annotate' ? (
-              <section className="annotation-panel">
-                <div className="annotation-panel-header">
-                  <strong>Annotations</strong>
-                  <label>
+              <section className="side-panel-section">
+                <div className="anno-tools" aria-label="Annotation tool">
+                  {(['rect', 'circle', 'arrow', 'pen', 'text'] as const).map(tool => (
+                    <button
+                      key={tool}
+                      title={tool}
+                      data-testid={`annotation-tool-${tool}`}
+                      aria-pressed={annotationTool === tool}
+                      className={annotationTool === tool ? 'active' : ''}
+                      onClick={() => { setAnnotationTool(tool); setAnnotationMode(true) }}
+                    >
+                      <Icon name={annotationIconName(tool)} size={16} />
+                    </button>
+                  ))}
+                </div>
+
+                <label className="annotation-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="eyebrow">{t('drawMode')}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12, cursor: 'pointer' }}>
                     <input
                       data-testid="annotation-draw-toggle"
                       type="checkbox"
                       checked={annotationMode}
                       onChange={event => setAnnotationMode(event.target.checked)}
                     />
-                    Draw
-                  </label>
-                </div>
-                <div className="device-toggle annotation-tools" aria-label="Annotation tool">
-                  {(['rect', 'circle', 'arrow', 'pen', 'text'] as const).map(tool => (
-                    <button
-                      key={tool}
-                      data-testid={`annotation-tool-${tool}`}
-                      aria-pressed={annotationTool === tool}
-                      className={annotationTool === tool ? 'active' : ''}
-                      onClick={() => setAnnotationTool(tool)}
-                    >
-                      {tool}
-                    </button>
-                  ))}
-                </div>
-                <p>{annotations.length} annotation{annotations.length === 1 ? '' : 's'} staged.</p>
+                    {annotationMode ? t('on') : t('off')}
+                  </span>
+                </label>
+
                 {annotations.length > 0 ? (
-                  <div className="annotation-list" data-testid="annotation-list">
+                  <div className="anno-list" data-testid="annotation-list">
                     {annotations.map((shape, index) => (
                       <div
                         key={index}
-                        className={`annotation-list-row ${selectedAnnotationIndex === index ? 'active' : ''}`}
+                        className={`anno-row ${selectedAnnotationIndex === index ? 'active' : ''}`}
                         data-testid="annotation-list-row"
+                        onClick={() => selectAnnotation(index)}
                       >
-                        <button type="button" onClick={() => selectAnnotation(index)}>
-                          <span>{String(index + 1).padStart(2, '0')} · {shape.type}</span>
-                          <small>{annotationSummary(shape)}</small>
-                        </button>
-                        {shape.type === 'text' ? (
-                          <button type="button" data-testid="edit-annotation-button" onClick={() => editTextAnnotation(index)}>
-                            Edit
-                          </button>
-                        ) : null}
-                        <button type="button" data-testid="delete-annotation-button" onClick={() => deleteAnnotation(index)}>
-                          Delete
-                        </button>
+                        <span className="n">{index + 1}</span>
+                        <span className="t">{shape.type} · {annotationSummary(shape)}</span>
+                        <span className="x" style={{ display: 'inline-flex', gap: 6 }}>
+                          {shape.type === 'text' ? (
+                            <button type="button" data-testid="edit-annotation-button" onClick={(e) => { e.stopPropagation(); editTextAnnotation(index) }} style={{ background: 'transparent', border: 0, color: 'var(--muted)', padding: 0, display: 'inline-flex' }}><Icon name="pen" size={13} /></button>
+                          ) : null}
+                          <button type="button" data-testid="delete-annotation-button" onClick={(e) => { e.stopPropagation(); deleteAnnotation(index) }} style={{ background: 'transparent', border: 0, color: 'var(--muted)', padding: 0, fontSize: 11 }}>✕</button>
+                        </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="annotation-empty">Draw on the preview to stage marks.</p>
+                  <div className="anno-empty-row">{t('drawStageHint')}</div>
                 )}
-                <div className="annotation-actions">
-                  <button onClick={() => {
-                    setAnnotations([])
-                    setSelectedAnnotationIndex(null)
-                  }} disabled={annotations.length === 0}>Clear</button>
+
+                <div className="anno-actions">
+                  <button onClick={() => { setAnnotations([]); setSelectedAnnotationIndex(null) }} disabled={annotations.length === 0}>{t('clear')}</button>
                   <button
+                    className="primary"
                     data-testid="apply-annotations-button"
                     onClick={() => void submitAnnotations()}
                     disabled={status === 'refining' || annotations.length === 0 || !detail?.variation.currentArtifactId}
                   >
-                    Apply marks
+                    {t('applyMarks')} <Icon name="arrowRight" size={14} />
                   </button>
                 </div>
               </section>
@@ -667,105 +673,79 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             {sidePanelTab === 'inspect' ? (
               <section className="side-panel-section">
                 <section className="runtime-summary-panel" data-testid="runtime-summary-panel">
-                  <strong>Cost & runtime</strong>
-                  <dl>
-                    <div>
-                      <dt>Total cost</dt>
-                      <dd>{runtimeSummary.cost}</dd>
-                    </div>
-                    <div>
-                      <dt>Tokens</dt>
-                      <dd>{runtimeSummary.tokens}</dd>
-                    </div>
-                    <div>
-                      <dt>Status</dt>
-                      <dd>{runtimeSummary.status}</dd>
-                    </div>
-                    <div>
-                      <dt>Artifacts</dt>
-                      <dd>{runtimeSummary.artifacts}</dd>
-                    </div>
-                  </dl>
-                  <p>{runtimeSummary.detail}</p>
+                  <span>{t('costRuntime')}</span>
+                  <div className="row"><small>{t('totalCost')}</small><span>{runtimeSummary.cost}</span></div>
+                  <div className="row"><small>{t('tokensLabel')}</small><span>{runtimeSummary.tokens}</span></div>
+                  <div className="row"><small>{t('status')}</small><span>{runtimeSummary.status}</span></div>
+                  <div className="row"><small>{t('artifactsLabel')}</small><span>{runtimeSummary.artifacts}</span></div>
+                  <small style={{ marginTop: 4 }}>{runtimeSummary.detail}</small>
                 </section>
 
-                <section className="artifact-panel">
-                  <strong>Current artifact</strong>
-                  <p data-testid="current-artifact-version">
-                    {detail?.currentArtifact ? `v${detail.currentArtifact.version} · ${detail.currentArtifact.id}` : 'No artifact yet'}
-                  </p>
-                  {lockedVersion ? (
-                    <div
-                      className={`locked-version-summary ${lockedVersion.artifactId === detail?.currentArtifact?.id ? 'current' : 'historical'}`}
-                      data-testid="locked-version-summary"
-                    >
-                      <strong>{lockedVersion.artifactId === detail?.currentArtifact?.id ? 'Current version locked' : 'Locked version differs'}</strong>
-                      <span>
-                        v{lockedVersion.version} · {lockedVersion.entryPath ?? lockedVersion.artifactId} · {new Date(lockedVersion.lockedAt).toLocaleString()}
-                      </span>
-                    </div>
-                  ) : null}
-                  {selectedArtifactQuality && selectedArtifactQuality.status !== 'pass' ? (
-                    <div className={`quality-banner artifact-quality-summary ${selectedArtifactQuality.status}`} data-testid="artifact-quality-summary">
-                      <strong>{selectedArtifactQuality.status === 'fail' ? 'Quality failed' : 'Quality warning'}</strong>
-                      <span>{selectedArtifactQuality.issues[0] ?? 'Generated artifact needs attention.'}</span>
-                    </div>
-                  ) : null}
-                  {lastExport ? (
-                    <div className="export-summary" data-testid="export-summary">
-                      <strong>Latest ZIP</strong>
-                      <p>{lastExport.filename}</p>
-                      <dl>
-                        <div>
-                          <dt>Files</dt>
-                          <dd>{lastExport.files.length}</dd>
-                        </div>
-                        <div>
-                          <dt>Size</dt>
-                          <dd>{formatBytes(lastExport.sizeBytes)}</dd>
-                        </div>
-                        <div>
-                          <dt>Hash</dt>
-                          <dd title={lastExport.contentHash}>{shortHash(lastExport.contentHash)}</dd>
-                        </div>
-                      </dl>
-                      <span>{lastExport.reused ? 'Reused existing package' : 'Created from current version'}</span>
-                    </div>
-                  ) : null}
-                  <strong>Versions</strong>
-                  {detail?.artifacts.map(artifact => (
-                    <div key={artifact.id} className={`artifact-version-row ${artifact.id === selectedArtifactId ? 'active' : ''}`}>
-                      <button
-                        type="button"
-                        data-testid="artifact-version-button"
-                        disabled={artifact.kind !== 'html'}
-                        onClick={() => {
-                          if (artifact.kind !== 'html') return
-                          setSelectedArtifactId(artifact.id)
-                          setViewMode('code')
-                        }}
-                      >
-                        <span>{artifact.kind === 'html' ? `v${artifact.version}` : artifactKindLabel(artifact.kind)}</span>
-                        <span>
-                          {artifact.entryPath ?? artifact.id}
-                          {artifact.isCurrent ? ' · current' : ''}
-                          {artifact.exportedFromArtifactId ? ` · from ${shortArtifactId(artifact.exportedFromArtifactId)}` : ''}
-                        </span>
-                      </button>
-                      {artifact.kind === 'html' && !artifact.isCurrent ? (
+                {lockedVersion ? (
+                  <div className="lock-card" data-testid="locked-version-summary">
+                    <strong><Icon name="dot" size={12} style={{ verticalAlign: -1, marginRight: 4 }} /> {lockedVersion.artifactId === detail?.currentArtifact?.id ? t('currentLocked') : t('lockedDiffers')}</strong>
+                    <span>v{lockedVersion.version} · {lockedVersion.entryPath ?? lockedVersion.artifactId} · {new Date(lockedVersion.lockedAt).toLocaleString()}</span>
+                  </div>
+                ) : null}
+
+                {selectedArtifactQuality && selectedArtifactQuality.status !== 'pass' ? (
+                  <div className={`var-quality ${selectedArtifactQuality.status}`} data-testid="artifact-quality-summary" style={{ borderRadius: 'var(--radius)' }}>
+                    <strong>{selectedArtifactQuality.status === 'fail' ? t('qualityFailed') : t('qualityWarn')}</strong>
+                    <span>{selectedArtifactQuality.issues[0] ?? 'Generated artifact needs attention.'}</span>
+                  </div>
+                ) : null}
+
+                {lastExport ? (
+                  <div className="export-summary" data-testid="export-summary">
+                    <strong>{t('latestZip')}</strong>
+                    <span>{lastExport.filename}</span>
+                    <span>{lastExport.files.length} file(s) · {formatBytes(lastExport.sizeBytes)} · {shortHash(lastExport.contentHash)}</span>
+                    <span>{lastExport.reused ? 'Reused existing package' : 'Created from current version'}</span>
+                  </div>
+                ) : null}
+
+                <div>
+                  <div className="eyebrow" style={{ marginBottom: 8 }}>{t('versions')}</div>
+                  <div className="versions">
+                    {detail?.artifacts.map(artifact => (
+                      <div key={artifact.id} className={`ver-row ${artifact.id === selectedArtifactId ? 'active' : ''}`}>
+                        <span className="v">{artifact.kind === 'html' ? `v${artifact.version}` : artifactKindLabel(artifact.kind).slice(0, 3)}</span>
                         <button
                           type="button"
-                          className="restore-version-button"
-                          data-testid="restore-version-button"
-                          disabled={Boolean(restoringArtifactId)}
-                          onClick={() => void restoreVersion(artifact.id)}
+                          className="info"
+                          data-testid="artifact-version-button"
+                          disabled={artifact.kind !== 'html'}
+                          style={{ background: 'transparent', border: 0, padding: 0, textAlign: 'left', minWidth: 0 }}
+                          onClick={() => {
+                            if (artifact.kind !== 'html') return
+                            setSelectedArtifactId(artifact.id)
+                            setViewMode('code')
+                          }}
                         >
-                          {restoringArtifactId === artifact.id ? 'Restoring' : 'Restore'}
+                          <span className="info" style={{ display: 'block', fontSize: 12.5, color: 'var(--text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {artifact.entryPath ?? artifact.id}
+                          </span>
+                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: 11 }}>
+                            {artifact.isCurrent ? `${t('currentVersion')} · ` : ''}{artifact.exportedFromArtifactId ? `from ${shortArtifactId(artifact.exportedFromArtifactId)}` : artifact.kind}
+                          </small>
                         </button>
-                      ) : null}
-                    </div>
-                  ))}
-                </section>
+                        {artifact.kind === 'html' && !artifact.isCurrent ? (
+                          <button
+                            type="button"
+                            className="rest"
+                            data-testid="restore-version-button"
+                            disabled={Boolean(restoringArtifactId)}
+                            onClick={() => void restoreVersion(artifact.id)}
+                          >
+                            {restoringArtifactId === artifact.id ? '…' : t('restore')}
+                          </button>
+                        ) : (
+                          <span className="rest" style={{ visibility: 'hidden' }}>—</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </section>
             ) : null}
           </div>
@@ -773,6 +753,14 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       </section>
     </main>
   )
+}
+
+function annotationIconName(tool: AnnotationTool): IconName {
+  if (tool === 'rect') return 'square'
+  if (tool === 'circle') return 'circle'
+  if (tool === 'arrow') return 'arrowUpRight'
+  if (tool === 'pen') return 'pen'
+  return 'type'
 }
 
 function AnnotationView(props: { shape: AnnotationShape; index: number; selected: boolean; onSelect: () => void }): React.JSX.Element | null {

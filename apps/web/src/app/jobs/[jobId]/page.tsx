@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignEvent } from '@dudesign/contracts'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
+import { Icon } from '@/components/Icon'
+import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, getDesignJob, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
 import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
 
@@ -47,6 +49,7 @@ type JobOutcome = {
 }
 
 export default function JobPage(props: { params: Promise<{ jobId: string }> }): React.JSX.Element {
+  const { t } = useLanguage()
   const [jobId, setJobId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null)
   const [streamLines, setStreamLines] = useState<StreamLine[]>([])
@@ -118,6 +121,9 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     : streamState === 'error'
       ? toUserFacingError({ scope: 'stream', message: 'The live event stream disconnected.' })
       : null
+  const activeCodeVariation = variations.find(variation => codeStreams[variation.id] && variation.status !== 'completed' && variation.status !== 'failed')
+    ?? variations.find(variation => codeStreams[variation.id])
+  const activeCodeSet = activeCodeVariation ? codeStreams[activeCodeVariation.id] : null
 
   function applyEvent(event: DesignEvent): void {
     const activity = activityFromEvent(event, snapshot?.variations ?? [])
@@ -189,43 +195,71 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     return snapshot.job.prompt.length > 96 ? `${snapshot.job.prompt.slice(0, 96)}...` : snapshot.job.prompt
   }, [snapshot])
 
+  const streaming = streamState === 'open' || streamState === 'connecting'
+
   return (
     <main className="job-shell">
-      <header className="job-header">
-        <a href="/" className="back-link">← New prompt</a>
-        <div>
-          <span className="eyebrow">Building from</span>
-          <h1>{pageTitle}</h1>
-          <p>
-            {completedCount} of {totalCount} variations completed
-            {failedCount > 0 ? ` · ${failedCount} failed` : ''}
-            {' '}· stream {streamState}
-          </p>
+      <header className="job-topbar">
+        <div className="left">
+          <a href="/" className="back-link"><Icon name="arrowLeft" size={15} /> {t('backToWorkspace')}</a>
+          <div>
+            <span className="eyebrow">{t('jobEyebrow')} · #{jobId ?? '…'}</span>
+            <h1>{pageTitle}</h1>
+            <p>
+              {completedCount} / {totalCount} {t('variationsCompleted')}
+              {failedCount > 0 ? ` · ${failedCount} ${t('failedLabel')}` : ''}
+              {' '}· {streamState}
+            </p>
+          </div>
         </div>
-        <UserActionCluster />
+        <div className="right">
+          {streaming ? (
+            <span className="chip info"><span className="dot live pulse"></span>{t('streaming')}</span>
+          ) : null}
+          <UserActionCluster />
+        </div>
       </header>
 
       {jobNotice ? <UserNotice notice={jobNotice} onRetry={() => window.location.reload()} /> : null}
       {jobOutcome ? <JobOutcomeBanner outcome={jobOutcome} /> : null}
 
-      <section data-testid="variation-grid" className="variation-grid">
+      <div className="job-progress">
+        <div className="meta">
+          <div className="label">
+            <span className={`dot ${streaming ? 'live pulse' : 'ok'}`}></span>
+            Runtime · BabeL-O
+          </div>
+          <div className="stats">
+            <div><b>{completedCount}</b><span>/{totalCount} {t('completed')}</span></div>
+            <div><b>{Math.max(totalCount - completedCount - failedCount, 0)}</b><span>{t('running')}</span></div>
+            <div><b>{failedCount}</b><span>{t('failedLabel')}</span></div>
+          </div>
+          <div className="bar" style={{ '--bar-fill': `${runtimeProgress}%` } as React.CSSProperties}><i></i></div>
+        </div>
+        <div className="rt">
+          <div className="pct">{runtimeProgress}<span>%</span></div>
+          <small>{latestJobActivity?.summary ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</small>
+        </div>
+      </div>
+
+      <section data-testid="variation-grid" className="var-grid">
         {variations.map(variation => {
           const codeFiles = codeStreams[variation.id]
           const showCode = Boolean(codeFiles) && !variation.previewUrl && !variation.screenshotUrl
           const quality = qualityByVariation[variation.id] ?? qualityForVariation(snapshot, variation)
           return (
-            <article key={variation.id} data-testid="variation-card" className={`variation-card ${variation.status === 'failed' ? 'failed' : ''}`}>
-              <div className="variation-card-header">
-                <span><i className={`status-dot ${variation.status}`} /> {variation.title ?? `Variation ${variation.index}`}</span>
-                <span>{variation.status}</span>
+            <article key={variation.id} data-testid="variation-card" className={`var-card ${variation.status === 'failed' ? 'failed' : ''}`}>
+              <div className="var-head">
+                <span className="label"><i className={`status-dot ${variation.status}`} /> {variation.title ?? `Variation ${variation.index}`}</span>
+                <span className="id">{variation.id.slice(0, 12)}</span>
               </div>
               {quality && quality.status !== 'pass' ? (
-                <div className={`quality-banner ${quality.status}`} data-testid="variation-quality-banner">
-                  <strong>{quality.status === 'fail' ? 'Quality failed' : 'Quality warning'}</strong>
+                <div className={`var-quality ${quality.status}`} data-testid="variation-quality-banner">
+                  <strong>{quality.status === 'fail' ? 'Quality failed' : 'Quality · warn'}</strong>
                   <span>{quality.issues[0] ?? 'Generated artifact needs attention.'}</span>
                 </div>
               ) : null}
-              <div className="preview-frame">
+              <div className="var-preview" data-testid="variation-card-preview-frame-container">
                 {showCode && codeFiles ? (
                   <CodeFileViewer
                     files={codeFilesForViewer(codeFiles)}
@@ -241,39 +275,33 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                     }))}
                   />
                 ) : variation.screenshotUrl ? (
-                  <img
-                    data-testid="variation-card-preview-frame"
-                    className="variation-screenshot"
-                    alt={variation.title ?? `Variation ${variation.index} screenshot`}
-                    src={apiUrl(variation.screenshotUrl)}
-                  />
+                  <div className="shot"><img alt={variation.title ?? `Variation ${variation.index}`} src={apiUrl(variation.screenshotUrl)} /></div>
                 ) : variation.previewUrl ? (
-                  <iframe
-                    data-testid="variation-card-preview-frame"
-                    title={variation.title ?? variation.id}
-                    src={apiUrl(variation.previewUrl)}
-                    sandbox=""
-                  />
+                  <iframe title={variation.title ?? variation.id} src={apiUrl(variation.previewUrl)} sandbox="" />
                 ) : (
-                  <div className="preview-placeholder">
+                  <div className="ph">
                     {variation.status === 'failed'
-                      ? userErrorForVariation(variation).message
-                      : 'Waiting for preview'}
+                      ? <span className="ph-msg">{userErrorForVariation(variation).message}</span>
+                      : <div className="ring" />}
                   </div>
                 )}
+                <span className={`badge chip ${variation.status === 'completed' ? 'ok' : variation.status === 'failed' ? 'err' : 'info'}`}>
+                  <span className={`dot ${variation.status === 'completed' ? 'ok' : variation.status === 'failed' ? 'err' : 'live pulse'}`}></span>
+                  {variation.status}
+                </span>
               </div>
               {variation.status === 'failed' ? (
                 <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = '/'} />
               ) : null}
-              <div className="variation-meta">
+              <div className="var-foot">
                 <span>{variation.outputTokens.toLocaleString()} tok</span>
-                <span>${(variation.costCents / 100).toFixed(2)}</span>
+                <span className="mono">${(variation.costCents / 100).toFixed(2)}</span>
               </div>
-              <div className="variation-actions">
+              <div className="var-actions">
                 {variation.status === 'failed' && !variation.currentArtifactId ? (
-                  <button type="button" disabled>Unavailable</button>
+                  <button type="button" disabled>{t('unavailable')}</button>
                 ) : (
-                  <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>Open</a>
+                  <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>{t('openInEditor')} <Icon name="arrowRight" size={14} style={{ marginLeft: 4 }} /></a>
                 )}
               </div>
             </article>
@@ -281,54 +309,90 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
         })}
       </section>
 
-      <aside className="stream-panel" data-testid="runtime-activity">
-        <div className="stream-panel-header">
-          <strong>Runtime activity</strong>
-          <span>Live status</span>
-        </div>
-        <div className="runtime-overview">
-          <div>
-            <span>Overall</span>
-            <strong>{latestJobActivity?.summary ?? runtimeOverviewTitle(streamState, completedCount, failedCount, totalCount)}</strong>
-            <p>{latestJobActivity?.detail ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</p>
+      <aside className="stream" data-testid="runtime-activity">
+        <div className="stream-head">
+          <div className="title">
+            <span className={`dot ${streaming ? 'live pulse' : 'ok'}`}></span>
+            <span>{t('runtimeActivity')}</span>
+            <span className="mono">SSE · /api/design-jobs/{jobId ?? ''}/stream</span>
           </div>
-          <meter min={0} max={100} value={runtimeProgress} aria-label="Runtime progress" />
-        </div>
-        <div className="runtime-status-grid">
-          {variations.map(variation => {
-            const latest = latestActivityForVariation(streamLines, variation)
-            const stage = latest?.stage ?? stageFromVariationStatus(variation.status)
-            return (
-              <article key={variation.id} className="runtime-status-card" data-stage={stage}>
-                <div>
-                  <span>{`Variation ${String(variation.index).padStart(2, '0')}`}</span>
-                  <strong>{stageLabel(stage, variation.status)}</strong>
-                </div>
-                <p>{latest?.summary ?? summaryForVariationStatus(variation.status)}</p>
-                {latest?.detail ? <small>{latest.detail}</small> : null}
-              </article>
-            )
-          })}
-        </div>
-        {streamLines.length > 0 ? (
-          <div className="runtime-recent">
-            <span>Latest</span>
-            <strong>{streamLines[0]?.variationLabel}</strong>
-            <p>{streamLines[0]?.summary}</p>
+          <div className="acts">
+            <button className="btn ghost sm" type="button">{t('copyLatestEvent')}</button>
+            <button className="btn ghost sm" type="button">{t('viewRawStream')}</button>
           </div>
-        ) : (
-          <p>No activity yet.</p>
-        )}
-        <details className="raw-stream-debug" data-testid="raw-stream-debug">
-          <summary>Debug raw assistant stream</summary>
-          {rawStreamLines.length === 0 ? <p>No raw assistant delta captured.</p> : null}
-          {rawStreamLines.map(line => (
-            <div key={line.id} className="raw-stream-row">
-              <span>{line.variationLabel} · {line.channel}</span>
-              <code>{line.delta}</code>
+        </div>
+        <div className="stream-grid">
+          <div className="stream-code">
+            {activeCodeSet ? (
+              <CodeFileViewer
+                files={codeFilesForViewer(activeCodeSet)}
+                activePath={activeCodeSet.activePath}
+                statusLabel={activeStatusLabel(activeCodeSet)}
+                onSelectPath={path => {
+                  if (!activeCodeVariation) return
+                  setCodeStreams(current => current[activeCodeVariation.id] ? {
+                    ...current,
+                    [activeCodeVariation.id]: { ...current[activeCodeVariation.id]!, activePath: path },
+                  } : current)
+                }}
+              />
+            ) : (
+              <div className="ph-msg" style={{ color: 'var(--muted)' }}>
+                {streaming ? t('waitingCodeStream') : t('noCodeStream')}
+              </div>
+            )}
+          </div>
+          <div className="stream-side">
+            <div className="runtime-overview">
+              <div>
+                <span>{t('overall')}</span>
+                <strong>{latestJobActivity?.summary ?? runtimeOverviewTitle(streamState, completedCount, failedCount, totalCount)}</strong>
+                <p>{latestJobActivity?.detail ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</p>
+              </div>
+              <meter min={0} max={100} value={runtimeProgress} aria-label="Runtime progress" />
             </div>
-          ))}
-        </details>
+
+            <h4>{t('variationStatus')}</h4>
+            <div className="runtime-status-grid">
+              {variations.map(variation => {
+                const latest = latestActivityForVariation(streamLines, variation)
+                const stage = latest?.stage ?? stageFromVariationStatus(variation.status)
+                return (
+                  <article key={variation.id} className="rt-card" data-stage={stage}>
+                    <div className="top"><span>{`Variation ${String(variation.index).padStart(2, '0')}`}</span><strong>{stageLabel(stage, variation.status)}</strong></div>
+                    <p>{latest?.summary ?? summaryForVariationStatus(variation.status)}</p>
+                    {latest?.detail ? <small>{latest.detail}</small> : null}
+                  </article>
+                )
+              })}
+            </div>
+
+            {streamLines.length > 0 ? (
+              <div className="activity">
+                <h4>{t('activity')}</h4>
+                {streamLines.slice(0, 8).map(line => (
+                  <div className="row" key={line.id}>
+                    <span className="t">{line.variationLabel}</span>
+                    <span className="s">{line.summary}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="side-empty">{t('noActivity')}</p>
+            )}
+
+            <details className="raw-stream-debug" data-testid="raw-stream-debug">
+              <summary>Debug raw assistant stream</summary>
+              {rawStreamLines.length === 0 ? <p className="side-empty">No raw assistant delta captured.</p> : null}
+              {rawStreamLines.map(line => (
+                <div key={line.id} className="raw-stream-row">
+                  <span>{line.variationLabel} · {line.channel}</span>
+                  <code>{line.delta}</code>
+                </div>
+              ))}
+            </details>
+          </div>
+        </div>
       </aside>
     </main>
   )
@@ -370,14 +434,14 @@ function stageFromVariationStatus(status: VariationSnapshot['status']): StreamLi
 }
 
 function stageLabel(stage: StreamLine['stage'], status: VariationSnapshot['status']): string {
-  if (status === 'completed') return 'Completed'
-  if (status === 'failed') return 'Failed'
-  if (status === 'cancelled') return 'Cancelled'
-  if (stage === 'preview') return 'Rendering preview'
-  if (stage === 'thinking') return 'Planning'
-  if (stage === 'writing') return 'Generating'
-  if (stage === 'warning') return 'Needs attention'
-  return 'Queued'
+  if (status === 'completed') return 'DONE'
+  if (status === 'failed') return 'FAILED'
+  if (status === 'cancelled') return 'CANCELLED'
+  if (stage === 'preview') return 'PREVIEW'
+  if (stage === 'thinking') return 'THINKING'
+  if (stage === 'writing') return 'WRITING'
+  if (stage === 'warning') return 'WARN'
+  return 'QUEUED'
 }
 
 function summaryForVariationStatus(status: VariationSnapshot['status']): string {
