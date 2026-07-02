@@ -3,6 +3,43 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-02 APP-M30 Design Template Pack PostgreSQL Persistence
+
+### 已完成
+
+- 为 Design Template Pack 增加 PostgreSQL 持久化：
+  - 新增 `design_templates` 表，保存模板当前摘要、owner/workspace、visibility/status、current version 和排序字段。
+  - 新增 `design_template_versions` 表，保存每个版本的完整 immutable `pack jsonb`、content hash 和创建者。
+- Repository 模板接口收口：
+  - `listDesignTemplatePacks(userId, workspaceId)`。
+  - `getDesignTemplatePackById(templateId, userId, workspaceId)`。
+  - `saveDesignTemplatePack(template)`。
+  - `getDesignTemplatePackVersion(templateId, version, userId, workspaceId)`。
+- `InMemoryStore` 保存模板当前版本和版本历史。
+- `PostgresRepository` 实现 SQL-native 模板读写：
+  - startup hydrate 读取 `design_templates` + current version pack。
+  - no-hydrate 模式下 list/get 直接 SQL 查询并按 owner/workspace/public visibility 隔离。
+  - save 写入/更新 `design_templates`，并通过 `(template_id, version)` 幂等写入版本历史。
+  - 官方模板在 seed 阶段写入 PostgreSQL。
+- 增强业务 smoke：
+  - 多用户 smoke 覆盖 user A private template 不出现在 user B 模板列表。
+  - user B 在自己的 session 中引用 user A private template 返回 `DESIGN_TEMPLATE_NOT_FOUND`。
+  - user B 不能借 user A session + private template 创建 job。
+  - API flow smoke 覆盖模板更新到 v2 后，历史 job snapshot 仍固定 v1 template pack，不随当前模板漂移。
+
+### 验证
+
+- `npx tsc -b apps/api packages/contracts packages/domain && node --test apps/api/dist/multi-user-access-flow.test.js apps/api/dist/mock-flow.test.js apps/api/dist/postgres-api-flow.test.js`
+- `npm --workspace @dudesign/api run test`
+
+> 本轮本机未配置 `DUDESIGN_POSTGRES_TEST_URL`，PostgreSQL integration suite 按既有规则跳过；SQL-native 模板读写已接入 PostgresRepository 和 no-hydrate API flow，配置真实 PostgreSQL URL 后会执行。
+
+### 决策
+
+- `design_templates` 作为当前模板索引表，`design_template_versions.pack` 作为历史版本事实来源。
+- job 创建时继续把完整 `DesignTemplatePack` snapshot 写入 `templateRequirements.designTemplatePacks` / `variationTemplateAssignments`，确保历史 job、variation detail 和 runtime prompt 不被模板更新影响。
+- MVP private template 只允许 owner 读取；workspace visibility 已在 repository 查询中预留，后续团队协作 UI 接入后可复用。
+
 ## 2026-07-02 APP-M29 Historical Artifact Preview Binding
 
 ### 已完成

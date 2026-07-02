@@ -3,6 +3,8 @@ import type {
   AuthUserResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
+  ListDesignTemplatePacksResponse,
+  SaveDesignTemplatePackResponse,
   ShareVariationResponse,
   SharedVariationResponse,
 } from '@dudesign/contracts'
@@ -17,6 +19,40 @@ export async function runMultiUserAccessSmoke(harness: ApiFlowHarness): Promise<
   const userB = await registerUser('user-b')
   const cookieB = lastSetCookie()
 
+  const privateTemplate = await postJson<SaveDesignTemplatePackResponse>('/api/design-templates/import-design-md', {
+    name: 'User A Private Template',
+    designMd: privateDesignMd('User A Private Template', '#123456'),
+  }, 201, cookieA)
+  assert.equal(privateTemplate.template.createdByUserId, userA.user.id)
+  const templatesForA = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates', cookieA)
+  assert.equal(templatesForA.templates.some(template => template.id === privateTemplate.template.id), true)
+  const templatesForB = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates', cookieB)
+  assert.equal(templatesForB.templates.some(template => template.id === privateTemplate.template.id), false)
+  const sessionB = await postJson<CreateSessionResponse>('/api/sessions', {
+    workspaceId: userB.workspace.id,
+    mode: 'new_html',
+    title: 'User B private design',
+  }, 201, cookieB)
+  const privateTemplateAttemptByB = await fetch(`${harness.baseUrl}/api/design-jobs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: cookieB,
+    },
+    body: JSON.stringify({
+      sessionId: sessionB.session.id,
+      prompt: 'Try to use user A private template from user B session.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {
+        designTemplatePackIds: [privateTemplate.template.id],
+      },
+    }),
+  })
+  assert.equal(privateTemplateAttemptByB.status, 404)
+  const privateTemplateAttemptPayload = await privateTemplateAttemptByB.json() as { error: { code: string } }
+  assert.equal(privateTemplateAttemptPayload.error.code, 'DESIGN_TEMPLATE_NOT_FOUND')
+
   const sessionA = await postJson<CreateSessionResponse>('/api/sessions', {
     workspaceId: userA.workspace.id,
     mode: 'new_html',
@@ -27,7 +63,9 @@ export async function runMultiUserAccessSmoke(harness: ApiFlowHarness): Promise<
     prompt: 'A private landing page owned by user A.',
     sourceMode: 'new_html',
     variationCount: 1,
-    templateRequirements: {},
+    templateRequirements: {
+      designTemplatePackIds: [privateTemplate.template.id],
+    },
   }, 201, cookieA)
   const variationId = jobA.variations[0]!.id
   const artifact = await attachPinnedHtmlArtifact({
@@ -40,6 +78,25 @@ export async function runMultiUserAccessSmoke(harness: ApiFlowHarness): Promise<
   await expectForbidden(`/api/design-jobs/${jobA.job.id}`, cookieB, 'JOB_FORBIDDEN')
   await expectForbidden(`/api/variations/${variationId}`, cookieB, 'JOB_FORBIDDEN')
   await expectForbidden(`/api/variations/${variationId}/preview`, cookieB, 'JOB_FORBIDDEN')
+  const templateJobAttemptByB = await fetch(`${harness.baseUrl}/api/design-jobs`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: cookieB,
+    },
+    body: JSON.stringify({
+      sessionId: sessionA.session.id,
+      prompt: 'Try to use user A private template.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {
+        designTemplatePackIds: [privateTemplate.template.id],
+      },
+    }),
+  })
+  assert.equal(templateJobAttemptByB.status, 403)
+  const templateJobAttemptPayload = await templateJobAttemptByB.json() as { error: { code: string } }
+  assert.equal(templateJobAttemptPayload.error.code, 'SESSION_FORBIDDEN')
 
   const share = await postJson<ShareVariationResponse>(`/api/variations/${variationId}/share`, {
     visibility: 'public',
@@ -197,4 +254,37 @@ export async function runMultiUserAccessSmoke(harness: ApiFlowHarness): Promise<
     assert.ok(currentSetCookie, 'Expected a Set-Cookie header')
     return currentSetCookie
   }
+}
+
+function privateDesignMd(name: string, primary: string): string {
+  return `---
+name: ${name}
+version: 1.0.0
+colors:
+  primary: "${primary}"
+  on-primary: "#FFFFFF"
+typography:
+  body:
+    fontFamily: Inter
+    fontSize: 16px
+spacing:
+  md: 24px
+rounded:
+  sm: 6px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.sm}"
+---
+
+## Overview
+
+Private template for one user.
+
+## Do's and Don'ts
+
+- Do: Keep private template constraints scoped.
+- Don't: Leak this template across accounts.
+`
 }

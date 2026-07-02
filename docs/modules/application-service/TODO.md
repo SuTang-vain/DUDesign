@@ -239,11 +239,11 @@
 - [x] 增加 Runtime unavailable 降级测试。
 - [x] 为 model_services / user_model_access 增加 PostgreSQL migration 和 SQL-native Repository methods。
 - [x] 为用户 Capability 偏好增加 `user_preferences` PostgreSQL migration 和 Repository 持久化。
-- [ ] 为 Design Template Pack 增加 `design_templates` / `design_template_versions` PostgreSQL migration。
-- [ ] 为 Repository 增加模板持久化方法：list/get/save/version lookup。
-- [ ] 为 `PostgresRepository` 实现 SQL-native 模板读写，覆盖 production no-hydrate mode。
-- [ ] 为用户私有模板增加权限隔离 smoke，避免跨用户读取。
-- [ ] 为模板版本更新增加历史 job snapshot 不漂移 smoke。
+- [x] 为 Design Template Pack 增加 `design_templates` / `design_template_versions` PostgreSQL migration。
+- [x] 为 Repository 增加模板持久化方法：list/get/save/version lookup。
+- [x] 为 `PostgresRepository` 实现 SQL-native 模板读写，覆盖 production no-hydrate mode。
+- [x] 为用户私有模板增加权限隔离 smoke，避免跨用户读取。
+- [x] 为模板版本更新增加历史 job snapshot 不漂移 smoke。
 
 验收：
 
