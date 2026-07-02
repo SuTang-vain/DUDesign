@@ -524,7 +524,7 @@ a { color: inherit; text-decoration: none; }
 /* composer */
 .composer {
   width: min(820px, 100%);
-  margin: clamp(48px, 9vh, 92px) auto 0;
+  margin: clamp(104px, 16vh, 164px) auto 0;
 }
 .composer-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -561,11 +561,11 @@ a { color: inherit; text-decoration: none; }
 }
 .prompt-area {
   position: relative;
-  padding: 18px 20px 12px;
+  padding: 14px 18px 10px;
 }
 .prompt-area textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 96px;
   border: 0; outline: 0; resize: vertical;
   background: transparent;
   color: var(--text);
@@ -678,11 +678,6 @@ a { color: inherit; text-decoration: none; }
   padding: 8px;
 }
 
-.paired-popover-model {
-  right: 0;
-  left: auto;
-  grid-template-columns: 150px minmax(260px, 1fr);
-}
 .paired-parent-list,
 .context-parent-list {
   min-height: 0;
@@ -708,6 +703,39 @@ a { color: inherit; text-decoration: none; }
 .context-parent-list button.active { background: var(--accent-soft); color: var(--accent-on); }
 .paired-parent-list button i,
 .context-parent-list button i { margin-left: auto; color: var(--muted); font-style: normal; }
+
+/* 模型选择列表(单列,与 .option-list 同语言) */
+.model-option-list { display: grid; gap: 2px; min-width: 280px; padding: 2px; }
+.model-option-list button {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+  font-size: 13px; font-weight: 600;
+}
+.model-option-list button:hover { background: var(--surface-2); }
+.model-option-list button.active { background: var(--accent-soft); color: var(--accent-on); }
+.model-option-list .mo-text { display: grid; gap: 3px; min-width: 0; }
+.model-option-list .mo-text strong {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 650;
+}
+.model-option-list .mo-default {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+}
+.model-option-list button.active .mo-default { background: var(--accent-on); color: var(--accent-soft); opacity: .85; }
+.model-option-list .mo-text span { color: var(--muted); font-weight: 500; font-size: 11.5px; }
+.model-option-list button.active .mo-text span { color: var(--accent-on); opacity: .8; }
+.model-option-list .mo-check { display: inline-flex; align-items: center; flex: none; color: var(--accent); opacity: 0; }
+.model-option-list button.active .mo-check { color: var(--accent-on); opacity: 1; }
 .context-child-panel {
   min-width: 260px;
   min-height: 0;
@@ -782,11 +810,21 @@ a { color: inherit; text-decoration: none; }
 
 .cap-strip {
   width: min(780px, 100%);
-  margin: 14px auto 0;
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 7px;
+  margin: 9px auto 0;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 14px;
 }
-.cap-strip .chip { background: var(--surface); color: var(--text-2); border: 1px solid var(--line); }
-.cap-strip .chip .k { color: var(--muted); margin-right: 4px; }
+.cap-strip .chip {
+  height: auto;
+  padding: 0;
+  gap: 5px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.2;
+}
+.cap-strip .chip .k { color: var(--muted); margin-right: 2px; font-weight: 600; }
 
 /* inspiration */
 .inspire {
@@ -1946,8 +1984,8 @@ a { color: inherit; text-decoration: none; }
 .language-options button.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-on); }
 
 .workspace-selector-trigger {
-  width: min(330px, 36vw);
-  min-width: 220px;
+  width: max-content;
+  max-width: min(330px, 36vw);
   height: 38px; padding: 0 13px;
   display: inline-flex; align-items: center; gap: 10px;
   border: 1px solid var(--line);
@@ -1960,12 +1998,15 @@ a { color: inherit; text-decoration: none; }
 .workspace-selector-trigger > span:nth-of-type(2) {
   display: inline-flex;
   align-items: baseline;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
 }
 .workspace-selector-trigger .ws-name {
+  display: inline-block;
   min-width: 0;
+  max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
 }

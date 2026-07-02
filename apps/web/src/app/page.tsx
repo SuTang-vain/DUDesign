@@ -21,7 +21,7 @@ import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { DesignDirectionPicker } from '@/components/DesignDirectionPicker'
 import { Logo } from '@/components/Logo'
-import { Icon, type IconName } from '@/components/Icon'
+import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
 
 const promptExamples = [
@@ -33,7 +33,6 @@ const promptExamples = [
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
 type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
-type ModelPanel = 'models'
 type CapabilityPreferenceDraft = {
   domainTemplateId?: string
   aestheticProfileId?: string
@@ -78,7 +77,6 @@ export default function HomePage(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const [contextPanel, setContextPanel] = useState<ContextPanel | null>(null)
-  const [modelPanel, setModelPanel] = useState<ModelPanel | null>(null)
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -325,7 +323,6 @@ export default function HomePage(): React.JSX.Element {
       <section className="home-main">
         <header className="home-topbar">
           <div>
-            <span className="eyebrow">{t('workbench')}</span>
             <h1>{renderHeading(headingLine, headingWord)}</h1>
           </div>
           <div className="top-actions">
@@ -394,7 +391,7 @@ export default function HomePage(): React.JSX.Element {
                 placeholder={t('describePromptPlaceholder')}
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
-                rows={8}
+                rows={5}
               />
             </div>
             <div className="composer-tools">
@@ -612,17 +609,15 @@ export default function HomePage(): React.JSX.Element {
                 />
               </DirectPillMenu>
 
-              <PairedPillMenu<ModelPanel>
+              <DirectPillMenu
                 id="model"
                 label={t('model')}
                 value={selectedModel ? modelLabel(selectedModel) : t('noModel')}
-                panels={[{ id: 'models', icon: 'circleDot', label: t('model'), itemCount: Math.max(bootstrap?.models.models.length ?? 1, 1) }]}
-                activePanel={modelPanel}
-                onActivePanelChange={setModelPanel}
+                align="end"
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
               >
-                <div className="option-list">
+                <div className="model-option-list" data-testid="model-paired-popover">
                   {(bootstrap?.models.models ?? []).map(model => (
                     <button
                       key={model.id}
@@ -633,12 +628,18 @@ export default function HomePage(): React.JSX.Element {
                         setOpenMenu(null)
                       }}
                     >
-                      <strong>{model.displayName}{model.isDefault ? ' · default' : ''}</strong>
-                      <span>{modelDescription(model)}</span>
+                      <span className="mo-text">
+                        <strong>
+                          {modelLabel(model)}
+                          {model.isDefault ? <small className="mo-default">{c18n.phrase('default')}</small> : null}
+                        </strong>
+                        <span>{c18n.modelCaps(model.capabilities).join(' · ')}</span>
+                      </span>
+                      <i className="mo-check" aria-hidden><Icon name="check" size={15} /></i>
                     </button>
                   ))}
                 </div>
-              </PairedPillMenu>
+              </DirectPillMenu>
 
               <button className="tool send" type="button" data-testid="generate-button" aria-label={t('generateDesignVariations')} disabled={!canSubmit} onClick={() => void submit()}>
                 {status === 'submitting' ? '...' : <Icon name="arrowUp" size={16} />}
@@ -739,84 +740,20 @@ function SessionGroup(props: {
   )
 }
 
-function PairedPillMenu<TPanel extends string>(props: {
-  id: Exclude<OpenMenu, 'workspace' | null>
-  label: string
-  value: string
-  panels: Array<{
-    id: TPanel
-    icon: IconName
-    label: string
-    itemCount: number
-  }>
-  activePanel: TPanel | null
-  onActivePanelChange: (panel: TPanel | null) => void
-  children: React.ReactNode
-  openMenu: OpenMenu
-  setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
-}): React.JSX.Element {
-  const isOpen = props.openMenu === props.id
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  return (
-    <div className={`menu-root menu-root-${props.id}`} data-menu-root="true">
-      <button
-        ref={triggerRef}
-        type="button"
-        className="tool"
-        data-testid={`${props.id}-pill-trigger`}
-        aria-expanded={isOpen}
-        onClick={() => {
-          const nextOpen = props.openMenu !== props.id
-          props.onActivePanelChange(nextOpen ? props.panels[0]?.id ?? null : null)
-          props.setOpenMenu(nextOpen ? props.id : null)
-        }}
-      >
-        <span className="k">{props.label}</span>
-        <span className="v">{props.value}</span>
-      </button>
-      <FloatingMenu
-        open={isOpen}
-        anchorRef={triggerRef}
-        align={props.id === 'model' ? 'end' : 'start'}
-        className={`paired-popover-wrap paired-popover-${props.id}`}
-      >
-          <div className="paired-parent-list" role="menu" aria-label={props.label} data-testid={`${props.id}-panel-options`}>
-            {props.panels.map(panel => (
-              <button
-                key={panel.id}
-                className={panel.id === props.activePanel ? 'active' : ''}
-                type="button"
-                onMouseEnter={() => props.onActivePanelChange(panel.id)}
-                onFocus={() => props.onActivePanelChange(panel.id)}
-                onClick={() => props.onActivePanelChange(panel.id)}
-              >
-                <span aria-hidden><Icon name={panel.icon} size={16} /></span>
-                <strong>{panel.label}</strong>
-              </button>
-            ))}
-          </div>
-          {props.activePanel ? (
-            <div className="context-child-panel" data-testid={`${props.id}-paired-popover`}>
-              {props.children}
-            </div>
-          ) : null}
-      </FloatingMenu>
-    </div>
-  )
-}
-
 function DirectPillMenu(props: {
   id: Exclude<OpenMenu, 'workspace' | null>
   label: string
   value: string
-  itemCount: number
+  itemCount?: number
   columnCount?: number
+  align?: 'start' | 'center' | 'end'
   children: React.ReactNode
   openMenu: OpenMenu
   setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
 }): React.JSX.Element {
   const isOpen = props.openMenu === props.id
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const align = props.align ?? (props.id === 'template' ? 'center' : 'start')
   return (
     <div className={`menu-root menu-root-${props.id}`} data-menu-root="true">
       <button
@@ -833,7 +770,7 @@ function DirectPillMenu(props: {
       <FloatingMenu
         open={isOpen}
         anchorRef={triggerRef}
-        align={props.id === 'template' ? 'center' : 'start'}
+        align={align}
         matchWidthSelector={props.id === 'template' ? '.composer-card' : undefined}
         fillAbove={props.id === 'template'}
         className={`popover popover-${props.id}`}
@@ -971,12 +908,6 @@ function FloatingMenu(props: {
 
 function modelLabel(model: ModelOption): string {
   return model.displayName.replace(/\s+Default$/i, '')
-}
-
-function modelDescription(model: ModelOption | undefined): string {
-  if (!model) return 'No model is currently available.'
-  const capabilityText = model.capabilities.join(', ')
-  return `${model.provider} · ${model.modelId}${capabilityText ? ` · ${capabilityText}` : ''}`
 }
 
 function formatRelativeTime(value: string): string {

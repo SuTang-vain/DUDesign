@@ -93,6 +93,13 @@ const loops: Record<string, string> = {
   loop_deep_repair: '深度修复',
 }
 
+/** 模型能力标签:provider/modelId 已由 displayName 表达,这里仅本地化能力短词 */
+const modelCapabilities: Record<string, { zh: string; en: string }> = {
+  html_generation: { zh: 'HTML 生成', en: 'HTML generation' },
+  html_refine: { zh: 'HTML 精修', en: 'HTML refine' },
+  long_context: { zh: '长上下文', en: 'Long context' },
+}
+
 /** 词组翻译:分类、情绪、密度、正式度、色板用途键、详情标签、常见板块/必备项等 */
 const phrases: Record<string, string> = {
   // 分类
@@ -108,6 +115,8 @@ const phrases: Record<string, string> = {
   Typography: '排版', Layout: '布局', Motion: '动效', Mood: '情绪', Density: '密度',
   'Best for': '适用于', 'Avoid for': '不适用于', Avoid: '避免',
   Sections: '板块', Required: '必备', Constraints: '约束',
+  // 通用标签
+  default: '默认',
   // 板块(常见)
   hero: '主视觉', 'hero statement': '主视觉宣言', 'trust proof': '信任佐证', 'product benefits': '产品卖点',
   security: '安全', 'pricing or CTA': '定价 / CTA', faq: '常见问题', 'selected work': '精选作品',
@@ -149,6 +158,12 @@ export function useCapabilityI18n() {
       language === 'zh' && palettes[id]?.notes ? palettes[id]!.notes : en,
     brandName: (id: string, en: string) => pick(language, brands[id], en),
     loopName: (id: string, en: string) => pick(language, loops[id], en),
+    modelCaps: (ids: string[]) => ids.map(id => {
+      const entry = modelCapabilities[id]
+      return language === 'zh'
+        ? (entry?.zh ?? id)
+        : (entry?.en ?? id.replace(/_/g, ' '))
+    }),
     phrase: (en: string) => pick(language, phrases[en], en),
     phraseList: (items: string[]) => items.map(en => pick(language, phrases[en], en)),
   }
