@@ -790,29 +790,54 @@ export class ApplicationService {
     }
   }
 
-  async getVariationPreview(ctx: RequestContext, variationId: string): Promise<string> {
-    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
+  async getVariationPreview(
+    ctx: RequestContext,
+    variationId: string,
+    options: { artifactId?: string | null } = {},
+  ): Promise<string> {
+    const snapshot = options.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
+    if (snapshot.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
     const artifact = snapshot.artifact
     if (!artifact) return renderMockVariationHtml(variation, null)
+    if (artifact.kind !== 'html') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation preview can only be read from HTML artifacts.')
+    }
     const html = await this.readArtifactHtml(artifact.storageKey)
     return await this.rewriteArtifactAssetUrls(variationId, artifact, html, assetPath =>
-      `/api/variations/${encodeURIComponent(variationId)}/assets/${encodeRuntimeAssetPath(assetPath)}`)
+      `/api/variations/${encodeURIComponent(variationId)}/assets/${encodeRuntimeAssetPath(assetPath)}${options.artifactId ? `?artifactId=${encodeURIComponent(artifact.id)}` : ''}`)
   }
 
-  async getVariationAsset(ctx: RequestContext, variationId: string, assetPath: string): Promise<{
+  async getVariationAsset(
+    ctx: RequestContext,
+    variationId: string,
+    assetPath: string,
+    options: { artifactId?: string | null } = {},
+  ): Promise<{
     contentType: string
     body: Uint8Array
   }> {
     const normalizedPath = normalizeRuntimeArtifactPath(assetPath)
-    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const snapshot = options.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
     const variation = snapshot.variation
     if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
+    if (snapshot.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
     const htmlArtifact = snapshot.artifact
     if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
+    if (htmlArtifact.kind !== 'html') {
+      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation assets can only be read from HTML artifacts.')
+    }
     const asset = await this.store.getVariationAssetArtifact(variationId, htmlArtifact.id, normalizedPath)
     if (!asset) throw createHttpError(404, 'ASSET_NOT_FOUND', `Asset not found: ${normalizedPath}`)
     const stored = await this.artifacts.get(asset.storageKey)

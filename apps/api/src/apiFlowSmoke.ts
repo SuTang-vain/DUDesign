@@ -507,6 +507,19 @@ Reusable smoke test template.
   assert.equal(stableShareDetail.artifact.version, 3)
   assert.match(stableShareDetail.artifact.html ?? '', /version 3/)
   assert.doesNotMatch(stableShareDetail.artifact.html ?? '', /version 4/)
+  const historicalPreview = await getText(
+    `/api/variations/${variationId}/preview?artifactId=${encodeURIComponent(shareDetail.artifact.id)}`,
+  )
+  assert.match(historicalPreview, /version 3/)
+  assert.doesNotMatch(historicalPreview, /version 4/)
+  assert.ok(historicalPreview.includes(
+    `/api/variations/${variationId}/assets/styles/share-preview.css?artifactId=${shareDetail.artifact.id}`,
+  ))
+  const historicalVariationCss = await fetch(
+    `${baseUrl}/api/variations/${variationId}/assets/styles/share-preview.css?artifactId=${encodeURIComponent(shareDetail.artifact.id)}`,
+  )
+  assert.equal(historicalVariationCss.ok, true)
+  assert.match(await historicalVariationCss.text(), /--share-accent/)
 
   const restored = await postJson<RestoreVariationVersionResponse>(
     `/api/variations/${variationId}/versions/${beforeRefine.currentArtifact!.id}/restore`,

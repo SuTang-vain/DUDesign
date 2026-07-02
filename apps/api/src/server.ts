@@ -295,7 +295,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationPreviewMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/preview$/)
   if (method === 'GET' && variationPreviewMatch) {
-    sendHtml(res, 200, await service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!)))
+    sendHtml(res, 200, await service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!), {
+      artifactId: url.searchParams.get('artifactId'),
+    }))
     return
   }
 
@@ -323,6 +325,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       ctx,
       decodeURIComponent(variationAssetMatch[1]!),
       decodeURIComponent(variationAssetMatch[2]!),
+      { artifactId: url.searchParams.get('artifactId') },
     )
     sendAsset(res, 200, asset)
     return

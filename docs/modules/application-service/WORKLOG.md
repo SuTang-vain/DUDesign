@@ -3,6 +3,37 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-02 APP-M29 Historical Artifact Preview Binding
+
+### 已完成
+
+- 收口 Phase APP-4 历史 artifact preview URL：
+  - `GET /api/variations/:id/preview?artifactId=...` 支持显式读取指定 HTML artifact。
+  - preview 内部 asset URL 在历史 artifact 模式下追加同一个 `artifactId`，避免 HTML 固定但 CSS/图片读取当前版本导致漂移。
+  - `GET /api/variations/:id/assets/:path?artifactId=...` 支持从指定 HTML artifact 的 asset 集读取资源。
+- 扩展共享 API smoke：
+  - current artifact 已推进到 v4 时，读取 v3 的 historical preview 仍返回 v3 HTML。
+  - historical preview 不包含 v4 内容。
+  - historical preview 中的 CSS asset URL 带 `artifactId`，并可成功读取对应 asset。
+- `application-service/TODO.md` 将“历史 artifact preview URL 显式绑定 artifactId”标记完成。
+
+### 验证
+
+- `npm --workspace @dudesign/api run test`
+- `npm run typecheck`
+- 真实 PostgreSQL opt-in smoke：
+  - 使用本机 `initdb/pg_ctl` 创建临时 PostgreSQL 数据目录。
+  - 临时端口：`55432`。
+  - 测试连接：`DUDESIGN_POSTGRES_TEST_URL=postgresql://dudesign@127.0.0.1:55432/dudesign_test`。
+  - 执行 `npm --workspace @dudesign/api run test` 通过。
+  - 覆盖 startup hydrate、production no-hydrate API flow、no-hydrate 多用户隔离 smoke、PostgresRepository integration。
+  - 测试后已停止 PostgreSQL 并清理临时数据目录。
+
+### 决策
+
+- 不新增独立历史 preview 路由，沿用 `preview?artifactId=...`，与既有 `files?artifactId=...` 查询语义保持一致。
+- 默认 `preview` / `assets` 继续读取当前 artifact，显式 `artifactId` 只用于版本历史、分享锁定和调试回放场景。
+
 ## 2026-07-01 APP-M28 Admin Auth Session Role
 
 ### 已完成

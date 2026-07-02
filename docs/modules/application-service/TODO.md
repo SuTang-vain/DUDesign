@@ -152,7 +152,7 @@
 - [x] variation detail 返回完整 artifact snapshot，并区分 `html` / `asset` / `export_zip`。
 - [x] export/share 明确绑定当前 HTML artifact version，避免后续 refine 漂移。
 - [x] 支持恢复历史 HTML artifact 为当前版本：`POST /api/variations/:id/versions/:artifactId/restore`。
-- [ ] 支持历史 artifact preview URL 显式绑定 `artifactId`。
+- [x] 支持历史 artifact preview URL 显式绑定 `artifactId`。
 - [x] 实现 share token。
 - [x] 实现 share revoke。
 - [x] 实现 share expiresAt 测试。
