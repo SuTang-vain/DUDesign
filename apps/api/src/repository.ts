@@ -68,6 +68,17 @@ export type VariationRefineContext = {
   baseArtifact: Artifact | null
 }
 
+export type DesignTemplatePackVersion = {
+  id: string
+  templateId: string
+  version: string
+  schemaVersion: string
+  pack: DesignTemplatePack
+  contentHash: string
+  createdByUserId: string | null
+  createdAt: string
+}
+
 export type VariationArtifactContext = {
   variation: DesignVariation | null
   artifact: Artifact | null
@@ -447,6 +458,7 @@ export type ApplicationRepository = {
   listDesignTemplatePacks(userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack[]>
   getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null>
   saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack>
+  getDesignTemplatePackVersion(templateId: string, version: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePackVersion | null>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
   canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>

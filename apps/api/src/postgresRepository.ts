@@ -3,9 +3,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
-import type { DesignEvent, UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type AuthIdentity, type AuthSession, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
+import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import type {
   AdminArtifactsFilter,
@@ -28,6 +29,7 @@ import type {
   CreateJobInput,
   CreateSessionInput,
   CreateShareInput,
+  DesignTemplatePackVersion,
   JobSnapshot,
   ModelSyncDiffItem,
   RuntimeSessionContext,
@@ -41,6 +43,7 @@ import type {
   VariationRefineContext,
   UserModelOption,
 } from './repository.js'
+import { createHash } from 'node:crypto'
 
 export type PostgresRepositoryOptions = {
   connectionString: string
@@ -163,6 +166,9 @@ export class PostgresRepository extends InMemoryStore {
     for (const model of this.modelServices.values()) {
       await this.persistModelService(model)
     }
+    for (const template of officialDesignTemplatePacks) {
+      await this.persistDesignTemplatePack(template)
+    }
   }
 
   async hydrate(): Promise<void> {
@@ -178,6 +184,8 @@ export class PostgresRepository extends InMemoryStore {
     this.modelServices.clear()
     this.userModelAccess.clear()
     this.userCapabilityPreferences.clear()
+    this.designTemplatePacks.clear()
+    this.designTemplatePackVersions.clear()
     this.annotationBatches.clear()
     this.auditLogs.splice(0, this.auditLogs.length)
     this.usageEvents.splice(0, this.usageEvents.length)
@@ -213,6 +221,17 @@ export class PostgresRepository extends InMemoryStore {
     }
     for (const row of (await this.pool.query('select * from user_preferences')).rows) {
       this.userCapabilityPreferences.set(row.user_id, mapUserCapabilityPreference(row))
+    }
+    for (const row of (await this.pool.query(`
+      select t.*, v.pack
+      from design_templates t
+      left join design_template_versions v on v.template_id = t.id and v.version = t.current_version
+    `)).rows) {
+      this.designTemplatePacks.set(row.id, mapDesignTemplatePackRow(row))
+    }
+    for (const row of (await this.pool.query('select * from design_template_versions order by created_at')).rows) {
+      const version = mapDesignTemplatePackVersion(row)
+      this.designTemplatePackVersions.set(designTemplatePackVersionKey(version.templateId, version.version), version)
     }
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
@@ -277,6 +296,69 @@ export class PostgresRepository extends InMemoryStore {
     const preference = mapUserCapabilityPreference(row)
     this.userCapabilityPreferences.set(userId, preference)
     return preference
+  }
+
+  override async listDesignTemplatePacks(userId: string, workspaceId?: string | null): Promise<DesignTemplatePack[]> {
+    const rows = (await this.pool.query(`
+      select t.*, v.pack
+      from design_templates t
+      left join design_template_versions v on v.template_id = t.id and v.version = t.current_version
+      where t.status not in ('archived', 'disabled')
+        and (
+          (t.source = 'official' and t.visibility = 'public')
+          or t.created_by_user_id = $1
+          or ($2::text is not null and t.visibility = 'workspace' and t.workspace_id = $2)
+        )
+      order by
+        case when t.source = 'official' then 0 else 1 end,
+        t.sort_key asc,
+        t.name asc,
+        t.id asc
+    `, [userId, workspaceId ?? null])).rows
+    const templates = rows.map(mapDesignTemplatePackRow)
+    for (const template of templates) this.designTemplatePacks.set(template.id, template)
+    return templates
+  }
+
+  override async getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): Promise<DesignTemplatePack | null> {
+    const row = (await this.pool.query(`
+      select t.*, v.pack
+      from design_templates t
+      left join design_template_versions v on v.template_id = t.id and v.version = t.current_version
+      where t.id = $1
+        and t.status not in ('archived', 'disabled')
+        and (
+          (t.source = 'official' and t.visibility = 'public')
+          or t.created_by_user_id = $2
+          or ($3::text is not null and t.visibility = 'workspace' and t.workspace_id = $3)
+        )
+    `, [templateId, userId, workspaceId ?? null])).rows[0]
+    if (!row) return null
+    const template = mapDesignTemplatePackRow(row)
+    this.designTemplatePacks.set(template.id, template)
+    return template
+  }
+
+  override async saveDesignTemplatePack(template: DesignTemplatePack): Promise<DesignTemplatePack> {
+    await this.persistDesignTemplatePack(template)
+    this.designTemplatePacks.set(template.id, template)
+    const version = await this.getDesignTemplatePackVersion(template.id, template.version, template.createdByUserId ?? this.devUser.id)
+    if (version) this.designTemplatePackVersions.set(designTemplatePackVersionKey(version.templateId, version.version), version)
+    return template
+  }
+
+  override async getDesignTemplatePackVersion(templateId: string, version: string, userId: string, workspaceId?: string | null): Promise<DesignTemplatePackVersion | null> {
+    const readable = await this.getDesignTemplatePackById(templateId, userId, workspaceId)
+    if (!readable) return null
+    const row = (await this.pool.query(`
+      select *
+      from design_template_versions
+      where template_id = $1 and version = $2
+    `, [templateId, version])).rows[0]
+    if (!row) return null
+    const templateVersion = mapDesignTemplatePackVersion(row)
+    this.designTemplatePackVersions.set(designTemplatePackVersionKey(templateVersion.templateId, templateVersion.version), templateVersion)
+    return templateVersion
   }
 
   override async appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): Promise<SessionMessage> {
@@ -2147,13 +2229,22 @@ export class PostgresRepository extends InMemoryStore {
   private async persistUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): Promise<void> {
     const now = nowIso()
     await this.pool.query(`
-      insert into user_preferences (user_id, domain_template_id, aesthetic_profile_id, color_palette_id, loop_profile_id, metadata, created_at, updated_at)
-      values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)
+      insert into user_preferences (
+        user_id, domain_template_id, aesthetic_profile_id, color_palette_id, loop_profile_id,
+        design_template_pack_id, skill_id, mcp_tool_id, brand_style_reference_id, advanced_constraints,
+        metadata, created_at, updated_at
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13)
       on conflict (user_id) do update set
         domain_template_id = excluded.domain_template_id,
         aesthetic_profile_id = excluded.aesthetic_profile_id,
         color_palette_id = excluded.color_palette_id,
         loop_profile_id = excluded.loop_profile_id,
+        design_template_pack_id = excluded.design_template_pack_id,
+        skill_id = excluded.skill_id,
+        mcp_tool_id = excluded.mcp_tool_id,
+        brand_style_reference_id = excluded.brand_style_reference_id,
+        advanced_constraints = excluded.advanced_constraints,
         metadata = excluded.metadata,
         updated_at = excluded.updated_at
     `, [
@@ -2162,8 +2253,81 @@ export class PostgresRepository extends InMemoryStore {
       preference.aestheticProfileId,
       preference.colorPaletteId,
       preference.loopProfileId,
+      preference.designTemplatePackId ?? null,
+      preference.skillId ?? null,
+      preference.mcpToolId ?? null,
+      preference.brandStyleReferenceId ?? null,
+      JSON.stringify(preference.advancedConstraints ?? {}),
       JSON.stringify({ kind: 'capability_preference' }),
       now,
+      now,
+    ])
+  }
+
+  private async persistDesignTemplatePack(template: DesignTemplatePack): Promise<void> {
+    const now = nowIso()
+    const workspaceId = designTemplateWorkspaceId(template)
+    const sortKey = designTemplateSortKey(template)
+    const contentHash = createHash('sha256').update(JSON.stringify(template)).digest('hex')
+    await this.pool.query(`
+      insert into design_templates (
+        id, source, format, visibility, status, name, description, created_by_user_id,
+        workspace_id, current_version, schema_version, preview_artifact_id, lint_status, sort_key, metadata,
+        created_at, updated_at
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17)
+      on conflict (id) do update set
+        source = excluded.source,
+        format = excluded.format,
+        visibility = excluded.visibility,
+        status = excluded.status,
+        name = excluded.name,
+        description = excluded.description,
+        created_by_user_id = excluded.created_by_user_id,
+        workspace_id = excluded.workspace_id,
+        current_version = excluded.current_version,
+        schema_version = excluded.schema_version,
+        preview_artifact_id = excluded.preview_artifact_id,
+        lint_status = excluded.lint_status,
+        sort_key = excluded.sort_key,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      template.id,
+      template.source,
+      template.format,
+      template.visibility,
+      template.status,
+      template.name,
+      template.description,
+      template.createdByUserId,
+      workspaceId,
+      template.version,
+      template.schemaVersion,
+      template.previewArtifactId,
+      template.lintStatus,
+      sortKey,
+      JSON.stringify({ schemaVersion: template.schemaVersion }),
+      now,
+      now,
+    ])
+    await this.pool.query(`
+      insert into design_template_versions (
+        id, template_id, version, schema_version, pack, design_tokens, rationale,
+        content_hash, created_by_user_id, created_at
+      )
+      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10)
+      on conflict (template_id, version) do nothing
+    `, [
+      createId('dtpv'),
+      template.id,
+      template.version,
+      template.schemaVersion,
+      JSON.stringify(template),
+      JSON.stringify(template.designTokens),
+      JSON.stringify(template.rationale),
+      contentHash,
+      template.createdByUserId,
       now,
     ])
   }
@@ -2236,7 +2400,78 @@ function mapUserCapabilityPreference(row: any): UserCapabilityPreference {
     aestheticProfileId: row.aesthetic_profile_id,
     colorPaletteId: row.color_palette_id,
     loopProfileId: row.loop_profile_id,
+    designTemplatePackId: row.design_template_pack_id ?? null,
+    skillId: row.skill_id ?? null,
+    mcpToolId: row.mcp_tool_id ?? null,
+    brandStyleReferenceId: row.brand_style_reference_id ?? null,
+    advancedConstraints: Object.keys(row.advanced_constraints ?? {}).length > 0 ? row.advanced_constraints : null,
   }
+}
+
+function mapDesignTemplatePackRow(row: any): DesignTemplatePack {
+  const pack = row.pack
+  if (isDesignTemplatePack(pack)) return pack
+  return {
+    schemaVersion: row.schema_version,
+    id: row.id,
+    source: row.source,
+    format: row.format,
+    visibility: row.visibility,
+    status: row.status,
+    name: row.name,
+    description: row.description,
+    version: row.current_version,
+    designTokens: isPlainObject(row.design_tokens) ? row.design_tokens as DesignTemplatePack['designTokens'] : {
+      colors: {},
+      typography: {},
+      spacing: {},
+      rounded: {},
+      components: {},
+    },
+    rationale: isPlainObject(row.rationale) ? row.rationale as DesignTemplatePack['rationale'] : {
+      overview: null,
+      colors: null,
+      typography: null,
+      layout: null,
+      elevation: null,
+      shapes: null,
+      components: null,
+      dos: [],
+      donts: [],
+      sections: {},
+    },
+    previewArtifactId: row.preview_artifact_id,
+    lintStatus: row.lint_status,
+    createdByUserId: row.created_by_user_id,
+  }
+}
+
+function mapDesignTemplatePackVersion(row: any): DesignTemplatePackVersion {
+  const pack = isDesignTemplatePack(row.pack) ? row.pack : mapDesignTemplatePackRow(row)
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    version: row.version,
+    schemaVersion: row.schema_version ?? pack.schemaVersion,
+    pack,
+    contentHash: row.content_hash ?? createHash('sha256').update(JSON.stringify(pack)).digest('hex'),
+    createdByUserId: row.created_by_user_id,
+    createdAt: toIso(row.created_at),
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isDesignTemplatePack(value: unknown): value is DesignTemplatePack {
+  if (!isPlainObject(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.schemaVersion === 'string'
+    && typeof value.name === 'string'
+    && typeof value.version === 'string'
+    && isPlainObject(value.designTokens)
+    && isPlainObject(value.rationale)
 }
 
 function mapWorkspace(row: any): Workspace {
@@ -2566,6 +2801,30 @@ function workspaceMemberKey(workspaceId: string, userId: string): string {
 
 function userModelAccessKey(userId: string, modelServiceId: string): string {
   return `${userId}:${modelServiceId}`
+}
+
+function designTemplatePackVersionKey(templateId: string, version: string): string {
+  return `${templateId}:${version}`
+}
+
+function designTemplateWorkspaceId(template: DesignTemplatePack): string | null {
+  const templateRecord = template as unknown as Record<string, unknown>
+  const metadataWorkspaceId = typeof templateRecord.workspaceId === 'string'
+    ? templateRecord.workspaceId
+    : null
+  if (metadataWorkspaceId) return metadataWorkspaceId
+  const metadata = isPlainObject(templateRecord.metadata) ? templateRecord.metadata : null
+  const workspaceId = metadata && typeof metadata.workspaceId === 'string' ? metadata.workspaceId : null
+  if (workspaceId) return workspaceId
+  if (template.id.startsWith('dtp_ws_')) {
+    const match = template.id.match(/^dtp_ws_([^_]+(?:_[^_]+)?)_/)
+    return match?.[1] ?? null
+  }
+  return null
+}
+
+function designTemplateSortKey(template: DesignTemplatePack): string {
+  return `${template.source === 'official' ? '0' : '1'}:${template.name.toLowerCase()}:${template.id}`
 }
 
 function hasModelServiceRuntimeDiff(previous: ModelService, next: ModelService): boolean {

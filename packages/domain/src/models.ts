@@ -29,6 +29,9 @@ export type UsageEventKind =
   | 'variation.refined'
   | 'export.created'
   | 'share.created'
+  | 'capability.template.selected'
+  | 'capability.plugin.selected'
+  | 'capability.preference.updated'
 
 export type ModelServiceProvider = 'babel-o' | 'openai-compatible' | 'mock'
 

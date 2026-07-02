@@ -27,6 +27,7 @@ import type {
   AdminUserSupportFilter,
   ApplicationRepository,
   CurrentVariationArtifactSnapshot,
+  DesignTemplatePackVersion,
   MaybePromise,
   ModelSyncDiffItem,
   RuntimeSessionContext,
@@ -41,6 +42,7 @@ import type {
 import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
+import { createHash } from 'node:crypto'
 
 export type SessionMessage = {
   id: string
@@ -111,6 +113,7 @@ export class InMemoryStore implements ApplicationRepository {
   readonly userModelAccess = new Map<string, UserModelAccess>()
   readonly userCapabilityPreferences = new Map<string, UserCapabilityPreference>()
   readonly designTemplatePacks = new Map<string, DesignTemplatePack>()
+  readonly designTemplatePackVersions = new Map<string, DesignTemplatePackVersion>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
   readonly auditLogs: AuditLog[] = []
   readonly usageEvents: UsageEvent[] = []
@@ -328,7 +331,16 @@ export class InMemoryStore implements ApplicationRepository {
 
   saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack> {
     this.designTemplatePacks.set(template.id, template)
+    const version = createDesignTemplatePackVersion(template, template.createdByUserId)
+    const versionKey = designTemplatePackVersionKey(template.id, template.version)
+    if (!this.designTemplatePackVersions.has(versionKey)) this.designTemplatePackVersions.set(versionKey, version)
     return template
+  }
+
+  async getDesignTemplatePackVersion(templateId: string, version: string, userId: string, workspaceId?: string | null): Promise<DesignTemplatePackVersion | null> {
+    const current = await this.getDesignTemplatePackById(templateId, userId, workspaceId)
+    if (!current) return null
+    return this.designTemplatePackVersions.get(designTemplatePackVersionKey(templateId, version)) ?? null
   }
 
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
@@ -608,6 +620,8 @@ export class InMemoryStore implements ApplicationRepository {
   private seedDesignTemplatePacks(): void {
     for (const template of officialDesignTemplatePacks) {
       this.designTemplatePacks.set(template.id, template)
+      const version = createDesignTemplatePackVersion(template, template.createdByUserId)
+      this.designTemplatePackVersions.set(designTemplatePackVersionKey(template.id, template.version), version)
     }
   }
 
@@ -1562,6 +1576,24 @@ function authIdentityKey(provider: AuthIdentity['provider'], providerSubject: st
 
 function workspaceMemberKey(workspaceId: string, userId: string): string {
   return `${workspaceId}:${userId}`
+}
+
+function designTemplatePackVersionKey(templateId: string, version: string): string {
+  return `${templateId}:${version}`
+}
+
+function createDesignTemplatePackVersion(template: DesignTemplatePack, createdByUserId: string | null): DesignTemplatePackVersion {
+  const createdAt = nowIso()
+  return {
+    id: createId('dtpv'),
+    templateId: template.id,
+    version: template.version,
+    schemaVersion: template.schemaVersion,
+    pack: template,
+    contentHash: createHash('sha256').update(JSON.stringify(template)).digest('hex'),
+    createdByUserId,
+    createdAt,
+  }
 }
 
 function artifactSortKey(artifact: Artifact): string {

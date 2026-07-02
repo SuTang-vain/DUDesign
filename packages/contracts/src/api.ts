@@ -264,6 +264,7 @@ export type CapabilityRequirements = {
 
 export type CapabilitySnapshot = {
   schemaVersion: string
+  profileVersion?: string
   template: {
     domainTemplate: DomainTemplate
     aestheticProfile: AestheticProfile
@@ -307,6 +308,11 @@ export type UserCapabilityPreference = {
   aestheticProfileId: ID | null
   colorPaletteId: ID | null
   loopProfileId: ID | null
+  designTemplatePackId?: ID | null
+  skillId?: ID | null
+  mcpToolId?: ID | null
+  brandStyleReferenceId?: ID | null
+  advancedConstraints?: AdvancedTemplateConstraints | null
 }
 
 export type UserPreferencesResponse = {

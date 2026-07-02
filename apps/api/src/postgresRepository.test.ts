@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { Pool } from 'pg'
-import type { DesignEvent } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack } from '@dudesign/contracts'
 import { PostgresRepository } from './postgresRepository.js'
+import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 
 const POSTGRES_TEST_URL = process.env.DUDESIGN_POSTGRES_TEST_URL
 
@@ -143,6 +144,44 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       aestheticProfileId: 'aes_premium_minimal',
       colorPaletteId: 'pal_minimal_mono',
       loopProfileId: 'loop_standard',
+      designTemplatePackId: 'dtp_editorial_finance',
+      skillId: 'sk_accessibility_first',
+      mcpToolId: 'mcp_accessibility_validate',
+      brandStyleReferenceId: 'brand_apple_inspired',
+      advancedConstraints: {
+        styleNotes: ['quiet confidence'],
+        referenceBrand: 'internal test brand',
+        negativeRequirements: ['no dark hero'],
+      },
+    })
+    const privateTemplate: DesignTemplatePack = {
+      ...officialDesignTemplatePacks[0]!,
+      id: 'dtp_private_pg_smoke',
+      source: 'user',
+      visibility: 'private',
+      name: 'Private PG Smoke',
+      version: '1.0.0',
+      createdByUserId: repository.devUser.id,
+    }
+    await repository.saveDesignTemplatePack(privateTemplate)
+    await repository.saveDesignTemplatePack({
+      ...privateTemplate,
+      name: 'Private PG Smoke v2',
+      version: '1.1.0',
+    })
+    await repository.createUsageEvent({
+      idempotencyKey: `usage:capability.template.selected:job:${job.id}:template:${privateTemplate.id}:version:1.0.0`,
+      kind: 'capability.template.selected',
+      userId: repository.devUser.id,
+      workspaceId: repository.devWorkspace.id,
+      sessionId: session.id,
+      jobId: job.id,
+      variationId: null,
+      artifactId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      costCents: 0,
+      metadata: { templateId: privateTemplate.id, templateVersion: '1.0.0' },
     })
     const driftedEvent = {
       schemaVersion: '2026-06-26.dudesign-events.v1',
@@ -174,8 +213,13 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.artifacts.get(cssAsset.id)?.contentHash, 'sha256:postgres-css')
       assert.equal(hydrated.artifacts.get(imageAsset.id)?.contentHash, 'sha256:postgres-svg')
       assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)
-      assert.equal(hydrated.listUsageEvents({ jobId: job.id }).length, 1)
+      assert.equal(hydrated.listUsageEvents({ jobId: job.id }).length, 2)
+      assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.designTemplatePackId, 'dtp_editorial_finance')
+      assert.equal(hydrated.designTemplatePacks.get(privateTemplate.id)?.version, '1.1.0')
+      assert.equal(hydrated.designTemplatePackVersions.get(`${privateTemplate.id}:1.0.0`)?.pack.name, 'Private PG Smoke')
       clearHydratedCache(hydrated)
+      hydrated.designTemplatePacks.clear()
+      hydrated.designTemplatePackVersions.clear()
       assert.equal((await hydrated.getUserById(repository.devUser.id))?.email, repository.devUser.email)
       assert.equal((await hydrated.getWorkspaceById(repository.devWorkspace.id))?.ownerId, repository.devUser.id)
       assert.equal((await hydrated.getPrimaryWorkspaceForUser(repository.devUser.id))?.id, repository.devWorkspace.id)
@@ -204,7 +248,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(support.users[0]?.sessions[0]?.failureSummary.severity, 'ok')
       const costSummary = await hydrated.getAdminCostSummary()
       assert.equal(costSummary.totals.jobCount, 1)
-      assert.equal(costSummary.totals.usageEventCount, 1)
+      assert.equal(costSummary.totals.usageEventCount, 2)
       assert.equal(costSummary.totals.costCents, 3)
       const userModels = await hydrated.listUserModelOptions(repository.devUser.id)
       assert.ok(userModels.defaultModelId)
@@ -213,6 +257,14 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(defaultModel?.enabled, true)
       assert.equal(await hydrated.canUserUseModel(repository.devUser.id, userModels.defaultModelId!), true)
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.colorPaletteId, 'pal_minimal_mono')
+      assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.skillId, 'sk_accessibility_first')
+      const templates = await hydrated.listDesignTemplatePacks(repository.devUser.id, repository.devWorkspace.id)
+      assert.equal(templates[0]?.source, 'official')
+      assert.equal(templates.some(template => template.id === privateTemplate.id), true)
+      assert.equal(await hydrated.getDesignTemplatePackById(privateTemplate.id, repository.altUser.id, repository.altWorkspace.id), null)
+      assert.equal((await hydrated.getDesignTemplatePackById(privateTemplate.id, repository.devUser.id, repository.devWorkspace.id))?.version, '1.1.0')
+      assert.equal((await hydrated.getDesignTemplatePackVersion(privateTemplate.id, '1.0.0', repository.devUser.id, repository.devWorkspace.id))?.pack.name, 'Private PG Smoke')
+      assert.equal((await hydrated.getDesignTemplatePackVersion(privateTemplate.id, '1.1.0', repository.devUser.id, repository.devWorkspace.id))?.pack.name, 'Private PG Smoke v2')
       const adminModels = await hydrated.listAdminModels()
       assert.ok(adminModels.models.some(model => model.id === userModels.defaultModelId))
       const fastModel = await hydrated.updateAdminModel('mdl_babelo_fast', { enabled: true, isDefault: true })
@@ -280,6 +332,8 @@ function clearHydratedCache(repository: PostgresRepository): void {
   repository.modelServices.clear()
   repository.userModelAccess.clear()
   repository.userCapabilityPreferences.clear()
+  repository.designTemplatePacks.clear()
+  repository.designTemplatePackVersions.clear()
   repository.annotationBatches.clear()
   repository.auditLogs.splice(0, repository.auditLogs.length)
   repository.usageEvents.splice(0, repository.usageEvents.length)

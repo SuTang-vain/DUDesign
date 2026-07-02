@@ -100,14 +100,14 @@
 - [x] 新增保存 variation 为模板 API：`POST /api/variations/:id/save-template`。
 - [x] 新增 `DESIGN.md` 导入 API：`POST /api/design-templates/import-design-md`。
 - [x] 新增模板列表 API：`GET /api/design-templates`。
-- [ ] 新增 `design_templates` / `design_template_versions` PostgreSQL migration。
-- [ ] 新增 `ApplicationRepository` 模板持久化方法，覆盖 list/get/save/version lookup。
-- [ ] 实现 `PostgresRepository` SQL-native 模板读写，支持 no-hydrate production mode。
-- [ ] 官方模板 seed 与用户私有模板合并读取时保持权限隔离和稳定排序。
-- [ ] 用户模板更新时写入新 version，不覆盖历史 job snapshot。
-- [ ] 新增 `capability_profiles` 或在 job snapshot 中显式保存 profile version。
-- [ ] 新增 capability usage events。
-- [ ] 用户偏好扩展保存默认 Design Template Pack、默认 skill、默认 MCP tool、品牌参考和高级约束。
+- [x] 新增 `design_templates` / `design_template_versions` PostgreSQL migration。
+- [x] 新增 `ApplicationRepository` 模板持久化方法，覆盖 list/get/save/version lookup。
+- [x] 实现 `PostgresRepository` SQL-native 模板读写，支持 no-hydrate production mode。
+- [x] 官方模板 seed 与用户私有模板合并读取时保持权限隔离和稳定排序。
+- [x] 用户模板更新时写入新 version，不覆盖历史 job snapshot。
+- [x] 新增 `capability_profiles` 或在 job snapshot 中显式保存 profile version。
+- [x] 新增 capability usage events。
+- [x] 用户偏好扩展保存默认 Design Template Pack、默认 skill、默认 MCP tool、品牌参考和高级约束。
 
 验收：
 
@@ -173,9 +173,9 @@
 - [x] API smoke：官方模板创建 job。
 - [x] API smoke：插件授权失败不能创建 job。
 - [x] API smoke：保存 variation 为模板。
-- [ ] PostgreSQL opt-in smoke：`design_templates` / `design_template_versions` migration、hydrate/no-hydrate、用户私有模板隔离。
-- [ ] API smoke：导入 `DESIGN.md` 后创建 job，并验证 template pack snapshot 不漂移。
-- [ ] API smoke：用户模板 version 更新后旧 job resume 仍使用旧 snapshot。
+- [x] PostgreSQL opt-in smoke：`design_templates` / `design_template_versions` migration、hydrate/no-hydrate、用户私有模板隔离。
+- [x] API smoke：导入 `DESIGN.md` 后创建 job，并验证 template pack snapshot 不漂移。
+- [x] API smoke：用户模板 version 更新后旧 job resume 仍使用旧 snapshot。
 - [x] Runtime Gateway golden：capability context 编译稳定。
 - [ ] Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定。
 - [ ] E2E：模板 + 插件 + standard loop 生成。

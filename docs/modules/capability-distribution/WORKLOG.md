@@ -826,3 +826,69 @@
 - Runtime Compatibility：真实 BabeL-O staging smoke 覆盖 automatic refine repair。
 - 后端服务层：Redis worker staging smoke 覆盖 automatic repair failed/completed 两条路径。
 - 前端交互层：展示 loop timeline、repair queue status、stopped reason。
+
+## 2026-07-02 CAP-4 Design Template Persistence and Capability Governance Events
+
+### 已完成
+
+- 新增 PostgreSQL migration `0010_design_templates.sql`：
+  - `design_templates`
+  - `design_template_versions`
+  - `user_preferences` 扩展字段
+  - `usage_events.kind` capability 事件扩展
+- `ApplicationRepository` 增加模板版本 lookup：
+  - `getDesignTemplatePackVersion(templateId, version, userId, workspaceId)`
+- `InMemoryStore` 增加不可变模板版本缓存：
+  - 当前模板保存在 `designTemplatePacks`
+  - 历史版本保存在 `designTemplatePackVersions`
+  - 同一 `templateId/version` 不覆盖历史内容
+- `PostgresRepository` 实现 SQL-native 模板读写：
+  - 官方模板 seed 入库
+  - list/get 通过 SQL 权限过滤，不依赖 hydrate cache
+  - save 写当前模板，并为新 version 写入 `design_template_versions`
+  - version lookup 支持 no-hydrate production mode
+- 官方模板与用户私有模板合并读取保持稳定排序：
+  - official 在前
+  - user/private 在后
+  - sort_key/name/id 稳定排序
+- 用户私有模板权限隔离：
+  - owner 可读
+  - 其它用户不可读 private template
+  - workspace template 预留 workspace_id 过滤
+- job snapshot 显式保存：
+  - `capabilityProfileVersion`
+  - `designTemplatePackVersions`
+- capability usage events 接入：
+  - `capability.template.selected`
+  - `capability.plugin.selected`
+  - `capability.preference.updated`
+- 用户偏好扩展保存：
+  - 默认 Design Template Pack
+  - 默认 skill
+  - 默认 MCP tool
+  - brand style reference
+  - advanced constraints
+
+### 决策
+
+- 本阶段不新增单独 `capability_profiles` 表，先在 job snapshot 中显式保存 profile version，满足 resume 不漂移。
+- `DesignTemplatePack` API contract 暂保持前端兼容，版本历史由 repository/table 管理。
+- capability usage events 复用 `usage_events`，成本为 0，用于治理统计和后续管理端分析。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/capabilities.test.js apps/api/dist/designTemplatePack.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/apiFlowSmoke.test.js apps/api/dist/postgresRepository.test.js`
+- 真实 PostgreSQL opt-in：
+  - 临时端口：`55432`
+  - `DUDESIGN_POSTGRES_TEST_URL=postgresql://127.0.0.1:55432/dudesign_test`
+  - `node --test --test-concurrency=1 apps/api/dist/postgresRepository.test.js apps/api/dist/postgres-api-flow.test.js`
+  - 覆盖 migration、hydrate、production no-hydrate API flow、多用户隔离、私有模板隔离、版本 lookup 和 capability usage events。
+
+> 本轮使用本机临时 PostgreSQL 实例完成 opt-in 验证；测试后已停止并清理临时数据目录。
+
+### 下一步
+
+- 管理端治理：展示模板版本、usage 统计和 lint/drift 状态。
+- 用户前端：官方模板 / 我的模板 / 最近使用 / 收藏入口。
+- PostgreSQL 真实环境：后续在 CI/staging 增加固定 opt-in job，避免本地手动验证成为唯一门禁。

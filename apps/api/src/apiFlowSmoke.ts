@@ -328,6 +328,7 @@ Reusable smoke test template.
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.aestheticProfile.id, 'aes_trustworthy_saas')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.colorPalette.id, 'pal_blue_white_trust')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.template.brandStyleReference?.id, 'brand_apple_inspired')
+  assert.match(jobSnapshot.job.capabilitySnapshot?.profileVersion ?? '', /^2026-/)
   assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_standard')
   assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.maxCostCents, 200)
   assert.equal(jobSnapshot.job.capabilitySnapshot?.automation.maxDurationMs, 300000)
@@ -336,9 +337,48 @@ Reusable smoke test template.
   assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.toolPolicy.allowedMcpToolIds, ['mcp_accessibility_validate'])
   assert.equal(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.skills[0]?.id, 'sk_static_export_safe')
   assert.equal(jobSnapshot.job.designTemplatePacks.length, 3)
+  assert.deepEqual(
+    (storedCreatedJob?.templateRequirements.designTemplatePackVersions as Array<{ id: string; version: string }>).map(item => item.id),
+    jobSnapshot.job.designTemplatePacks.map(template => template.id),
+  )
   assert.equal(jobSnapshot.job.designTemplatePacks[0]!.id, importedTemplate.template.id)
+  assert.equal(jobSnapshot.job.designTemplatePacks[0]!.version, '1.0.0')
+  assert.equal(jobSnapshot.job.designTemplatePacks[0]!.name, 'Smoke Private Template')
   assert.equal(new Set(jobSnapshot.variations.map(variation => variation.designTemplatePack?.id)).size, 3)
   assert.equal(jobSnapshot.variations[0]!.designTemplatePack?.id, importedTemplate.template.id)
+  assert.equal(jobSnapshot.variations[0]!.designTemplatePack?.version, '1.0.0')
+  await harness.service.store.saveDesignTemplatePack({
+    ...importedTemplate.template,
+    name: 'Smoke Private Template v2',
+    version: '2.0.0',
+    rationale: {
+      ...importedTemplate.template.rationale,
+      overview: 'Updated template should not mutate old job snapshots.',
+    },
+  })
+  const templateVersionV1 = await harness.service.store.getDesignTemplatePackVersion(
+    importedTemplate.template.id,
+    '1.0.0',
+    'usr_dev',
+    bootstrap.workspace.id,
+  )
+  const templateVersionV2 = await harness.service.store.getDesignTemplatePackVersion(
+    importedTemplate.template.id,
+    '2.0.0',
+    'usr_dev',
+    bootstrap.workspace.id,
+  )
+  assert.equal(templateVersionV1?.pack.name, 'Smoke Private Template')
+  assert.equal(templateVersionV2?.pack.name, 'Smoke Private Template v2')
+  const templatesAfterTemplateUpdate = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates')
+  const currentTemplate = templatesAfterTemplateUpdate.templates.find(template => template.id === importedTemplate.template.id)
+  assert.equal(currentTemplate?.version, '2.0.0')
+  assert.equal(currentTemplate?.name, 'Smoke Private Template v2')
+  const stableJobSnapshot = await getJson<JobSnapshot>(`/api/design-jobs/${createdJob.job.id}`)
+  assert.equal(stableJobSnapshot.job.designTemplatePacks[0]!.version, '1.0.0')
+  assert.equal(stableJobSnapshot.job.designTemplatePacks[0]!.name, 'Smoke Private Template')
+  assert.equal(stableJobSnapshot.variations[0]!.designTemplatePack?.version, '1.0.0')
+  assert.equal(stableJobSnapshot.variations[0]!.designTemplatePack?.name, 'Smoke Private Template')
   assert.equal(jobSnapshot.variations.length, 3)
   assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
   assert.equal(jobSnapshot.artifacts.filter(artifact => artifact.kind === 'html').length, 3)
@@ -349,6 +389,9 @@ Reusable smoke test template.
   assert.equal(screenshotResponse.ok, true)
   assert.equal(screenshotResponse.headers.get('content-type'), 'image/png')
   assert.equal(new Uint8Array(await screenshotResponse.arrayBuffer()).slice(0, 4).join(','), '137,80,78,71')
+  const capabilityUsage = harness.service.store.listUsageEvents({ jobId: createdJob.job.id })
+  assert.equal(capabilityUsage.filter(event => event.kind === 'capability.template.selected').length, 3)
+  assert.equal(capabilityUsage.filter(event => event.kind === 'capability.plugin.selected').length, 3)
 
   const sseReplay = await getText(`/api/design-jobs/${createdJob.job.id}/stream`)
   assert.match(sseReplay, /event: design\.variation_streaming/)

@@ -261,6 +261,25 @@ export class ApplicationService {
       ...(input.capabilityPreference ?? {}),
     })
     const saved = await this.store.saveUserCapabilityPreference(user.id, next)
+    const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
+    if (workspace) {
+      await this.recordUsageEvent({
+        idempotencyKey: `usage:capability.preference.updated:user:${user.id}:at:${Date.now()}`,
+        kind: 'capability.preference.updated',
+        userId: user.id,
+        workspaceId: workspace.id,
+        sessionId: null,
+        jobId: null,
+        variationId: null,
+        artifactId: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+        metadata: {
+          preference: saved,
+        },
+      })
+    }
     return { capabilityPreference: saved }
   }
 
@@ -435,6 +454,10 @@ export class ApplicationService {
         modelServiceId: selectedModel.id,
         capabilitySnapshot,
         designTemplatePackIds: designTemplatePacks.map(template => template.id),
+        designTemplatePackVersions: designTemplatePacks.map(template => ({
+          id: template.id,
+          version: template.version,
+        })),
         variationTemplateAssignments: variationTemplateAssignments.map(assignment => ({
           variationIndex: assignment.variationIndex,
           designTemplatePackId: assignment.designTemplatePackId,
@@ -449,13 +472,26 @@ export class ApplicationService {
       templateRequirements: {
         ...(input.templateRequirements ?? {}),
         capabilitySnapshot,
+        capabilityProfileVersion: capabilitySnapshot.profileVersion ?? capabilitySnapshot.schemaVersion,
         designTemplatePackIds: designTemplatePacks.map(template => template.id),
+        designTemplatePackVersions: designTemplatePacks.map(template => ({
+          id: template.id,
+          version: template.version,
+        })),
         designTemplatePacks,
         variationTemplateAssignments,
         modelServiceId: selectedModel.id,
         modelId: selectedModel.modelId,
         modelProvider: selectedModel.provider,
       },
+    })
+    await this.recordCapabilityUsageEvents({
+      userId: ctx.userId,
+      workspaceId: workspace.id,
+      sessionId: session.id,
+      jobId: job.id,
+      capabilitySnapshot,
+      designTemplatePacks,
     })
     const variations = await this.store.createVariations({ job, count: input.variationCount })
 
@@ -2159,6 +2195,59 @@ export class ApplicationService {
     }))
   }
 
+  private async recordCapabilityUsageEvents(input: {
+    userId: string
+    workspaceId: string
+    sessionId: string
+    jobId: string
+    capabilitySnapshot: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['capabilitySnapshot']>
+    designTemplatePacks: DesignTemplatePack[]
+  }): Promise<void> {
+    for (const template of input.designTemplatePacks) {
+      await this.recordUsageEvent({
+        idempotencyKey: `usage:capability.template.selected:job:${input.jobId}:template:${template.id}:version:${template.version}`,
+        kind: 'capability.template.selected',
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: null,
+        artifactId: template.previewArtifactId,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+        metadata: {
+          templateId: template.id,
+          templateVersion: template.version,
+          source: template.source,
+          visibility: template.visibility,
+        },
+      })
+    }
+    const pluginSnapshot = input.capabilitySnapshot.plugins.pluginSnapshot
+    if (!pluginSnapshot) return
+    for (const plugin of pluginSnapshot.plugins) {
+      await this.recordUsageEvent({
+        idempotencyKey: `usage:capability.plugin.selected:job:${input.jobId}:plugin:${plugin.id}`,
+        kind: 'capability.plugin.selected',
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: null,
+        artifactId: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 0,
+        metadata: {
+          pluginId: plugin.id,
+          pluginType: plugin.type,
+          auditLevel: plugin.permissionPolicy.auditLevel,
+        },
+      })
+    }
+  }
+
   private async recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]): Promise<void> {
     await this.store.createUsageEvent(input)
   }
@@ -3212,7 +3301,12 @@ function withCapabilityPreferenceDefaults(value: UserCapabilityPreference | null
     domainTemplateId: value?.domainTemplateId ?? defaults.domainTemplateId,
     aestheticProfileId: value?.aestheticProfileId ?? defaults.aestheticProfileId,
     colorPaletteId: value?.colorPaletteId ?? defaults.colorPaletteId,
+    brandStyleReferenceId: value?.brandStyleReferenceId ?? defaults.brandStyleReferenceId,
     loopProfileId: value?.loopProfileId ?? defaults.loopProfileId,
+    designTemplatePackId: value?.designTemplatePackId ?? null,
+    skillId: value?.skillId ?? null,
+    mcpToolId: value?.mcpToolId ?? null,
+    advancedConstraints: value?.advancedConstraints ?? null,
   })
 }
 
@@ -3233,11 +3327,39 @@ function normalizeCapabilityPreference(input: Partial<UserCapabilityPreference>)
   const loopProfileId = capabilities.automationLoopProfiles.some(item => item.id === input.loopProfileId)
     ? input.loopProfileId!
     : defaults.loopProfileId
+  const brandStyleReferenceId = input.brandStyleReferenceId && capabilities.brandStyleReferences.some(item => item.id === input.brandStyleReferenceId)
+    ? input.brandStyleReferenceId
+    : defaults.brandStyleReferenceId
+  const designTemplatePackId = typeof input.designTemplatePackId === 'string' && input.designTemplatePackId.trim()
+    ? input.designTemplatePackId
+    : null
+  const skillId = input.skillId && capabilities.skills.some(item => item.id === input.skillId)
+    ? input.skillId
+    : null
+  const mcpToolId = input.mcpToolId && capabilities.mcpToolBindings.some(item => item.id === input.mcpToolId)
+    ? input.mcpToolId
+    : null
   return {
     domainTemplateId,
     aestheticProfileId,
     colorPaletteId,
+    brandStyleReferenceId,
     loopProfileId,
+    designTemplatePackId,
+    skillId,
+    mcpToolId,
+    advancedConstraints: normalizeAdvancedConstraints(input.advancedConstraints),
+  }
+}
+
+function normalizeAdvancedConstraints(input: UserCapabilityPreference['advancedConstraints'] | undefined): UserCapabilityPreference['advancedConstraints'] {
+  if (!input) return null
+  return {
+    colorPaletteId: typeof input.colorPaletteId === 'string' ? input.colorPaletteId : null,
+    styleNotes: Array.isArray(input.styleNotes) ? input.styleNotes.filter((item): item is string => typeof item === 'string').slice(0, 12) : [],
+    brandStyleReferenceId: typeof input.brandStyleReferenceId === 'string' ? input.brandStyleReferenceId : null,
+    referenceBrand: typeof input.referenceBrand === 'string' ? input.referenceBrand.slice(0, 120) : null,
+    negativeRequirements: Array.isArray(input.negativeRequirements) ? input.negativeRequirements.filter((item): item is string => typeof item === 'string').slice(0, 12) : [],
   }
 }
 

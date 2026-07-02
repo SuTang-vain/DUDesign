@@ -612,6 +612,7 @@ export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefi
 
   return {
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
+    profileVersion: CAPABILITY_SCHEMA_VERSION,
     template: {
       domainTemplate,
       aestheticProfile,
