@@ -6,7 +6,7 @@ import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
-import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, shareVariation } from '@/lib/api'
+import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'circle' | 'arrow' | 'pen' | 'text'
@@ -60,6 +60,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting'>('idle')
   const [lastExport, setLastExport] = useState<ExportArtifactSummary | null>(null)
   const [shareStatus, setShareStatus] = useState<'idle' | 'creating'>('idle')
+  const [saveTemplateStatus, setSaveTemplateStatus] = useState<'idle' | 'saving'>('idle')
   const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(null)
   const [lockedVersion, setLockedVersion] = useState<LockedVariationVersion | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -237,6 +238,25 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       setError((err as Error).message)
     } finally {
       setShareStatus('idle')
+    }
+  }
+
+  async function saveAsTemplate(): Promise<void> {
+    if (!variationId || saveTemplateStatus === 'saving' || !detail?.currentArtifact) return
+    setSaveTemplateStatus('saving')
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await saveVariationAsTemplate(variationId, {
+        name: detail.variation.title ?? undefined,
+        artifactId: detail.currentArtifact.id,
+      })
+      const lint = result.summary
+      setNotice(`${t('savedAsTemplate')}${lint.warnings > 0 || lint.errors > 0 ? ` (${lint.errors}e / ${lint.warnings}w)` : ''}`)
+    } catch (err) {
+      setError(`${t('saveAsTemplateFailed')} ${(err as Error).message}`)
+    } finally {
+      setSaveTemplateStatus('idle')
     }
   }
 
@@ -431,6 +451,14 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             disabled={!detail?.variation.currentArtifactId || shareStatus === 'creating'}
           >
             <Icon name="link" size={14} /> {shareStatus === 'creating' ? t('sharing') : t('shareLink')}
+          </button>
+          <button
+            className="btn"
+            data-testid="save-as-template-button"
+            onClick={() => void saveAsTemplate()}
+            disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html' || saveTemplateStatus === 'saving'}
+          >
+            <Icon name="sparkles" size={14} /> {saveTemplateStatus === 'saving' ? t('importing') : t('saveAsTemplate')}
           </button>
           <UserActionCluster />
           <button

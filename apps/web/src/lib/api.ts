@@ -11,9 +11,13 @@ import type {
   DesignJobSnapshotResponse,
   DesignEvent,
   ExportVariationResponse,
+  ImportDesignTemplatePackRequest,
+  ListDesignTemplatePacksResponse,
   RefineVariationRequest,
   RefineVariationResponse,
   RestoreVariationVersionResponse,
+  SaveDesignTemplatePackResponse,
+  SaveVariationTemplateRequest,
   SharedVariationResponse,
   ShareVariationRequest,
   ShareVariationResponse,
@@ -158,6 +162,21 @@ export async function createDesignJob(input: CreateDesignJobRequest): Promise<Cr
 
 export async function createSourceArtifact(input: CreateSourceArtifactRequest): Promise<CreateSourceArtifactResponse> {
   return postJson('/api/source-artifacts', input)
+}
+
+export async function listDesignTemplates(): Promise<ListDesignTemplatePacksResponse> {
+  return getJson('/api/design-templates')
+}
+
+export async function importDesignTemplatePack(input: ImportDesignTemplatePackRequest): Promise<SaveDesignTemplatePackResponse> {
+  return postJson('/api/design-templates/import-design-md', input)
+}
+
+export async function saveVariationAsTemplate(
+  variationId: string,
+  input: SaveVariationTemplateRequest,
+): Promise<SaveDesignTemplatePackResponse> {
+  return postJson(`/api/variations/${encodeURIComponent(variationId)}/save-template`, input)
 }
 
 export async function getDesignJob(jobId: string): Promise<JobSnapshot> {

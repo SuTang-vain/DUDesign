@@ -17,7 +17,10 @@ const fallbackUser: UserActionIdentity = {
   email: 'dev@dudesign.local',
 }
 
-export function UserActionCluster(props: { user?: UserActionIdentity | null }): React.JSX.Element {
+export function UserActionCluster(props: {
+  user?: UserActionIdentity | null
+  onOpenPreferences?: () => void
+}): React.JSX.Element {
   const user = props.user ?? fallbackUser
   const [openMenu, setOpenMenu] = useState<OpenUserMenu>(null)
   const { language, setLanguage, t } = useLanguage()
@@ -79,6 +82,20 @@ export function UserActionCluster(props: { user?: UserActionIdentity | null }): 
             chineseLabel={t('chinese')}
             setLanguage={setLanguage}
           />
+          {props.onOpenPreferences ? (
+            <button
+              type="button"
+              className="user-action-menu-item"
+              data-testid="open-preferences"
+              onClick={() => {
+                props.onOpenPreferences?.()
+                setOpenMenu(null)
+              }}
+            >
+              <span>{t('myPreferences')}</span>
+              <small>{t('defaultTemplate')} · {t('defaultSkill')} · {t('defaultLoop')}</small>
+            </button>
+          ) : null}
           <ReservedMenuItem title={t('account')} detail={t('accountDetail')} />
           <ReservedMenuItem title={t('workspace')} detail={t('workspaceDetail')} />
           <ReservedMenuItem title={t('modelPreferences')} detail={t('modelPreferencesDetail')} />

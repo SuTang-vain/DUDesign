@@ -9,6 +9,8 @@ import {
   getCapabilities,
   getBootstrap,
   getUserPreferences,
+  importDesignTemplatePack,
+  listDesignTemplates,
   listSessions,
   resumeSession,
   updateUserPreferences,
@@ -17,9 +19,12 @@ import {
   type ModelOption,
   type SessionSnapshot,
 } from '@/lib/api'
+import type { DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
-import { DesignDirectionPicker } from '@/components/DesignDirectionPicker'
+import { DesignSystemPicker } from '@/components/DesignSystemPicker'
+import { PluginsPicker } from '@/components/PluginsPicker'
+import { PreferencesPanel, type PreferencesPanelLabels } from '@/components/PreferencesPanel'
 import { Logo } from '@/components/Logo'
 import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
@@ -31,9 +36,10 @@ const promptExamples = [
 ]
 
 const variationOptions = [1, 2, 3, 4, 5, 6]
-type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'model' | null
-type ContextPanel = 'files' | 'skills' | 'connectors' | 'plugins'
+type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'plugins' | 'loop' | 'model' | null
+type ContextPanel = 'files' | 'loop' | 'plugins'
 type CapabilityPreferenceDraft = {
+  visualMode?: 'pack' | 'custom'
   domainTemplateId?: string
   aestheticProfileId?: string
   colorPaletteId?: string
@@ -76,7 +82,22 @@ export default function HomePage(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
-  const [contextPanel, setContextPanel] = useState<ContextPanel | null>(null)
+  const [contextPanel, setContextPanel] = useState<ContextPanel | null>('files')
+  const contextTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const inspireRef = useRef<HTMLElement | null>(null)
+  const [templatePacks, setTemplatePacks] = useState<DesignTemplatePack[]>([])
+  const [selectedTemplatePackIds, setSelectedTemplatePackIds] = useState<string[]>([])
+  const [autoDistributePacks, setAutoDistributePacks] = useState<boolean>(true)
+  const [visualMode, setVisualMode] = useState<'pack' | 'custom'>('pack')
+  const [favoriteTemplateIds, setFavoriteTemplateIds] = useState<string[]>([])
+  const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([])
+  const [templateImporting, setTemplateImporting] = useState<boolean>(false)
+  const [templateImportNotice, setTemplateImportNotice] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([])
+  const [selectedMcpToolIds, setSelectedMcpToolIds] = useState<string[]>([])
+  const [preferencesOpen, setPreferencesOpen] = useState<boolean>(false)
+  const [preferencesSaving, setPreferencesSaving] = useState<boolean>(false)
+  const [userPreference, setUserPreference] = useState<UserCapabilityPreference | null>(null)
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -95,6 +116,7 @@ export default function HomePage(): React.JSX.Element {
         setReferenceBrand(localPreference.referenceBrand ?? '')
         setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
         setNegativeRequirements(localPreference.negativeRequirements ?? '')
+        setVisualMode(localPreference.visualMode ?? 'pack')
         setStatus('idle')
         return getUserPreferences()
           .then(preferences => {
@@ -106,6 +128,15 @@ export default function HomePage(): React.JSX.Element {
             setReferenceBrand(localPreference.referenceBrand ?? '')
             setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
             setNegativeRequirements(localPreference.negativeRequirements ?? '')
+            setVisualMode(localPreference.visualMode ?? 'pack')
+            const preferredSkillId = preferences.capabilityPreference.skillId
+            setSelectedSkillIds(preferredSkillId ? [preferredSkillId] : [])
+            const preferredTemplatePackId = preferences.capabilityPreference.designTemplatePackId
+            if (preferredTemplatePackId) {
+              setSelectedTemplatePackIds([preferredTemplatePackId])
+              setVisualMode('pack')
+            }
+            setUserPreference(preferences.capabilityPreference)
           })
           .catch(err => {
             console.warn('Failed to load capability preferences', err)
@@ -136,6 +167,111 @@ export default function HomePage(): React.JSX.Element {
     }
   }, [])
 
+  // “需要灵感”区块:进入视口才披露(向下滚动自动显现)
+  useEffect(() => {
+    const node = inspireRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      node?.classList.add('revealed')
+      return
+    }
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('revealed')
+          observer.disconnect()
+        }
+      }
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.12 })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    setFavoriteTemplateIds(readTemplateFavorites())
+    setRecentTemplateIds(readTemplateRecent().map(item => item.id))
+    let cancelled = false
+    listDesignTemplates()
+      .then(response => {
+        if (!cancelled) setTemplatePacks(response.templates)
+      })
+      .catch(err => {
+        console.warn('Failed to load design templates', err)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  function toggleTemplateSelect(id: string): void {
+    setSelectedTemplatePackIds(current =>
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id],
+    )
+  }
+
+  function toggleTemplateFavorite(id: string): void {
+    setFavoriteTemplateIds(current => {
+      const next = current.includes(id) ? current.filter(item => item !== id) : [...current, id]
+      writeTemplateFavorites(next)
+      return next
+    })
+  }
+
+  async function importDesignMd(designMd: string, name?: string): Promise<void> {
+    setTemplateImporting(true)
+    setTemplateImportNotice(null)
+    try {
+      const result = await importDesignTemplatePack({ designMd, name: name ?? null })
+      setTemplatePacks(current => {
+        const exists = current.some(pack => pack.id === result.template.id)
+        return exists ? current.map(pack => pack.id === result.template.id ? result.template : pack) : [result.template, ...current]
+      })
+      const kind = result.summary.errors > 0 ? 'err' : result.summary.warnings > 0 ? 'warn' : 'ok'
+      setTemplateImportNotice({ kind, text: `${t('importSuccess')} (${result.summary.errors}e / ${result.summary.warnings}w / ${result.summary.info}i)` })
+    } catch (err) {
+      setTemplateImportNotice({ kind: 'err', text: `${t('importFailed')} ${(err as Error).message}` })
+    } finally {
+      setTemplateImporting(false)
+    }
+  }
+
+  async function savePreferences(next: Partial<UserCapabilityPreference>): Promise<void> {
+    setPreferencesSaving(true)
+    try {
+      const base = userPreference ?? {
+        domainTemplateId: null,
+        aestheticProfileId: null,
+        colorPaletteId: null,
+        loopProfileId: null,
+      }
+      const merged: UserCapabilityPreference = { ...base, ...next }
+      setUserPreference(merged)
+      // 本地兜底:仅写入 capabilityPreference 草稿支持的字段
+      writeCapabilityPreference({
+        visualMode: merged.designTemplatePackId ? 'pack' : visualMode,
+        domainTemplateId: merged.domainTemplateId ?? '',
+        aestheticProfileId: merged.aestheticProfileId ?? '',
+        colorPaletteId: merged.colorPaletteId ?? '',
+        loopProfileId: merged.loopProfileId ?? '',
+        brandStyleReferenceId: merged.brandStyleReferenceId ?? '',
+        referenceBrand: merged.advancedConstraints?.referenceBrand ?? '',
+        styleNotes: (merged.advancedConstraints?.styleNotes ?? []).join(', '),
+        negativeRequirements: (merged.advancedConstraints?.negativeRequirements ?? []).join('\n'),
+      })
+      // 应用默认值到当前 composer 状态
+      if (merged.loopProfileId) setLoopProfileId(merged.loopProfileId)
+      if (merged.advancedConstraints?.colorPaletteId) setColorPaletteId(merged.advancedConstraints.colorPaletteId)
+      if (merged.advancedConstraints?.referenceBrand !== undefined) setReferenceBrand(merged.advancedConstraints.referenceBrand ?? '')
+      if (merged.advancedConstraints?.styleNotes) setStyles(merged.advancedConstraints.styleNotes.join(', '))
+      if (merged.advancedConstraints?.negativeRequirements !== undefined) setNegativeRequirements((merged.advancedConstraints.negativeRequirements ?? []).join('\n'))
+      if (merged.designTemplatePackId) setSelectedTemplatePackIds([merged.designTemplatePackId])
+      if (merged.skillId) setSelectedSkillIds([merged.skillId])
+      await updateUserPreferences({ capabilityPreference: next })
+    } catch (err) {
+      console.warn('Failed to save preferences', err)
+    } finally {
+      setPreferencesSaving(false)
+      setPreferencesOpen(false)
+    }
+  }
+
   const workspaces = bootstrap?.workspaces?.length ? bootstrap.workspaces : bootstrap ? [bootstrap.workspace] : []
   const workspace = workspaces.find(item => item.id === selectedWorkspaceId) ?? bootstrap?.workspace
   const selectedModel = bootstrap?.models.models.find(model => model.id === modelServiceId)
@@ -147,6 +283,9 @@ export default function HomePage(): React.JSX.Element {
   const selectedPalette = availablePalettes.find(palette => palette.id === colorPaletteId)
     ?? capabilities?.colorPalettes.find(palette => palette.id === colorPaletteId)
   const selectedLoop = capabilities?.automationLoopProfiles.find(profile => profile.id === loopProfileId)
+  function selectContextPanel(panel: ContextPanel): void {
+    setContextPanel(panel)
+  }
   const canSubmit = useMemo(() => {
     return status !== 'submitting'
       && sourceUploadStatus !== 'uploading'
@@ -155,9 +294,6 @@ export default function HomePage(): React.JSX.Element {
       && (mode === 'new_html' || Boolean(sourceArtifact))
   }, [bootstrap, mode, prompt, sourceArtifact, sourceUploadStatus, status])
 
-  function selectContextPanel(panel: ContextPanel): void {
-    setContextPanel(current => current === panel ? current : panel)
-  }
 
   async function uploadSourceFile(file: File | null): Promise<void> {
     if (!file || !bootstrap) return
@@ -206,12 +342,24 @@ export default function HomePage(): React.JSX.Element {
         capabilityRequirements: {
           template: {
             domainTemplateId: domainTemplateId || undefined,
-            aestheticProfileId: aestheticProfileId || undefined,
-            colorPaletteId: colorPaletteId || undefined,
+            // 视觉系统二选一:模板包(完整设计令牌)或 自定义(审美+配色)互斥
+            ...(visualMode === 'pack'
+              ? {
+                  designTemplatePackIds: selectedTemplatePackIds.length ? selectedTemplatePackIds : undefined,
+                  autoDistributeTemplatePacks: selectedTemplatePackIds.length > 1 ? autoDistributePacks : undefined,
+                }
+              : {
+                  aestheticProfileId: aestheticProfileId || undefined,
+                  colorPaletteId: colorPaletteId || undefined,
+                }),
             brandStyleReferenceId: brandStyleReferenceId || undefined,
           },
           automation: {
             loopProfileId: loopProfileId || undefined,
+          },
+          plugins: {
+            skillIds: selectedSkillIds.length ? selectedSkillIds : undefined,
+            mcpToolIds: selectedMcpToolIds.length ? selectedMcpToolIds : undefined,
           },
         },
         templateRequirements: {
@@ -227,6 +375,9 @@ export default function HomePage(): React.JSX.Element {
           },
         },
       })
+      if (selectedTemplatePackIds.length) {
+        setRecentTemplateIds(writeTemplateRecent(selectedTemplatePackIds).map(item => item.id))
+      }
       window.location.href = `/jobs/${job.job.id}`
     } catch (err) {
       setError((err as Error).message)
@@ -236,6 +387,7 @@ export default function HomePage(): React.JSX.Element {
 
   function saveCapabilityPreference(next: CapabilityPreferenceDraft): void {
     const capabilityPreference = {
+      visualMode: next.visualMode ?? visualMode,
       domainTemplateId: next.domainTemplateId ?? domainTemplateId,
       aestheticProfileId: next.aestheticProfileId ?? aestheticProfileId,
       colorPaletteId: next.colorPaletteId ?? colorPaletteId,
@@ -321,10 +473,8 @@ export default function HomePage(): React.JSX.Element {
       </aside>
 
       <section className="home-main">
+        <div className="home-hero">
         <header className="home-topbar">
-          <div>
-            <h1>{renderHeading(headingLine, headingWord)}</h1>
-          </div>
           <div className="top-actions">
             <div className="ws-select" data-menu-root="true">
               <button
@@ -364,11 +514,36 @@ export default function HomePage(): React.JSX.Element {
             <button className="icon-btn" aria-label={t('notifications')} title={t('notifications')}>
               <Icon name="bell" size={17} />
             </button>
-            <UserActionCluster user={bootstrap?.user} />
+            <UserActionCluster user={bootstrap?.user} onOpenPreferences={() => setPreferencesOpen(true)} />
           </div>
         </header>
 
+        {preferencesOpen ? (
+          <PreferencesOverlay
+            preference={userPreference}
+            capabilities={capabilities}
+            templatePacks={templatePacks}
+            saving={preferencesSaving}
+            onClose={() => setPreferencesOpen(false)}
+            onSave={next => void savePreferences(next)}
+            labels={{
+              myPreferences: t('myPreferences'),
+              defaultTemplate: t('defaultTemplate'),
+              defaultSkill: t('defaultSkill'),
+              defaultLoop: t('defaultLoop'),
+              advancedConstraints: t('advancedConstraints'),
+              styleNotes: t('styleNotes'),
+              referenceBrand: t('referenceBrand'),
+              negativeRequirements: t('negativeRequirements'),
+              palette: t('palette'),
+              save: t('savePreferences'),
+              saved: t('preferencesSaved'),
+              none: t('choose'),
+            }}
+          />
+        ) : null}
         <section className="composer" aria-label={t('generateDesignVariations')}>
+          <h1 className="composer-heading">{renderHeading(headingLine, headingWord)}</h1>
           <div className="composer-head">
             <div className="mode-tabs" role="tablist" aria-label={t('sourceMode')}>
               <button className={mode === 'new_html' ? 'active' : ''} onClick={() => setMode('new_html')}>
@@ -397,125 +572,134 @@ export default function HomePage(): React.JSX.Element {
             <div className="composer-tools">
               <div className="menu-root" data-menu-root="true">
                 <button
+                  ref={contextTriggerRef}
                   className="tool icon"
                   type="button"
                   aria-label={t('addContext')}
                   aria-expanded={openMenu === 'context'}
                   onClick={() => {
                     const nextOpen = openMenu !== 'context'
-                    setContextPanel(nextOpen ? 'files' : null)
+                    if (nextOpen) setContextPanel('files')
                     setOpenMenu(nextOpen ? 'context' : null)
                   }}
                 >
                   <Icon name="plus" size={16} />
                 </button>
-                {openMenu === 'context' ? (
-                  <div className="paired-popover-wrap">
-                    <div className="context-parent-list" role="menu" aria-label={t('addContext')}>
-                      <button
-                        className={contextPanel === 'files' ? 'active' : ''}
-                        type="button"
-                        onPointerEnter={() => selectContextPanel('files')}
-                        onFocus={() => selectContextPanel('files')}
-                        onClick={() => selectContextPanel('files')}
-                      >
-                        <span className="context-menu-icon" aria-hidden><Icon name="upload" size={16} /></span>
-                        <strong>{t('addFilesOrPhotos')}</strong>
-                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
-                      </button>
-                      <button
-                        className={contextPanel === 'skills' ? 'active' : ''}
-                        type="button"
-                        onPointerEnter={() => selectContextPanel('skills')}
-                        onFocus={() => selectContextPanel('skills')}
-                        onClick={() => selectContextPanel('skills')}
-                      >
-                        <span className="context-menu-icon" aria-hidden><Icon name="sparkles" size={16} /></span>
-                        <strong>{t('skills')}</strong>
-                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
-                      </button>
-                      <button
-                        className={contextPanel === 'connectors' ? 'active' : ''}
-                        type="button"
-                        onPointerEnter={() => selectContextPanel('connectors')}
-                        onFocus={() => selectContextPanel('connectors')}
-                        onClick={() => selectContextPanel('connectors')}
-                      >
-                        <span className="context-menu-icon" aria-hidden><Icon name="plug" size={16} /></span>
-                        <strong>{t('addConnector')}</strong>
-                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
-                      </button>
-                      <button
-                        className={contextPanel === 'plugins' ? 'active' : ''}
-                        type="button"
-                        onPointerEnter={() => selectContextPanel('plugins')}
-                        onFocus={() => selectContextPanel('plugins')}
-                        onClick={() => selectContextPanel('plugins')}
-                      >
-                        <span className="context-menu-icon" aria-hidden><Icon name="puzzle" size={16} /></span>
-                        <strong>{t('addPlugins')}</strong>
-                        <i aria-hidden><Icon name="chevronRight" size={14} /></i>
-                      </button>
-                    </div>
-                    <div className="context-child-panel" data-active-panel={contextPanel ?? 'none'}>
-                        {contextPanel === 'files' ? (
-                        <div className="context-option-list">
-                          <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => {
-                            setMode('new_html')
-                            setOpenMenu(null)
-                          }}>
-                            {t('newHtml')}
-                            <span>{t('generateFreshStandalonePage')}</span>
-                          </button>
-                          <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
-                            {t('existingHtml')}
-                            <span>{t('continueFromUploadedPage')}</span>
-                          </button>
-                          <label className="context-upload-action">
-                            <strong>{sourceUploadStatus === 'uploading' ? t('uploading') : sourceArtifact ? sourceArtifact.entryPath : t('uploadHtml')}</strong>
-                            <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : t('useLocalHtmlFile')}</span>
-                            <input
-                              data-testid="source-html-input"
-                              type="file"
-                              accept=".html,.htm,text/html"
-                              onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
-                            />
-                          </label>
-                        </div>
-                        ) : null}
-                        {contextPanel === 'connectors' ? (
-                        <div className="context-option-list">
-                          <button type="button" disabled>{t('connectors')}</button>
-                          <button type="button" disabled>{t('mcp')}</button>
-                        </div>
-                        ) : null}
-                        {contextPanel === 'plugins' ? (
-                        <div className="context-option-list">
-                          <button type="button" disabled>{t('plugins')}</button>
-                        </div>
-                        ) : null}
-                        {contextPanel === 'skills' ? (
-                        <div className="context-option-list" data-testid="loop-profile-options">
-                          {(capabilities?.automationLoopProfiles ?? []).map(profile => (
-                            <button
-                              key={profile.id}
-                              className={profile.id === loopProfileId ? 'active' : ''}
-                              type="button"
-                              onClick={() => {
-                                setLoopProfileId(profile.id)
-                                saveCapabilityPreference({ loopProfileId: profile.id })
-                                setOpenMenu(null)
-                              }}
-                            >
-                              {c18n.loopName(profile.id, profile.name)}
-                              <span>{profile.description}</span>
-                            </button>
-                          ))}
-                        </div>
-                        ) : null}
-                    </div>
+                <FloatingMenu
+                  open={openMenu === 'context'}
+                  anchorRef={contextTriggerRef}
+                  align="start"
+                  matchWidthSelector=".composer-card"
+                  fillAbove
+                  className="context-aggregate"
+                  testId="context-direct-popover"
+                >
+                  <div className="context-parent-list" role="menu" aria-label={t('addContext')}>
+                    <button
+                      className={contextPanel === 'files' ? 'active' : ''}
+                      type="button"
+                      onPointerEnter={() => selectContextPanel('files')}
+                      onFocus={() => selectContextPanel('files')}
+                      onClick={() => selectContextPanel('files')}
+                    >
+                      <span className="context-menu-icon" aria-hidden><Icon name="upload" size={16} /></span>
+                      <strong>{t('addFilesOrPhotos')}</strong>
+                      <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                    </button>
+                    <button
+                      className={contextPanel === 'loop' ? 'active' : ''}
+                      type="button"
+                      onPointerEnter={() => selectContextPanel('loop')}
+                      onFocus={() => selectContextPanel('loop')}
+                      onClick={() => selectContextPanel('loop')}
+                    >
+                      <span className="context-menu-icon" aria-hidden><Icon name="sparkles" size={16} /></span>
+                      <strong>{t('flowPill')}</strong>
+                      <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                    </button>
+                    <button
+                      className={contextPanel === 'plugins' ? 'active' : ''}
+                      type="button"
+                      onPointerEnter={() => selectContextPanel('plugins')}
+                      onFocus={() => selectContextPanel('plugins')}
+                      onClick={() => selectContextPanel('plugins')}
+                    >
+                      <span className="context-menu-icon" aria-hidden><Icon name="puzzle" size={16} /></span>
+                      <strong>{t('pluginsPill')}</strong>
+                      <i aria-hidden><Icon name="chevronRight" size={14} /></i>
+                    </button>
                   </div>
-                ) : null}
+                  <div className="context-child-panel" data-active-panel={contextPanel ?? 'none'}>
+                    {contextPanel === 'files' ? (
+                      <div className="context-option-list">
+                        <button className={mode === 'new_html' ? 'active' : ''} type="button" onClick={() => { setMode('new_html'); setOpenMenu(null) }}>
+                          {t('newHtml')}
+                          <span>{t('generateFreshStandalonePage')}</span>
+                        </button>
+                        <button className={mode === 'from_existing_html' ? 'active' : ''} type="button" onClick={() => setMode('from_existing_html')}>
+                          {t('existingHtml')}
+                          <span>{t('continueFromUploadedPage')}</span>
+                        </button>
+                        <label className="context-upload-action">
+                          <strong>{sourceUploadStatus === 'uploading' ? t('uploading') : sourceArtifact ? sourceArtifact.entryPath : t('uploadHtml')}</strong>
+                          <span>{sourceArtifact ? formatBytes(sourceArtifact.sizeBytes) : t('useLocalHtmlFile')}</span>
+                          <input
+                            data-testid="source-html-input"
+                            type="file"
+                            accept=".html,.htm,text/html"
+                            onChange={event => void uploadSourceFile(event.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                    {contextPanel === 'loop' ? (
+                      <div className="context-option-list" data-testid="loop-profile-options">
+                        {(capabilities?.automationLoopProfiles ?? []).map(profile => (
+                          <button
+                            key={profile.id}
+                            className={profile.id === loopProfileId ? 'active' : ''}
+                            type="button"
+                            onClick={() => {
+                              setLoopProfileId(profile.id)
+                              saveCapabilityPreference({ loopProfileId: profile.id })
+                              setOpenMenu(null)
+                            }}
+                          >
+                            {c18n.loopName(profile.id, profile.name)}
+                            <span>{profile.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {contextPanel === 'plugins' ? (
+                      <PluginsPicker
+                        plugins={capabilities?.plugins ?? []}
+                        skills={capabilities?.skills ?? []}
+                        mcpToolBindings={capabilities?.mcpToolBindings ?? []}
+                        selectedSkillIds={selectedSkillIds}
+                        selectedMcpToolIds={selectedMcpToolIds}
+                        labels={{
+                          pluginsPill: t('pluginsPill'),
+                          selectPlugins: t('selectSkills'),
+                          pluginsHint: t('skillsSafeOnlyHint'),
+                          pluginTypeSkill: t('pluginTypeSkill'),
+                          pluginTypeMcp: t('pluginTypeMcp'),
+                          safetyLevel: t('safetyLevel'),
+                          safe: t('safe'),
+                          reviewRequired: t('reviewRequired'),
+                          scopes: t('negativeRules'),
+                          ruleSummary: t('ruleSummary'),
+                        }}
+                        onToggleSkill={id => setSelectedSkillIds(current =>
+                          current.includes(id) ? current.filter(item => item !== id) : [...current, id],
+                        )}
+                        onToggleMcpTool={id => setSelectedMcpToolIds(current =>
+                          current.includes(id) ? current.filter(item => item !== id) : [...current, id],
+                        )}
+                      />
+                    ) : null}
+                  </div>
+                </FloatingMenu>
               </div>
 
               <DirectPillMenu
@@ -546,14 +730,22 @@ export default function HomePage(): React.JSX.Element {
 
               <DirectPillMenu
                 id="template"
-                label={t('designDirection')}
-                value={selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('choose')}
-                itemCount={1}
+                label={t('designSystem')}
+                value={visualMode === 'pack' && selectedTemplatePackIds.length
+                  ? `${selectedTemplatePackIds.length} ${t('templatesCount')}`
+                  : (selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('choose'))}
+                matchWidthSelector=".composer-card"
+                fillAbove
                 openMenu={openMenu}
                 setOpenMenu={setOpenMenu}
               >
-                <DesignDirectionPicker
+                <DesignSystemPicker
                   capabilities={capabilities}
+                  visualMode={visualMode}
+                  onVisualModeChange={mode => {
+                    setVisualMode(mode)
+                    saveCapabilityPreference({ visualMode: mode })
+                  }}
                   value={{
                     domainTemplateId,
                     aestheticProfileId,
@@ -565,8 +757,13 @@ export default function HomePage(): React.JSX.Element {
                   }}
                   selectedLoopName={selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : undefined}
                   labels={{
-                    designDirection: t('designDirection'),
+                    designSystem: t('designSystem'),
                     scene: t('scene'),
+                    visualSystem: t('visualSystem'),
+                    applyTemplatePack: t('applyTemplatePack'),
+                    customDirection: t('customDirection'),
+                    packModeHint: t('packModeHint'),
+                    customModeHint: t('customModeHint'),
                     visual: t('visual'),
                     advanced: t('advanced'),
                     palette: t('palette'),
@@ -577,6 +774,43 @@ export default function HomePage(): React.JSX.Element {
                     choose: t('choose'),
                     loop: t('loop'),
                   }}
+                  templateLabels={{
+                    templateLibrary: t('templateLibrary'),
+                    official: t('officialTemplates'),
+                    mine: t('myTemplates'),
+                    recent: t('recentTemplates'),
+                    favorites: t('favoriteTemplates'),
+                    templatesCount: t('templatesCount'),
+                    search: t('search'),
+                    autoDistribute: t('autoDistribute'),
+                    autoDistributeHint: t('autoDistributeHint'),
+                    autoDistributeFewHint: t('autoDistributeFewHint'),
+                    importDesignMd: t('importDesignMd'),
+                    pasteDesignMd: t('pasteDesignMd'),
+                    designMdName: t('designMdName'),
+                    importing: t('importing'),
+                    applicableScenarios: t('applicableScenarios'),
+                    fontSummary: t('fontSummary'),
+                    dos: t('dos'),
+                    donts: t('donts'),
+                    noPreviewArtifact: t('noPreviewArtifact'),
+                    previewAttached: t('previewAttached'),
+                    emptyTemplates: t('emptyTemplates'),
+                    emptyFavorites: t('emptyFavorites'),
+                    emptyRecent: t('emptyRecent'),
+                  }}
+                  packs={templatePacks}
+                  selectedTemplatePackIds={selectedTemplatePackIds}
+                  autoDistribute={autoDistributePacks}
+                  favoriteTemplateIds={favoriteTemplateIds}
+                  recentTemplateIds={recentTemplateIds}
+                  variationCount={variationCount}
+                  importing={templateImporting}
+                  importNotice={templateImportNotice}
+                  onTogglePackSelect={toggleTemplateSelect}
+                  onTogglePackFavorite={toggleTemplateFavorite}
+                  onAutoDistributeChange={setAutoDistributePacks}
+                  onImportDesignMd={(designMd, name) => void importDesignMd(designMd, name)}
                   onChange={next => {
                     if (next.domainTemplateId !== undefined) {
                       setDomainTemplateId(next.domainTemplateId)
@@ -585,9 +819,10 @@ export default function HomePage(): React.JSX.Element {
                     if (next.aestheticProfileId !== undefined || next.colorPaletteId !== undefined) {
                       const nextAestheticId = next.aestheticProfileId ?? aestheticProfileId
                       const nextPaletteId = next.colorPaletteId ?? colorPaletteId
+                      setVisualMode('custom')
                       setAestheticProfileId(nextAestheticId)
                       setColorPaletteId(nextPaletteId)
-                      saveCapabilityPreference({ aestheticProfileId: nextAestheticId, colorPaletteId: nextPaletteId })
+                      saveCapabilityPreference({ visualMode: 'custom', aestheticProfileId: nextAestheticId, colorPaletteId: nextPaletteId })
                     }
                     if (next.styleNotes !== undefined) {
                       setStyles(next.styleNotes)
@@ -666,16 +901,25 @@ export default function HomePage(): React.JSX.Element {
           {capabilities ? (
             <div className="cap-strip" data-testid="capability-summary">
               <span className="chip"><span className="k">{t('scene')}</span>{selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('domain')}</span>
-              <span className="chip"><span className="k">{t('visual')}</span>{selectedAesthetic ? c18n.aestheticName(selectedAesthetic.id, selectedAesthetic.name) : t('aesthetic')}</span>
-              <span className="chip"><span className="k">{t('palette')}</span>{selectedPalette ? c18n.paletteName(selectedPalette.id, selectedPalette.name) : t('palette')}</span>
+              {visualMode === 'pack' ? (
+                <span className="chip"><span className="k">{t('templateLibrary')}</span>{selectedTemplatePackIds.length
+                  ? `${selectedTemplatePackIds.length} ${t('templatesCount')}${autoDistributePacks && selectedTemplatePackIds.length > 1 ? ` · ${t('autoDistribute')}` : ''}`
+                  : t('choose')}</span>
+              ) : (
+                <>
+                  <span className="chip"><span className="k">{t('visual')}</span>{selectedAesthetic ? c18n.aestheticName(selectedAesthetic.id, selectedAesthetic.name) : t('aesthetic')}</span>
+                  <span className="chip"><span className="k">{t('palette')}</span>{selectedPalette ? c18n.paletteName(selectedPalette.id, selectedPalette.name) : t('palette')}</span>
+                </>
+              )}
               <span className="chip"><span className="k">{t('loop')}</span>{selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : t('loop')}</span>
             </div>
           ) : null}
 
           {error ? <p className="error-text">{error}</p> : null}
         </section>
+        </div>
 
-        <section className="inspire" aria-label={t('designInspiration')}>
+        <section className="inspire" ref={inspireRef} aria-label={t('designInspiration')}>
           <div className="inspire-head">
             <div>
               <strong>{t('needInspiration')}</strong>
@@ -694,6 +938,46 @@ export default function HomePage(): React.JSX.Element {
         </section>
       </section>
     </main>
+  )
+}
+
+function PreferencesOverlay(props: {
+  preference: UserCapabilityPreference | null
+  capabilities: CapabilitiesResponse | null
+  templatePacks: DesignTemplatePack[]
+  saving: boolean
+  labels: PreferencesPanelLabels
+  onClose: () => void
+  onSave: (next: Partial<UserCapabilityPreference>) => void
+}): React.JSX.Element {
+  const c18n = useCapabilityI18n()
+  const plugins = new Map((props.capabilities?.plugins ?? []).map(plugin => [plugin.id, plugin]))
+  const safeSkills = (props.capabilities?.skills ?? []).filter(skill => {
+    const plugin = plugins.get(skill.pluginId)
+    return plugin && plugin.safetyLevel === 'safe' && plugin.status === 'active' && plugin.visibility === 'official'
+  })
+  const emptyPreference: UserCapabilityPreference = {
+    domainTemplateId: null,
+    aestheticProfileId: null,
+    colorPaletteId: null,
+    loopProfileId: null,
+  }
+  return (
+    <div className="preferences-overlay" onClick={props.onClose} data-menu-root="true">
+      <div className="preferences-overlay-card" onClick={event => event.stopPropagation()}>
+        <PreferencesPanel
+          preference={props.preference ?? emptyPreference}
+          templateOptions={props.templatePacks.map(pack => ({ id: pack.id, label: c18n.templatePackName(pack.id, pack.name) }))}
+          skillOptions={safeSkills.map(skill => ({ id: skill.id, label: c18n.skillName(skill.id, plugins.get(skill.pluginId)?.name ?? skill.id) }))}
+          loopOptions={(props.capabilities?.automationLoopProfiles ?? []).map(loop => ({ id: loop.id, label: c18n.loopName(loop.id, loop.name) }))}
+          paletteOptions={(props.capabilities?.colorPalettes ?? []).map(palette => ({ id: palette.id, label: c18n.paletteName(palette.id, palette.name) }))}
+          labels={props.labels}
+          saving={props.saving}
+          onSave={props.onSave}
+          onClose={props.onClose}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -741,12 +1025,14 @@ function SessionGroup(props: {
 }
 
 function DirectPillMenu(props: {
-  id: Exclude<OpenMenu, 'workspace' | null>
+  id: Exclude<OpenMenu, 'workspace' | 'context' | null>
   label: string
   value: string
   itemCount?: number
   columnCount?: number
   align?: 'start' | 'center' | 'end'
+  matchWidthSelector?: string
+  fillAbove?: boolean
   children: React.ReactNode
   openMenu: OpenMenu
   setOpenMenu: React.Dispatch<React.SetStateAction<OpenMenu>>
@@ -754,6 +1040,8 @@ function DirectPillMenu(props: {
   const isOpen = props.openMenu === props.id
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const align = props.align ?? (props.id === 'template' ? 'center' : 'start')
+  const matchWidthSelector = props.matchWidthSelector ?? (props.id === 'template' ? '.composer-card' : undefined)
+  const fillAbove = props.fillAbove ?? props.id === 'template'
   return (
     <div className={`menu-root menu-root-${props.id}`} data-menu-root="true">
       <button
@@ -771,8 +1059,8 @@ function DirectPillMenu(props: {
         open={isOpen}
         anchorRef={triggerRef}
         align={align}
-        matchWidthSelector={props.id === 'template' ? '.composer-card' : undefined}
-        fillAbove={props.id === 'template'}
+        matchWidthSelector={matchWidthSelector}
+        fillAbove={fillAbove}
         className={`popover popover-${props.id}`}
         testId={`${props.id}-direct-popover`}
       >
@@ -951,10 +1239,70 @@ function readCapabilityPreference(): CapabilityPreferenceDraft {
   }
 }
 
-function writeCapabilityPreference(preference: Required<CapabilityPreferenceDraft>): void {
+function writeCapabilityPreference(preference: CapabilityPreferenceDraft): void {
   try {
     window.localStorage.setItem(capabilityPreferenceStorageKey, JSON.stringify(preference))
   } catch {
     // Persisting preferences locally is a best-effort UX optimization.
   }
+}
+
+const templateFavoritesStorageKey = 'dudesign.templateFavorites'
+const templateRecentStorageKey = 'dudesign.templateRecent'
+const templateRecentLimit = 12
+
+function readTemplateFavorites(): string[] {
+  try {
+    const raw = window.localStorage.getItem(templateFavoritesStorageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeTemplateFavorites(ids: string[]): string[] {
+  try {
+    window.localStorage.setItem(templateFavoritesStorageKey, JSON.stringify(ids))
+  } catch {
+    // best-effort
+  }
+  return ids
+}
+
+function readTemplateRecent(): Array<{ id: string; ts: number }> {
+  try {
+    const raw = window.localStorage.getItem(templateRecentStorageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is { id: string; ts: number } =>
+        typeof item === 'object' && item !== null && typeof item.id === 'string' && typeof item.ts === 'number')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/** 追加最近使用的模板 id(去重、按时间倒序、截断上限),返回写入后的完整列表。 */
+function writeTemplateRecent(ids: string[]): Array<{ id: string; ts: number }> {
+  const ts = Date.now()
+  const existing = readTemplateRecent()
+  const next: Array<{ id: string; ts: number }> = []
+  for (const id of ids) {
+    next.push({ id, ts: ts + next.length })
+  }
+  for (const item of existing) {
+    if (!ids.includes(item.id) && !next.some(entry => entry.id === item.id)) {
+      next.push(item)
+    }
+  }
+  const trimmed = next.slice(0, templateRecentLimit)
+  try {
+    window.localStorage.setItem(templateRecentStorageKey, JSON.stringify(trimmed))
+  } catch {
+    // best-effort
+  }
+  return trimmed
 }

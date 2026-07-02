@@ -100,6 +100,71 @@ const modelCapabilities: Record<string, { zh: string; en: string }> = {
   long_context: { zh: '长上下文', en: 'Long context' },
 }
 
+/** 官方设计模板包中文名/描述(按稳定 ID)。用户私有模板未命中时回退其英文名。 */
+const templatePacks: Record<string, { name: string; desc: string }> = {
+  dtp_premium_product_launch: { name: '高端产品发布', desc: '为有质感、高价值的数字或实体产品打造的克制发布系统。' },
+  dtp_trust_fintech: { name: '金融信任', desc: '清晰、合规优先的金融产品系统,强调信任、对比与转化。' },
+  dtp_editorial_creative_portfolio: { name: '编辑创意作品集', desc: '面向艺术家、工作室、摄影师与实验性创意的作品集系统。' },
+  dtp_enterprise_clarity: { name: '企业清晰', desc: '面向复杂产品、采购信心与反复扫读的稳重 B2B 系统。' },
+  dtp_mobility_launch: { name: '出行发布', desc: '面向汽车、出行、机器人与硬件移动产品的动感发布系统。' },
+  dtp_developer_workflow: { name: '开发者工作流', desc: '面向 API、CLI、基础设施与代码相关产品的精准开发者工具系统。' },
+  dtp_warm_commerce: { name: '暖色电商', desc: '面向精选商品、生活方式与亲和转化的产品电商系统。' },
+  dtp_data_operations: { name: '数据密集运营', desc: '面向仪表盘、管理工具、监控与重复流程的紧凑运营系统。' },
+}
+
+/** 官方 safe skill 中文名/描述/规则/负向约束/质量检查(按 skill 稳定 ID)。 */
+const skills: Record<string, {
+  name: string
+  desc: string
+  rules: string[]
+  negative: string[]
+  checklist: string[]
+}> = {
+  sk_static_export_safe: {
+    name: '静态导出安全',
+    desc: '保持生成的 HTML 自包含、可移植,适配 iframe 预览与导出。',
+    rules: [
+      '生成完整的静态 HTML 文档。',
+      '内联关键 CSS,除非作为资源打包,否则避免外部运行时依赖。',
+      '保持预览、导出与分享行为确定一致。',
+    ],
+    negative: [
+      '不要依赖包安装、构建步骤、仅网络可用的资源或绝对文件系统路径。',
+      '不要写入 ./index.html 与打包的相对资源之外的内容。',
+    ],
+    checklist: ['HTML 含 doctype、viewport meta、title 与语义化地标。', '无缺失的关键资源。', '不依赖本地绝对路径。'],
+  },
+  sk_mobile_first_landing: {
+    name: '移动优先落地页',
+    desc: '引导落地页的布局、点击区域与响应式层级。',
+    rules: [
+      '先按移动端层级设计,再扩展到平板与桌面。',
+      '保持点击区域足够大、底部间距舒适。',
+      '避免动态文本或控件导致的布局偏移。',
+    ],
+    negative: [
+      '不要在移动端把核心 CTA 或佐证藏在过多主视觉装饰之下。',
+      '不要使用视口宽度字体缩放。',
+    ],
+    checklist: ['主视觉文字在小屏可读。', '按钮与分段控件不会尴尬换行。', '移动优先构图后桌面布局仍对齐。'],
+  },
+  sk_accessibility_first: {
+    name: '无障碍优先',
+    desc: '为生成加入无障碍、对比度、焦点与语义 HTML 检查。',
+    rules: [
+      '使用语义化 HTML 与可见的焦点状态。',
+      '保持正文文字对比度可达。',
+      '确保控件具备清晰的标签与状态。',
+    ],
+    negative: [
+      '不要使用低对比度正文。',
+      '不要仅靠颜色传达状态。',
+      '不要把文字直接叠在繁杂图像上而无可达性处理。',
+    ],
+    checklist: ['所有可交互控件都有可达名称。', '正文对比度合适。', '焦点状态可见。'],
+  },
+}
+
 /** 词组翻译:分类、情绪、密度、正式度、色板用途键、详情标签、常见板块/必备项等 */
 const phrases: Record<string, string> = {
   // 分类
@@ -117,6 +182,9 @@ const phrases: Record<string, string> = {
   Sections: '板块', Required: '必备', Constraints: '约束',
   // 通用标签
   default: '默认',
+  // 安全等级 / 插件分类
+  safe: '安全', review_required: '需审核', disabled: '已禁用',
+  quality: '质量', responsive: '响应式', assets: '资源', validation: '校验',
   // 板块(常见)
   hero: '主视觉', 'hero statement': '主视觉宣言', 'trust proof': '信任佐证', 'product benefits': '产品卖点',
   security: '安全', 'pricing or CTA': '定价 / CTA', faq: '常见问题', 'selected work': '精选作品',
@@ -164,6 +232,16 @@ export function useCapabilityI18n() {
         ? (entry?.zh ?? id)
         : (entry?.en ?? id.replace(/_/g, ' '))
     }),
+    templatePackName: (id: string, en: string) => pick(language, templatePacks[id]?.name, en),
+    templatePackDesc: (id: string, en: string) => pick(language, templatePacks[id]?.desc, en),
+    skillName: (id: string, en: string) => pick(language, skills[id]?.name, en),
+    skillDesc: (id: string, en: string) => pick(language, skills[id]?.desc, en),
+    skillRules: (id: string, en: string[]) =>
+      language === 'zh' && skills[id]?.rules ? skills[id]!.rules : en,
+    skillNegative: (id: string, en: string[]) =>
+      language === 'zh' && skills[id]?.negative ? skills[id]!.negative : en,
+    skillChecklist: (id: string, en: string[]) =>
+      language === 'zh' && skills[id]?.checklist ? skills[id]!.checklist : en,
     phrase: (en: string) => pick(language, phrases[en], en),
     phraseList: (items: string[]) => items.map(en => pick(language, phrases[en], en)),
   }
