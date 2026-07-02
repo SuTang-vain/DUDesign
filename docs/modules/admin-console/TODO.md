@@ -91,6 +91,23 @@
 - 管理端可观察 memory 是否跨用户隔离。
 - 可按用户维度评估成本。
 
+## Phase ADM-5.5：Capability Governance
+
+- [ ] 展示官方场景模板、视觉 profile、色板、参考品牌和 Design Template Pack。
+- [ ] 展示用户私有模板数量、最近创建时间、lint 状态和 preview artifact 状态。
+- [ ] 支持官方 Design Template Pack 发布、下线、归档和版本 diff。
+- [ ] 展示 `DESIGN.md` import/lint 结果、broken reference、危险指令和 preview smoke。
+- [ ] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
+- [ ] 支持禁用风险 skill 或插件，并写入 audit log。
+- [ ] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
+- [ ] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。
+- [ ] 支持 capability usage events 查询。
+
+验收：
+
+- 管理员可以治理模板、skill 和 MCP 权限，不需要直接访问数据库或 runtime。
+- 官方能力发布、禁用和版本切换都有审计记录。
+
 ## Phase ADM-6：管理端质量门禁
 
 - [x] Admin API 权限测试。
@@ -104,6 +121,9 @@
 - [x] Model Services 同步 diff/audit/missing 浏览器 smoke test。
 - [x] Model Services support 只读权限浏览器 smoke test。
 - [x] Runtime Health contract mismatch/degraded 浏览器 smoke test。
+- [ ] Capability Governance 页面 smoke test。
+- [ ] 官方模板 lint/diff/preview smoke test。
+- [ ] 插件禁用后用户端创建 job 被拒绝的 Admin + API 联动测试。
 
 验收：
 

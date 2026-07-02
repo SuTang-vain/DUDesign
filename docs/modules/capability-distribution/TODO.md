@@ -95,17 +95,25 @@
 - [x] 扩展 `CreateDesignJobRequest.templateRequirements` 或新增 `capabilityRequirements`。
 - [x] job 创建时保存 capability snapshot。
 - [x] 新增官方能力 registry seed。
-- [x] 新增 PostgreSQL migration。
+- [x] 新增用户 Capability 偏好 PostgreSQL migration：`user_preferences`。
 - [x] 新增用户偏好 API。
-- [ ] 新增保存 variation 为模板 API。
-- [ ] 新增 `design_templates` / `design_template_versions` 或等价 capability table。
+- [x] 新增保存 variation 为模板 API：`POST /api/variations/:id/save-template`。
+- [x] 新增 `DESIGN.md` 导入 API：`POST /api/design-templates/import-design-md`。
+- [x] 新增模板列表 API：`GET /api/design-templates`。
+- [ ] 新增 `design_templates` / `design_template_versions` PostgreSQL migration。
+- [ ] 新增 `ApplicationRepository` 模板持久化方法，覆盖 list/get/save/version lookup。
+- [ ] 实现 `PostgresRepository` SQL-native 模板读写，支持 no-hydrate production mode。
+- [ ] 官方模板 seed 与用户私有模板合并读取时保持权限隔离和稳定排序。
+- [ ] 用户模板更新时写入新 version，不覆盖历史 job snapshot。
 - [ ] 新增 `capability_profiles` 或在 job snapshot 中显式保存 profile version。
 - [ ] 新增 capability usage events。
+- [ ] 用户偏好扩展保存默认 Design Template Pack、默认 skill、默认 MCP tool、品牌参考和高级约束。
 
 验收：
 
 - 无 capability 的旧 job 流程保持兼容。
 - 有 capability 的 job 可以恢复创建时的版本快照。
+- PostgreSQL 重启后，官方模板和用户私有模板仍可读取、授权和参与多 variation 分配。
 
 ## Phase CAP-5：用户前端接入
 
@@ -116,11 +124,15 @@
 - [x] 工作台 composer 将色板、补充风格词、参考品牌、负面要求放入高级入口。
 - [x] 设计方向选择器支持搜索、分类、右侧详情预览。
 - [x] 视觉卡片展示 mood、density、formality、best for、avoid for 的摘要。
-- [ ] 预留 Design System picker 入口，MVP 可隐藏或放入高级。
+- [x] 预留 Design System picker 入口，MVP 可隐藏或放入高级。
 - [ ] 增加官方模板 / 我的模板 / 最近使用 / 收藏的选择入口。
 - [ ] 模板卡片展示 color swatch、字体摘要、适用场景、preview artifact。
 - [ ] 支持上传或粘贴 `DESIGN.md` 创建用户私有模板。
+- [ ] 支持选择一个或多个 Design Template Pack，并写入 `capabilityRequirements.template.designTemplatePackIds`。
+- [ ] 支持“自动分配模板”，让 N 个 variation 自动使用不同官方/用户模板。
 - [ ] 工作台 composer 增加插件/skill 选择。
+- [ ] 插件/skill 选择 MVP 先只开放官方 safe skill，并写入 `capabilityRequirements.plugins.skillIds`。
+- [ ] 插件面板展示每个 skill 的适用场景、规则摘要、负向约束和安全等级。
 - [ ] 工作台 composer 增加 automation loop 强度选择。
 - [ ] 增加“保存为我的模板”入口。
 - [ ] 增加“我的偏好”入口。
@@ -139,8 +151,10 @@
 - [ ] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
 - [ ] 管理官方 skill。
 - [ ] 管理 MCP 插件可见性和权限。
+- [ ] 展示 MCP tool policy，从 `policy_only` 到真实调用能力的灰度状态。
 - [ ] 展示 automation loop 成功率和成本。
 - [ ] 展示模板/插件质量指标。
+- [ ] 展示模板/插件使用量、成功率、平均成本、失败原因和最近 drift。
 - [ ] 支持禁用风险插件。
 - [ ] 记录能力治理审计日志。
 
@@ -158,10 +172,17 @@
 - [x] automation loop stop condition 单元测试。
 - [x] API smoke：官方模板创建 job。
 - [x] API smoke：插件授权失败不能创建 job。
-- [ ] API smoke：保存 variation 为模板。
+- [x] API smoke：保存 variation 为模板。
+- [ ] PostgreSQL opt-in smoke：`design_templates` / `design_template_versions` migration、hydrate/no-hydrate、用户私有模板隔离。
+- [ ] API smoke：导入 `DESIGN.md` 后创建 job，并验证 template pack snapshot 不漂移。
+- [ ] API smoke：用户模板 version 更新后旧 job resume 仍使用旧 snapshot。
 - [x] Runtime Gateway golden：capability context 编译稳定。
+- [ ] Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定。
 - [ ] E2E：模板 + 插件 + standard loop 生成。
+- [ ] E2E：上传或粘贴 `DESIGN.md` -> 保存私有模板 -> 用该模板生成。
+- [ ] E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
 - [x] E2E：用户偏好恢复。
+- [ ] MCP smoke：从 `policy_only` 升级到真实调用后，覆盖授权、审计、结果注入和回放。
 
 验收：
 

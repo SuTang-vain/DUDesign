@@ -106,6 +106,22 @@
 
 - runtime 写盘后，业务服务层能得到稳定 artifact 引用。
 
+## Phase RTC-4.5：Capability Tool Policy 与 MCP 调用
+
+- [x] Runtime Gateway 将 MCP 插件编译为 `toolPolicy`，MVP 标记为 `policy_only`。
+- [x] Runtime Gateway 将声明式 skill 编译为受控 prompt block。
+- [ ] 定义真实 MCP 调用 contract：tool id、server、scope、auth、input/output envelope、audit metadata。
+- [ ] 实现 MCP 调用前授权校验，不允许 runtime 直接绕过 DUDesign Application Service。
+- [ ] 实现 MCP 结果注入规范：标注来源、摘要、引用 id，避免把外部结果当作事实直接写入 memory。
+- [ ] 实现 MCP 调用审计和 replay payload，支持问题排查与合规回放。
+- [ ] 增加 MCP unavailable 降级事件，用户端显示为能力不可用而不是 runtime 崩溃。
+- [ ] 增加真实 MCP smoke：授权、调用、结果注入、审计、回放。
+
+验收：
+
+- `policy_only` 升级到真实调用后，插件仍不能突破 workspace、模型、文件路径和用户权限边界。
+- BabeL-O 只能消费 DUDesign 标准化 tool policy 和 tool result，不直接读取 DUDesign 数据库或用户私有资产。
+
 ## Phase RTC-5：Refine 与 Resume
 
 - [x] 实现 `resumeSession`。
