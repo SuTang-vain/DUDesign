@@ -51,7 +51,7 @@ test('workbench can start from uploaded HTML', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
   await page.locator('.mode-tabs').getByRole('button', { name: 'Existing HTML', exact: true }).click()
   await page.getByRole('button', { name: 'Add context' }).click()
-  await page.getByRole('button', { name: 'Files or photos' }).click()
+  await expect(page.getByTestId('context-direct-popover')).toBeVisible()
   await page.getByTestId('source-html-input').setInputFiles({
     name: 'existing-source.html',
     mimeType: 'text/html',
@@ -70,39 +70,32 @@ test('composer menus close on outside click and do not stack', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Add context' }).click()
-  await expect(page.getByRole('button', { name: 'Files or photos' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connectors' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Plugins' })).toBeVisible()
-  await expect(page.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'files')
-  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeVisible()
-  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'Existing HTML' })).toBeVisible()
-  await expect(page.locator('.context-child-panel').getByText('Upload HTML')).toBeVisible()
+  await expect(page.getByText('Generate a fresh standalone page.')).toBeVisible()
+  await expect(page.getByText('Continue from an uploaded page.')).toBeVisible()
+  await expect(page.getByText('Use a local .html file')).toBeVisible()
 
   await page.getByTestId('template-pill-trigger').click()
-  await expect(page.locator('.context-child-panel').getByRole('button', { name: 'New HTML' })).toBeHidden()
+  await expect(page.getByText('Generate a fresh standalone page.')).toBeHidden()
   await expect(page.getByTestId('design-direction-picker')).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Scene/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Visual/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Advanced/ })).toBeVisible()
-  await expect(page.getByTestId('scene-options')).toBeVisible()
+  await expect(page.getByTestId('template-library-picker').getByText('Template library')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Custom/ })).toBeVisible()
 
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('design-direction-picker')).toBeHidden()
 })
 
-test('context child preview remains stable while hovering skills', async ({ page }) => {
+test('context child preview remains stable while hovering automation and plugins', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Add context' }).click()
-  const addContextMenu = page.locator('.paired-popover-wrap').first()
+  const addContextMenu = page.locator('.context-aggregate').first()
   await expect(addContextMenu).toBeVisible()
 
-  const skills = page.getByRole('button', { name: /Skills/ })
-  await skills.hover()
+  const flow = page.getByRole('button', { name: /^Automation/ })
+  await flow.hover()
   await expect(page.getByTestId('loop-profile-options')).toBeVisible()
-  await expect(addContextMenu.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'skills')
+  await expect(addContextMenu.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'loop')
 
   const firstBox = await addContextMenu.boundingBox()
   await page.waitForTimeout(120)
@@ -111,9 +104,9 @@ test('context child preview remains stable while hovering skills', async ({ page
   expect(Math.round(secondBox?.width ?? 0)).toBe(Math.round(firstBox?.width ?? 0))
   expect(Math.round(secondBox?.height ?? 0)).toBe(Math.round(firstBox?.height ?? 0))
 
-  await page.getByRole('button', { name: /Plugins/ }).hover()
+  await page.getByRole('button', { name: /^Plugins/ }).hover()
   await expect(addContextMenu.locator('.context-child-panel')).toHaveAttribute('data-active-panel', 'plugins')
-  await page.getByRole('button', { name: /Skills/ }).hover()
+  await page.getByRole('button', { name: /^Automation/ }).hover()
   await expect(page.getByTestId('loop-profile-options')).toBeVisible()
 })
 
@@ -126,11 +119,11 @@ test('design direction and model menus render within the composer viewport', asy
   await expect(directionPopover).toBeVisible()
   await expect(page.getByTestId('design-direction-picker')).toBeVisible()
   await expect(directionPopover).toContainText(/Portfolio|Product|Dashboard|Landing/)
-  await expect(directionPopover).toContainText('Standard')
+  await expect(directionPopover).toContainText(/Template library|Design system/)
   await expectPopoverInViewport(page, directionPopover)
 
   await page.getByTestId('model-pill-trigger').click()
-  const modelPopover = page.locator('.paired-popover-model')
+  const modelPopover = page.getByTestId('model-direct-popover')
   await expect(modelPopover).toBeVisible()
   await expect(page.getByTestId('model-paired-popover')).toBeVisible()
   await expect(modelPopover).toContainText('BabeL-O')
@@ -152,14 +145,13 @@ test('workbench can choose capability distribution options', async ({ page }) =>
 
   await page.getByTestId('template-pill-trigger').click()
   await expect(page.getByTestId('template-direct-popover')).toBeVisible()
+  await expect(page.getByTestId('template-library-picker').getByText('Template library')).toBeVisible()
+  await page.getByRole('button', { name: /Scene/ }).click()
   await expect(page.getByTestId('scene-options')).toBeVisible()
   await page.getByTestId('scene-options').getByRole('button', { name: /Premium Product Page/ }).click()
-  await page.getByRole('tab', { name: /Visual/ }).click()
+  await page.getByRole('button', { name: /Custom/ }).click()
   await page.getByTestId('visual-options').getByRole('button', { name: /Premium Minimal/ }).click()
-  await page.getByRole('tab', { name: /Advanced/ }).click()
   await expect(page.getByTestId('advanced-options')).toBeVisible()
-  await expect(page.getByTestId('design-system-upgrade-path')).toContainText('Design System')
-  await expect(page.getByTestId('design-system-upgrade-path')).toContainText('Alpha reserve')
   await page.getByTestId('palette-options').getByRole('button', { name: /Minimal Mono/ }).click()
   await page.getByTestId('style-notes-input').fill('premium product storytelling')
   await expect(page.getByTestId('brand-reference-options')).toBeVisible()
@@ -172,7 +164,7 @@ test('workbench can choose capability distribution options', async ({ page }) =>
 
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Add context' }).click()
-  await page.getByRole('button', { name: 'Skills' }).click()
+  await page.getByRole('button', { name: 'Automation' }).click()
   await page.getByTestId('loop-profile-options').getByRole('button', { name: /Standard/ }).click()
 
   await expect(page.getByTestId('capability-summary')).toContainText('Premium Product Page')
@@ -379,10 +371,8 @@ test('user workbench exposes basic accessible controls', async ({ page }) => {
   await page.getByTestId('prompt-input').fill('Accessible smoke prompt')
   await expect(page.getByTestId('generate-button')).toBeEnabled()
   await page.getByTestId('template-pill-trigger').click()
-  await expect(page.getByRole('tablist', { name: 'Design direction' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Scene/ })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('tab', { name: /Visual/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Advanced/ })).toBeVisible()
+  await expect(page.getByTestId('template-library-picker').getByText('Template library')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Scene/ })).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('global user action cluster opens and closes reserved menus', async ({ page }) => {
@@ -410,7 +400,7 @@ test('settings menu switches global language between English and Chinese', async
   await page.getByTestId('language-switcher').getByRole('button', { name: '中文' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await expect(page.getByTestId('user-action-menu')).toContainText('模型与生成偏好')
-  await expect(page.getByRole('heading', { name: '今天我们设计点什么?' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /今天我们\s*设计\s*点什么\?/ })).toBeVisible()
   await expect(page.getByRole('button', { name: '全新 HTML' })).toBeVisible()
   await expect(page.getByPlaceholder('描述你想要的页面:行业、用途、风格、关键模块…')).toBeVisible()
 

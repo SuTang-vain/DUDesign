@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { createVariationThroughUi } from './helpers'
 
 test('annotation rect can refine the current variation', async ({ page }) => {
   await createVariationThroughUi(page, 'A landing page for annotation browser E2E')
 
   await page.getByTestId('side-panel-tab-inspect').click()
-  await expect(page.getByTestId('current-artifact-version')).toContainText('v1')
+  await expect(htmlVersionRows(page).filter({ hasText: 'v1' })).toHaveCount(1)
   await page.getByTestId('side-panel-tab-annotate').click()
 
   await page.getByTestId('annotation-draw-toggle').check()
@@ -21,24 +21,24 @@ test('annotation rect can refine the current variation', async ({ page }) => {
   await page.mouse.up()
 
   await expect(page.getByTestId('annotation-rect')).toHaveCount(1)
-  await expect(page.getByText('1 annotation staged.')).toBeVisible()
+  await expect(page.getByTestId('annotation-list-row')).toHaveCount(1)
   await expect(page.getByTestId('apply-annotations-button')).toBeEnabled()
 
   await page.getByTestId('apply-annotations-button').click()
-  await expect(page.getByText('0 annotations staged.')).toBeVisible()
+  await expect(page.getByTestId('annotation-list-row')).toHaveCount(0)
   await page.getByTestId('side-panel-tab-inspect').click()
-  await expect(page.getByTestId('current-artifact-version')).toContainText('v2')
+  await expect(htmlVersionRows(page).filter({ hasText: 'v2' })).toHaveCount(1)
 
   await page.getByTestId('lock-version-button').click()
   await expect(page.getByTestId('variation-notice')).toContainText('Locked v2')
   await expect(page.getByTestId('locked-version-summary')).toContainText('Current version locked')
 
-  const htmlVersionButtons = page.getByTestId('artifact-version-button').filter({ hasText: 'index.html' })
-  await expect(htmlVersionButtons.filter({ hasText: 'v1' })).toHaveCount(1)
-  await expect(htmlVersionButtons.filter({ hasText: 'v2' })).toHaveCount(1)
-  await htmlVersionButtons.filter({ hasText: 'v1' }).click()
+  const versionRows = htmlVersionRows(page)
+  await expect(versionRows.filter({ hasText: 'v1' })).toHaveCount(1)
+  await expect(versionRows.filter({ hasText: 'v2' })).toHaveCount(1)
+  await versionRows.filter({ hasText: 'v1' }).getByTestId('artifact-version-button').click()
   await expect(page.getByTestId('variation-code-view')).toContainText('version 1')
-  await htmlVersionButtons.filter({ hasText: 'v2' }).click()
+  await versionRows.filter({ hasText: 'v2' }).getByTestId('artifact-version-button').click()
   await expect(page.getByTestId('variation-code-view')).toContainText('version 2')
   await page.getByTestId('restore-version-button').click()
   await expect(page.getByTestId('locked-version-summary')).toContainText('Locked version differs')
@@ -132,10 +132,9 @@ test('annotation tools support circle arrow pen text and runtime summary is visi
     }))
   }, { x: rect.x + rect.width * 0.62, y: rect.y + rect.height * 0.62 })
   await expect(page.getByTestId('annotation-overlay').getByText(/Clarify this label/)).toBeVisible()
-  await expect(page.getByText('4 annotations staged.')).toBeVisible()
   await expect(page.getByTestId('annotation-list-row')).toHaveCount(4)
 
-  await page.getByTestId('annotation-list-row').nth(1).getByRole('button').first().click()
+  await page.getByTestId('annotation-list-row').nth(1).click()
   await expect(page.getByTestId('annotation-list-row').nth(1)).toHaveClass(/active/)
   await expect(page.getByTestId('annotation-arrow')).toHaveClass(/selected/)
 
@@ -148,5 +147,8 @@ test('annotation tools support circle arrow pen text and runtime summary is visi
 
   await page.getByTestId('delete-annotation-button').first().click()
   await expect(page.getByTestId('annotation-list-row')).toHaveCount(3)
-  await expect(page.getByText('3 annotations staged.')).toBeVisible()
 })
+
+function htmlVersionRows(page: Page) {
+  return page.locator('.ver-row').filter({ hasText: 'index.html' })
+}
