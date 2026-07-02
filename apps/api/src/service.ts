@@ -1250,6 +1250,7 @@ export class ApplicationService {
       sourceArtifact,
       filename,
       html,
+      reuseKey: createId('repair_export'),
     })
     const audit = await this.store.createAuditLog({
       requestId: ctx.requestId,
@@ -2850,8 +2851,11 @@ export class ApplicationService {
     sourceArtifact: Artifact
     filename: string
     html: string
+    reuseKey?: string
   }): Promise<Artifact> {
-    const exportArtifactId = `export_${input.sourceArtifact.id}`
+    const exportArtifactId = input.reuseKey
+      ? `export_${input.sourceArtifact.id}_${input.reuseKey}`
+      : `export_${input.sourceArtifact.id}`
     const assets = await this.store.getVariationAssetArtifacts(input.variation.id, input.sourceArtifact.id)
     const files: Array<{ path: string; body: Uint8Array | string }> = [
       {

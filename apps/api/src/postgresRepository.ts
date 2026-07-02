@@ -483,6 +483,7 @@ export class PostgresRepository extends InMemoryStore {
   }
 
   override async createArtifact(input: CreateArtifactInput): Promise<Artifact> {
+    const version = input.version ?? await this.nextArtifactVersion(input.variationId ?? null, input.kind)
     const artifact: Artifact = {
       id: createId('art'),
       workspaceId: input.workspaceId,
@@ -490,7 +491,7 @@ export class PostgresRepository extends InMemoryStore {
       variationId: input.variationId ?? null,
       parentArtifactId: input.parentArtifactId ?? null,
       kind: input.kind,
-      version: input.version ?? 1,
+      version,
       storageKey: input.storageKey,
       entryPath: input.entryPath ?? null,
       contentHash: input.contentHash,
@@ -501,6 +502,18 @@ export class PostgresRepository extends InMemoryStore {
     await this.persistArtifact(artifact)
     this.artifacts.set(artifact.id, artifact)
     return artifact
+  }
+
+  private async nextArtifactVersion(variationId: string | null, kind: Artifact['kind']): Promise<number> {
+    if (!variationId || kind !== 'html') return 1
+    await this.flush()
+    const row = (await this.pool.query(`
+      select coalesce(max(version), 0)::int + 1 as next_version
+      from artifacts
+      where variation_id = $1
+        and kind = 'html'
+    `, [variationId])).rows[0]
+    return row?.next_version ?? 1
   }
 
   override async saveArtifact(artifact: Artifact): Promise<void> {
