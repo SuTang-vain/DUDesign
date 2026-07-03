@@ -96,7 +96,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     let cancelled = false
     getDesignJob(jobId)
       .then(data => {
-        if (!cancelled) setSnapshot(data)
+        if (!cancelled) setSnapshot(current => mergeJobSnapshot(current, data))
       })
       .catch(err => {
         if (!cancelled) setError((err as Error).message)
@@ -126,7 +126,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     const interval = window.setInterval(() => {
       getDesignJob(jobId)
         .then(data => {
-          setSnapshot(data)
+          setSnapshot(current => mergeJobSnapshot(current, data))
           if (data.job.status === 'completed' || data.job.status === 'failed' || data.job.status === 'cancelled') {
             setStreamState('closed')
           }
@@ -796,14 +796,26 @@ function reviewDecisionFromSnapshot(variation: VariationSnapshot): ReviewDecisio
 
 function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEvent): VariationSnapshot {
   if (variation.id !== event.variationId) return variation
+  const isTerminal = isTerminalVariationStatus(variation.status)
   switch (event.type) {
     case 'design.variation_queued':
+      if (isTerminal) return variation
       return { ...variation, status: 'queued' }
     case 'design.variation_streaming':
+      if (isTerminal) return variation
       return { ...variation, status: 'streaming' }
     case 'design.variation_code_delta':
+      if (isTerminal) return variation
       return { ...variation, status: 'streaming' }
     case 'design.variation_preview_ready':
+      if (isTerminal) {
+        return {
+          ...variation,
+          currentArtifactId: variation.currentArtifactId ?? event.payload.artifactId,
+          previewUrl: variation.previewUrl ?? event.payload.previewUrl,
+          screenshotUrl: variation.screenshotUrl ?? event.payload.screenshotUrl ?? null,
+        }
+      }
       return {
         ...variation,
         status: 'rendering_preview',
@@ -831,4 +843,38 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
     default:
       return variation
   }
+}
+
+function mergeJobSnapshot(current: JobSnapshot | null, incoming: JobSnapshot): JobSnapshot {
+  if (!current) return incoming
+  const currentById = new Map(current.variations.map(variation => [variation.id, variation]))
+  const variations = incoming.variations.map(incomingVariation => {
+    const currentVariation = currentById.get(incomingVariation.id)
+    if (!currentVariation || !isTerminalVariationStatus(currentVariation.status)) return incomingVariation
+    if (isTerminalVariationStatus(incomingVariation.status)) return incomingVariation
+    return {
+      ...incomingVariation,
+      status: currentVariation.status,
+      currentArtifactId: currentVariation.currentArtifactId ?? incomingVariation.currentArtifactId,
+      previewUrl: currentVariation.previewUrl ?? incomingVariation.previewUrl,
+      screenshotUrl: currentVariation.screenshotUrl ?? incomingVariation.screenshotUrl,
+      inputTokens: currentVariation.inputTokens || incomingVariation.inputTokens,
+      outputTokens: currentVariation.outputTokens || incomingVariation.outputTokens,
+      costCents: currentVariation.costCents || incomingVariation.costCents,
+      errorCode: currentVariation.errorCode ?? incomingVariation.errorCode,
+      errorMessage: currentVariation.errorMessage ?? incomingVariation.errorMessage,
+    }
+  })
+  const job = isTerminalJobStatus(current.job.status) && !isTerminalJobStatus(incoming.job.status)
+    ? { ...incoming.job, status: current.job.status }
+    : incoming.job
+  return { ...incoming, job, variations }
+}
+
+function isTerminalVariationStatus(status: VariationSnapshot['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
+function isTerminalJobStatus(status: JobSnapshot['job']['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }

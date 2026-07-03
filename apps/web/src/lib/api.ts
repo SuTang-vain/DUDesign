@@ -289,7 +289,9 @@ export function subscribeToJob(
   ]
   for (const type of eventTypes) {
     source.addEventListener(type, message => {
-      handlers.onEvent(JSON.parse((message as MessageEvent).data) as DesignEvent)
+      const event = JSON.parse((message as MessageEvent).data) as DesignEvent
+      handlers.onEvent(event)
+      if (event.type === 'design.job_completed') source.close()
     })
   }
   return () => source.close()

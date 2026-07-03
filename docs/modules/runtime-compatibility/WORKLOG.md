@@ -1736,3 +1736,36 @@
 
 - RTC-8 现在只剩真实 BabeL-O staging 动态百科卡片端到端 smoke。
 - Staging smoke 需要覆盖：entry guidance -> job creation -> runtime prompt -> artifact quality/spec review -> preview/export。
+
+## 2026-07-03 RTC-M35 Dynamic Encyclopedia Staging Smoke
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`，固定动态百科真实 staging smoke 入口。
+- Smoke 覆盖完整链路：
+  - dev bootstrap。
+  - 创建会话。
+  - `POST /api/encyclopedia/entry-guidance`。
+  - confirm guidance 并选择 `dtp_dynamic_encyclopedia_timeline_card`。
+  - 使用 guidance 返回的 `capabilityRequirements` 与 `templateRequirements` 创建 `dynamic_encyclopedia_card` job。
+  - 等待真实 BabeL-O job 完成。
+  - 验证 variation 使用 timeline child template。
+  - 验证 HTML artifact quality 不为 `fail`。
+  - 验证 preview 不是 mock/fallback HTML。
+  - 验证 export 产出 `export_zip` 下载包。
+- 修正 smoke 脚本：
+  - session `mode` 使用 `new_html`，产品模式只在 design job 用 `productMode=dynamic_encyclopedia_card` 表达。
+  - export 校验读取 `exportArtifact`，而不是源 HTML `artifact`。
+- 已在 staging 真实 BabeL-O 环境跑通：
+  - `dynamic-encyclopedia-smoke:completed job=job_72689f29047643ef variations=1 guidance=eg_0ae649cc0f844f46`
+- `runtime-compatibility/TODO.md` 已将 RTC-8 staging smoke 标记完成。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+- `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TIMEOUT_SECONDS=720 deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+
+### 后续建议
+
+- 进入动态百科产品体验收口：用户端需要展示 guidance 结果、模板选择确认、自动审查状态和半自动修复入口。
+- 增加 2/3 variation 动态百科 staging smoke，验证多个子模板/不同 variation 的能力分发。

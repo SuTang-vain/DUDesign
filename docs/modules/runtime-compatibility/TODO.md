@@ -182,7 +182,7 @@
   - [x] 动态百科子模板 prompt context。
   - [x] 父模板包、子模板和交互范式分层 prompt context。
   - [x] spec review repair context golden replay。
-- [ ] 增加 BabeL-O staging smoke：动态百科卡片模式端到端生成。
+- [x] 增加 BabeL-O staging smoke：动态百科卡片模式端到端生成。
 
 验收：
 
