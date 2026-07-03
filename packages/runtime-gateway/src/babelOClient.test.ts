@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import type { DesignTemplatePack } from '@dudesign/contracts'
+
 import { BabelORuntimeClient, DUDESIGN_RUNTIME_CONTRACT_VERSION, RuntimeGatewayError } from './babelOClient.js'
 
 describe('BabelORuntimeClient', () => {
@@ -715,6 +717,56 @@ describe('BabelORuntimeClient', () => {
     assert.ok(prompts.every(prompt => prompt.includes('trustworthy')))
   })
 
+  it('injects assigned template pack component and section constraints into the runtime prompt', async () => {
+    let prompt = ''
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompt = body.prompt
+        return jsonResponse({
+          streamId: 'stream_encyclopedia',
+          agentJobId: 'agent_job_encyclopedia',
+          runtimeChildSessionId: 'rt_child_encyclopedia',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a dynamic encyclopedia entry card',
+      sourceMode: 'new_html',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: 'dtp_dynamic_encyclopedia_card',
+          designTemplatePack: dynamicEncyclopediaTemplatePack(),
+        }],
+      },
+    })
+
+    assert.match(prompt, /DUDesign assigned Template Pack:/)
+    assert.match(prompt, /Dynamic Encyclopedia Entry Card/)
+    assert.match(prompt, /primary=#6487FA/)
+    assert.match(prompt, /pc-card-frame: \{"width":788,"height":492/)
+    assert.match(prompt, /wise-standard-frame: \{"width":380,"height":456/)
+    assert.match(prompt, /scroll-container: \{"overflowY":"auto"/)
+    assert.match(prompt, /Template sections and constraints:/)
+    assert.match(prompt, /PC 788x492/)
+    assert.match(prompt, /WISE standard 380x456/)
+    assert.match(prompt, /touchmove/)
+    assert.match(prompt, /touch-action: none/)
+    assert.match(prompt, /Do not imitate public brands or proprietary trade dress/)
+  })
+
 	  it('streams SSE runtime events', async () => {
 	    const client = new BabelORuntimeClient({
 	      baseUrl: 'https://runtime.example.test',
@@ -858,4 +910,68 @@ function hangingStreamResponse(): Response {
       'content-type': 'application/x-ndjson',
     },
   })
+}
+
+function dynamicEncyclopediaTemplatePack(): DesignTemplatePack {
+  return {
+    schemaVersion: '2026-07-01.dudesign-template-pack.v1',
+    id: 'dtp_dynamic_encyclopedia_card',
+    source: 'official',
+    format: 'dudesign-template-v1',
+    visibility: 'public',
+    status: 'published',
+    name: 'Dynamic Encyclopedia Entry Card',
+    description: 'Interactive encyclopedia entry card package with fixed PC and WISE viewport constraints.',
+    version: '1.0.0',
+    designTokens: {
+      colors: {
+        primary: '#6487FA',
+        surface: '#FFFFFF',
+        background: '#F8F8F8',
+        text: '#1E1F24',
+        muted: '#848691',
+        subtle: '#B7B9C1',
+      },
+      typography: {
+        body: { fontFamily: 'Inter, PingFang SC, system-ui', fontSize: '16px', fontWeight: 400 },
+      },
+      spacing: {
+        frame: 16,
+      },
+      rounded: {
+        card: '16px',
+      },
+      components: {
+        'pc-card-frame': { width: 788, height: 492, unit: 'px', strict: true },
+        'wise-standard-frame': { width: 380, height: 456, ratio: '1:1.2' },
+        'scroll-container': { overflowY: 'auto', webkitOverflowScrolling: 'touch', bodyScroll: false },
+      },
+    },
+    rationale: {
+      overview: 'A business template package for dynamic encyclopedia entry cards.',
+      colors: 'Use #6487FA as the encyclopedia primary color with white and light gray content surfaces.',
+      typography: 'Use clear CJK-friendly sans typography for dense facts and short labels.',
+      layout: 'PC must render perfectly at 788x492. WISE standard must render perfectly at 380x456.',
+      elevation: 'Use restrained elevation only when it clarifies interactive layers.',
+      shapes: 'Rounded content cards, stable fixed frame dimensions.',
+      components: 'Independent scroll containers, primary buttons, expandable fact rows, and tabbed modules.',
+      dos: [
+        'Use a dedicated overflow container instead of body scrolling.',
+        'Keep iframe and mobile gesture compatibility explicit.',
+      ],
+      donts: [
+        'Do not bind global touchmove preventDefault.',
+        'Do not set global touch-action: none.',
+        'Do not use video, download, or outbound navigation as core interactions.',
+      ],
+      sections: {
+        sizing: 'PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360.',
+        iframeTouch: 'Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets.',
+        scrolling: 'Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto.',
+      },
+    },
+    previewArtifactId: null,
+    lintStatus: 'passed',
+    createdByUserId: null,
+  }
 }

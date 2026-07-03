@@ -274,9 +274,16 @@ Runtime Gateway 必须把参考品牌编译为抽象规则，例如“large prod
 - 新增 `Reference brand` 和 `Negative requirements` 的文档与契约预留。
 - Capability summary 默认展示场景、视觉、loop；色板可作为次级摘要展示，避免主摘要过满。
 
-## 9. Open Design 参考映射
+## 9. Open Design 模板资产映射
 
-Open Design 的模板体系对 DUDesign 有参考价值，但不建议直接照搬成更多并列分类。它真正值得借鉴的是把“生成方向”拆成多个独立平面：
+DUDesign 在模板资产层直接参考 `/Users/tangyaoyue/DEV/open-design` 的官方模板与设计系统目录形态，而不是只参考抽象思路。重点参考对象包括：
+
+- `plugins/_official/*-templates/*/template.json`：用于描述可选择模板资产的 `id`、`surface`、`title`、`summary`、`category`、`tags`、`bestFor`、`sourceEntry`、`aspect`、`formats` 和来源信息。
+- `design-systems/<id>/manifest.json`：用于描述设计系统资产包的 schema、名称、分类、文件入口、preview 页面、craft 依赖和 importMode。
+- `design-systems/<id>/DESIGN.md`：用于承载品牌/设计系统的人类可读规范。
+- `design-systems/<id>/design-tokens.json` 与 `tokens.css`：用于承载可机器消费的 token、来源、置信度和质量报告。
+
+DUDesign 不直接复制 open-design 的公开品牌 trade dress 或资产内容，但直接吸收这种“模板资产包 + 设计系统包 + token/preview/source 元数据”的组织方式。
 
 | Open Design 概念 | DUDesign 对应建议 | 说明 |
 | --- | --- | --- |
@@ -286,17 +293,23 @@ Open Design 的模板体系对 DUDesign 有参考价值，但不建议直接照�
 | Skill / Design Template | Plugins / Skill 子模块 | 用于声明方法论、输入参数、检查清单和生成流程，不应与视觉模板混在一起 |
 | Prompt Template Gallery | 灵感模板 / prompt starter | 用于一键填充 brief 或展示示例，不等同于正式 capability snapshot |
 
-Open Design 的 `template.json` 字段也可作为 DUDesign 后续扩展 `AestheticProfile` 的参考：
+Open Design 的 `template.json` 字段应直接映射到 DUDesign 的模板资产元数据，而不只放进视觉 profile：
 
-- `mood`：视觉情绪标签。
-- `occasion`：适用场景。
-- `tone`：表达语气。
-- `formality`：正式程度。
-- `density`：信息密度。
-- `palette`：色板描述。
-- `typography`：字体与排版气质。
-- `best_for`：适用任务。
-- `avoid_for`：不适用任务。
+- `id` / `title` / `summary`：映射为 `DesignTemplatePack.id/name/description`。
+- `surface` / `engine` / `formats`：映射为 DUDesign 后续 output surface 和 artifact type 扩展字段。
+- `category` / `tags`：映射为管理端分类、用户端搜索和推荐标签。
+- `bestFor` / `avoidFor`：映射为模板适用范围、禁用范围和推荐解释。
+- `sourceEntry` / `source`：映射为模板来源、授权和审计字段；官方模板必须保留来源说明。
+- `aspect` / `durationSec` 等媒体字段：HTML MVP 可暂不暴露，但应预留到扩展 metadata。
+
+Open Design 的 `design-systems/<id>` 目录则映射到 DUDesign 中期 `DesignSystem` 能力：
+
+- `manifest.json`：设计系统资产清单和 preview 入口。
+- `DESIGN.md`：人类可读的品牌/设计规范，可导入为私有模板或中期 Design System。
+- `design-tokens.json` / `tokens.css`：机器可消费 token，供 runtime prompt、lint 和 export 使用。
+- `preview/*`：管理端和用户端用于展示颜色、排版、间距与组件的预览页。
+
+视觉 profile 仍保留 `mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`，但这些字段应视为模板资产和设计系统资产的筛选摘要，而不是唯一数据源。
 
 DUDesign 不应把这些字段全部暴露给用户。推荐做法是：
 

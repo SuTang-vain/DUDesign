@@ -256,6 +256,12 @@ export function subscribeToJob(
     'design.variation_failed',
     'design.permission_required',
     'design.runtime_warning',
+    'design.loop_started',
+    'design.loop_quality_checked',
+    'design.loop_repair_planned',
+    'design.loop_repair_started',
+    'design.loop_completed',
+    'design.loop_stopped',
     'design.job_completed',
   ]
   for (const type of eventTypes) {

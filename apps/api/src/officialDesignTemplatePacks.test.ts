@@ -16,9 +16,9 @@ const publicBrandNames = [
 ]
 
 describe('officialDesignTemplatePacks', () => {
-  it('provides 6-8 official heuristic templates without public brand names', () => {
+  it('provides 6-9 official heuristic templates without public brand names', () => {
     assert.ok(officialDesignTemplatePacks.length >= 6)
-    assert.ok(officialDesignTemplatePacks.length <= 8)
+    assert.ok(officialDesignTemplatePacks.length <= 9)
 
     for (const pack of officialDesignTemplatePacks) {
       assert.equal(pack.source, 'official')
@@ -56,5 +56,18 @@ describe('officialDesignTemplatePacks', () => {
       assert.equal(imported.pack.designTokens.colors.primary, pack.designTokens.colors.primary)
       assert.equal(imported.pack.designTokens.components['button-primary']?.backgroundColor, pack.designTokens.components['button-primary']?.backgroundColor)
     }
+  })
+
+  it('includes a dynamic encyclopedia card template package with fixed viewport constraints', () => {
+    const pack = officialDesignTemplatePacks.find(item => item.id === 'dtp_dynamic_encyclopedia_card')
+    assert.ok(pack)
+    assert.equal(pack.designTokens.colors.primary, '#6487FA')
+    assert.equal(pack.designTokens.components['pc-card-frame']?.width, 788)
+    assert.equal(pack.designTokens.components['pc-card-frame']?.height, 492)
+    assert.equal(pack.designTokens.components['wise-standard-frame']?.width, 380)
+    assert.equal(pack.designTokens.components['wise-standard-frame']?.height, 456)
+    assert.match(pack.rationale.sections.sizing ?? '', /788x492/)
+    assert.match(pack.rationale.sections.iframeTouch ?? '', /touchmove/)
+    assert.ok(pack.rationale.donts.some(rule => /touch-action: none/i.test(rule)))
   })
 })

@@ -15,7 +15,7 @@ type StreamLine = {
   id: string
   variationId?: string
   variationLabel: string
-  stage: 'queued' | 'thinking' | 'writing' | 'preview' | 'completed' | 'failed' | 'warning' | 'job'
+  stage: 'queued' | 'thinking' | 'writing' | 'preview' | 'completed' | 'failed' | 'warning' | 'job' | 'loop' | 'repair'
   summary: string
   detail?: string
 }
@@ -438,6 +438,8 @@ function stageLabel(stage: StreamLine['stage'], status: VariationSnapshot['statu
   if (status === 'failed') return 'FAILED'
   if (status === 'cancelled') return 'CANCELLED'
   if (stage === 'preview') return 'PREVIEW'
+  if (stage === 'loop') return 'CHECK'
+  if (stage === 'repair') return 'REPAIR'
   if (stage === 'thinking') return 'THINKING'
   if (stage === 'writing') return 'WRITING'
   if (stage === 'warning') return 'WARN'
@@ -557,6 +559,56 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
           detail: warning.message,
         }
       }
+    case 'design.loop_started':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: 'loop',
+        summary: 'Automation loop started',
+        detail: `${event.payload.profileId} · ${event.payload.qualityGate} gate · ${event.payload.maxRepairAttempts} repair attempts`,
+      }
+    case 'design.loop_quality_checked':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: event.payload.status === 'pass' ? 'completed' : event.payload.status === 'fail' ? 'warning' : 'loop',
+        summary: qualityCheckSummary(event.payload.status, event.payload.attempt),
+        detail: event.payload.issues.length > 0
+          ? event.payload.issues.slice(0, 2).join(' · ')
+          : `${event.payload.gate} quality gate passed for artifact ${event.payload.artifactId}`,
+      }
+    case 'design.loop_repair_planned':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: 'repair',
+        summary: `Repair planned · attempt ${event.payload.attempt}`,
+        detail: event.payload.reason.replaceAll('_', ' '),
+      }
+    case 'design.loop_repair_started':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: 'repair',
+        summary: `Automatic repair started · attempt ${event.payload.attempt}`,
+        detail: event.payload.runtimeChildSessionId ? `Runtime session ${event.payload.runtimeChildSessionId}` : `Repairing artifact ${event.payload.artifactId}`,
+      }
+    case 'design.loop_completed':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: 'completed',
+        summary: 'Automation loop completed',
+        detail: `${event.payload.reason.replaceAll('_', ' ')} · ${event.payload.attempts} repair attempt${event.payload.attempts === 1 ? '' : 's'}`,
+      }
+    case 'design.loop_stopped':
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: 'failed',
+        summary: `Automation loop stopped · ${event.payload.reason.replaceAll('_', ' ')}`,
+        detail: event.payload.message,
+      }
     case 'design.job_completed':
       return {
         variationLabel,
@@ -591,6 +643,12 @@ function inferVariationIndex(event: DesignEvent): number | null {
     if (match?.[1]) return Number(match[1])
   }
   return null
+}
+
+function qualityCheckSummary(status: 'pass' | 'warn' | 'fail', attempt: number): string {
+  if (status === 'pass') return `Quality check passed · attempt ${attempt}`
+  if (status === 'warn') return `Quality check warning · attempt ${attempt}`
+  return `Quality check failed · attempt ${attempt}`
 }
 
 function activitySummaryForDelta(delta: string): string {

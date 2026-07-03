@@ -1206,3 +1206,26 @@
 
 - 将可见性检查结果接入更细分的用户动作：重新生成、查看 debug、继续 refine。
 - 后续可引入 axe-core 或等价工具，把 smoke 扩展为系统化 a11y audit。
+
+## 2026-07-03 UX-M24 Automation Loop Activity Stream
+
+### 已完成
+
+- 结果墙 Runtime Activity Stream 订阅 `design.loop_*` 事件。
+- 将 automation loop 事件归一为用户可读 activity：
+  - loop started -> `Automation loop started`
+  - quality checked -> pass/warn/fail 阶段
+  - repair planned -> 自动修复计划和 attempt
+  - repair started -> 自动修复开始和 runtime session
+  - loop completed -> 质量通过/修复完成
+  - loop stopped -> 停止原因和用户可理解说明
+- Runtime status cards 增加 `CHECK` 和 `REPAIR` 阶段标签。
+
+### 验证
+
+- `npm run typecheck`
+
+### 下一步
+
+- 为 Activity Stream 增加针对 loop event 的浏览器 E2E fixture。
+- 在 variation 卡片上展示最近一次 loop stopped reason 和 repair attempt。

@@ -28,7 +28,7 @@
 - [x] 定义 `ColorPalette` domain model。
 - [x] 定义 `BrandStyleReference` domain model。
 - [x] 定义高级约束契约：色板、补充风格词、参考品牌、负面要求。
-- [x] 参考 Open Design `template.json`，扩展视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
+- [x] 直接参考 Open Design `template.json` / `design-systems` 资产结构，扩展 DUDesign 模板资产与视觉 profile 元数据：`mood`、`occasion`、`tone`、`formality`、`density`、`bestFor`、`avoidFor`。
 - [x] 规划中期 `DesignSystem` 能力：品牌 token、排版、组件、动效、语气和反模式。
 - [x] 定义 `DesignTemplatePack` 内部稳定契约，兼容但不绑定外部 `DESIGN.md` alpha schema。
 - [x] 支持 `DESIGN.md` import/lint 初版：
@@ -136,7 +136,7 @@
 - [x] 工作台 composer 增加 automation loop 强度选择。
 - [x] 增加“保存为我的模板”入口。
 - [x] 增加“我的偏好”入口。
-- [ ] Activity Stream 展示 loop 阶段和修复动作。
+- [x] Activity Stream 展示 loop 阶段和修复动作。
 
 验收：
 
@@ -148,6 +148,7 @@
 - [ ] 管理官方视觉 profile。
 - [ ] 管理官方色板和参考品牌。
 - [ ] 管理官方 Design Template Pack。
+- [ ] 管理业务模板包及其子模板，例如“动态百科词条卡片”。
 - [ ] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
 - [ ] 管理官方 skill。
 - [ ] 管理 MCP 插件可见性和权限。

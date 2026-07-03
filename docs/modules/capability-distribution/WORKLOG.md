@@ -972,3 +972,57 @@
 - 管理端治理：展示模板版本、usage 统计和 lint/drift 状态。
 - 用户前端：官方模板 / 我的模板 / 最近使用 / 收藏入口。
 - PostgreSQL 真实环境：后续在 CI/staging 增加固定 opt-in job，避免本地手动验证成为唯一门禁。
+
+## 2026-07-03 CAP-5/6 Loop Activity and Dynamic Encyclopedia Template Pack
+
+### 已完成
+
+- 用户端 Activity Stream 接入 automation loop 标准事件：
+  - `design.loop_started`
+  - `design.loop_quality_checked`
+  - `design.loop_repair_planned`
+  - `design.loop_repair_started`
+  - `design.loop_completed`
+  - `design.loop_stopped`
+- Activity Stream 现在展示 loop 检查、质量结果、自动修复计划、修复开始、完成和停止原因。
+- 直接参考 `/Users/tangyaoyue/DEV/open-design` 的模板资产结构：
+  - `plugins/_official/*-templates/*/template.json`
+  - `design-systems/<id>/manifest.json`
+  - `design-systems/<id>/DESIGN.md`
+  - `design-systems/<id>/design-tokens.json` / `tokens.css`
+  - DUDesign 保持模板治理与 skill/plugin 治理分离，但模板字段、资产包组织和中期 Design System 规划直接对齐上述资产形态。
+- 新增官方业务模板包：
+  - `dtp_dynamic_encyclopedia_card`
+  - 名称：`Dynamic Encyclopedia Entry Card`
+  - 定位：动态百科词条卡片模板包，后续可继续拆 summary、timeline、relation、comparison、expandable fact-card 等子模板。
+- 模板包内固化首版基础约束：
+  - 主色 `#6487FA`
+  - 内容背景 `#FFFFFF` / `#F8F8F8`
+  - 文本色 `#1E1F24` / `#848691` / `#B7B9C1`
+  - PC 固定 `788x492`
+  - WISE 标准 `380x456`
+  - WISE 兼容 `396x475` / `300x360`
+  - 移动端 iframe / touch / scroll 交互约束
+  - 避免视频、下载和跳链作为核心交互
+- CAP-6 增加“管理业务模板包及其子模板”治理项。
+- Runtime Gateway 的 `DesignTemplatePack` prompt block 已强化：
+  - 输出 component token 详情，而不是只输出组件名。
+  - 输出 `rationale.sections`，确保尺寸、滚动、iframe/touch 等业务约束能进入 BabeL-O 子 session prompt。
+
+### 决策
+
+- “动态百科词条卡片”先作为官方 Design Template Pack 根模板入库，不在本轮创建子模板表；子模板先记录在 pack rationale sections 中。
+- 管理官方场景模板、视觉 profile、色板和参考品牌仍归 CAP-6/Admin Console 治理，不混入用户端 Activity Stream 改造。
+- 官方模板数量上限从 8 放宽到 9，用于容纳第一个真实业务模板包。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/capabilities.test.js`
+- `npm --workspace @dudesign/runtime-gateway test`
+
+### 下一步
+
+- 管理端治理：官方场景模板、视觉 profile、色板、参考品牌、Design Template Pack CRUD。
+- 用户端：在模板选择器中强化官方模板 / 我的模板 / 业务模板包的分组展示。
+- Runtime Gateway：继续把模板包 prompt block 纳入真实 BabeL-O golden event / prompt contract 回放。

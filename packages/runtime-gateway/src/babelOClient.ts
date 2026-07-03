@@ -628,7 +628,12 @@ function designTemplatePackPromptBlock(
     .map(([key, value]) => `${key}=${value.fontFamily ?? 'system'}${value.fontSize ? ` ${value.fontSize}` : ''}${value.fontWeight ? ` weight ${value.fontWeight}` : ''}`)
     .join('; ')
   const spacing = Object.entries(pack.designTokens.spacing).map(([key, value]) => `${key}=${value}`).join(', ')
-  const components = Object.keys(pack.designTokens.components).join(', ')
+  const components = Object.entries(pack.designTokens.components)
+    .map(([key, value]) => `${key}: ${compactJson(value)}`)
+    .join('; ')
+  const sections = Object.entries(pack.rationale.sections)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(' ')
   return [
     'DUDesign assigned Template Pack:',
     `- Template: ${pack.name} (${pack.id})${pack.description ? ` — ${pack.description}` : ''}`,
@@ -636,13 +641,20 @@ function designTemplatePackPromptBlock(
     colors ? `- Color tokens: ${colors}.` : undefined,
     typography ? `- Typography tokens: ${typography}.` : undefined,
     spacing ? `- Spacing tokens: ${spacing}.` : undefined,
-    components ? `- Component rules available: ${components}.` : undefined,
+    components ? `- Component rules: ${components}.` : undefined,
     pack.rationale.layout ? `- Layout rationale: ${pack.rationale.layout}` : undefined,
     pack.rationale.components ? `- Component rationale: ${pack.rationale.components}` : undefined,
+    sections ? `- Template sections and constraints: ${sections}` : undefined,
     pack.rationale.dos.length ? `- Do: ${pack.rationale.dos.join(' ')}` : undefined,
     pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
     '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
   ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function compactJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/\s+/g, ' ')
+    .slice(0, 1000)
 }
 
 function advancedConstraintsPromptBlock(constraints: AdvancedTemplateConstraints | undefined): string {
