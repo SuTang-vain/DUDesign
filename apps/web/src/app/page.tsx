@@ -431,6 +431,7 @@ export default function HomePage(): React.JSX.Element {
 
   const headingWord = t('design')
   const headingLine = t('whatShallWeDesign')
+  const journeyLine = t('startJourney')
 
   return (
     <main className="home-shell">
@@ -543,7 +544,10 @@ export default function HomePage(): React.JSX.Element {
           />
         ) : null}
         <section className="composer" aria-label={t('generateDesignVariations')}>
-          <h1 className="composer-heading">{renderHeading(headingLine, headingWord)}</h1>
+          <h1 className="composer-heading" aria-label={headingLine}>
+            <span className="heading-line heading-line-a">{renderHeadingChars(headingLine, headingWord)}</span>
+            <span className="heading-line heading-line-b">{renderHeadingChars(journeyLine, 'DUdesign')}</span>
+          </h1>
           <div className="composer-head">
             <div className="mode-tabs" role="tablist" aria-label={t('sourceMode')}>
               <button className={mode === 'new_html' ? 'active' : ''} onClick={() => setMode('new_html')}>
@@ -883,11 +887,19 @@ export default function HomePage(): React.JSX.Element {
           </div>
 
           <div className="examples">
-            {promptExamples.map(example => (
-              <button key={example} onClick={() => setPrompt(example)}>
-                {example}
-              </button>
-            ))}
+            <div className="examples-track">
+              {[...promptExamples, ...promptExamples].map((example, index) => (
+                <button
+                  key={`${example}-${index}`}
+                  type="button"
+                  onClick={() => setPrompt(example)}
+                  aria-hidden={index >= promptExamples.length || undefined}
+                  tabIndex={index >= promptExamples.length ? -1 : undefined}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
           </div>
 
           {mode === 'from_existing_html' ? (
@@ -981,22 +993,32 @@ function PreferencesOverlay(props: {
   )
 }
 
-function renderHeading(line: string, accent: string): React.ReactNode {
-  // 子串匹配,兼容无空格的中文(如"今天我们设计点什么?"里的"设计")
-  const idx = line.toLowerCase().indexOf(accent.toLowerCase())
-  if (!accent || idx === -1) {
-    return line.split(' ').map((word, i) => <span key={i}>{word} </span>)
+function renderHeadingChars(line: string, accent: string): React.ReactNode {
+  // 按字符拆分,每字一个 span(--i 控制从左往右错峰);命中 accent 的字符加 .grad
+  const chars = Array.from(line)
+  let start = -1
+  let end = -1
+  if (accent) {
+    const accentChars = Array.from(accent)
+    const lower = chars.map(ch => ch.toLowerCase())
+    const accentLower = accentChars.map(ch => ch.toLowerCase())
+    for (let i = 0; i <= chars.length - accentChars.length; i += 1) {
+      if (accentLower.every((ch, k) => lower[i + k] === ch)) {
+        start = i
+        end = i + accentChars.length
+        break
+      }
+    }
   }
-  const before = line.slice(0, idx)
-  const match = line.slice(idx, idx + accent.length)
-  const after = line.slice(idx + accent.length)
-  return (
-    <>
-      {before ? <span>{before}</span> : null}
-      <span className="grad">{match}</span>
-      {after ? <span>{after}</span> : null}
-    </>
-  )
+  return chars.map((ch, i) => (
+    <span
+      key={i}
+      className={`heading-char${i >= start && i < end ? ' grad' : ''}`}
+      style={{ '--i': i } as React.CSSProperties}
+    >
+      {ch}
+    </span>
+  ))
 }
 
 function SessionGroup(props: {

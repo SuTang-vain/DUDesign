@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import type { CapabilityPlugin, DesignSkill, McpToolBinding, PluginPermissionScope } from '@dudesign/contracts'
 import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
@@ -25,6 +26,8 @@ const scopePhrases: Record<PluginPermissionScope, string> = {
   external_network: 'external_network',
 }
 
+type PluginFilter = 'all' | 'mcp_tool' | 'skill'
+
 export function PluginsPicker(props: {
   plugins: CapabilityPlugin[]
   skills: DesignSkill[]
@@ -36,18 +39,51 @@ export function PluginsPicker(props: {
   onToggleMcpTool: (id: string) => void
 }): React.JSX.Element {
   const c18n = useCapabilityI18n()
+  const [filter, setFilter] = useState<PluginFilter>('all')
   const skillByPlugin = new Map(props.skills.map(skill => [skill.pluginId, skill]))
   const bindingByPlugin = new Map(props.mcpToolBindings.map(binding => [binding.pluginId, binding]))
   // 统一展示官方、active 的插件(skill + mcp_tool),按安全等级标注
   const officialPlugins = props.plugins.filter(plugin =>
     plugin.visibility === 'official' && plugin.status === 'active'
   )
+  const visiblePlugins = officialPlugins.filter(plugin => filter === 'all' || plugin.type === filter)
+  const filterLabels = c18n.language === 'zh'
+    ? { all: '全部', mcp_tool: 'MCP', skill: 'Skills' }
+    : { all: 'All', mcp_tool: 'MCP', skill: 'Skills' }
+  const filterCounts = useMemo(() => ({
+    all: officialPlugins.length,
+    mcp_tool: officialPlugins.filter(plugin => plugin.type === 'mcp_tool').length,
+    skill: officialPlugins.filter(plugin => plugin.type === 'skill').length,
+  }), [officialPlugins])
+  const filterOptions: Array<{ id: PluginFilter; label: string; count: number }> = [
+    { id: 'all', label: filterLabels.all, count: filterCounts.all },
+    { id: 'mcp_tool', label: filterLabels.mcp_tool, count: filterCounts.mcp_tool },
+    { id: 'skill', label: filterLabels.skill, count: filterCounts.skill },
+  ]
 
   return (
     <div className="skills-picker" data-testid="plugins-picker">
-      <p className="skills-hint">{props.labels.pluginsHint}</p>
+      <div className="plugins-picker-top">
+        <p className="skills-hint">{props.labels.pluginsHint}</p>
+        <div className="plugin-filter-tabs" role="tablist" aria-label={props.labels.pluginsPill}>
+          {filterOptions.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === option.id}
+              className={filter === option.id ? 'active' : ''}
+              data-testid={`plugin-filter-${option.id}`}
+              onClick={() => setFilter(option.id)}
+            >
+              <span>{option.label}</span>
+              <small>{option.count}</small>
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="skill-cards">
-        {officialPlugins.map(plugin => {
+        {visiblePlugins.map(plugin => {
           const isSkill = plugin.type === 'skill'
           const skill = isSkill ? skillByPlugin.get(plugin.id) : undefined
           const binding = !isSkill ? bindingByPlugin.get(plugin.id) : undefined

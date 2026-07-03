@@ -495,41 +495,65 @@ a { color: inherit; text-decoration: none; }
   gap: 18px;
 }
 
-/* 输入框正上方的主标题:居左 + 大胆入场(模糊缩放 + 从左向右擦除,逐段错峰)+ 强调词渐变流光 */
+/* 输入框正上方的主标题:放大加粗 + 居左 + 两行循环交替(模糊缩放上/下进出)+ 强调词渐变流光 */
 .composer-heading {
-  margin: 0 0 16px;
+  position: relative;
+  margin: 0 0 18px;
+  min-height: 1.25em;
   text-align: left;
-  font-size: clamp(28px, 4vw, 44px);
+  font-size: clamp(32px, 5.4vw, 58px);
   line-height: 1.1;
-  letter-spacing: -.022em;
-  font-weight: 700;
+  letter-spacing: -.024em;
+  font-weight: 800;
   color: var(--text);
 }
-.composer-heading > span {
-  display: inline-block;
-  opacity: 0;
-  transform: translateY(42px) scale(1.12);
-  filter: blur(14px);
-  clip-path: inset(0 100% -45% 0);
-  animation: composer-heading-reveal .95s cubic-bezier(.16,.84,.3,1) forwards;
+.heading-line {
+  position: absolute;
+  inset: 0;
+  display: block;
+  will-change: transform, opacity, filter;
 }
-.composer-heading > span:nth-child(1) { animation-delay: .10s; }
-.composer-heading > span:nth-child(2) { animation-delay: .26s; }
-.composer-heading > span:nth-child(3) { animation-delay: .42s; }
-.composer-heading .grad {
+.heading-line-a { animation: heading-show-a 15s cubic-bezier(.16,.84,.3,1) infinite; }
+.heading-line-b { animation: heading-show-b 15s cubic-bezier(.16,.84,.3,1) infinite; }
+.heading-char { display: inline-block; will-change: transform; }
+/* 切换后,字符从左往右依次向上微微跳动(由 --i 控制错峰,与所在行的可见窗口同周期) */
+.heading-line-a .heading-char { animation: char-hop-a 15s cubic-bezier(.16,.84,.3,1) infinite; animation-delay: calc(var(--i) * 0.05s); }
+.heading-line-b .heading-char { animation: char-hop-b 15s cubic-bezier(.16,.84,.3,1) infinite; animation-delay: calc(var(--i) * 0.05s); }
+.heading-char.grad {
   background: linear-gradient(100deg, var(--accent) 0%, var(--accent-2) 48%, var(--accent) 100%);
-  background-size: 250% 100%;
+  background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  text-shadow: 0 0 28px rgba(100, 135, 250, .35);
-  animation:
-    composer-heading-reveal .95s cubic-bezier(.16,.84,.3,1) .26s forwards,
-    composer-heading-shine 3.4s linear 1s infinite;
+  text-shadow: 0 0 30px rgba(100, 135, 250, .42);
 }
-@keyframes composer-heading-reveal {
-  to { opacity: 1; transform: none; filter: blur(0); clip-path: inset(0 0 -45% 0); }
+@keyframes heading-show-a {
+  0%   { opacity: 0; transform: scale(.97); filter: blur(6px); }
+  8%   { opacity: 1; transform: scale(1); filter: blur(0); }
+  42%  { opacity: 1; transform: scale(1); filter: blur(0); }
+  50%  { opacity: 0; transform: scale(1.03); filter: blur(6px); }
+  100% { opacity: 0; transform: scale(1.03); filter: blur(6px); }
+}
+@keyframes heading-show-b {
+  0%, 50% { opacity: 0; transform: scale(.97); filter: blur(6px); }
+  58% { opacity: 1; transform: scale(1); filter: blur(0); }
+  92% { opacity: 1; transform: scale(1); filter: blur(0); }
+  100% { opacity: 0; transform: scale(1.03); filter: blur(6px); }
+}
+@keyframes char-hop-a {
+  0%, 10%, 24%, 100% { transform: translateY(0); }
+  13% { transform: translateY(-7px); }
+  16% { transform: translateY(0); }
+  19% { transform: translateY(-2.5px); }
+  22% { transform: translateY(0); }
+}
+@keyframes char-hop-b {
+  0%, 60%, 74%, 100% { transform: translateY(0); }
+  63% { transform: translateY(-7px); }
+  66% { transform: translateY(0); }
+  69% { transform: translateY(-2.5px); }
+  72% { transform: translateY(0); }
 }
 @keyframes composer-heading-shine {
   0% { background-position: 0% 0; }
@@ -855,22 +879,37 @@ a { color: inherit; text-decoration: none; }
 .source-upload-status.uploading { background: var(--accent-soft); color: var(--accent-on); border-color: transparent; }
 
 .examples {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  justify-content: center;
+  position: relative;
   margin: 16px 0 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
 }
+.examples-track {
+  display: flex;
+  width: max-content;
+  animation: examples-marquee 28s linear infinite;
+  will-change: transform;
+}
+.examples:hover .examples-track,
+.examples:focus-within .examples-track { animation-play-state: paused; }
 .examples button {
-  max-width: 320px;
+  flex: 0 0 auto;
+  margin-right: 8px;
   padding: 8px 13px;
   border: 1px solid var(--line);
   border-radius: var(--pill);
   background: var(--surface);
   color: var(--muted);
   font-size: 12.5px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  white-space: nowrap;
   transition: color .15s, border-color .15s, background .15s;
 }
 .examples button:hover { color: var(--text-2); border-color: var(--line-strong); background: var(--surface-2); }
+@keyframes examples-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
 
 .cap-strip {
   width: min(780px, 100%);
@@ -1941,11 +1980,20 @@ a { color: inherit; text-decoration: none; }
 
 /* template library picker(弹层内)— 与 design-direction-picker 同语言 */
 .popover.popover-templateLibrary { display: flex; flex-direction: column; }
-.template-library-picker { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; height: 100%; }
+.template-library-picker {
+  --tpl-detail-width: 260px;
+  --tpl-column-gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
 .tpl-filter-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, calc(100% - var(--tpl-column-gap) - var(--tpl-detail-width))) var(--tpl-detail-width);
+  gap: var(--tpl-column-gap);
   align-items: center;
   flex: 0 0 auto;
 }
@@ -1962,21 +2010,24 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
 .tpl-source-filters button {
   height: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 10px;
+  gap: 4px;
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--pill);
   background: var(--surface);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .tpl-source-filters button.active {
   border-color: var(--accent-line);
@@ -1997,8 +2048,12 @@ a { color: inherit; text-decoration: none; }
 .tpl-autodistribute span { color: var(--accent-on); font-size: 12.5px; font-weight: 600; }
 .tpl-autodistribute small { grid-column: 2; color: var(--accent-on); opacity: .8; font-size: 11px; }
 .template-library-picker .direction-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) 200px;
-  grid-template-rows: minmax(0, 1fr); gap: 14px; flex: 1 1 0; min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, calc(100% - var(--tpl-column-gap) - var(--tpl-detail-width))) var(--tpl-detail-width);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--tpl-column-gap);
+  flex: 1 1 0;
+  min-height: 0;
 }
 .template-library-picker .direction-list { min-width: 0; min-height: 0; overflow: auto; display: grid; gap: 6px; align-content: start; }
 .tpl-empty { margin: 0; padding: 16px; color: var(--muted); font-size: 12.5px; text-align: center; }
@@ -2163,7 +2218,42 @@ a { color: inherit; text-decoration: none; }
 /* skills picker(官方 safe skill 多选)— 单列卡片 */
 .popover.popover-skills { padding: 8px; }
 .skills-picker { display: grid; gap: 8px; min-width: 340px; max-height: 420px; overflow: auto; }
+.plugins-picker-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
 .skills-hint { margin: 0; padding: 2px 6px; color: var(--muted); font-size: 11.5px; }
+.plugin-filter-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  background: var(--surface-2);
+}
+.plugin-filter-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--pill);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.plugin-filter-tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line-strong);
+}
+.plugin-filter-tabs button small {
+  color: inherit;
+  opacity: .72;
+  font-size: 10.5px;
+}
 .skill-cards { display: grid; gap: 6px; }
 .skill-card {
   display: grid; gap: 6px;
