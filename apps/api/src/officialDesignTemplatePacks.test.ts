@@ -16,9 +16,8 @@ const publicBrandNames = [
 ]
 
 describe('officialDesignTemplatePacks', () => {
-  it('provides 6-9 official heuristic templates without public brand names', () => {
+  it('provides official heuristic templates without public brand names', () => {
     assert.ok(officialDesignTemplatePacks.length >= 6)
-    assert.ok(officialDesignTemplatePacks.length <= 9)
 
     for (const pack of officialDesignTemplatePacks) {
       assert.equal(pack.source, 'official')
@@ -69,5 +68,23 @@ describe('officialDesignTemplatePacks', () => {
     assert.match(pack.rationale.sections.sizing ?? '', /788x492/)
     assert.match(pack.rationale.sections.iframeTouch ?? '', /touchmove/)
     assert.ok(pack.rationale.donts.some(rule => /touch-action: none/i.test(rule)))
+  })
+
+  it('includes dynamic encyclopedia child templates linked to the parent package', () => {
+    const childIds = [
+      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_dynamic_encyclopedia_timeline_card',
+    ]
+
+    for (const childId of childIds) {
+      const pack = officialDesignTemplatePacks.find(item => item.id === childId)
+      assert.ok(pack, `${childId} should exist`)
+      assert.equal(pack.parentPackId, 'dtp_dynamic_encyclopedia_card')
+      assert.equal(pack.templateRole, 'child_template')
+      assert.deepEqual(pack.supportedProductModes, ['dynamic_encyclopedia_card'])
+      assert.equal(pack.designTokens.components['pc-card-frame']?.width, 788)
+      assert.equal(pack.designTokens.components['wise-standard-frame']?.width, 380)
+      assert.match(pack.rationale.sections.parentPack ?? '', /dtp_dynamic_encyclopedia_card/)
+    }
   })
 })

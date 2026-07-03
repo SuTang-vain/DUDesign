@@ -221,27 +221,30 @@
 
 ## Phase APP-9：动态百科业务编排
 
-> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`（v0.2）。
+> 实现前需钉死的决策见该文档第 12 节；以下任务已对齐 12.1–12.6。
 
-- [ ] 新增或快照化 `productMode`，与现有 `sourceMode` 正交。
-- [ ] 设计 `EncyclopediaEntryGuidance` 领域对象，保存词条输入、分类结果、推荐模板、democase 引用和用户确认状态。
+- [x] 新增 `DesignJob.productMode` 顶层字段（12.4：不进 `templateRequirements`），同步 `CreateDesignJobRequest`、job snapshot、Repository、PostgreSQL 和 Runtime Gateway；`DesignSession` 暂保持 source mode 语义。
+- [x] 设计 `EncyclopediaEntryGuidance` 领域对象，保存词条输入、分类结果、推荐模板、democase 引用和用户确认状态。
 - [ ] 新增词条引导 API：
-  - [ ] `POST /api/encyclopedia/entry-guidance`。
-  - [ ] `GET /api/encyclopedia/entry-guidance/:id`。
-  - [ ] `POST /api/encyclopedia/entry-guidance/:id/confirm`。
-- [ ] 接入 democase lookup mock，后续替换为真实 MCP tool result。
-- [ ] 实现 L1/L2/L3 分类结果、置信度和 low-confidence confirmation 规则。
-- [ ] 实现分类 -> 交互范式 -> 动态百科子模板的推荐与 1-3 个候选输出。
+  - [x] `POST /api/encyclopedia/entry-guidance` mock 初版。
+  - [x] `GET /api/encyclopedia/entry-guidance/:id`。
+  - [x] `POST /api/encyclopedia/entry-guidance/:id/confirm`。
+- [x] 词条引导向导直连 democase 只读服务（12.1：不经 Runtime Gateway、不走 MCP binding）；初期 mock democase 只读服务，后续替换为真实只读 API。生成期 agent 的 MCP binding 由 capability-distribution / runtime-compatibility 负责。
+- [~] 实现 L1/L2/L3 分类结果、置信度和 low-confidence confirmation 规则；当前 mock 覆盖 L1/L2、confidence、signals 和低置信 `needs_confirmation`，L3 待补。
+- [x] 实现分类 -> 交互范式 -> 动态百科子模板的推荐与 1-3 个候选输出，并写入 guidance / job snapshot。
 - [ ] 创建 design job 时将 guidance、classification、child template、interaction paradigm、review mode 写入 immutable snapshot。
-- [ ] 新增百科规范审查器：
-  - [ ] 固定 viewport。
-  - [ ] iframe/touch/scroll 行为。
-  - [ ] 外部依赖和静态安全。
-  - [ ] 必备章节。
-  - [ ] 中立语气和模板一致性。
-- [ ] 支持 review mode：`off`、`semi_auto`、`auto`。
-- [ ] 半自动模式增加 `review_pending_confirmation` 状态和确认修复 API。
-- [ ] API smoke：词条 -> guidance -> 确认推荐 -> 创建 job -> snapshot 固定业务上下文。
+- [~] 新增百科规范审查器：
+  - [x] 固定 viewport。
+  - [x] iframe/touch/scroll 行为。
+  - [x] 外部依赖和静态安全。
+  - [x] 必备章节。
+  - [~] 中立语气和模板一致性；当前覆盖结构/模板一致性，事实中立语气深审查留到 Phase 2。
+  - [x] finding source 限定为 `static_rule` / `template_rule` / `pixel_gate`；`llm_review` 标 Phase 2，MVP 不启用（12.3）。
+- [x] spec review checker 产出的 finding 对接 `qualityGates` 数组契约（12.2），任一 `error` 判 `fail`，`warning` 不阻断。
+- [~] 支持 review mode：`off`、`semi_auto`、`auto`；当前 `semi_auto` 已能生成 1 次确认式修复策略，`auto/off` 的完整后端状态机待收口。
+- [x] 半自动模式增加 `review_pending_confirmation` 状态和确认修复 API；当前已提供 `POST /api/variations/:id/review-actions` 支持 `confirm_repair` / `skip`，并通过 job snapshot 聚合最后一次 review action。
+- [x] API smoke：词条 -> guidance -> 确认推荐 -> 创建 job -> snapshot 固定业务上下文。
 
 验收：
 

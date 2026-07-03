@@ -50,9 +50,11 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       session: repository.sessions.get(session.id)!,
       prompt: 'Persist a design job',
       sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
       variationCount: 1,
       templateRequirements: { styles: ['postgres'] },
     })
+    assert.equal(job.productMode, 'dynamic_encyclopedia_card')
     const [variation] = await repository.createVariations({ job, count: 1 })
     assert.ok(variation)
     const artifact = await repository.createArtifact({
@@ -193,6 +195,29 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
     } as unknown as DesignEvent
     const persistedEvent = await repository.appendDesignEvent(driftedEvent)
     assert.match(persistedEvent.timestamp, /^\d{4}-/)
+    const guidance = await repository.saveEncyclopediaEntryGuidance({
+      id: 'eg_pg_smoke',
+      userId: repository.devUser.id,
+      workspaceId: repository.devWorkspace.id,
+      productMode: 'dynamic_encyclopedia_card',
+      entryTitle: '百度百科',
+      rawInput: '百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司',
+      context: '需要生成动态百科词条卡片。',
+      primaryCategory: '机构组织',
+      secondaryCategory: '企业',
+      confidence: 0.84,
+      signals: ['企业', '人工智能'],
+      recommendedTemplateIds: ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card'],
+      selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+      interactionParadigmId: 'ip_timeline_story',
+      automationMode: 'semi_auto',
+      status: 'confirmed',
+      confirmedAt: new Date().toISOString(),
+      metadata: { classificationSource: 'mock_rules' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    assert.equal(guidance.status, 'confirmed')
 
     await repository.flush()
     await repository.close()
@@ -217,6 +242,8 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.designTemplatePackId, 'dtp_editorial_finance')
       assert.equal(hydrated.designTemplatePacks.get(privateTemplate.id)?.version, '1.1.0')
       assert.equal(hydrated.designTemplatePackVersions.get(`${privateTemplate.id}:1.0.0`)?.pack.name, 'Private PG Smoke')
+      assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.selectedTemplateIds[0], 'dtp_dynamic_encyclopedia_timeline_card')
+      assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.interactionParadigmId, 'ip_timeline_story')
       clearHydratedCache(hydrated)
       hydrated.designTemplatePacks.clear()
       hydrated.designTemplatePackVersions.clear()
@@ -265,6 +292,11 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal((await hydrated.getDesignTemplatePackById(privateTemplate.id, repository.devUser.id, repository.devWorkspace.id))?.version, '1.1.0')
       assert.equal((await hydrated.getDesignTemplatePackVersion(privateTemplate.id, '1.0.0', repository.devUser.id, repository.devWorkspace.id))?.pack.name, 'Private PG Smoke')
       assert.equal((await hydrated.getDesignTemplatePackVersion(privateTemplate.id, '1.1.0', repository.devUser.id, repository.devWorkspace.id))?.pack.name, 'Private PG Smoke v2')
+      const sqlGuidance = await hydrated.getEncyclopediaEntryGuidanceById(guidance.id)
+      assert.equal(sqlGuidance?.secondaryCategory, '企业')
+      assert.equal(sqlGuidance?.automationMode, 'semi_auto')
+      assert.equal(sqlGuidance?.interactionParadigmId, 'ip_timeline_story')
+      assert.deepEqual(sqlGuidance?.selectedTemplateIds, ['dtp_dynamic_encyclopedia_timeline_card'])
       const adminModels = await hydrated.listAdminModels()
       assert.ok(adminModels.models.some(model => model.id === userModels.defaultModelId))
       const fastModel = await hydrated.updateAdminModel('mdl_babelo_fast', { enabled: true, isDefault: true })
@@ -306,6 +338,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.match((await hydrated.getShareByToken(share.token))?.revokedAt ?? '', /^\d{4}-/)
       await hydrated.hydrate()
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.aestheticProfileId, 'aes_premium_minimal')
+      assert.equal((await hydrated.getEncyclopediaEntryGuidanceById(guidance.id))?.status, 'confirmed')
       const snapshot = await hydrated.getSessionSnapshot(session.id)
       assert.equal(snapshot?.messages.length, 1)
       assert.equal(snapshot?.jobs.length, 1)
@@ -335,6 +368,7 @@ function clearHydratedCache(repository: PostgresRepository): void {
   repository.designTemplatePacks.clear()
   repository.designTemplatePackVersions.clear()
   repository.annotationBatches.clear()
+  repository.encyclopediaEntryGuidances.clear()
   repository.auditLogs.splice(0, repository.auditLogs.length)
   repository.usageEvents.splice(0, repository.usageEvents.length)
 }

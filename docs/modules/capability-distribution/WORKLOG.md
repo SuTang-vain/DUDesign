@@ -29,6 +29,80 @@
 - `mcp_encyclopedia_democase_readonly` 初期可 mock，但 contract 要按真实 MCP 调用设计。
 - 自动审查规则需要与 `dtp_dynamic_encyclopedia_card` rationale 和 KeDU 分类体系对齐。
 
+## 2026-07-03 CAP-M8.1 Dynamic Encyclopedia Capability Registry Foundation
+
+### 已完成
+
+- 新建功能分支：`feature/dynamic-encyclopedia-card`。
+- Contracts 增加动态百科能力地基：
+  - `ProductMode = web_app | dynamic_encyclopedia_card`。
+  - `DesignTemplatePack` 父子元数据：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`。
+  - `InteractionParadigm`。
+  - `AutomationLoopProfile.qualityGates` 兼容字段和 `spec_review_refine` repair strategy。
+- Capability registry 增加动态百科入口：
+  - `tpl_dynamic_encyclopedia_entry`。
+  - `plug_encyclopedia_entry_guidance`。
+  - `sk_encyclopedia_entry_guidance`。
+  - `plug_encyclopedia_democase_readonly`。
+  - `mcp_encyclopedia_democase_readonly`。
+  - `loop_encyclopedia_spec_review`。
+  - `DYNAMIC_ENCYCLOPEDIA_PRESET`。
+- 官方模板包增加动态百科子模板：
+  - `dtp_dynamic_encyclopedia_summary_card`。
+  - `dtp_dynamic_encyclopedia_timeline_card`。
+- 交互范式增加首批映射：
+  - `ip_entity_summary -> dtp_dynamic_encyclopedia_summary_card`。
+  - `ip_timeline_story -> dtp_dynamic_encyclopedia_timeline_card`。
+- 单测覆盖动态百科 preset snapshot、交互范式映射、父子模板元数据和官方模板合规约束。
+
+### 验证
+
+- `npm --workspace @dudesign/api exec tsc -b && node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js`
+- `npx tsc -b apps/api packages/contracts packages/domain packages/runtime-gateway`
+
+### 决策
+
+- 本分支第一步只注册能力地基，不一次性改穿 productMode 顶层化、数据库迁移、entry guidance API 和用户端模式切换。
+- `qualityGates` 先作为兼容字段引入，保留既有 `qualityGate` / `enablePixelGate`，避免一次改动影响 Automation Loop 事件、前端 Activity Stream 和旧测试。
+- 交互范式与模板包关联以 `InteractionParadigm.compatibleTemplatePackIds` 为事实来源，模板包不持久化反向引用。
+
+### 后续关注
+
+- `productMode` 顶层化已在 CAP-M8.2 / APP-M32 / RTC-M8.1 推进；下一步进入 entry guidance mock flow。
+- 再下一步实现 `POST /api/encyclopedia/entry-guidance` mock flow。
+
+## 2026-07-03 CAP-M8.2 Dynamic Encyclopedia Product Mode Contract
+
+### 已完成
+
+- `ProductMode` 从规划字段推进为 job 顶层业务字段：
+  - contracts `CreateDesignJobRequest.productMode`。
+  - domain `DesignJob.productMode`。
+  - InMemoryStore / PostgresRepository job 创建与读取。
+  - PostgreSQL migration `0011_product_mode.sql`。
+  - Runtime Gateway `SpawnVariationAgentsInput.productMode`。
+  - BabeL-O `/v1/agents` request body。
+- 默认值保持 `web_app`，旧请求不传 `productMode` 时不改变现有 Web&App 生成流程。
+- API flow smoke 增加断言：
+  - 旧 `from_existing_html` job 默认 `web_app`。
+  - 显式 `dynamic_encyclopedia_card` job 可进入 job snapshot。
+- Runtime Gateway 测试覆盖 `productMode` 透传到 BabeL-O agent request。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway && npm --workspace @dudesign/api exec tsc -b && node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b && node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 决策
+
+- 本轮只将 `productMode` 顶层化到 job，不把 session 改成 product-mode session。原因是生成任务才是动态百科业务事实来源，session 仍可承载同一会话下的多类任务。
+- `productMode` 不进入 `templateRequirements`，避免污染 capability snapshot。
+
+### 后续关注
+
+- 下一步实现 entry guidance mock API，让动态百科模式可以在创建 job 前产生分类与推荐。
+- 用户端模式切换后再开始传 `productMode=dynamic_encyclopedia_card`。
+
 ## 2026-07-03 CAP-M5.1 DESIGN.md Private Template Browser E2E
 
 ### 已完成
@@ -1157,3 +1231,74 @@
 - `npm run typecheck`
 - `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/mock-flow.test.js`
 - `npm --workspace @dudesign/admin run build`
+
+## 2026-07-03 CAP-M8.3 Dynamic Encyclopedia Guidance Snapshot
+
+### 已完成
+
+- `POST /api/encyclopedia/entry-guidance` 输出动态百科 capability preset：
+  - `tpl_dynamic_encyclopedia_entry`
+  - `sk_encyclopedia_entry_guidance`
+  - `mcp_encyclopedia_democase_readonly`
+  - `loop_encyclopedia_spec_review`
+- guidance 结果返回动态百科 child template 推荐，并通过 `designTemplatePackIds` 进入 job 创建流程。
+- guidance 结果把业务上下文写入 `templateRequirements.businessContext`：
+  - guidance id
+  - entry title
+  - L1/L2 分类
+  - recommended template ids
+  - automation mode
+
+### 决策
+
+- 本阶段只做 mock guidance 和 snapshot 注入，不把 guidance 持久化为正式 capability entity。
+- 动态百科模式的自动勾选仍通过标准 `CapabilityRequirements` 表达，不新增第五层架构。
+- 词条引导向导的业务分类先在 application-service 内实现；生成期 democase 访问仍保留为 MCP binding / Runtime 兼容层职责。
+
+### 验证
+
+- `node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/mock-flow.test.js`
+
+## 2026-07-03 CAP-M8.4 Confirmed Guidance Capability Snapshot
+
+### 已完成
+
+- guidance 持久化后，confirmed response 可作为创建 dynamic encyclopedia job 的能力输入。
+- confirmation 阶段可以覆盖 selected child template 和 automation mode。
+- API smoke 验证：
+  - 选择 `dtp_dynamic_encyclopedia_timeline_card`
+  - 切换 `semi_auto`
+  - job snapshot 保留 `loop_encyclopedia_spec_review`
+  - max repair attempts 固定为 1
+  - variation 使用 confirmed child template
+
+### 决策
+
+- capability snapshot 仍只记录标准能力选择；业务上下文进入 `templateRequirements.businessContext`。
+- interaction paradigm 仍待显式持久化，不从 child template id 反推作为最终事实。
+
+### 验证
+
+- `node --test apps/api/dist/mock-flow.test.js`
+
+## 2026-07-03 CAP-M8.5 Interaction Paradigm as Snapshot Fact
+
+### 已完成
+
+- guidance response 显式返回 `interactionParadigm`。
+- 每个 recommended template 明确标注 `interactionParadigmId`。
+- confirmed guidance 将 interaction paradigm 写入 `templateRequirements.businessContext`。
+- API smoke 覆盖：
+  - 默认企业词条先推荐 `ip_entity_summary`
+  - 用户确认 timeline child template 后切换为 `ip_timeline_story`
+  - job 创建后 business context 保持该 interaction paradigm，不依赖模板 id 反推。
+
+### 决策
+
+- `InteractionParadigm.compatibleTemplatePackIds` 仍是 template -> paradigm 映射来源。
+- 生成任务的事实快照以 guidance/job `businessContext.interactionParadigmId` 为准。
+- 未来增加新 child template 时，只需更新 interaction paradigm 兼容关系和推荐规则，不需要改变 Runtime Gateway 契约。
+
+### 验证
+
+- `node --test apps/api/dist/mock-flow.test.js`

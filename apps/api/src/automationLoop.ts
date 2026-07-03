@@ -29,6 +29,14 @@ export type AutomationLoopEvaluationInput = {
   previousIssueFingerprints?: string[]
 }
 
+export type AutomationRepairFinding = {
+  id: string
+  source: 'static_rule' | 'template_rule' | 'pixel_gate'
+  severity: 'error' | 'warning'
+  message: string
+  repairHint: string
+}
+
 export function evaluateAutomationLoopStop(input: AutomationLoopEvaluationInput): AutomationLoopStopDecision {
   if (input.cancelled) return stop('cancelled')
   if (input.runtimeStatus === 'contract_mismatch') return stop('runtime_contract_mismatch')
@@ -81,6 +89,7 @@ export function automationIssueFingerprint(issues: string[]): string {
 
 export function buildAutomationRepairPrompt(input: {
   issues: string[]
+  specFindings?: AutomationRepairFinding[]
   originalPrompt: string
   templateSummary?: string | null
 }): string {
@@ -88,11 +97,21 @@ export function buildAutomationRepairPrompt(input: {
     ? input.issues.map(issue => `- ${issue}`).join('\n')
     : '- The artifact did not pass the configured quality gate.'
   const templateSummary = input.templateSummary?.trim()
+  const specFindingList = input.specFindings?.length
+    ? [
+      '',
+      'Structured dynamic encyclopedia spec findings:',
+      ...input.specFindings.map(finding =>
+        `- [${finding.severity}] ${finding.id} (${finding.source}): ${finding.message} Repair hint: ${finding.repairHint}`,
+      ),
+    ]
+    : []
   return [
     'DUDesign automatic repair request.',
     '',
     'The current HTML artifact failed quality checks:',
     issueList,
+    ...specFindingList,
     '',
     `Original user goal: ${input.originalPrompt.trim()}`,
     templateSummary ? `Design context to preserve: ${templateSummary}` : '',

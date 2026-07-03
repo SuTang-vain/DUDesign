@@ -1,4 +1,4 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, ID, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, ID, InteractionParadigm, ProductMode, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 
@@ -57,6 +57,7 @@ export type SpawnVariationAgentsInput = {
   jobId: ID
   prompt: string
   sourceMode: SourceMode
+  productMode?: ProductMode
   sourceArtifactId?: ID | null
   variationCount: number
   workspaceRoot: string
@@ -72,6 +73,16 @@ export type SpawnVariationAgentsInput = {
     capabilitySnapshot?: CapabilitySnapshot
     designTemplatePackIds?: ID[]
     designTemplatePacks?: DesignTemplatePack[]
+    interactionParadigm?: InteractionParadigm
+    businessContext?: {
+      guidanceId?: ID
+      entryTitle?: string
+      entryPrimaryCategory?: string
+      entrySecondaryCategory?: string
+      interactionParadigmId?: ID
+      recommendedTemplateIds?: ID[]
+      automationMode?: 'off' | 'semi_auto' | 'auto'
+    }
     variationTemplateAssignments?: Array<{
       variationIndex: number
       designTemplatePackId: ID

@@ -270,6 +270,112 @@ test('workbench can import DESIGN.md and generate with the private template', as
   })
 })
 
+test('dynamic encyclopedia mode guides entry classification before creating a job', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
+  await expect(page.getByTestId('prompt-input')).toHaveAttribute('placeholder', 'Enter an encyclopedia entry name or content...')
+  await expect(page.getByTestId('capability-summary')).toContainText('Dynamic Encyclopedia Entry')
+  await expect(page.getByTestId('capability-summary')).toContainText('1 templates')
+  await expect(page.getByTestId('capability-summary')).toContainText('Encyclopedia Spec Review')
+
+  await page.getByTestId('prompt-input').fill('百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司')
+  const guidanceResponsePromise = page.waitForResponse(response =>
+    response.url().includes('/api/encyclopedia/entry-guidance') && response.request().method() === 'POST',
+  )
+  await page.getByTestId('generate-button').click()
+  const guidanceResponse = await guidanceResponsePromise
+  expect(guidanceResponse.ok()).toBe(true)
+  const guidancePayload = await guidanceResponse.json() as {
+    guidanceId: string
+    requiresConfirmation: boolean
+    democaseReferences: Array<{ caseId: string; matchedKeywords: string[]; score: number }>
+    interactionParadigm: { id: string }
+  }
+  expect(guidancePayload.requiresConfirmation).toBe(false)
+  expect(guidancePayload.democaseReferences[0]?.caseId).toBe('demo_baidu_baike_company')
+  expect(guidancePayload.democaseReferences[0]?.matchedKeywords).toContain('百度百科')
+  expect(guidancePayload.democaseReferences[0]?.score).toBeGreaterThan(0)
+  expect(guidancePayload.interactionParadigm.id).toBe('ip_entity_summary')
+
+  await expect(page).toHaveURL(/\/jobs\/job_/)
+
+  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
+  expect(jobId).toBeTruthy()
+  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
+  expect(jobSnapshotResponse.ok()).toBe(true)
+  const jobPayload = await jobSnapshotResponse.json() as {
+    job: {
+      productMode: string
+      capabilitySnapshot: {
+        template: { domainTemplate: { id: string } }
+        plugins: { skillIds: string[]; mcpToolIds: string[] }
+        automation: { loopProfile: { id: string } }
+      }
+      designTemplatePacks: Array<{ id: string }>
+    }
+  }
+  expect(jobPayload.job.productMode).toBe('dynamic_encyclopedia_card')
+  expect(jobPayload.job.capabilitySnapshot.template.domainTemplate.id).toBe('tpl_dynamic_encyclopedia_entry')
+  expect(jobPayload.job.capabilitySnapshot.plugins.skillIds).toContain('sk_encyclopedia_entry_guidance')
+  expect(jobPayload.job.capabilitySnapshot.plugins.mcpToolIds).toContain('mcp_encyclopedia_democase_readonly')
+  expect(jobPayload.job.capabilitySnapshot.automation.loopProfile.id).toBe('loop_encyclopedia_spec_review')
+  expect(jobPayload.job.designTemplatePacks[0]?.id).toBe('dtp_dynamic_encyclopedia_summary_card')
+})
+
+test('dynamic encyclopedia mode holds low confidence entries for confirmation and template selection', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
+  await page.getByTestId('prompt-input').fill('baidu baike')
+  await page.getByTestId('generate-button').click()
+
+  await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
+  await expect(page.getByTestId('entry-guidance-summary')).toContainText('知识 / 知识术语')
+  await expect(page.getByTestId('entry-guidance-summary')).toContainText('Low confidence')
+  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toBeVisible()
+  await page.getByTestId('entry-guidance-democase-demo_baidu_baike_company').locator('summary').click()
+  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('Matched keywords')
+  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('baidu baike')
+  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('Score')
+  await expect(page.getByTestId('entry-guidance-classification-游戏')).toBeVisible()
+  await page.getByTestId('entry-guidance-classification-游戏').click()
+  await expect(page.getByTestId('entry-guidance-classification-游戏')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('entry-guidance-template-dtp_dynamic_encyclopedia_timeline_card')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page).toHaveURL(/\/$/)
+
+  const confirmResponsePromise = page.waitForResponse(response =>
+    /\/api\/encyclopedia\/entry-guidance\/[^/]+\/confirm$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST',
+  )
+  await page.getByTestId('generate-button').click()
+  const confirmResponse = await confirmResponsePromise
+  expect(confirmResponse.ok()).toBe(true)
+  const confirmed = await confirmResponse.json() as {
+    status: string
+    requiresConfirmation: boolean
+    templateRequirements: { designTemplatePackIds: string[] }
+  }
+  expect(confirmed.status).toBe('confirmed')
+  expect(confirmed.requiresConfirmation).toBe(false)
+  expect(confirmed.templateRequirements.designTemplatePackIds).toContain('dtp_dynamic_encyclopedia_timeline_card')
+  await expect(page).toHaveURL(/\/jobs\/job_/)
+
+  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
+  expect(jobId).toBeTruthy()
+  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
+  expect(jobSnapshotResponse.ok()).toBe(true)
+  const jobPayload = await jobSnapshotResponse.json() as {
+    job: {
+      productMode: string
+      designTemplatePacks: Array<{ id: string }>
+      templateRequirements: { businessContext: { interactionParadigmId: string } } | null
+    }
+  }
+  expect(jobPayload.job.productMode).toBe('dynamic_encyclopedia_card')
+  expect(jobPayload.job.designTemplatePacks.map(pack => pack.id)).toContain('dtp_dynamic_encyclopedia_timeline_card')
+  expect(jobPayload.job.templateRequirements?.businessContext.interactionParadigmId).toBe('ip_timeline_story')
+})
+
 async function expectPopoverInViewport(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator): Promise<void> {
   const box = await locator.boundingBox()
   expect(box).not.toBeNull()
@@ -389,6 +495,8 @@ test('result wall explains partial and failed generation states', async ({ page 
 })
 
 test('result wall surfaces artifact preview visibility issues', async ({ page }) => {
+  const reviewActions: string[] = []
+  let persistedReviewStatus: 'repair_queued' | 'skipped' | null = null
   await page.route('**/api/design-jobs/job_quality_case/stream', async route => {
     await route.fulfill({
       status: 200,
@@ -417,8 +525,19 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
           id: 'job_quality_case',
           status: 'completed',
           prompt: 'Quality gate preview',
+          productMode: 'dynamic_encyclopedia_card',
           variationCount: 1,
-          capabilitySnapshot: null,
+          capabilitySnapshot: {
+            schemaVersion: '2026-07-01.dudesign-capabilities.v2',
+            template: {
+              domainTemplate: { id: 'tpl_dynamic_encyclopedia_entry', name: 'Dynamic Encyclopedia Entry' },
+            },
+            automation: {
+              loopProfile: { id: 'loop_encyclopedia_spec_review', name: 'Encyclopedia Spec Review' },
+              maxRepairAttempts: 1,
+            },
+            plugins: { skillIds: ['sk_encyclopedia_entry_guidance'], mcpToolIds: ['mcp_encyclopedia_democase_readonly'] },
+          },
           designTemplatePacks: [],
         },
         variations: [
@@ -436,6 +555,15 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
             costCents: 2,
             errorCode: null,
             errorMessage: null,
+            reviewAction: persistedReviewStatus
+              ? {
+                action: persistedReviewStatus === 'repair_queued' ? 'confirm_repair' : 'skip',
+                status: persistedReviewStatus,
+                artifactId: 'art_quality_black_shell',
+                artifactVersion: 1,
+                createdAt: new Date().toISOString(),
+              }
+              : null,
           },
         ],
         artifacts: [
@@ -457,11 +585,67 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
       }),
     })
   })
+  await page.route('**/api/variations/var_quality_case/review-actions', async route => {
+    const body = route.request().postDataJSON() as { action: string; artifactId?: string | null }
+    reviewActions.push(body.action)
+    expect(body.artifactId).toBe('art_quality_black_shell')
+    persistedReviewStatus = body.action === 'confirm_repair' ? 'repair_queued' : 'skipped'
+    await route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: body.action,
+        status: body.action === 'confirm_repair' ? 'repair_queued' : 'skipped',
+        variation: {
+          id: 'var_quality_case',
+          currentArtifactId: 'art_quality_black_shell',
+          previewUrl: '/api/variations/var_quality_case/preview',
+          screenshotUrl: null,
+        },
+        artifact: {
+          id: 'art_quality_black_shell',
+          kind: 'html',
+          version: 1,
+          entryPath: 'index.html',
+          createdAt: new Date().toISOString(),
+          quality: {
+            status: 'fail',
+            issues: ['Preview appears blank black, empty, or stuck on a loading shell.'],
+          },
+        },
+        queueJob: body.action === 'confirm_repair'
+          ? {
+            idempotencyKey: 'queue:refine:automation-loop:art_quality_black_shell:attempt:1',
+            kind: 'automation_refine_job',
+            status: 'queued',
+          }
+          : undefined,
+        message: body.action === 'confirm_repair' ? 'Repair request queued.' : 'Review repair skipped.',
+      }),
+    })
+  })
 
   await page.goto('/jobs/job_quality_case')
   await expect(page.getByTestId('variation-grid')).toBeVisible()
   await expect(page.getByTestId('variation-quality-banner')).toContainText('Quality failed')
   await expect(page.getByTestId('variation-quality-banner')).toContainText(/blank black|loading shell/)
+  await expect(page.getByTestId('review-pending-panel')).toContainText('Review pending')
+  await expect(page.getByTestId('review-pending-panel')).toContainText('Spec review failed')
+  await expect(page.getByRole('link', { name: 'Manual edit' })).toHaveAttribute('href', '/variations/var_quality_case')
+  await page.getByRole('button', { name: 'Confirm repair' }).click()
+  await expect(page.getByTestId('review-pending-panel')).toContainText('Repair request is queued')
+  expect(reviewActions).toEqual(['confirm_repair'])
+  await page.reload()
+  await expect(page.getByTestId('review-pending-panel')).toContainText('Repair request is queued')
+  await expect(page.getByRole('button', { name: 'Confirm repair' })).toHaveCount(0)
+  persistedReviewStatus = null
+  await page.reload()
+  await expect(page.getByTestId('review-pending-panel')).toContainText('Review pending')
+  await page.getByRole('button', { name: 'Skip' }).click()
+  await expect(page.getByTestId('review-pending-panel')).toHaveCount(0)
+  expect(reviewActions).toEqual(['confirm_repair', 'skip'])
+  await page.reload()
+  await expect(page.getByTestId('review-pending-panel')).toHaveCount(0)
 })
 
 test('user workbench exposes basic accessible controls', async ({ page }) => {

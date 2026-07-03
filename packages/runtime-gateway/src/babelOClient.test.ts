@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { DesignTemplatePack } from '@dudesign/contracts'
+import type { CapabilitySnapshot, DesignTemplatePack, InteractionParadigm } from '@dudesign/contracts'
 
 import { BabelORuntimeClient, DUDESIGN_RUNTIME_CONTRACT_VERSION, RuntimeGatewayError } from './babelOClient.js'
 
@@ -472,6 +472,7 @@ describe('BabelORuntimeClient', () => {
       jobId: 'job_1',
       prompt: 'Build a page',
       sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
       sourceArtifactId: null,
       variationCount: 2,
       variationIndex: 1,
@@ -620,6 +621,7 @@ describe('BabelORuntimeClient', () => {
       jobId: agentBody.jobId,
       prompt: agentBody.prompt,
       sourceMode: agentBody.sourceMode,
+      productMode: agentBody.productMode,
       sourceArtifactId: agentBody.sourceArtifactId,
       variationCount: agentBody.variationCount,
       variationIndex: agentBody.variationIndex,
@@ -636,6 +638,7 @@ describe('BabelORuntimeClient', () => {
       jobId: 'job_1',
       prompt: agentPrompt,
       sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
       sourceArtifactId: null,
       variationCount: 2,
       variationIndex: 1,
@@ -717,7 +720,7 @@ describe('BabelORuntimeClient', () => {
     assert.ok(prompts.every(prompt => prompt.includes('trustworthy')))
   })
 
-  it('injects assigned template pack component and section constraints into the runtime prompt', async () => {
+  it('golden replays dynamic encyclopedia child template prompt context', async () => {
     let prompt = ''
     const client = new BabelORuntimeClient({
       baseUrl: 'https://runtime.example.test',
@@ -745,26 +748,233 @@ describe('BabelORuntimeClient', () => {
       workspaceRoot: 'workspaces/workspace_1',
       memoryNamespace: 'memory:user:user_1',
       templateRequirements: {
+        businessContext: {
+          guidanceId: 'eg_baidu_baike',
+          entryTitle: '百度百科',
+          entryPrimaryCategory: '作品',
+          entrySecondaryCategory: '游戏',
+          interactionParadigmId: 'ip_timeline_story',
+          recommendedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+          automationMode: 'semi_auto',
+        },
         variationTemplateAssignments: [{
           variationIndex: 1,
-          designTemplatePackId: 'dtp_dynamic_encyclopedia_card',
+          designTemplatePackId: 'dtp_dynamic_encyclopedia_timeline_card',
           designTemplatePack: dynamicEncyclopediaTemplatePack(),
         }],
       },
     })
 
-    assert.match(prompt, /DUDesign assigned Template Pack:/)
-    assert.match(prompt, /Dynamic Encyclopedia Entry Card/)
-    assert.match(prompt, /primary=#6487FA/)
-    assert.match(prompt, /pc-card-frame: \{"width":788,"height":492/)
-    assert.match(prompt, /wise-standard-frame: \{"width":380,"height":456/)
-    assert.match(prompt, /scroll-container: \{"overflowY":"auto"/)
-    assert.match(prompt, /Template sections and constraints:/)
-    assert.match(prompt, /PC 788x492/)
-    assert.match(prompt, /WISE standard 380x456/)
-    assert.match(prompt, /touchmove/)
-    assert.match(prompt, /touch-action: none/)
-    assert.match(prompt, /Do not imitate public brands or proprietary trade dress/)
+    const templateBlock = extractPromptBlock(prompt, 'DUDesign assigned Template Pack:', 'DUDesign variation directive:')
+    assert.equal(templateBlock, [
+      'DUDesign assigned Template Pack:',
+      '- Template: Dynamic Encyclopedia Timeline Card (dtp_dynamic_encyclopedia_timeline_card) — Timeline child template with fixed PC and WISE viewport constraints.',
+      '- Dynamic encyclopedia business context:',
+      '  guidanceId=eg_baidu_baike',
+      '  entryTitle=百度百科',
+      '  entryCategory=作品/游戏',
+      '  interactionParadigmId=ip_timeline_story',
+      '  recommendedTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
+      '  automationMode=semi_auto',
+      '- Overview: A child template for biographies, release histories, and staged entity development.',
+      '- Color tokens: primary=#6487FA, surface=#FFFFFF, background=#F8F8F8, text=#1E1F24, muted=#848691, subtle=#B7B9C1.',
+      '- Typography tokens: body=Inter, PingFang SC, system-ui 16px weight 400.',
+      '- Spacing tokens: frame=16.',
+      '- Component rules: pc-card-frame: {"width":788,"height":492,"unit":"px","strict":true}; wise-standard-frame: {"width":380,"height":456,"ratio":"1:1.2"}; timeline-track: {"accentColor":"#6487FA","markerSize":8}; scroll-container: {"overflowY":"auto","webkitOverflowScrolling":"touch","bodyScroll":false}.',
+      '- Layout rationale: Lead with entry summary, then a vertical or segmented timeline inside a scroll container. PC must render perfectly at 788x492. WISE standard must render perfectly at 380x456.',
+      '- Component rationale: Timeline track, milestone cards, period filters, summary chips, and explicit overflow container.',
+      '- Template sections and constraints: sizing: PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360. iframeTouch: Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets. scrolling: Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto. timeline: Add dated or phased milestones without inventing exact dates.',
+      '- Do: Use a dedicated overflow container instead of body scrolling. Keep iframe and mobile gesture compatibility explicit. Group sparse dates into phases when exact dates are unavailable.',
+      '- Do not: Do not bind global touchmove preventDefault. Do not set global touch-action: none. Do not fabricate dates or milestones. Do not use video, download, or outbound navigation as core interactions.',
+      '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
+    ].join('\n'))
+  })
+
+  it('golden replays layered dynamic encyclopedia template and interaction context', async () => {
+    let prompt = ''
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompt = body.prompt
+        return jsonResponse({
+          streamId: 'stream_encyclopedia_layered',
+          agentJobId: 'agent_job_encyclopedia_layered',
+          runtimeChildSessionId: 'rt_child_encyclopedia_layered',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a dynamic encyclopedia timeline entry card',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        businessContext: {
+          guidanceId: 'eg_game_release',
+          entryTitle: '示例游戏',
+          entryPrimaryCategory: '作品',
+          entrySecondaryCategory: '游戏',
+          interactionParadigmId: 'ip_timeline_story',
+          recommendedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+          automationMode: 'auto',
+        },
+        interactionParadigm: dynamicEncyclopediaTimelineParadigm(),
+        designTemplatePacks: [
+          dynamicEncyclopediaParentTemplatePack(),
+          dynamicEncyclopediaTemplatePack(),
+        ],
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: 'dtp_dynamic_encyclopedia_timeline_card',
+          designTemplatePack: dynamicEncyclopediaTemplatePack(),
+        }],
+      },
+    })
+
+    const templateBlock = extractPromptBlock(prompt, 'DUDesign assigned Template Pack:', 'DUDesign variation directive:')
+    assert.equal(templateBlock, [
+      'DUDesign assigned Template Pack:',
+      '- Parent package: Dynamic Encyclopedia Entry Card (dtp_dynamic_encyclopedia_card) — Interactive encyclopedia card parent package for compact knowledge entries.',
+      '- Parent package role: parent_pack.',
+      '- Parent package inherited constraints: sizing: PC 788x492 exact composition. WISE standard 380x456. iframeTouch: Avoid global touch interception and preserve iframe/mobile gesture compatibility.',
+      '- Parent package do: Use a dedicated scroll container. Use local interactive UI states instead of external navigation.',
+      '- Parent package do not: Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress. Do not attach global touchmove preventDefault handlers.',
+      '- Template: Dynamic Encyclopedia Timeline Card (dtp_dynamic_encyclopedia_timeline_card) — Timeline child template with fixed PC and WISE viewport constraints.',
+      '- Dynamic encyclopedia business context:',
+      '  guidanceId=eg_game_release',
+      '  entryTitle=示例游戏',
+      '  entryCategory=作品/游戏',
+      '  interactionParadigmId=ip_timeline_story',
+      '  recommendedTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
+      '  automationMode=auto',
+      '- Interaction paradigm: Timeline Story (ip_timeline_story) — A chronological interaction for life stages, release history, enterprise development, events, or work evolution.',
+      '  category=encyclopedia',
+      '  bestFor=历史人物, 影视作品, 文学著作, 企业, 文化活动, 游戏',
+      '  avoidFor=entries without event order or milestone data',
+      '  requiredDataShape=dated or ordered events, phase labels, short event descriptions',
+      '  compatibleTemplatePackIds=dtp_dynamic_encyclopedia_timeline_card',
+      '- Overview: A child template for biographies, release histories, and staged entity development.',
+      '- Color tokens: primary=#6487FA, surface=#FFFFFF, background=#F8F8F8, text=#1E1F24, muted=#848691, subtle=#B7B9C1.',
+      '- Typography tokens: body=Inter, PingFang SC, system-ui 16px weight 400.',
+      '- Spacing tokens: frame=16.',
+      '- Component rules: pc-card-frame: {"width":788,"height":492,"unit":"px","strict":true}; wise-standard-frame: {"width":380,"height":456,"ratio":"1:1.2"}; timeline-track: {"accentColor":"#6487FA","markerSize":8}; scroll-container: {"overflowY":"auto","webkitOverflowScrolling":"touch","bodyScroll":false}.',
+      '- Layout rationale: Lead with entry summary, then a vertical or segmented timeline inside a scroll container. PC must render perfectly at 788x492. WISE standard must render perfectly at 380x456.',
+      '- Component rationale: Timeline track, milestone cards, period filters, summary chips, and explicit overflow container.',
+      '- Template sections and constraints: sizing: PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360. iframeTouch: Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets. scrolling: Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto. timeline: Add dated or phased milestones without inventing exact dates.',
+      '- Do: Use a dedicated overflow container instead of body scrolling. Keep iframe and mobile gesture compatibility explicit. Group sparse dates into phases when exact dates are unavailable.',
+      '- Do not: Do not bind global touchmove preventDefault. Do not set global touch-action: none. Do not fabricate dates or milestones. Do not use video, download, or outbound navigation as core interactions.',
+      '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
+    ].join('\n'))
+  })
+
+  it('golden replays dynamic encyclopedia entry guidance skill prompt block', async () => {
+    let prompt = ''
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompt = body.prompt
+        return jsonResponse({
+          streamId: 'stream_entry_guidance',
+          agentJobId: 'agent_job_entry_guidance',
+          runtimeChildSessionId: 'rt_child_entry_guidance',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '词条：百度百科',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
+          includeEntryGuidanceSkill: true,
+          includeDemocaseTool: false,
+        }),
+      },
+    })
+
+    const pluginBlock = extractPromptBlock(prompt, 'DUDesign plugin context:', 'DUDesign variation directive:')
+    assert.equal(pluginBlock, [
+      'DUDesign plugin context:',
+      '- Skill: sk_encyclopedia_entry_guidance',
+      '  Rules: Treat the user input as an encyclopedia entry title, entry content, or both. Classify the entry into the closest encyclopedia category before choosing a card structure. Recommend one to three dynamic card subtemplates only when they are supported by the entry content. Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions. Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+      '  Prompt guidance: For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm. Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+      '  Avoid: Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress. Do not turn democase examples into facts about the current entry. Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+      '  Checklist: The card fits the required dynamic encyclopedia viewport constraints. The structure matches the selected subtemplate and entry category. Long content is contained in explicit scroll containers. Claims remain neutral and traceable to the provided entry context.',
+      '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+    ].join('\n'))
+  })
+
+  it('golden replays dynamic encyclopedia democase MCP policy', async () => {
+    let agentBody: Record<string, unknown> = {}
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        agentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return jsonResponse({
+          streamId: 'stream_democase_policy',
+          agentJobId: 'agent_job_democase_policy',
+          runtimeChildSessionId: 'rt_child_democase_policy',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '词条：百度百科',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
+          includeEntryGuidanceSkill: false,
+          includeDemocaseTool: true,
+        }),
+      },
+    })
+
+    const pluginBlock = extractPromptBlock(String(agentBody.prompt), 'DUDesign plugin context:', 'DUDesign variation directive:')
+    assert.equal(pluginBlock, [
+      'DUDesign plugin context:',
+      '- MCP policy: mcp_encyclopedia_democase_readonly maps to encyclopedia-democase.lookupEntryDemoCases with scopes readonly_context. Treat as policy context only unless DUDesign runtime explicitly provides the tool.',
+      '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+    ].join('\n'))
+
+    const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
+    assert.deepEqual(templateRequirements.toolPolicy, {
+      allowedMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+      scopes: ['readonly_context'],
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+      mode: 'policy_only',
+    })
   })
 
 	  it('streams SSE runtime events', async () => {
@@ -912,16 +1122,225 @@ function hangingStreamResponse(): Response {
   })
 }
 
-function dynamicEncyclopediaTemplatePack(): DesignTemplatePack {
+function extractPromptBlock(prompt: string, startMarker: string, endMarker: string): string {
+  const start = prompt.indexOf(startMarker)
+  const end = prompt.indexOf(endMarker, start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  return prompt.slice(start, end).trim()
+}
+
+function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
+  includeEntryGuidanceSkill: boolean
+  includeDemocaseTool: boolean
+}): CapabilitySnapshot {
+  return {
+    schemaVersion: '2026-07-01.dudesign-capabilities.v2',
+    template: {
+      domainTemplate: {
+        id: 'tpl_dynamic_encyclopedia_entry',
+        name: 'Dynamic Encyclopedia Entry',
+        category: 'encyclopedia',
+        description: 'Dynamic encyclopedia card generation.',
+        contentVersion: '1.0.0',
+        structure: {
+          sections: ['summary', 'facts', 'interaction'],
+          requiredElements: ['entry-title', 'source-aware-facts'],
+          optionalElements: ['timeline', 'comparison'],
+        },
+        constraints: ['Keep claims neutral and traceable to supplied entry context.'],
+        variationDirections: ['Timeline card', 'Fact dashboard', 'Comparison card'],
+      },
+      aestheticProfile: {
+        id: 'aes_dynamic_encyclopedia',
+        name: 'Dynamic Encyclopedia',
+        description: 'Clean factual card style.',
+        colorPaletteIds: ['pal_dynamic_encyclopedia'],
+        mood: ['clear'],
+        occasion: ['knowledge'],
+        tone: ['neutral'],
+        formality: 'medium',
+        density: 'compact',
+        bestFor: ['encyclopedia'],
+        avoidFor: ['brand-landing'],
+        typographyTone: 'clear CJK-friendly sans',
+        layoutTone: 'fixed-size factual card',
+        motionTone: 'subtle inspectable interactions',
+        negativeRules: ['Avoid public encyclopedia or search engine trade dress.'],
+      },
+      colorPalette: {
+        id: 'pal_dynamic_encyclopedia',
+        name: 'Dynamic Encyclopedia Blue',
+        colors: ['#6487FA', '#FFFFFF', '#F8F8F8', '#1E1F24'],
+        usage: {
+          primary: '#6487FA',
+          surface: '#FFFFFF',
+          background: '#F8F8F8',
+          text: '#1E1F24',
+        },
+        accessibilityNotes: ['Use strong contrast for dense fact labels.'],
+      },
+      brandStyleReference: null,
+    },
+    plugins: {
+      skillIds: options.includeEntryGuidanceSkill ? ['sk_encyclopedia_entry_guidance'] : [],
+      mcpToolIds: options.includeDemocaseTool ? ['mcp_encyclopedia_democase_readonly'] : [],
+      pluginSnapshot: {
+        plugins: [],
+        skills: options.includeEntryGuidanceSkill ? [{
+          id: 'sk_encyclopedia_entry_guidance',
+          pluginId: 'plug_encyclopedia_entry_guidance',
+          schemaVersion: '2026-07-03.dudesign-skill.v1',
+          rules: [
+            'Treat the user input as an encyclopedia entry title, entry content, or both.',
+            'Classify the entry into the closest encyclopedia category before choosing a card structure.',
+            'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
+            'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
+            'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+          ],
+          promptBlocks: [
+            'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
+            'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+          ],
+          negativeRules: [
+            'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
+            'Do not turn democase examples into facts about the current entry.',
+            'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+          ],
+          qualityChecklist: [
+            'The card fits the required dynamic encyclopedia viewport constraints.',
+            'The structure matches the selected subtemplate and entry category.',
+            'Long content is contained in explicit scroll containers.',
+            'Claims remain neutral and traceable to the provided entry context.',
+          ],
+          allowedTemplateCategories: ['encyclopedia'],
+        }] : [],
+        mcpToolBindings: options.includeDemocaseTool ? [{
+          id: 'mcp_encyclopedia_democase_readonly',
+          pluginId: 'plug_encyclopedia_democase_readonly',
+          serverName: 'encyclopedia-democase',
+          toolName: 'lookupEntryDemoCases',
+          scopes: ['readonly_context'],
+          requiresUserAuth: false,
+          allowedTemplateCategories: ['encyclopedia'],
+        }] : [],
+        toolPolicy: {
+          allowedMcpToolIds: options.includeDemocaseTool ? ['mcp_encyclopedia_democase_readonly'] : [],
+          scopes: options.includeDemocaseTool ? ['readonly_context'] : [],
+          requiresUserAuth: false,
+          auditLevel: options.includeDemocaseTool ? 'usage' : 'none',
+        },
+      },
+    },
+    automation: {
+      loopProfile: {
+        id: 'loop_encyclopedia_spec_review',
+        name: 'Dynamic Encyclopedia Spec Review',
+        description: 'Run deterministic encyclopedia spec review and targeted repair.',
+        maxRepairAttempts: 2,
+        maxCostCents: 300,
+        maxDurationMs: 300000,
+        qualityGates: ['static', 'spec'],
+        enablePixelGate: false,
+        qualityGate: 'static',
+        repairStrategy: 'spec_review_refine',
+      },
+      maxRepairAttempts: 2,
+      maxCostCents: 300,
+      maxDurationMs: 300000,
+    },
+  }
+}
+
+function dynamicEncyclopediaTimelineParadigm(): InteractionParadigm {
+  return {
+    id: 'ip_timeline_story',
+    name: 'Timeline Story',
+    category: 'encyclopedia',
+    description: 'A chronological interaction for life stages, release history, enterprise development, events, or work evolution.',
+    bestFor: ['历史人物', '影视作品', '文学著作', '企业', '文化活动', '游戏'],
+    avoidFor: ['entries without event order or milestone data'],
+    requiredDataShape: ['dated or ordered events', 'phase labels', 'short event descriptions'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+  }
+}
+
+function dynamicEncyclopediaParentTemplatePack(): DesignTemplatePack {
   return {
     schemaVersion: '2026-07-01.dudesign-template-pack.v1',
     id: 'dtp_dynamic_encyclopedia_card',
+    templateRole: 'parent_pack',
+    supportedProductModes: ['dynamic_encyclopedia_card'],
+    supportedEntryCategories: ['encyclopedia'],
     source: 'official',
     format: 'dudesign-template-v1',
     visibility: 'public',
     status: 'published',
     name: 'Dynamic Encyclopedia Entry Card',
-    description: 'Interactive encyclopedia entry card package with fixed PC and WISE viewport constraints.',
+    description: 'Interactive encyclopedia card parent package for compact knowledge entries.',
+    version: '1.0.0',
+    designTokens: {
+      colors: {
+        primary: '#6487FA',
+        surface: '#FFFFFF',
+        background: '#F8F8F8',
+        text: '#1E1F24',
+      },
+      typography: {
+        body: { fontFamily: 'Inter, PingFang SC, system-ui', fontSize: '14px', fontWeight: 400 },
+      },
+      spacing: {
+        frame: 16,
+      },
+      rounded: {
+        card: '16px',
+      },
+      components: {
+        'pc-card-frame': { width: 788, height: 492 },
+        'wise-standard-frame': { width: 380, height: 456, ratio: '1:1.2' },
+      },
+    },
+    rationale: {
+      overview: 'Parent package for all dynamic encyclopedia child templates.',
+      colors: 'Use encyclopedia blue and neutral content surfaces.',
+      typography: 'Use compact CJK-friendly typography.',
+      layout: 'Keep fixed PC and WISE frames stable.',
+      elevation: 'Use restrained borders or shadows.',
+      shapes: 'Use moderate radii.',
+      components: 'Summary, timeline, relation, comparison, and expandable fact child templates.',
+      dos: [
+        'Use a dedicated scroll container.',
+        'Use local interactive UI states instead of external navigation.',
+      ],
+      donts: [
+        'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
+        'Do not attach global touchmove preventDefault handlers.',
+      ],
+      sections: {
+        sizing: 'PC 788x492 exact composition. WISE standard 380x456.',
+        iframeTouch: 'Avoid global touch interception and preserve iframe/mobile gesture compatibility.',
+      },
+    },
+    previewArtifactId: null,
+    lintStatus: 'passed',
+    createdByUserId: null,
+  }
+}
+
+function dynamicEncyclopediaTemplatePack(): DesignTemplatePack {
+  return {
+    schemaVersion: '2026-07-01.dudesign-template-pack.v1',
+    id: 'dtp_dynamic_encyclopedia_timeline_card',
+    parentPackId: 'dtp_dynamic_encyclopedia_card',
+    templateRole: 'child_template',
+    supportedProductModes: ['dynamic_encyclopedia_card'],
+    supportedEntryCategories: ['作品', '游戏'],
+    source: 'official',
+    format: 'dudesign-template-v1',
+    visibility: 'public',
+    status: 'published',
+    name: 'Dynamic Encyclopedia Timeline Card',
+    description: 'Timeline child template with fixed PC and WISE viewport constraints.',
     version: '1.0.0',
     designTokens: {
       colors: {
@@ -944,30 +1363,34 @@ function dynamicEncyclopediaTemplatePack(): DesignTemplatePack {
       components: {
         'pc-card-frame': { width: 788, height: 492, unit: 'px', strict: true },
         'wise-standard-frame': { width: 380, height: 456, ratio: '1:1.2' },
+        'timeline-track': { accentColor: '#6487FA', markerSize: 8 },
         'scroll-container': { overflowY: 'auto', webkitOverflowScrolling: 'touch', bodyScroll: false },
       },
     },
     rationale: {
-      overview: 'A business template package for dynamic encyclopedia entry cards.',
+      overview: 'A child template for biographies, release histories, and staged entity development.',
       colors: 'Use #6487FA as the encyclopedia primary color with white and light gray content surfaces.',
       typography: 'Use clear CJK-friendly sans typography for dense facts and short labels.',
-      layout: 'PC must render perfectly at 788x492. WISE standard must render perfectly at 380x456.',
+      layout: 'Lead with entry summary, then a vertical or segmented timeline inside a scroll container. PC must render perfectly at 788x492. WISE standard must render perfectly at 380x456.',
       elevation: 'Use restrained elevation only when it clarifies interactive layers.',
       shapes: 'Rounded content cards, stable fixed frame dimensions.',
-      components: 'Independent scroll containers, primary buttons, expandable fact rows, and tabbed modules.',
+      components: 'Timeline track, milestone cards, period filters, summary chips, and explicit overflow container.',
       dos: [
         'Use a dedicated overflow container instead of body scrolling.',
         'Keep iframe and mobile gesture compatibility explicit.',
+        'Group sparse dates into phases when exact dates are unavailable.',
       ],
       donts: [
         'Do not bind global touchmove preventDefault.',
         'Do not set global touch-action: none.',
+        'Do not fabricate dates or milestones.',
         'Do not use video, download, or outbound navigation as core interactions.',
       ],
       sections: {
         sizing: 'PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360.',
         iframeTouch: 'Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets.',
         scrolling: 'Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto.',
+        timeline: 'Add dated or phased milestones without inventing exact dates.',
       },
     },
     previewArtifactId: null,

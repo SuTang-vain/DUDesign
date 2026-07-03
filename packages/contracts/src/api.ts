@@ -2,6 +2,8 @@ export type ID = string
 
 export type SourceMode = 'new_html' | 'from_existing_html'
 
+export type ProductMode = 'web_app' | 'dynamic_encyclopedia_card'
+
 export type DeviceTarget = 'desktop' | 'tablet' | 'mobile'
 
 export type ModelCapability =
@@ -90,6 +92,17 @@ export type BrandStyleReference = {
   forbiddenRules: string[]
 }
 
+export type InteractionParadigm = {
+  id: ID
+  name: string
+  category: string
+  description: string
+  bestFor: string[]
+  avoidFor: string[]
+  requiredDataShape: string[]
+  compatibleTemplatePackIds: ID[]
+}
+
 export type DesignTemplatePackSource = 'official' | 'user' | 'workspace' | 'imported'
 
 export type DesignTemplatePackFormat = 'dudesign-template-v1' | 'design-md'
@@ -99,6 +112,8 @@ export type DesignTemplatePackVisibility = 'private' | 'workspace' | 'public'
 export type DesignTemplatePackStatus = 'draft' | 'published' | 'archived' | 'disabled'
 
 export type DesignTemplatePackLintStatus = 'unknown' | 'passed' | 'warning' | 'failed'
+
+export type DesignTemplatePackRole = 'standalone' | 'parent_pack' | 'child_template'
 
 export type DesignTokenTypography = {
   fontFamily?: string
@@ -113,6 +128,10 @@ export type DesignTokenTypography = {
 export type DesignTemplatePack = {
   schemaVersion: string
   id: ID
+  parentPackId?: ID | null
+  templateRole?: DesignTemplatePackRole
+  supportedProductModes?: ProductMode[]
+  supportedEntryCategories?: string[]
   source: DesignTemplatePackSource
   format: DesignTemplatePackFormat
   visibility: DesignTemplatePackVisibility
@@ -236,9 +255,10 @@ export type AutomationLoopProfile = {
   maxRepairAttempts: number
   maxCostCents: number | null
   maxDurationMs: number
+  qualityGates?: Array<'static' | 'pixel' | 'spec'>
   enablePixelGate: boolean
   qualityGate: 'static' | 'pixel'
-  repairStrategy: 'none' | 'minimal_refine' | 'deep_refine'
+  repairStrategy: 'none' | 'minimal_refine' | 'deep_refine' | 'spec_review_refine'
 }
 
 export type CapabilityRequirements = {
@@ -259,6 +279,71 @@ export type CapabilityRequirements = {
     maxRepairAttempts?: number | null
     maxCostCents?: number | null
     maxDurationMs?: number | null
+  }
+}
+
+export type EncyclopediaEntryGuidanceRequest = {
+  workspaceId?: ID | null
+  entry: string
+  context?: string | null
+  maxTemplateRecommendations?: number
+  automationMode?: 'off' | 'semi_auto' | 'auto'
+}
+
+export type ConfirmEncyclopediaEntryGuidanceRequest = {
+  selectedTemplateIds?: ID[]
+  classificationOverride?: {
+    primaryCategory: string
+    secondaryCategory: string
+  }
+  automationMode?: 'off' | 'semi_auto' | 'auto'
+}
+
+export type EncyclopediaEntryGuidanceResponse = {
+  guidanceId: ID
+  productMode: Extract<ProductMode, 'dynamic_encyclopedia_card'>
+  status: 'draft' | 'needs_confirmation' | 'confirmed'
+  requiresConfirmation: boolean
+  confirmedAt: string | null
+  entry: {
+    title: string
+    rawInput: string
+    context: string | null
+  }
+  classification: {
+    primaryCategory: string
+    secondaryCategory: string
+    confidence: number
+    signals: string[]
+    source: 'mock_rules'
+  }
+  democaseReferences: Array<{
+    caseId: ID
+    title: string
+    score: number
+    matchedKeywords: string[]
+    summary: string
+  }>
+  recommendedTemplates: Array<{
+    designTemplatePackId: ID
+    name: string
+    interactionParadigmId: ID
+    reason: string
+    confidence: number
+    selected: boolean
+  }>
+  interactionParadigm: InteractionParadigm
+  capabilityRequirements: CapabilityRequirements
+  templateRequirements: NonNullable<CreateDesignJobRequest['templateRequirements']> & {
+    businessContext: {
+      guidanceId: ID
+      entryTitle: string
+      entryPrimaryCategory: string
+      entrySecondaryCategory: string
+      interactionParadigmId: ID
+      recommendedTemplateIds: ID[]
+      automationMode: 'off' | 'semi_auto' | 'auto'
+    }
   }
 }
 
@@ -290,6 +375,7 @@ export type ListCapabilitiesResponse = {
   aestheticProfiles: AestheticProfile[]
   colorPalettes: ColorPalette[]
   brandStyleReferences: BrandStyleReference[]
+  interactionParadigms: InteractionParadigm[]
   plugins: CapabilityPlugin[]
   skills: DesignSkill[]
   mcpToolBindings: McpToolBinding[]
@@ -481,6 +567,7 @@ export type CreateDesignJobRequest = {
   sessionId: ID
   prompt: string
   sourceMode: SourceMode
+  productMode?: ProductMode
   sourceArtifactId?: ID | null
   modelServiceId?: ID | null
   variationCount: number
@@ -493,6 +580,16 @@ export type CreateDesignJobRequest = {
     capabilitySnapshot?: CapabilitySnapshot
     designTemplatePackIds?: ID[]
     designTemplatePacks?: DesignTemplatePack[]
+    interactionParadigm?: InteractionParadigm
+    businessContext?: {
+      guidanceId?: ID
+      entryTitle?: string
+      entryPrimaryCategory?: string
+      entrySecondaryCategory?: string
+      interactionParadigmId?: ID
+      recommendedTemplateIds?: ID[]
+      automationMode?: 'off' | 'semi_auto' | 'auto'
+    }
     variationTemplateAssignments?: Array<{
       variationIndex: number
       designTemplatePackId: ID
@@ -561,6 +658,13 @@ export type CreateSourceArtifactResponse = {
 export type ArtifactQualitySummary = {
   status: 'pass' | 'warn' | 'fail'
   issues: string[]
+  specFindings?: Array<{
+    id: string
+    source: 'static_rule' | 'template_rule' | 'pixel_gate' | string
+    severity: 'error' | 'warning'
+    message: string
+    repairHint: string
+  }>
 }
 
 export type DesignJobSnapshotResponse = {
@@ -568,6 +672,7 @@ export type DesignJobSnapshotResponse = {
     id: ID
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
     prompt: string
+    productMode: ProductMode
     variationCount: number
     capabilitySnapshot: CapabilitySnapshot | null
     designTemplatePacks: DesignTemplatePack[]
@@ -586,6 +691,13 @@ export type DesignJobSnapshotResponse = {
     costCents: number
     errorCode: string | null
     errorMessage: string | null
+    reviewAction: {
+      action: 'confirm_repair' | 'skip'
+      status: 'repair_queued' | 'skipped'
+      artifactId: ID | null
+      artifactVersion: number | null
+      createdAt: string
+    } | null
   }>
   artifacts: Array<{
     id: ID
@@ -644,6 +756,7 @@ export type VariationDetailResponse = {
     id: ID
     prompt: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+    productMode: ProductMode
     capabilitySnapshot: CapabilitySnapshot | null
     designTemplatePacks: DesignTemplatePack[]
   }
@@ -708,6 +821,37 @@ export type RepairVariationPreviewResponse = {
     kind: 'screenshot_job'
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   }
+}
+
+export type ReviewVariationActionRequest = {
+  action: 'confirm_repair' | 'skip'
+  artifactId?: ID | null
+  note?: string | null
+}
+
+export type ReviewVariationActionResponse = {
+  action: 'confirm_repair' | 'skip'
+  status: 'repair_queued' | 'skipped'
+  variation: {
+    id: ID
+    currentArtifactId: ID | null
+    previewUrl: string | null
+    screenshotUrl: string | null
+  }
+  artifact: {
+    id: ID
+    kind: 'html'
+    version: number
+    entryPath: string | null
+    createdAt: string
+    quality: ArtifactQualitySummary | null
+  } | null
+  queueJob?: {
+    idempotencyKey: string
+    kind: 'automation_refine_job'
+    status: 'queued'
+  }
+  message: string
 }
 
 export type VariationFilesResponse = {

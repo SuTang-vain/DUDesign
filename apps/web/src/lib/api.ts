@@ -1,6 +1,9 @@
 import type {
   CreateDesignJobRequest,
   CreateDesignJobResponse,
+  ConfirmEncyclopediaEntryGuidanceRequest,
+  EncyclopediaEntryGuidanceRequest,
+  EncyclopediaEntryGuidanceResponse,
   CreateAnnotationBatchRequest,
   CreateAnnotationBatchResponse,
   ListCapabilitiesResponse,
@@ -16,6 +19,8 @@ import type {
   RefineVariationRequest,
   RefineVariationResponse,
   RestoreVariationVersionResponse,
+  ReviewVariationActionRequest,
+  ReviewVariationActionResponse,
   SaveDesignTemplatePackResponse,
   SaveVariationTemplateRequest,
   SharedVariationResponse,
@@ -118,7 +123,7 @@ function runtimeApiBase(): string {
   if (typeof window !== 'undefined' && window.location.port === '3301') {
     return 'http://127.0.0.1:4100'
   }
-  if (typeof window !== 'undefined' && ['3000', '3001'].includes(window.location.port)) {
+  if (typeof window !== 'undefined' && ['3000', '3001', '3002'].includes(window.location.port)) {
     return 'http://127.0.0.1:4000'
   }
   return ''
@@ -158,6 +163,17 @@ export async function resumeSession(sessionId: string): Promise<ResumeSessionSna
 
 export async function createDesignJob(input: CreateDesignJobRequest): Promise<CreateDesignJobResponse> {
   return postJson('/api/design-jobs', input)
+}
+
+export async function createEncyclopediaEntryGuidance(input: EncyclopediaEntryGuidanceRequest): Promise<EncyclopediaEntryGuidanceResponse> {
+  return postJson('/api/encyclopedia/entry-guidance', input)
+}
+
+export async function confirmEncyclopediaEntryGuidance(
+  guidanceId: string,
+  input: ConfirmEncyclopediaEntryGuidanceRequest,
+): Promise<EncyclopediaEntryGuidanceResponse> {
+  return postJson(`/api/encyclopedia/entry-guidance/${encodeURIComponent(guidanceId)}/confirm`, input)
 }
 
 export async function createSourceArtifact(input: CreateSourceArtifactRequest): Promise<CreateSourceArtifactResponse> {
@@ -211,6 +227,13 @@ export async function createAnnotationBatch(
   input: CreateAnnotationBatchRequest,
 ): Promise<CreateAnnotationBatchResponse> {
   return postJson(`/api/variations/${encodeURIComponent(variationId)}/annotations`, input)
+}
+
+export async function reviewVariationAction(
+  variationId: string,
+  input: ReviewVariationActionRequest,
+): Promise<ReviewVariationActionResponse> {
+  return postJson(`/api/variations/${encodeURIComponent(variationId)}/review-actions`, input)
 }
 
 export async function exportVariation(variationId: string): Promise<ExportVariationResponse> {

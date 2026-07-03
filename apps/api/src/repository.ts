@@ -10,6 +10,7 @@ import type {
   User,
   Workspace,
   WorkspaceMember,
+  EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, AuthIdentity, AuthSession, SessionMessage } from './store.js'
 import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
@@ -26,6 +27,7 @@ export type SessionSnapshot = {
 
 export type JobSnapshot = {
   job: DesignJob
+  messages: SessionMessage[]
   variations: DesignVariation[]
   artifacts: Artifact[]
 }
@@ -104,6 +106,7 @@ export type CreateJobInput = {
   session: DesignSession
   prompt: string
   sourceMode: DesignJob['sourceMode']
+  productMode?: DesignJob['productMode']
   variationCount: number
   templateRequirements: Record<string, unknown>
 }
@@ -416,6 +419,7 @@ export type ApplicationRepository = {
   readonly designEvents: Map<string, DesignEvent[]>
   readonly authIdentities: Map<string, AuthIdentity>
   readonly authSessions: Map<string, AuthSession>
+  readonly encyclopediaEntryGuidances: Map<string, EncyclopediaEntryGuidance>
 
   readonly devUser: User
   readonly devWorkspace: Workspace
@@ -459,6 +463,8 @@ export type ApplicationRepository = {
   getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null>
   saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack>
   getDesignTemplatePackVersion(templateId: string, version: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePackVersion | null>
+  saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance>
+  getEncyclopediaEntryGuidanceById(guidanceId: string): MaybePromise<EncyclopediaEntryGuidance | null>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
   canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>

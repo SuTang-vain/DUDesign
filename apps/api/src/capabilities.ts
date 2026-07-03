@@ -9,6 +9,7 @@ import type {
   ColorPalette,
   DesignSkill,
   DomainTemplate,
+  InteractionParadigm,
   ListCapabilitiesResponse,
   McpToolBinding,
   PluginPermissionScope,
@@ -149,6 +150,29 @@ const domainTemplates: DomainTemplate[] = [
       'Developer tool presentation with technical confidence.',
     ],
   },
+  {
+    id: 'tpl_dynamic_encyclopedia_entry',
+    name: 'Dynamic Encyclopedia Entry',
+    category: 'encyclopedia',
+    description: 'A compact interactive card for encyclopedia entries, entity facts, classification-driven templates, and iframe/mobile embedding.',
+    contentVersion: '1.0.0',
+    structure: {
+      sections: ['entry identity', 'neutral summary', 'key facts', 'interactive module', 'source or context notes'],
+      requiredElements: ['entry title', 'neutral summary', 'key facts', 'explicit scroll container', 'mobile-safe interaction'],
+      optionalElements: ['timeline', 'relation preview', 'comparison rows', 'expandable details'],
+    },
+    constraints: [
+      'Preserve dynamic encyclopedia viewport constraints.',
+      'Keep facts neutral and avoid marketing language.',
+      'Use explicit overflow containers instead of body scrolling.',
+      'Do not imitate public encyclopedia or search product trade dress.',
+    ],
+    variationDirections: [
+      'Entity summary and key facts.',
+      'Timeline-led knowledge card.',
+      'Relation or comparison-focused interactive card.',
+    ],
+  },
 ]
 
 const brandStyleReferences: BrandStyleReference[] = [
@@ -223,6 +247,39 @@ const brandStyleReferences: BrandStyleReference[] = [
     ],
   },
 ]
+
+const interactionParadigms: InteractionParadigm[] = [
+  {
+    id: 'ip_entity_summary',
+    name: 'Entity Summary',
+    category: 'encyclopedia',
+    description: 'A compact fact-first structure for identity, definitions, aliases, metrics, and essential context.',
+    bestFor: ['名人', '机构组织', '企业', '学校', '物品产品', '知识术语'],
+    avoidFor: ['entries whose main value is chronological discovery', 'entries requiring spatial exploration as the core interaction'],
+    requiredDataShape: ['entry title', 'neutral summary', 'key facts', 'category labels'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
+  },
+  {
+    id: 'ip_timeline_story',
+    name: 'Timeline Story',
+    category: 'encyclopedia',
+    description: 'A chronological interaction for life stages, release history, enterprise development, events, or work evolution.',
+    bestFor: ['历史人物', '影视作品', '文学著作', '企业', '文化活动', '游戏'],
+    avoidFor: ['entries without event order or milestone data'],
+    requiredDataShape: ['dated or ordered events', 'phase labels', 'short event descriptions'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+  },
+]
+
+export const DYNAMIC_ENCYCLOPEDIA_PRESET = {
+  id: 'preset_dynamic_encyclopedia_card',
+  productMode: 'dynamic_encyclopedia_card',
+  domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
+  designTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
+  skillIds: ['sk_encyclopedia_entry_guidance'],
+  mcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+  loopProfileId: 'loop_encyclopedia_spec_review',
+} as const
 
 const colorPalettes: ColorPalette[] = [
   {
@@ -436,6 +493,40 @@ const capabilityPlugins: CapabilityPlugin[] = [
       auditLevel: 'usage',
     },
   },
+  {
+    id: 'plug_encyclopedia_entry_guidance',
+    type: 'skill',
+    visibility: 'official',
+    name: 'Encyclopedia Entry Guidance',
+    description: 'Classifies encyclopedia entries, recommends card subtemplates, and keeps generation aligned with entry facts.',
+    category: 'encyclopedia',
+    safetyLevel: 'safe',
+    status: 'active',
+    permissionPolicy: {
+      scopes: ['readonly_context', 'validation_only'],
+      maxPromptChars: 2400,
+      allowRuntimeToolUse: false,
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+    },
+  },
+  {
+    id: 'plug_encyclopedia_democase_readonly',
+    type: 'mcp_tool',
+    visibility: 'official',
+    name: 'Encyclopedia Democase Readonly',
+    description: 'Allows readonly retrieval of approved encyclopedia demo cases for generation-time context.',
+    category: 'encyclopedia',
+    safetyLevel: 'safe',
+    status: 'active',
+    permissionPolicy: {
+      scopes: ['readonly_context'],
+      maxPromptChars: 800,
+      allowRuntimeToolUse: false,
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+    },
+  },
 ]
 
 const designSkills: DesignSkill[] = [
@@ -509,6 +600,34 @@ const designSkills: DesignSkill[] = [
     ],
     allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
+  {
+    id: 'sk_encyclopedia_entry_guidance',
+    pluginId: 'plug_encyclopedia_entry_guidance',
+    schemaVersion: '2026-07-03.dudesign-skill.v1',
+    rules: [
+      'Treat the user input as an encyclopedia entry title, entry content, or both.',
+      'Classify the entry into the closest encyclopedia category before choosing a card structure.',
+      'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
+      'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
+      'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+    ],
+    promptBlocks: [
+      'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
+      'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+    ],
+    negativeRules: [
+      'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
+      'Do not turn democase examples into facts about the current entry.',
+      'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+    ],
+    qualityChecklist: [
+      'The card fits the required dynamic encyclopedia viewport constraints.',
+      'The structure matches the selected subtemplate and entry category.',
+      'Long content is contained in explicit scroll containers.',
+      'Claims remain neutral and traceable to the provided entry context.',
+    ],
+    allowedTemplateCategories: ['encyclopedia'],
+  },
 ]
 
 const mcpToolBindings: McpToolBinding[] = [
@@ -530,6 +649,15 @@ const mcpToolBindings: McpToolBinding[] = [
     requiresUserAuth: false,
     allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
+  {
+    id: 'mcp_encyclopedia_democase_readonly',
+    pluginId: 'plug_encyclopedia_democase_readonly',
+    serverName: 'encyclopedia-democase',
+    toolName: 'lookupEntryDemoCases',
+    scopes: ['readonly_context'],
+    requiresUserAuth: false,
+    allowedTemplateCategories: ['encyclopedia'],
+  },
 ]
 
 const automationLoopProfiles: AutomationLoopProfile[] = [
@@ -540,6 +668,7 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxRepairAttempts: 0,
     maxCostCents: null,
     maxDurationMs: 120000,
+    qualityGates: ['static'],
     enablePixelGate: false,
     qualityGate: 'static',
     repairStrategy: 'none',
@@ -551,6 +680,7 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxRepairAttempts: 1,
     maxCostCents: 200,
     maxDurationMs: 300000,
+    qualityGates: ['static'],
     enablePixelGate: false,
     qualityGate: 'static',
     repairStrategy: 'minimal_refine',
@@ -562,9 +692,22 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxRepairAttempts: 2,
     maxCostCents: 500,
     maxDurationMs: 720000,
+    qualityGates: ['static', 'pixel'],
     enablePixelGate: true,
     qualityGate: 'pixel',
     repairStrategy: 'deep_refine',
+  },
+  {
+    id: 'loop_encyclopedia_spec_review',
+    name: 'Encyclopedia Spec Review',
+    description: 'Runs dynamic encyclopedia card specification checks and allows bounded automated repair.',
+    maxRepairAttempts: 2,
+    maxCostCents: 500,
+    maxDurationMs: 720000,
+    qualityGates: ['static', 'spec', 'pixel'],
+    enablePixelGate: true,
+    qualityGate: 'pixel',
+    repairStrategy: 'spec_review_refine',
   },
 ]
 
@@ -575,6 +718,7 @@ export function listCapabilities(): ListCapabilitiesResponse {
     aestheticProfiles,
     colorPalettes,
     brandStyleReferences,
+    interactionParadigms,
     plugins: capabilityPlugins,
     skills: designSkills,
     mcpToolBindings,

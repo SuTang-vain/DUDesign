@@ -9,6 +9,7 @@ export type WorkspaceMemberStatus = 'active' | 'invited' | 'removed'
 
 export type SessionStatus = 'active' | 'archived'
 export type SourceMode = 'new_html' | 'from_existing_html'
+export type ProductMode = 'web_app' | 'dynamic_encyclopedia_card'
 
 export type DesignJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
@@ -127,6 +128,7 @@ export type DesignJob = {
   workspaceId: ID
   prompt: string
   sourceMode: SourceMode
+  productMode: ProductMode
   variationCount: number
   templateRequirements: Record<string, unknown>
   status: DesignJobStatus
@@ -174,6 +176,31 @@ export type Artifact = {
   sizeBytes: number
   metadata: Record<string, unknown>
   createdAt: ISODateTime
+}
+
+export type EncyclopediaEntryGuidanceStatus = 'draft' | 'needs_confirmation' | 'confirmed'
+
+export type EncyclopediaEntryGuidance = {
+  id: ID
+  userId: ID
+  workspaceId: ID
+  productMode: Extract<ProductMode, 'dynamic_encyclopedia_card'>
+  entryTitle: string
+  rawInput: string
+  context: string | null
+  primaryCategory: string
+  secondaryCategory: string
+  confidence: number
+  signals: string[]
+  recommendedTemplateIds: ID[]
+  selectedTemplateIds: ID[]
+  interactionParadigmId: ID
+  automationMode: 'off' | 'semi_auto' | 'auto'
+  status: EncyclopediaEntryGuidanceStatus
+  confirmedAt: ISODateTime | null
+  metadata: Record<string, unknown>
+  createdAt: ISODateTime
+  updatedAt: ISODateTime
 }
 
 export type Share = {

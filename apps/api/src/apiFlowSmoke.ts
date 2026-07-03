@@ -6,10 +6,12 @@ import type {
   CreateSessionResponse,
   CreateSourceArtifactResponse,
   DesignJobSnapshotResponse,
+  EncyclopediaEntryGuidanceResponse,
   ExportVariationResponse,
   ListDesignTemplatePacksResponse,
   RefineVariationResponse,
   RepairVariationPreviewResponse,
+  ReviewVariationActionResponse,
   RestoreVariationVersionResponse,
   SaveDesignTemplatePackResponse,
   SharedVariationResponse,
@@ -207,6 +209,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.equal(existingStoredSession?.sourceArtifactId, sourceArtifact.artifact.id)
   const existingStoredJob = await harness.service.store.getJobById(existingJob.job.id)
   assert.equal(existingStoredJob?.sourceMode, 'from_existing_html')
+  assert.equal(existingStoredJob?.productMode, 'web_app')
 
   const initialTemplates = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates')
   assert.ok(initialTemplates.templates.length >= 6)
@@ -292,10 +295,126 @@ Reusable smoke test template.
   })
   assert.ok(createdSession.session.id.startsWith('ses_'))
 
+  const entryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司',
+    context: '需要生成动态百科词条卡片，突出企业身份、关键事实、发展节点和移动端 iframe 兼容。',
+    maxTemplateRecommendations: 2,
+    automationMode: 'auto',
+  })
+  assert.equal(entryGuidance.productMode, 'dynamic_encyclopedia_card')
+  assert.equal(entryGuidance.classification.secondaryCategory, '企业')
+  assert.equal(entryGuidance.democaseReferences[0]?.caseId, 'demo_baidu_baike_company')
+  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance'])
+  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+  assert.equal(entryGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_encyclopedia_spec_review')
+  assert.equal(entryGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
+  assert.equal(entryGuidance.recommendedTemplates[0]?.interactionParadigmId, 'ip_entity_summary')
+  assert.equal(entryGuidance.interactionParadigm.id, 'ip_entity_summary')
+  assert.ok(entryGuidance.templateRequirements.businessContext.guidanceId.startsWith('eg_'))
+  assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_entity_summary')
+  assert.equal(entryGuidance.status, 'draft')
+  assert.equal(entryGuidance.requiresConfirmation, false)
+  assert.equal(entryGuidance.confirmedAt, null)
+
+  const reloadedEntryGuidance = await getJson<EncyclopediaEntryGuidanceResponse>(`/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}`)
+  assert.equal(reloadedEntryGuidance.guidanceId, entryGuidance.guidanceId)
+  assert.equal(reloadedEntryGuidance.status, 'draft')
+
+  const lowConfidenceGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '玄青云影',
+    maxTemplateRecommendations: 2,
+    automationMode: 'auto',
+  })
+  assert.equal(lowConfidenceGuidance.status, 'needs_confirmation')
+  assert.equal(lowConfidenceGuidance.requiresConfirmation, true)
+  assert.equal(lowConfidenceGuidance.classification.confidence < 0.6, true)
+  assert.equal(lowConfidenceGuidance.democaseReferences.length, 0)
+  assert.equal(lowConfidenceGuidance.interactionParadigm.id, 'ip_entity_summary')
+  const confirmedLowConfidenceGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
+    `/api/encyclopedia/entry-guidance/${lowConfidenceGuidance.guidanceId}/confirm`,
+    {
+      classificationOverride: {
+        primaryCategory: '作品',
+        secondaryCategory: '游戏',
+      },
+      selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+      automationMode: 'off',
+    },
+  )
+  assert.equal(confirmedLowConfidenceGuidance.status, 'confirmed')
+  assert.equal(confirmedLowConfidenceGuidance.requiresConfirmation, false)
+  assert.equal(confirmedLowConfidenceGuidance.classification.primaryCategory, '作品')
+  assert.equal(confirmedLowConfidenceGuidance.classification.secondaryCategory, '游戏')
+  assert.equal(confirmedLowConfidenceGuidance.interactionParadigm.id, 'ip_timeline_story')
+  assert.deepEqual(confirmedLowConfidenceGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
+  assert.equal(confirmedLowConfidenceGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_standard')
+
+  const timelineDemocaseGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '某科技公司的发展史与融资上市历程',
+    maxTemplateRecommendations: 2,
+    automationMode: 'auto',
+  })
+  assert.equal(timelineDemocaseGuidance.democaseReferences[0]?.caseId, 'demo_company_history')
+  assert.equal(timelineDemocaseGuidance.interactionParadigm.id, 'ip_timeline_story')
+  assert.equal(timelineDemocaseGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_timeline_card')
+
+  const confirmedEntryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
+    `/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}/confirm`,
+    {
+      selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+      automationMode: 'semi_auto',
+    },
+  )
+  assert.equal(confirmedEntryGuidance.status, 'confirmed')
+  assert.ok(confirmedEntryGuidance.confirmedAt)
+  assert.equal(confirmedEntryGuidance.interactionParadigm.id, 'ip_timeline_story')
+  assert.deepEqual(confirmedEntryGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_timeline_story')
+  assert.equal(confirmedEntryGuidance.capabilityRequirements.automation?.maxRepairAttempts, 1)
+
+  const guidedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+    sessionId: createdSession.session.id,
+    prompt: `生成 ${confirmedEntryGuidance.entry.title} 的动态百科词条卡片`,
+    sourceMode: 'new_html',
+    productMode: confirmedEntryGuidance.productMode,
+    variationCount: 1,
+    capabilityRequirements: confirmedEntryGuidance.capabilityRequirements,
+    templateRequirements: confirmedEntryGuidance.templateRequirements,
+  })
+  const guidedSnapshot = await waitForJob(guidedJob.job.id)
+  assert.equal(guidedSnapshot.job.productMode, 'dynamic_encyclopedia_card')
+  assert.equal(guidedSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_dynamic_encyclopedia_entry')
+  assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_encyclopedia_spec_review')
+  assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.maxRepairAttempts, 1)
+  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance'])
+  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+  assert.equal(guidedSnapshot.job.designTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
+  assert.equal(guidedSnapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_timeline_card')
+  assert.equal(guidedSnapshot.variations[0]?.reviewAction, null)
+  const guidedVariationId = guidedSnapshot.variations[0]!.id
+  const guidedArtifactId = guidedSnapshot.variations[0]!.currentArtifactId
+  assert.ok(guidedArtifactId)
+  const guidedReviewAction = await postJson<ReviewVariationActionResponse>(
+    `/api/variations/${guidedVariationId}/review-actions`,
+    { action: 'confirm_repair', artifactId: guidedArtifactId },
+  )
+  assert.equal(guidedReviewAction.status, 'repair_queued')
+  assert.equal(guidedReviewAction.artifact?.id, guidedArtifactId)
+  const guidedSnapshotAfterReview = await getJson<JobSnapshot>(`/api/design-jobs/${guidedJob.job.id}`)
+  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.status, 'repair_queued')
+  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.action, 'confirm_repair')
+  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.artifactId, guidedArtifactId)
+  const storedGuidedJob = await harness.service.store.getJobById(guidedJob.job.id)
+  assert.equal((storedGuidedJob?.templateRequirements.businessContext as { interactionParadigmId?: string } | undefined)?.interactionParadigmId, 'ip_timeline_story')
+
   const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
     prompt: sensitivePrompt,
     sourceMode: 'new_html',
+    productMode: 'dynamic_encyclopedia_card',
     variationCount: 3,
     capabilityRequirements: {
       template: {
@@ -331,7 +450,9 @@ Reusable smoke test template.
 
   const jobSnapshot = await waitForJob(createdJob.job.id)
   assert.equal(jobSnapshot.job.status, 'completed')
+  assert.equal(jobSnapshot.job.productMode, 'dynamic_encyclopedia_card')
   const storedCreatedJob = await harness.service.store.getJobById(createdJob.job.id)
+  assert.equal(storedCreatedJob?.productMode, 'dynamic_encyclopedia_card')
   const capabilitySnapshot = storedCreatedJob?.templateRequirements.capabilitySnapshot as {
     schemaVersion?: string
     template?: {

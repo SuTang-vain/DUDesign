@@ -132,6 +132,49 @@ describe('Automation Loop repair prompt and messages', () => {
     assert.doesNotMatch(prompt, /npm install|sudo|rm -rf/i)
   })
 
+  it('includes structured dynamic encyclopedia spec findings in repair prompts', () => {
+    const prompt = buildAutomationRepairPrompt({
+      issues: [
+        'Dynamic encyclopedia spec review failed.',
+        'Timeline child template is missing milestone content.',
+      ],
+      specFindings: [
+        {
+          id: 'encyclopedia.scroll_container_missing',
+          source: 'template_rule',
+          severity: 'error',
+          message: 'Long encyclopedia content must live inside an explicit scroll container.',
+          repairHint: 'Wrap content in .scroll-container with overflow-y:auto.',
+        },
+        {
+          id: 'encyclopedia.timeline_template_mismatch',
+          source: 'template_rule',
+          severity: 'error',
+          message: 'The selected timeline child template needs visible timeline or milestone content.',
+          repairHint: 'Add a timeline section with dated or phased milestones.',
+        },
+      ],
+      originalPrompt: '生成百度百科动态百科词条卡片。',
+      templateSummary: 'Dynamic Encyclopedia Timeline Card',
+    })
+
+    assert.equal(prompt, [
+      'DUDesign automatic repair request.',
+      'The current HTML artifact failed quality checks:',
+      '- Dynamic encyclopedia spec review failed.',
+      '- Timeline child template is missing milestone content.',
+      'Structured dynamic encyclopedia spec findings:',
+      '- [error] encyclopedia.scroll_container_missing (template_rule): Long encyclopedia content must live inside an explicit scroll container. Repair hint: Wrap content in .scroll-container with overflow-y:auto.',
+      '- [error] encyclopedia.timeline_template_mismatch (template_rule): The selected timeline child template needs visible timeline or milestone content. Repair hint: Add a timeline section with dated or phased milestones.',
+      'Original user goal: 生成百度百科动态百科词条卡片。',
+      'Design context to preserve: Dynamic Encyclopedia Timeline Card',
+      'Repair only the concrete quality issues above.',
+      'Keep the original product goal, visual direction, selected template, and user constraints.',
+      'Return a complete static HTML artifact.',
+      'Do not introduce external scripts, build steps, absolute paths, shell commands, or unbundled network assets.',
+    ].join('\n'))
+  })
+
   it('maps stop reasons to clear user-facing messages', () => {
     assert.match(automationLoopUserMessage('runtime_unavailable'), /temporarily unavailable/i)
     assert.match(automationLoopUserMessage('max_duration_reached'), /took too long/i)

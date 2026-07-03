@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignEvent } from '@dudesign/contracts'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
+import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
-import { apiUrl, getDesignJob, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
+import { apiUrl, getDesignJob, reviewVariationAction, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
 import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
 
 type ArtifactQuality = NonNullable<JobSnapshot['artifacts'][number]['quality']>
@@ -48,6 +49,8 @@ type JobOutcome = {
   message: string
 }
 
+type ReviewDecision = 'repair_queued' | 'skipped' | null
+
 export default function JobPage(props: { params: Promise<{ jobId: string }> }): React.JSX.Element {
   const { t } = useLanguage()
   const [jobId, setJobId] = useState<string | null>(null)
@@ -58,7 +61,31 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const [codeStreams, setCodeStreams] = useState<Record<string, CodeFileSet>>({})
   const [streamState, setStreamState] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [error, setError] = useState<string | null>(null)
+  const [reviewDecisions, setReviewDecisions] = useState<Record<string, ReviewDecision>>({})
+  const [reviewSubmitting, setReviewSubmitting] = useState<Record<string, boolean>>({})
   const activitySequence = useRef(0)
+
+  async function submitReviewAction(variation: VariationSnapshot, action: 'confirm_repair' | 'skip'): Promise<void> {
+    setReviewSubmitting(current => ({ ...current, [variation.id]: true }))
+    setError(null)
+    try {
+      const response = await reviewVariationAction(variation.id, {
+        action,
+        artifactId: variation.currentArtifactId,
+      })
+      setReviewDecisions(current => ({
+        ...current,
+        [variation.id]: response.status === 'repair_queued' ? 'repair_queued' : 'skipped',
+      }))
+    } catch (err) {
+      setError(toUserFacingError({
+        message: err instanceof Error ? err.message : 'Review action failed.',
+        scope: 'variation',
+      }).message)
+    } finally {
+      setReviewSubmitting(current => ({ ...current, [variation.id]: false }))
+    }
+  }
 
   useEffect(() => {
     props.params.then(params => setJobId(params.jobId)).catch(err => setError((err as Error).message))
@@ -124,6 +151,9 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const activeCodeVariation = variations.find(variation => codeStreams[variation.id] && variation.status !== 'completed' && variation.status !== 'failed')
     ?? variations.find(variation => codeStreams[variation.id])
   const activeCodeSet = activeCodeVariation ? codeStreams[activeCodeVariation.id] : null
+  const semiAutoReview = snapshot?.job.productMode === 'dynamic_encyclopedia_card'
+    && snapshot.job.capabilitySnapshot?.automation.loopProfile.id === 'loop_encyclopedia_spec_review'
+    && snapshot.job.capabilitySnapshot.automation.maxRepairAttempts === 1
 
   function applyEvent(event: DesignEvent): void {
     const activity = activityFromEvent(event, snapshot?.variations ?? [])
@@ -201,22 +231,19 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
     <main className="job-shell">
       <header className="job-topbar">
         <div className="left">
-          <a href="/" className="back-link"><Icon name="arrowLeft" size={15} /> {t('backToWorkspace')}</a>
+          <div className="job-nav-actions">
+            <a href="/" className="back-link" aria-label={t('backToWorkspace')} title={t('backToWorkspace')}><Icon name="arrowLeft" size={18} /></a>
+            <VariationActionMenu />
+          </div>
           <div>
-            <span className="eyebrow">{t('jobEyebrow')} · #{jobId ?? '…'}</span>
             <h1>{pageTitle}</h1>
-            <p>
-              {completedCount} / {totalCount} {t('variationsCompleted')}
-              {failedCount > 0 ? ` · ${failedCount} ${t('failedLabel')}` : ''}
-              {' '}· {streamState}
-            </p>
           </div>
         </div>
         <div className="right">
           {streaming ? (
             <span className="chip info"><span className="dot live pulse"></span>{t('streaming')}</span>
           ) : null}
-          <UserActionCluster />
+          <UserActionCluster mode="profileOnly" />
         </div>
       </header>
 
@@ -225,10 +252,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
 
       <div className="job-progress">
         <div className="meta">
-          <div className="label">
-            <span className={`dot ${streaming ? 'live pulse' : 'ok'}`}></span>
-            Runtime · BabeL-O
-          </div>
           <div className="stats">
             <div><b>{completedCount}</b><span>/{totalCount} {t('completed')}</span></div>
             <div><b>{Math.max(totalCount - completedCount - failedCount, 0)}</b><span>{t('running')}</span></div>
@@ -247,17 +270,47 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
           const codeFiles = codeStreams[variation.id]
           const showCode = Boolean(codeFiles) && !variation.previewUrl && !variation.screenshotUrl
           const quality = qualityByVariation[variation.id] ?? qualityForVariation(snapshot, variation)
+          const reviewDecision = reviewDecisions[variation.id] ?? reviewDecisionFromSnapshot(variation)
+          const canOpenVariation = !(variation.status === 'failed' && !variation.currentArtifactId)
           return (
             <article key={variation.id} data-testid="variation-card" className={`var-card ${variation.status === 'failed' ? 'failed' : ''}`}>
               <div className="var-head">
-                <span className="label"><i className={`status-dot ${variation.status}`} /> {variation.title ?? `Variation ${variation.index}`}</span>
-                <span className="id">{variation.id.slice(0, 12)}</span>
+                <span className="label">{formatVariationIndex(variation.index)}</span>
+                <span className={`var-status ${variation.status}`}>{variationStatusText(variation.status, t)}</span>
               </div>
               {quality && quality.status !== 'pass' ? (
                 <div className={`var-quality ${quality.status}`} data-testid="variation-quality-banner">
                   <strong>{quality.status === 'fail' ? 'Quality failed' : 'Quality · warn'}</strong>
                   <span>{quality.issues[0] ?? 'Generated artifact needs attention.'}</span>
                 </div>
+              ) : null}
+              {semiAutoReview && quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
+                <section className="review-pending-panel" data-testid="review-pending-panel">
+                  <span className="eyebrow">Review pending</span>
+                  <strong>{quality.status === 'fail' ? 'Spec review failed' : 'Spec review warning'}</strong>
+                  <p>{quality.issues[0] ?? 'Review found an issue that needs confirmation.'}</p>
+                  {reviewDecision === 'repair_queued' ? (
+                    <small>Repair request is queued for the next automation milestone.</small>
+                  ) : (
+                    <div className="review-actions">
+                      <button
+                        type="button"
+                        disabled={reviewSubmitting[variation.id]}
+                        onClick={() => { void submitReviewAction(variation, 'confirm_repair') }}
+                      >
+                        {reviewSubmitting[variation.id] ? 'Submitting...' : 'Confirm repair'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={reviewSubmitting[variation.id]}
+                        onClick={() => { void submitReviewAction(variation, 'skip') }}
+                      >
+                        Skip
+                      </button>
+                      <a href={`/variations/${variation.id}`}>Manual edit</a>
+                    </div>
+                  )}
+                </section>
               ) : null}
               <div className="var-preview" data-testid="variation-card-preview-frame-container">
                 {showCode && codeFiles ? (
@@ -285,10 +338,14 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                       : <div className="ring" />}
                   </div>
                 )}
-                <span className={`badge chip ${variation.status === 'completed' ? 'ok' : variation.status === 'failed' ? 'err' : 'info'}`}>
-                  <span className={`dot ${variation.status === 'completed' ? 'ok' : variation.status === 'failed' ? 'err' : 'live pulse'}`}></span>
-                  {variation.status}
-                </span>
+                {canOpenVariation ? (
+                  <a
+                    data-testid="open-variation-link"
+                    className="var-preview-link"
+                    href={`/variations/${variation.id}`}
+                    aria-label={`${t('openInEditor')} ${variation.title ?? `Variation ${variation.index}`}`}
+                  />
+                ) : null}
               </div>
               {variation.status === 'failed' ? (
                 <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = '/'} />
@@ -296,13 +353,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
               <div className="var-foot">
                 <span>{variation.outputTokens.toLocaleString()} tok</span>
                 <span className="mono">${(variation.costCents / 100).toFixed(2)}</span>
-              </div>
-              <div className="var-actions">
-                {variation.status === 'failed' && !variation.currentArtifactId ? (
-                  <button type="button" disabled>{t('unavailable')}</button>
-                ) : (
-                  <a data-testid="open-variation-link" href={`/variations/${variation.id}`}>{t('openInEditor')} <Icon name="arrowRight" size={14} style={{ marginLeft: 4 }} /></a>
-                )}
               </div>
             </article>
           )
@@ -314,7 +364,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
           <div className="title">
             <span className={`dot ${streaming ? 'live pulse' : 'ok'}`}></span>
             <span>{t('runtimeActivity')}</span>
-            <span className="mono">SSE · /api/design-jobs/{jobId ?? ''}/stream</span>
           </div>
           <div className="acts">
             <button className="btn ghost sm" type="button">{t('copyLatestEvent')}</button>
@@ -343,15 +392,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
             )}
           </div>
           <div className="stream-side">
-            <div className="runtime-overview">
-              <div>
-                <span>{t('overall')}</span>
-                <strong>{latestJobActivity?.summary ?? runtimeOverviewTitle(streamState, completedCount, failedCount, totalCount)}</strong>
-                <p>{latestJobActivity?.detail ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</p>
-              </div>
-              <meter min={0} max={100} value={runtimeProgress} aria-label="Runtime progress" />
-            </div>
-
             <h4>{t('variationStatus')}</h4>
             <div className="runtime-status-grid">
               {variations.map(variation => {
@@ -431,6 +471,18 @@ function stageFromVariationStatus(status: VariationSnapshot['status']): StreamLi
   if (status === 'completed') return 'completed'
   if (status === 'failed' || status === 'cancelled') return 'failed'
   return 'queued'
+}
+
+function formatVariationIndex(index: number): string {
+  return String(index).padStart(2, '0')
+}
+
+function variationStatusText(status: VariationSnapshot['status'], t: (key: string) => string): string {
+  if (status === 'completed') return t('completed')
+  if (status === 'failed') return t('failedLabel')
+  if (status === 'cancelled') return t('cancelled')
+  if (status === 'running' || status === 'streaming' || status === 'rendering_preview') return t('running')
+  return t('queued')
 }
 
 function stageLabel(stage: StreamLine['stage'], status: VariationSnapshot['status']): string {
@@ -733,6 +785,13 @@ function jobOutcomeForSnapshot(snapshot: JobSnapshot, completedCount: number, fa
 function qualityForVariation(snapshot: JobSnapshot | null, variation: VariationSnapshot): ArtifactQuality | null {
   if (!snapshot || !variation.currentArtifactId) return null
   return snapshot.artifacts.find(artifact => artifact.id === variation.currentArtifactId)?.quality ?? null
+}
+
+function reviewDecisionFromSnapshot(variation: VariationSnapshot): ReviewDecision {
+  const action = variation.reviewAction
+  if (!action) return null
+  if (action.artifactId && action.artifactId !== variation.currentArtifactId) return null
+  return action.status
 }
 
 function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEvent): VariationSnapshot {

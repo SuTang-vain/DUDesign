@@ -4,6 +4,13 @@ import { getPooledChromiumBrowser } from './playwrightBrowserPool.js'
 export type ArtifactQualityReport = {
   status: 'pass' | 'warn' | 'fail'
   issues: string[]
+  specFindings?: Array<{
+    id: string
+    source: 'static_rule' | 'template_rule' | 'pixel_gate'
+    severity: 'error' | 'warning'
+    message: string
+    repairHint: string
+  }>
 }
 
 type PixelGateOptions = {
@@ -226,7 +233,8 @@ function mergeQualityReports(left: ArtifactQualityReport, right: ArtifactQuality
     : left.status === 'warn' || right.status === 'warn'
       ? 'warn'
       : 'pass'
-  return { status, issues }
+  const specFindings = [...left.specFindings ?? [], ...right.specFindings ?? []]
+  return { status, issues, ...(specFindings.length ? { specFindings } : {}) }
 }
 
 function stripHtml(value: string): string {

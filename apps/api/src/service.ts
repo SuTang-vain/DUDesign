@@ -3,12 +3,15 @@ import type {
   AdvancedTemplateConstraints,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
+  EncyclopediaEntryGuidanceResponse,
   CreateSourceArtifactRequest,
   CreateSessionRequest,
   DesignTemplatePack,
   DesignEvent,
+  InteractionParadigm,
   ImportDesignTemplatePackRequest,
   RefineVariationRequest,
+  ReviewVariationActionRequest,
   SaveVariationTemplateRequest,
   ShareVariationRequest,
   UpdateUserPreferencesRequest,
@@ -17,6 +20,7 @@ import type {
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import { MockRuntimeGateway, type RuntimeGateway, type RuntimeModels } from '@dudesign/runtime-gateway'
 import type { Artifact, DesignVariation, DesignVariationStatus, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
+import type { EncyclopediaEntryGuidance } from '@dudesign/domain'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import {
@@ -24,6 +28,7 @@ import {
   analyzeHtmlArtifactQualityWithPixelGate,
   type ArtifactQualityReport,
 } from './artifactQuality.js'
+import { reviewDynamicEncyclopediaSpec } from './encyclopediaSpecReview.js'
 import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
@@ -41,7 +46,7 @@ import {
   type RequestContext,
 } from './auth.js'
 import { createId } from './id.js'
-import { listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
+import { DYNAMIC_ENCYCLOPEDIA_PRESET, listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
 import { DESIGN_TEMPLATE_PACK_SCHEMA_VERSION, importDesignMd } from './designTemplatePack.js'
 import {
   InMemoryDesignJobQueue,
@@ -54,8 +59,10 @@ import { attachDesignJobWorker } from './designJobWorker.js'
 import {
   buildAutomationRepairPrompt,
   evaluateAutomationLoopStop,
+  type AutomationRepairFinding,
   type AutomationLoopStopReason,
 } from './automationLoop.js'
+import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
 
 type AdminTemplateLintFinding = {
   severity: 'error' | 'warning' | 'info'
@@ -104,6 +111,8 @@ type AdminCapabilityRegistryAsset = {
   requiredActions: string[]
   linkedAssetIds: string[]
 }
+
+const LOW_CONFIDENCE_GUIDANCE_THRESHOLD = 0.6
 
 export class ApplicationService {
   readonly store: ApplicationRepository
@@ -229,6 +238,155 @@ export class ApplicationService {
   async listCapabilities(ctx: RequestContext) {
     await this.requireUser(ctx.userId)
     return listCapabilities()
+  }
+
+  async createEncyclopediaEntryGuidance(
+    ctx: RequestContext,
+    input: {
+      workspaceId?: string | null
+      entry?: string
+      context?: string | null
+      maxTemplateRecommendations?: number
+      automationMode?: 'off' | 'semi_auto' | 'auto'
+    },
+  ): Promise<EncyclopediaEntryGuidanceResponse> {
+    const user = await this.requireUser(ctx.userId)
+    const workspaceId = input.workspaceId ?? (await this.store.getPrimaryWorkspaceForUser(user.id))?.id ?? null
+    if (!workspaceId) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
+    await this.requireWorkspaceAccess(workspaceId, ctx.userId, 'viewer')
+    const rawInput = typeof input.entry === 'string' ? input.entry.trim() : ''
+    if (!rawInput) throw createHttpError(400, 'ENTRY_REQUIRED', 'entry is required.')
+
+    const title = normalizeEntryTitle(rawInput)
+    const context = typeof input.context === 'string' && input.context.trim().length > 0
+      ? input.context.trim()
+      : null
+    const democaseMatches = lookupEncyclopediaDemocases(`${rawInput}\n${context ?? ''}`)
+    const classification = applyDemocaseClassification(
+      classifyEncyclopediaEntry(`${rawInput}\n${context ?? ''}`),
+      democaseMatches,
+    )
+    const maxTemplateRecommendations = typeof input.maxTemplateRecommendations === 'number'
+      ? Math.max(1, Math.min(3, Math.trunc(input.maxTemplateRecommendations)))
+      : 3
+    const automationMode = input.automationMode ?? 'auto'
+    const recommendedTemplates = await this.recommendDynamicEncyclopediaTemplates(
+      ctx.userId,
+      workspaceId,
+      classification.primaryCategory,
+      classification.secondaryCategory,
+      maxTemplateRecommendations,
+      democaseMatches,
+    )
+    const selectedTemplateIds = recommendedTemplates
+      .filter(template => template.selected)
+      .map(template => template.designTemplatePackId)
+    const interactionParadigmId = democaseMatches[0]?.interactionParadigmId
+      ?? recommendedTemplates.find(template => selectedTemplateIds.includes(template.designTemplatePackId))?.interactionParadigmId
+      ?? recommendedInteractionParadigmId(classification.primaryCategory, classification.secondaryCategory)
+
+    const now = new Date().toISOString()
+    const requiresConfirmation = classification.confidence < LOW_CONFIDENCE_GUIDANCE_THRESHOLD
+    const guidance = await this.store.saveEncyclopediaEntryGuidance({
+      id: createId('eg'),
+      userId: ctx.userId,
+      workspaceId,
+      productMode: 'dynamic_encyclopedia_card',
+      entryTitle: title,
+      rawInput,
+      context,
+      primaryCategory: classification.primaryCategory,
+      secondaryCategory: classification.secondaryCategory,
+      confidence: classification.confidence,
+      signals: classification.signals,
+      recommendedTemplateIds: recommendedTemplates.map(template => template.designTemplatePackId),
+      selectedTemplateIds,
+      interactionParadigmId,
+      automationMode,
+      status: requiresConfirmation ? 'needs_confirmation' : 'draft',
+      confirmedAt: null,
+      metadata: {
+        classificationSource: 'mock_rules',
+        requiresConfirmation,
+        democaseReferences: democaseMatches,
+      },
+      createdAt: now,
+      updatedAt: now,
+    })
+    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
+  }
+
+  async getEncyclopediaEntryGuidance(ctx: RequestContext, guidanceId: string): Promise<EncyclopediaEntryGuidanceResponse> {
+    await this.requireUser(ctx.userId)
+    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
+    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
+  }
+
+  async confirmEncyclopediaEntryGuidance(
+    ctx: RequestContext,
+    guidanceId: string,
+    input: {
+      selectedTemplateIds?: string[]
+      classificationOverride?: {
+        primaryCategory?: string
+        secondaryCategory?: string
+      }
+      automationMode?: 'off' | 'semi_auto' | 'auto'
+    },
+  ): Promise<EncyclopediaEntryGuidanceResponse> {
+    await this.requireUser(ctx.userId)
+    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
+    await this.requireWorkspaceAccess(guidance.workspaceId, ctx.userId, 'editor')
+    const classificationOverride = normalizeGuidanceClassificationOverride(input.classificationOverride)
+    const primaryCategory = classificationOverride?.primaryCategory ?? guidance.primaryCategory
+    const secondaryCategory = classificationOverride?.secondaryCategory ?? guidance.secondaryCategory
+    const democaseMatches = guidanceDemocaseMatches(guidance)
+    const recommendedTemplates = classificationOverride
+      ? await this.recommendDynamicEncyclopediaTemplates(
+          ctx.userId,
+          guidance.workspaceId,
+          primaryCategory,
+          secondaryCategory,
+          Math.max(1, Math.min(3, guidance.recommendedTemplateIds.length || 3)),
+          democaseMatches,
+        )
+      : []
+    const allowedTemplateIds = classificationOverride
+      ? recommendedTemplates.map(template => template.designTemplatePackId)
+      : guidance.recommendedTemplateIds
+    const defaultSelectedTemplateIds = classificationOverride
+      ? recommendedTemplates.filter(template => template.selected).map(template => template.designTemplatePackId)
+      : guidance.selectedTemplateIds
+    const selectedTemplateIds = Array.isArray(input.selectedTemplateIds) && input.selectedTemplateIds.length > 0
+      ? input.selectedTemplateIds
+          .filter((id): id is string => typeof id === 'string' && allowedTemplateIds.includes(id))
+          .slice(0, 3)
+      : defaultSelectedTemplateIds
+    if (selectedTemplateIds.length === 0) throw createHttpError(400, 'GUIDANCE_TEMPLATE_REQUIRED', 'At least one recommended template must be selected.')
+    const interactionParadigmId = selectedTemplateIds
+      .map(templateId => interactionParadigmIdForTemplatePack(templateId))
+      .find((id): id is string => Boolean(id))
+      ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory)
+    const now = new Date().toISOString()
+    const confirmed = await this.store.saveEncyclopediaEntryGuidance({
+      ...guidance,
+      primaryCategory,
+      secondaryCategory,
+      confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
+      signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
+      recommendedTemplateIds: classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds,
+      selectedTemplateIds,
+      interactionParadigmId,
+      automationMode: input.automationMode ?? guidance.automationMode,
+      status: 'confirmed',
+      confirmedAt: now,
+      metadata: {
+        ...guidance.metadata,
+        classificationOverride: classificationOverride ?? null,
+      },
+      updatedAt: now,
+    })
+    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, confirmed)
   }
 
   async listDesignTemplatePacks(ctx: RequestContext, workspaceId?: string | null) {
@@ -497,6 +655,7 @@ export class ApplicationService {
       content: input.prompt,
       metadata: {
         sourceMode: input.sourceMode,
+        productMode: input.productMode ?? 'web_app',
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
         modelServiceId: selectedModel.id,
@@ -516,6 +675,7 @@ export class ApplicationService {
       session,
       prompt: input.prompt,
       sourceMode: input.sourceMode,
+      productMode: input.productMode ?? 'web_app',
       variationCount: input.variationCount,
       templateRequirements: {
         ...(input.templateRequirements ?? {}),
@@ -577,6 +737,7 @@ export class ApplicationService {
     const templateRequirements = normalizeTemplateRequirements(snapshot.job.templateRequirements)
     const designTemplatePacks = templateRequirements?.designTemplatePacks ?? []
     const assignments = templateRequirements?.variationTemplateAssignments ?? []
+    const reviewActionsByVariation = latestVariationReviewActions(snapshot.messages)
     return {
       job: {
         ...snapshot.job,
@@ -587,6 +748,7 @@ export class ApplicationService {
         ...variation,
         designTemplatePack: assignedTemplatePackForVariation(variation.index, assignments),
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+        reviewAction: reviewActionsByVariation.get(variation.id) ?? null,
       })),
       artifacts: snapshot.artifacts.map(artifact => ({
         id: artifact.id,
@@ -765,6 +927,137 @@ export class ApplicationService {
         kind: 'screenshot_job' as const,
         status: queueJob.status,
       },
+    }
+  }
+
+  async reviewVariationAction(ctx: RequestContext, variationId: string, input: ReviewVariationActionRequest) {
+    const snapshot = input.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, input.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    if (snapshot.mismatch) {
+      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+
+    const action = input.action
+    if (action !== 'confirm_repair' && action !== 'skip') {
+      throw createHttpError(400, 'REVIEW_ACTION_UNSUPPORTED', 'Unsupported review action.')
+    }
+
+    const artifact = snapshot.artifact
+    if (action === 'confirm_repair') {
+      if (!artifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an HTML artifact to repair.')
+      if (artifact.kind !== 'html') {
+        throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Review repair requires an HTML artifact.')
+      }
+      const context = await this.store.getVariationRefineContext(variationId, artifact.id)
+      if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+      if (!context.job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${variation.jobId}`)
+      const quality = artifactQualitySummary(artifact.metadata.quality)
+      const issues = quality?.issues.length ? quality.issues : ['The generated artifact needs to be brought back into the product specification.']
+      const attempt = Math.max(1, artifact.version)
+      const prompt = buildAutomationRepairPrompt({
+        issues,
+        specFindings: specFindingsFromArtifactMetadata(artifact.metadata),
+        originalPrompt: context.job.prompt,
+        templateSummary: automationTemplateSummaryForVariation(context.variation.index, context.job.templateRequirements),
+      })
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_repair_planned',
+        sessionId: variation.sessionId,
+        jobId: variation.jobId,
+        variationId,
+        payload: {
+          artifactId: artifact.id,
+          attempt,
+          reason: 'review_confirmed',
+          promptPreview: prompt.slice(0, 500),
+        },
+      }))
+      await this.enqueueAutomationLoopRepair({
+        sessionId: variation.sessionId,
+        job: context.job,
+        variation: context.variation,
+        artifact,
+        prompt,
+        attempt,
+      })
+      const idempotencyKey = automationRepairQueueIdempotencyKey(artifact.id, attempt)
+      await this.store.appendMessage({
+        sessionId: variation.sessionId,
+        role: 'system',
+        content: `Queued spec review repair for ${variation.title ?? variation.id} artifact v${artifact.version}.`,
+        metadata: {
+          kind: 'variation_review_action',
+          action,
+          variationId,
+          artifactId: artifact.id,
+          artifactVersion: artifact.version,
+          queueJobIdempotencyKey: idempotencyKey,
+          note: input.note ?? null,
+        },
+      })
+      return {
+        action,
+        status: 'repair_queued' as const,
+        variation: {
+          id: variation.id,
+          currentArtifactId: variation.currentArtifactId,
+          previewUrl: variation.previewUrl,
+          screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+        },
+        artifact: {
+          id: artifact.id,
+          kind: 'html' as const,
+          version: artifact.version,
+          entryPath: artifact.entryPath,
+          createdAt: artifact.createdAt,
+          quality,
+        },
+        queueJob: {
+          idempotencyKey,
+          kind: 'automation_refine_job' as const,
+          status: 'queued' as const,
+        },
+        message: 'Repair request queued.',
+      }
+    }
+
+    await this.store.appendMessage({
+      sessionId: variation.sessionId,
+      role: 'system',
+      content: `Skipped spec review repair for ${variation.title ?? variation.id}${artifact ? ` artifact v${artifact.version}` : ''}.`,
+      metadata: {
+        kind: 'variation_review_action',
+        action,
+        variationId,
+        artifactId: artifact?.id ?? null,
+        artifactVersion: artifact?.version ?? null,
+        note: input.note ?? null,
+      },
+    })
+    return {
+      action,
+      status: 'skipped' as const,
+      variation: {
+        id: variation.id,
+        currentArtifactId: variation.currentArtifactId,
+        previewUrl: variation.previewUrl,
+        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+      },
+      artifact: artifact && artifact.kind === 'html'
+        ? {
+          id: artifact.id,
+          kind: 'html' as const,
+          version: artifact.version,
+          entryPath: artifact.entryPath,
+          createdAt: artifact.createdAt,
+          quality: artifactQualitySummary(artifact.metadata.quality),
+        }
+        : null,
+      message: 'Review repair skipped.',
     }
   }
 
@@ -1848,6 +2141,151 @@ export class ApplicationService {
     return model
   }
 
+  private async requireReadableEncyclopediaGuidance(ctx: RequestContext, guidanceId: string): Promise<EncyclopediaEntryGuidance> {
+    const guidance = await this.store.getEncyclopediaEntryGuidanceById(guidanceId)
+    if (!guidance) throw createHttpError(404, 'ENTRY_GUIDANCE_NOT_FOUND', `Entry guidance not found: ${guidanceId}`)
+    await this.requireWorkspaceAccess(guidance.workspaceId, ctx.userId, 'viewer')
+    return guidance
+  }
+
+  private async toEncyclopediaEntryGuidanceResponse(
+    userId: string,
+    guidance: EncyclopediaEntryGuidance,
+  ): Promise<EncyclopediaEntryGuidanceResponse> {
+    const recommendedTemplates = await this.enrichDynamicEncyclopediaTemplateRecommendations(userId, guidance)
+    const interactionParadigm = listCapabilities().interactionParadigms.find(candidate => candidate.id === guidance.interactionParadigmId)
+      ?? listCapabilities().interactionParadigms.find(candidate => candidate.id === 'ip_entity_summary')
+    if (!interactionParadigm) throw createHttpError(500, 'INTERACTION_PARADIGM_NOT_FOUND', 'Default interaction paradigm is missing.')
+    return {
+      guidanceId: guidance.id,
+      productMode: guidance.productMode,
+      status: guidance.status,
+      requiresConfirmation: guidance.status === 'needs_confirmation',
+      confirmedAt: guidance.confirmedAt,
+      entry: {
+        title: guidance.entryTitle,
+        rawInput: guidance.rawInput,
+        context: guidance.context,
+      },
+      classification: {
+        primaryCategory: guidance.primaryCategory,
+        secondaryCategory: guidance.secondaryCategory,
+        confidence: guidance.confidence,
+        signals: guidance.signals,
+        source: 'mock_rules',
+      },
+      democaseReferences: guidanceDemocaseReferences(guidance),
+      recommendedTemplates,
+      interactionParadigm,
+      capabilityRequirements: {
+        template: {
+          domainTemplateId: DYNAMIC_ENCYCLOPEDIA_PRESET.domainTemplateId,
+          designTemplatePackIds: guidance.selectedTemplateIds,
+          autoDistributeTemplatePacks: true,
+        },
+        plugins: {
+          skillIds: [...DYNAMIC_ENCYCLOPEDIA_PRESET.skillIds],
+          mcpToolIds: [...DYNAMIC_ENCYCLOPEDIA_PRESET.mcpToolIds],
+        },
+        automation: guidance.automationMode === 'off'
+          ? {
+              loopProfileId: 'loop_standard',
+              maxRepairAttempts: 0,
+            }
+          : {
+              loopProfileId: DYNAMIC_ENCYCLOPEDIA_PRESET.loopProfileId,
+              maxRepairAttempts: guidance.automationMode === 'semi_auto' ? 1 : 2,
+            },
+      },
+      templateRequirements: {
+        designTemplatePackIds: guidance.selectedTemplateIds,
+        interactionParadigm,
+        deviceTargets: ['desktop', 'mobile'],
+        notes: [
+          `Dynamic encyclopedia entry: ${guidance.entryTitle}`,
+          `Classification: ${guidance.primaryCategory} / ${guidance.secondaryCategory}`,
+          'Use the selected child template recommendation as the generation direction.',
+        ].join('\n'),
+        businessContext: {
+          guidanceId: guidance.id,
+          entryTitle: guidance.entryTitle,
+          entryPrimaryCategory: guidance.primaryCategory,
+          entrySecondaryCategory: guidance.secondaryCategory,
+          interactionParadigmId: guidance.interactionParadigmId,
+          recommendedTemplateIds: guidance.selectedTemplateIds,
+          automationMode: guidance.automationMode,
+        },
+      },
+    }
+  }
+
+  private async enrichDynamicEncyclopediaTemplateRecommendations(
+    userId: string,
+    guidance: EncyclopediaEntryGuidance,
+  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
+    const templates = await this.store.listDesignTemplatePacks(userId, guidance.workspaceId)
+    return guidance.recommendedTemplateIds.map((templateId, index) => {
+      const template = templates.find(candidate => candidate.id === templateId)
+      const isTimeline = templateId.includes('timeline')
+      return {
+        designTemplatePackId: templateId,
+        name: template?.name ?? templateId,
+        interactionParadigmId: interactionParadigmIdForTemplatePack(templateId) ?? guidance.interactionParadigmId,
+        reason: isTimeline
+          ? '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。'
+          : '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
+        confidence: isTimeline ? 0.82 : 0.86,
+        selected: guidance.selectedTemplateIds.includes(templateId) || (guidance.selectedTemplateIds.length === 0 && index === 0),
+      }
+    })
+  }
+
+  private async recommendDynamicEncyclopediaTemplates(
+    userId: string,
+    workspaceId: string | null,
+    primaryCategory: string,
+    secondaryCategory: string,
+    maxTemplateRecommendations: number,
+    democaseMatches: EncyclopediaDemocaseMatch[] = [],
+  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
+    const categoryText = `${primaryCategory} ${secondaryCategory}`
+    const democasePreferredIds = democaseMatches.flatMap(match => match.preferredTemplateIds)
+    const rulePreferredIds = categoryText.includes('历史')
+      || categoryText.includes('影视')
+      || categoryText.includes('文学')
+      || categoryText.includes('游戏')
+      || categoryText.includes('事件')
+      || categoryText.includes('时间')
+      ? ['dtp_dynamic_encyclopedia_timeline_card', 'dtp_dynamic_encyclopedia_summary_card']
+      : categoryText.includes('企业') || categoryText.includes('机构')
+        ? ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card']
+        : ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card']
+    const preferredIds = [...new Set([...democasePreferredIds, ...rulePreferredIds])]
+    const templates = await this.store.listDesignTemplatePacks(userId, workspaceId)
+    const results: EncyclopediaEntryGuidanceResponse['recommendedTemplates'] = []
+
+    for (const templateId of preferredIds) {
+      const template = templates.find(candidate => candidate.id === templateId)
+      if (!template) continue
+      const isTimeline = template.id.includes('timeline')
+      results.push({
+        designTemplatePackId: template.id,
+        name: template.name,
+        interactionParadigmId: interactionParadigmIdForTemplatePack(template.id) ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory),
+        reason: isTimeline
+          ? '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。'
+          : '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
+        confidence: isTimeline
+          ? categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('游戏') || categoryText.includes('企业') ? 0.82 : 0.68
+          : 0.86,
+        selected: results.length < maxTemplateRecommendations,
+      })
+      if (results.length >= maxTemplateRecommendations) break
+    }
+
+    return results
+  }
+
   private async resolveDesignTemplatePacksForJob(
     userId: string,
     workspaceId: string,
@@ -1900,6 +2338,7 @@ export class ApplicationService {
       workspaceRoot: workspace.storageKey,
       prompt: job.prompt,
       sourceMode: job.sourceMode,
+      productMode: job.productMode,
       sourceArtifactId: payload.sourceArtifactId,
       variationCount: job.variationCount,
       templateRequirements: normalizeTemplateRequirements(job.templateRequirements),
@@ -2021,6 +2460,7 @@ export class ApplicationService {
     workspaceRoot: string
     prompt: string
     sourceMode: CreateDesignJobRequest['sourceMode']
+    productMode: CreateDesignJobRequest['productMode']
     sourceArtifactId: string | null
     variationCount: number
     templateRequirements: CreateDesignJobRequest['templateRequirements']
@@ -2039,6 +2479,7 @@ export class ApplicationService {
         jobId: input.jobId,
         prompt: input.prompt,
         sourceMode: input.sourceMode,
+        productMode: input.productMode ?? 'web_app',
         sourceArtifactId: input.sourceArtifactId,
         variationCount: input.variationCount,
         workspaceRoot: input.workspaceRoot,
@@ -2906,6 +3347,7 @@ export class ApplicationService {
     if (!decision.shouldStop) {
       const prompt = buildAutomationRepairPrompt({
         issues: input.quality.issues,
+        specFindings: specFindingsFromArtifactMetadata(input.artifact.metadata),
         originalPrompt: job.prompt,
         templateSummary: automationTemplateSummaryForVariation(variation.index, job.templateRequirements),
       })
@@ -3025,19 +3467,48 @@ export class ApplicationService {
 
   private async analyzeArtifactQuality(html: string, jobId?: string | null): Promise<ArtifactQualityReport> {
     const profileGate = jobId ? await this.resolveArtifactQualityGateForJob(jobId) : null
-    return analyzeHtmlArtifactQualityWithPixelGate(html, {
+    const baseQuality = await analyzeHtmlArtifactQualityWithPixelGate(html, {
       enabled: profileGate?.enablePixelGate ?? pixelQualityGateEnabled(),
       timeoutMs: pixelQualityGateTimeoutMs(),
     })
+    if (!profileGate?.enableSpecGate) return baseQuality
+    const specReview = reviewDynamicEncyclopediaSpec({
+      html,
+      templatePackIds: profileGate.designTemplatePackIds,
+      interactionParadigmId: profileGate.interactionParadigmId,
+    })
+    if (specReview.status === 'pass') return baseQuality
+    const specIssues = specReview.findings.map(finding => `${finding.message} ${finding.repairHint}`)
+    return {
+      status: baseQuality.status === 'fail' || specReview.status === 'fail'
+        ? 'fail'
+        : baseQuality.status === 'warn' || specReview.status === 'warn'
+          ? 'warn'
+          : 'pass',
+      issues: [...baseQuality.issues, ...specIssues],
+      specFindings: [...baseQuality.specFindings ?? [], ...specReview.findings],
+    }
   }
 
-  private async resolveArtifactQualityGateForJob(jobId: string): Promise<{ enablePixelGate: boolean } | null> {
+  private async resolveArtifactQualityGateForJob(jobId: string): Promise<{
+    enablePixelGate: boolean
+    enableSpecGate: boolean
+    designTemplatePackIds: string[]
+    interactionParadigmId: string | null
+  } | null> {
     const job = await this.store.getJobById(jobId)
     if (!job) return null
-    const automation = normalizeTemplateRequirements(job.templateRequirements)?.capabilitySnapshot?.automation
+    const requirements = normalizeTemplateRequirements(job.templateRequirements)
+    const businessContext = job.templateRequirements.businessContext as Record<string, unknown> | undefined
+    const automation = requirements?.capabilitySnapshot?.automation
     if (!automation) return null
     return {
       enablePixelGate: automation.loopProfile.enablePixelGate || automation.loopProfile.qualityGate === 'pixel',
+      enableSpecGate: job.productMode === 'dynamic_encyclopedia_card' || (automation.loopProfile.qualityGates ?? []).includes('spec'),
+      designTemplatePackIds: requirements?.designTemplatePackIds ?? [],
+      interactionParadigmId: typeof businessContext?.interactionParadigmId === 'string'
+        ? businessContext.interactionParadigmId
+        : null,
     }
   }
 
@@ -3256,6 +3727,8 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
     designTemplatePacks: Array.isArray(value.designTemplatePacks)
       ? value.designTemplatePacks.filter(isDesignTemplatePack)
       : undefined,
+    interactionParadigm: isInteractionParadigm(value.interactionParadigm) ? value.interactionParadigm : undefined,
+    businessContext: isDynamicEncyclopediaBusinessContext(value.businessContext) ? value.businessContext : undefined,
     variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
       ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
       : undefined,
@@ -3307,6 +3780,31 @@ function isVariationTemplateAssignment(value: unknown): value is NonNullable<Non
   return typeof record.variationIndex === 'number'
     && typeof record.designTemplatePackId === 'string'
     && isDesignTemplatePack(record.designTemplatePack)
+}
+
+function isInteractionParadigm(value: unknown): value is InteractionParadigm {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.id === 'string'
+    && typeof record.name === 'string'
+    && typeof record.category === 'string'
+    && typeof record.description === 'string'
+    && Array.isArray(record.bestFor)
+    && Array.isArray(record.avoidFor)
+    && Array.isArray(record.requiredDataShape)
+    && Array.isArray(record.compatibleTemplatePackIds)
+}
+
+function isDynamicEncyclopediaBusinessContext(value: unknown): value is NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['businessContext']> {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (!('guidanceId' in record) || typeof record.guidanceId === 'string')
+    && (!('entryTitle' in record) || typeof record.entryTitle === 'string')
+    && (!('entryPrimaryCategory' in record) || typeof record.entryPrimaryCategory === 'string')
+    && (!('entrySecondaryCategory' in record) || typeof record.entrySecondaryCategory === 'string')
+    && (!('interactionParadigmId' in record) || typeof record.interactionParadigmId === 'string')
+    && (!('recommendedTemplateIds' in record) || (Array.isArray(record.recommendedTemplateIds) && record.recommendedTemplateIds.every(item => typeof item === 'string')))
+    && (!('automationMode' in record) || record.automationMode === 'off' || record.automationMode === 'semi_auto' || record.automationMode === 'auto')
 }
 
 function isDesignTemplatePack(value: unknown): value is DesignTemplatePack {
@@ -3513,6 +4011,145 @@ function modelContextFromTemplateRequirements(value: Record<string, unknown>): {
   }
 }
 
+function normalizeEntryTitle(rawInput: string): string {
+  const firstLine = rawInput.split(/\r?\n/).find(line => line.trim().length > 0)?.trim() ?? rawInput.trim()
+  return firstLine
+    .replace(/^词条[:：]\s*/u, '')
+    .replace(/[。；;，,].*$/u, '')
+    .slice(0, 80)
+}
+
+function classifyEncyclopediaEntry(text: string): {
+  primaryCategory: string
+  secondaryCategory: string
+  confidence: number
+  signals: string[]
+} {
+  const normalized = text.toLowerCase()
+  const signals: string[] = []
+  const has = (patterns: string[]) => {
+    const matched = patterns.filter(pattern => normalized.includes(pattern.toLowerCase()))
+    signals.push(...matched)
+    return matched.length > 0
+  }
+
+  if (has(['公司', '企业', '集团', '融资', '上市', '创始人', 'ceo', '产品线'])) {
+    return { primaryCategory: '机构组织', secondaryCategory: '企业', confidence: 0.84, signals: [...new Set(signals)] }
+  }
+  if (has(['大学', '学院', '学校', '校区', '学科'])) {
+    return { primaryCategory: '机构组织', secondaryCategory: '学校', confidence: 0.82, signals: [...new Set(signals)] }
+  }
+  if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员'])) {
+    return { primaryCategory: '人物', secondaryCategory: normalized.includes('历史') ? '历史人物' : '名人', confidence: 0.8, signals: [...new Set(signals)] }
+  }
+  if (has(['电影', '电视剧', '综艺', '导演', '主演', '上映', '播出'])) {
+    return { primaryCategory: '作品', secondaryCategory: '影视作品', confidence: 0.83, signals: [...new Set(signals)] }
+  }
+  if (has(['小说', '文学', '作者', '出版', '章节', '诗歌'])) {
+    return { primaryCategory: '作品', secondaryCategory: '文学著作', confidence: 0.79, signals: [...new Set(signals)] }
+  }
+  if (has(['游戏', '玩法', '关卡', '角色', '发行', '平台'])) {
+    return { primaryCategory: '作品', secondaryCategory: '游戏', confidence: 0.78, signals: [...new Set(signals)] }
+  }
+  if (has(['产品', '设备', '型号', '参数', '发布', '功能'])) {
+    return { primaryCategory: '物品产品', secondaryCategory: '产品设备', confidence: 0.72, signals: [...new Set(signals)] }
+  }
+  if (has(['概念', '定义', '理论', '技术', '算法', '协议', '模型'])) {
+    return { primaryCategory: '知识', secondaryCategory: '知识术语', confidence: 0.74, signals: [...new Set(signals)] }
+  }
+  return { primaryCategory: '知识', secondaryCategory: '知识术语', confidence: 0.52, signals: ['fallback'] }
+}
+
+function applyDemocaseClassification(
+  classification: {
+    primaryCategory: string
+    secondaryCategory: string
+    confidence: number
+    signals: string[]
+  },
+  democaseMatches: EncyclopediaDemocaseMatch[],
+): {
+  primaryCategory: string
+  secondaryCategory: string
+  confidence: number
+  signals: string[]
+} {
+  const bestMatch = democaseMatches[0]
+  if (!bestMatch || bestMatch.score < 0.2) return classification
+  return {
+    primaryCategory: bestMatch.primaryCategory,
+    secondaryCategory: bestMatch.secondaryCategory,
+    confidence: Math.max(classification.confidence, Math.min(0.92, 0.72 + bestMatch.score)),
+    signals: [...new Set([...classification.signals.filter(signal => signal !== 'fallback'), ...bestMatch.matchedKeywords])],
+  }
+}
+
+function guidanceDemocaseReferences(guidance: EncyclopediaEntryGuidance): EncyclopediaEntryGuidanceResponse['democaseReferences'] {
+  const value = guidance.metadata.democaseReferences
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is EncyclopediaDemocaseMatch => Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).caseId === 'string'))
+    .map(item => ({
+      caseId: item.caseId,
+      title: item.title,
+      score: item.score,
+      matchedKeywords: item.matchedKeywords,
+      summary: item.summary,
+    }))
+}
+
+function guidanceDemocaseMatches(guidance: EncyclopediaEntryGuidance): EncyclopediaDemocaseMatch[] {
+  const value = guidance.metadata.democaseReferences
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is EncyclopediaDemocaseMatch =>
+    Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).caseId === 'string'),
+  )
+}
+
+function normalizeGuidanceClassificationOverride(input: unknown): {
+  primaryCategory: string
+  secondaryCategory: string
+} | null {
+  if (!input || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  const primaryCategory = typeof record.primaryCategory === 'string' ? record.primaryCategory.trim() : ''
+  const secondaryCategory = typeof record.secondaryCategory === 'string' ? record.secondaryCategory.trim() : ''
+  if (!primaryCategory || !secondaryCategory) return null
+  const allowedPairs = [
+    ['机构组织', '企业'],
+    ['机构组织', '学校'],
+    ['人物', '名人'],
+    ['人物', '历史人物'],
+    ['作品', '影视作品'],
+    ['作品', '文学著作'],
+    ['作品', '游戏'],
+    ['物品产品', '产品设备'],
+    ['知识', '知识术语'],
+  ]
+  const allowed = allowedPairs.some(([primary, secondary]) => primary === primaryCategory && secondary === secondaryCategory)
+  if (!allowed) throw createHttpError(400, 'GUIDANCE_CLASSIFICATION_INVALID', 'Unsupported guidance classification override.')
+  return { primaryCategory, secondaryCategory }
+}
+
+function recommendedInteractionParadigmId(primaryCategory: string, secondaryCategory: string): string {
+  const categoryText = `${primaryCategory} ${secondaryCategory}`
+  return categoryText.includes('历史')
+    || categoryText.includes('影视')
+    || categoryText.includes('文学')
+    || categoryText.includes('游戏')
+    || categoryText.includes('事件')
+    || categoryText.includes('时间')
+    ? 'ip_timeline_story'
+    : 'ip_entity_summary'
+}
+
+function interactionParadigmIdForTemplatePack(templatePackId: string): string | null {
+  const paradigm = listCapabilities().interactionParadigms.find(candidate =>
+    candidate.compatibleTemplatePackIds.includes(templatePackId),
+  )
+  return paradigm?.id ?? null
+}
+
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -3537,7 +4174,65 @@ function artifactQualitySummary(value: unknown): ArtifactQualityReport | null {
   const issues = record.issues
   if (status !== 'pass' && status !== 'warn' && status !== 'fail') return null
   if (!Array.isArray(issues) || !issues.every(issue => typeof issue === 'string')) return null
-  return { status, issues }
+  const specFindings = normalizeAutomationRepairFindings(record.specFindings)
+  return { status, issues, ...(specFindings.length ? { specFindings } : {}) }
+}
+
+function specFindingsFromArtifactMetadata(metadata: Record<string, unknown>): AutomationRepairFinding[] {
+  const quality = artifactQualitySummary(metadata.quality)
+  return quality?.specFindings ?? []
+}
+
+function normalizeAutomationRepairFindings(value: unknown): AutomationRepairFinding[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const severity = record.severity === 'error' || record.severity === 'warning' ? record.severity : null
+    const source = record.source === 'static_rule' || record.source === 'template_rule' || record.source === 'pixel_gate'
+      ? record.source
+      : null
+    if (!severity || typeof record.id !== 'string' || typeof record.message !== 'string') return []
+    return [{
+      id: record.id,
+      source: source ?? 'template_rule',
+      severity,
+      message: record.message,
+      repairHint: typeof record.repairHint === 'string' ? record.repairHint : 'Repair the reported specification issue.',
+    }]
+  })
+}
+
+function latestVariationReviewActions(messages: { metadata: Record<string, unknown>; createdAt: string }[]): Map<string, {
+  action: 'confirm_repair' | 'skip'
+  status: 'repair_queued' | 'skipped'
+  artifactId: string | null
+  artifactVersion: number | null
+  createdAt: string
+}> {
+  const actions = new Map<string, {
+    action: 'confirm_repair' | 'skip'
+    status: 'repair_queued' | 'skipped'
+    artifactId: string | null
+    artifactVersion: number | null
+    createdAt: string
+  }>()
+  for (const message of messages) {
+    const metadata = message.metadata
+    if (metadata.kind !== 'variation_review_action') continue
+    const variationId = typeof metadata.variationId === 'string' ? metadata.variationId : null
+    if (!variationId) continue
+    const action = metadata.action === 'confirm_repair' || metadata.action === 'skip' ? metadata.action : null
+    if (!action) continue
+    actions.set(variationId, {
+      action,
+      status: action === 'confirm_repair' ? 'repair_queued' : 'skipped',
+      artifactId: typeof metadata.artifactId === 'string' ? metadata.artifactId : null,
+      artifactVersion: typeof metadata.artifactVersion === 'number' ? metadata.artifactVersion : null,
+      createdAt: message.createdAt,
+    })
+  }
+  return actions
 }
 
 function screenshotUrlForArtifact(artifact: Artifact): string | null {

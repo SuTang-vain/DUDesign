@@ -168,18 +168,20 @@
 
 ## Phase RTC-8：动态百科 Runtime Context
 
-> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`（v0.2）。
+> 实现前需钉死的决策见该文档第 12 节；以下任务已对齐 12.1–12.6。
 
-- [ ] Runtime Gateway 支持接收 `productMode=dynamic_encyclopedia_card` 的标准上下文。
-- [ ] 将词条引导 skill 编译为受控 prompt block。
-- [ ] 将 democase MCP binding 编译为只读 tool policy，初期可保持 `policy_only` 或 mock result。
-- [ ] 将父模板包、子模板和交互范式编译为分层 prompt context。
-- [ ] 将百科规范 repair context 编译为 refine prompt block。
-- [ ] 增加 golden replay：
-  - [ ] 词条引导 skill prompt block。
-  - [ ] democase MCP tool policy。
-  - [ ] 动态百科子模板 prompt context。
-  - [ ] spec review repair context。
+- [x] Runtime Gateway 支持接收 `productMode=dynamic_encyclopedia_card` 的标准上下文，并透传到 BabeL-O `/v1/agents`。
+- [x] 将词条引导 skill 编译为受控 prompt block。
+- [x] 将 democase MCP binding 编译为只读 tool policy，初期可保持 `policy_only` 或 mock result（12.1：只服务生成期 agent；12.6：scope 显式 `readonly_context`，通过 `isMvpSafePluginPolicy`）。词条引导向导的分类查询不经此 binding。
+- [x] 将父模板包、子模板和交互范式编译为分层 prompt context。
+- [x] 将百科规范 repair context 编译为 refine prompt block。
+- [x] 增加 golden replay：
+  - [x] 词条引导 skill prompt block。
+  - [x] democase MCP tool policy。
+  - [x] 动态百科子模板 prompt context。
+  - [x] 父模板包、子模板和交互范式分层 prompt context。
+  - [x] spec review repair context golden replay。
 - [ ] 增加 BabeL-O staging smoke：动态百科卡片模式端到端生成。
 
 验收：

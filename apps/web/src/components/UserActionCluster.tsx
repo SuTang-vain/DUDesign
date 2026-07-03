@@ -20,12 +20,14 @@ const fallbackUser: UserActionIdentity = {
 export function UserActionCluster(props: {
   user?: UserActionIdentity | null
   onOpenPreferences?: () => void
+  mode?: 'full' | 'profileOnly'
 }): React.JSX.Element {
   const user = props.user ?? fallbackUser
   const [openMenu, setOpenMenu] = useState<OpenUserMenu>(null)
   const { language, setLanguage, t } = useLanguage()
   const label = user.name || user.email || 'DUDesign User'
   const initials = initialsForUser(user)
+  const mode = props.mode ?? 'full'
 
   useEffect(() => {
     function closeOnOutside(event: PointerEvent): void {
@@ -48,21 +50,25 @@ export function UserActionCluster(props: {
 
   return (
     <div className="user-action-cluster" data-user-actions="true" data-testid="user-action-cluster">
-      <ThemeToggle />
-      <ActionButton
-        label={t('settings')}
-        active={openMenu === 'settings'}
-        onClick={() => setOpenMenu(current => current === 'settings' ? null : 'settings')}
-      >
-        <Icon name="sliders" size={16} />
-      </ActionButton>
-      <ActionButton
-        label={t('more')}
-        active={openMenu === 'more'}
-        onClick={() => setOpenMenu(current => current === 'more' ? null : 'more')}
-      >
-        <Icon name="moreHorizontal" size={18} />
-      </ActionButton>
+      {mode === 'full' ? (
+        <>
+          <ThemeToggle />
+          <ActionButton
+            label={t('settings')}
+            active={openMenu === 'settings'}
+            onClick={() => setOpenMenu(current => current === 'settings' ? null : 'settings')}
+          >
+            <Icon name="sliders" size={16} />
+          </ActionButton>
+          <ActionButton
+            label={t('more')}
+            active={openMenu === 'more'}
+            onClick={() => setOpenMenu(current => current === 'more' ? null : 'more')}
+          >
+            <Icon name="moreHorizontal" size={18} />
+          </ActionButton>
+        </>
+      ) : null}
       <button
         type="button"
         className="user-avatar-button"

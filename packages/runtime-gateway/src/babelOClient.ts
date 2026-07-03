@@ -1,4 +1,4 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignTemplatePack } from '@dudesign/contracts'
 import type {
   CancelRuntimeJobInput,
   CancelRuntimeJobResult,
@@ -274,6 +274,7 @@ export class BabelORuntimeClient {
         jobId: input.jobId,
         prompt: buildVariationRuntimePrompt(input, styleDirection),
         sourceMode: input.sourceMode,
+        productMode: input.productMode ?? 'web_app',
         sourceArtifactId: input.sourceArtifactId ?? null,
         variationCount: input.variationCount,
         variationIndex: input.variationIndex,
@@ -623,6 +624,8 @@ function designTemplatePackPromptBlock(
   const assignment = templateRequirements?.variationTemplateAssignments?.find(item => item.variationIndex === variationIndex)
   const pack = assignment?.designTemplatePack
   if (!pack) return ''
+  const parentPack = parentTemplatePackForAssignment(pack, templateRequirements?.designTemplatePacks)
+  const interactionParadigm = templateRequirements?.interactionParadigm
   const colors = Object.entries(pack.designTokens.colors).map(([key, value]) => `${key}=${value}`).join(', ')
   const typography = Object.entries(pack.designTokens.typography)
     .map(([key, value]) => `${key}=${value.fontFamily ?? 'system'}${value.fontSize ? ` ${value.fontSize}` : ''}${value.fontWeight ? ` weight ${value.fontWeight}` : ''}`)
@@ -634,9 +637,14 @@ function designTemplatePackPromptBlock(
   const sections = Object.entries(pack.rationale.sections)
     .map(([key, value]) => `${key}: ${value}`)
     .join(' ')
+  const businessContext = templateRequirements?.businessContext
   return [
     'DUDesign assigned Template Pack:',
+    parentPack ? `- Parent package: ${parentPack.name} (${parentPack.id})${parentPack.description ? ` — ${parentPack.description}` : ''}` : undefined,
+    parentPack ? parentTemplatePackConstraintPromptBlock(parentPack) : undefined,
     `- Template: ${pack.name} (${pack.id})${pack.description ? ` — ${pack.description}` : ''}`,
+    businessContext ? dynamicEncyclopediaBusinessContextPromptBlock(businessContext) : undefined,
+    interactionParadigm ? interactionParadigmPromptBlock(interactionParadigm) : undefined,
     pack.rationale.overview ? `- Overview: ${pack.rationale.overview}` : undefined,
     colors ? `- Color tokens: ${colors}.` : undefined,
     typography ? `- Typography tokens: ${typography}.` : undefined,
@@ -649,6 +657,56 @@ function designTemplatePackPromptBlock(
     pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
     '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
   ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function parentTemplatePackForAssignment(
+  pack: DesignTemplatePack,
+  packs: DesignTemplatePack[] | undefined,
+): DesignTemplatePack | undefined {
+  if (!packs?.length) return undefined
+  if (pack.templateRole === 'parent_pack') return pack
+  if (!pack.parentPackId) return undefined
+  return packs.find(candidate => candidate.id === pack.parentPackId && candidate.templateRole === 'parent_pack')
+}
+
+function parentTemplatePackConstraintPromptBlock(parentPack: DesignTemplatePack): string {
+  const sectionLines = Object.entries(parentPack.rationale.sections)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(' ')
+  return [
+    parentPack.templateRole ? `- Parent package role: ${parentPack.templateRole}.` : undefined,
+    sectionLines ? `- Parent package inherited constraints: ${sectionLines}` : undefined,
+    parentPack.rationale.dos.length ? `- Parent package do: ${parentPack.rationale.dos.join(' ')}` : undefined,
+    parentPack.rationale.donts.length ? `- Parent package do not: ${parentPack.rationale.donts.join(' ')}` : undefined,
+  ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function interactionParadigmPromptBlock(paradigm: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['interactionParadigm']): string {
+  if (!paradigm) return ''
+  return [
+    `- Interaction paradigm: ${paradigm.name} (${paradigm.id}) — ${paradigm.description}`,
+    `  category=${paradigm.category}`,
+    paradigm.bestFor.length ? `  bestFor=${paradigm.bestFor.join(', ')}` : undefined,
+    paradigm.avoidFor.length ? `  avoidFor=${paradigm.avoidFor.join(', ')}` : undefined,
+    paradigm.requiredDataShape.length ? `  requiredDataShape=${paradigm.requiredDataShape.join(', ')}` : undefined,
+    paradigm.compatibleTemplatePackIds.length ? `  compatibleTemplatePackIds=${paradigm.compatibleTemplatePackIds.join(', ')}` : undefined,
+  ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function dynamicEncyclopediaBusinessContextPromptBlock(context: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext']): string {
+  if (!context) return ''
+  const lines = [
+    '- Dynamic encyclopedia business context:',
+    context.guidanceId ? `  guidanceId=${context.guidanceId}` : undefined,
+    context.entryTitle ? `  entryTitle=${context.entryTitle}` : undefined,
+    context.entryPrimaryCategory || context.entrySecondaryCategory
+      ? `  entryCategory=${[context.entryPrimaryCategory, context.entrySecondaryCategory].filter(Boolean).join('/')}`
+      : undefined,
+    context.interactionParadigmId ? `  interactionParadigmId=${context.interactionParadigmId}` : undefined,
+    context.recommendedTemplateIds?.length ? `  recommendedTemplateIds=${context.recommendedTemplateIds.join(', ')}` : undefined,
+    context.automationMode ? `  automationMode=${context.automationMode}` : undefined,
+  ].filter((line): line is string => Boolean(line))
+  return lines.length > 1 ? lines.join('\n') : ''
 }
 
 function compactJson(value: unknown): string {

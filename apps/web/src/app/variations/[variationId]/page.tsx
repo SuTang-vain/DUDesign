@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
+import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
@@ -37,7 +38,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const { t } = useLanguage()
   const [variationId, setVariationId] = useState<string | null>(null)
   const [detail, setDetail] = useState<VariationDetailResponse | null>(null)
-  const [prompt, setPrompt] = useState('Make the hero bolder and switch the accent color to teal.')
+  const [prompt, setPrompt] = useState('')
   const [device, setDevice] = useState<PreviewDevice>('desktop')
   const [otherDeviceMenuOpen, setOtherDeviceMenuOpen] = useState(false)
   const [viewMode, setViewMode] = useState<EditorViewMode>('preview')
@@ -292,6 +293,21 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     setNotice(`${t('lockedBefore')}${locked.version}${t('lockedAfter')}`)
   }
 
+  function unlockCurrentVersion(): void {
+    if (!variationId) return
+    removeLockedVariationVersion(variationId)
+    setLockedVersion(null)
+    setNotice(t('unlockedVersion'))
+  }
+
+  function toggleCurrentVersionLock(): void {
+    if (lockedVersion?.artifactId === detail?.currentArtifact?.id) {
+      unlockCurrentVersion()
+      return
+    }
+    lockCurrentVersion()
+  }
+
   function normalizedPoint(event: React.PointerEvent<HTMLDivElement>): { x: number; y: number } {
     const rect = event.currentTarget.getBoundingClientRect()
     return {
@@ -361,7 +377,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     if (currentShape.type === 'pen') {
       const points = [...currentShape.points, point]
       if (points.length >= 2) {
-        appendAnnotation({ type: 'pen', points, color: '#6487FA', note: 'Freehand marked area to refine' })
+        appendAnnotation({ type: 'pen', points, color: '#6487FA' })
       }
     } else {
       const x = Math.min(currentShape.startX, point.x)
@@ -370,7 +386,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       const h = Math.abs(point.y - currentShape.startY)
       if (w > 0.01 && h > 0.01) {
         if (currentShape.type === 'rect') {
-          appendAnnotation({ type: 'rect', x, y, w, h, color: '#6487FA', note: 'Marked area to refine' })
+          appendAnnotation({ type: 'rect', x, y, w, h, color: '#6487FA' })
         } else if (currentShape.type === 'circle') {
           appendAnnotation({
             type: 'circle',
@@ -378,7 +394,6 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             cy: y + h / 2,
             r: Math.max(w, h) / 2,
             color: '#6487FA',
-            note: 'Circular marked area to refine',
           })
         } else {
           appendAnnotation({
@@ -386,7 +401,6 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             from: { x: currentShape.startX, y: currentShape.startY },
             to: point,
             color: '#6487FA',
-            note: 'Arrow points to the area to refine',
           })
         }
       }
@@ -413,62 +427,60 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     })
   }
 
-  function editTextAnnotation(index: number): void {
-    const shape = annotations[index]
-    if (!shape || shape.type !== 'text') return
-    const text = window.prompt('Edit annotation note', shape.text)
-    if (!text?.trim()) return
-    setAnnotations(items => items.map((item, itemIndex) => itemIndex === index && item.type === 'text'
-      ? { ...item, text: text.trim(), note: text.trim() }
-      : item))
+  function updateAnnotationNote(index: number, text: string): void {
+    setAnnotations(items => items.map((item, itemIndex) => {
+      if (itemIndex !== index) return item
+      const note = text
+      return item.type === 'text'
+        ? { ...item, text: note, note }
+        : { ...item, note }
+    }))
     setSelectedAnnotationIndex(index)
   }
 
-  const headingTitle = detail?.variation.title ?? 'Variation'
+  const variationNumber = formatVariationNumber(detail?.variation.title)
+  const isCurrentVersionLocked = lockedVersion?.artifactId === detail?.currentArtifact?.id
 
   return (
     <main className="ed-shell">
       <header className="ed-topbar">
-        <a href={detail ? `/jobs/${detail.job.id}` : '/'} className="back-link back"><Icon name="arrowLeft" size={15} /> {t('allVariations')}</a>
+        <div className="ed-nav-actions">
+          <a href={detail ? `/jobs/${detail.job.id}` : '/'} className="back-link back" aria-label={t('allVariations')} title={t('allVariations')}><Icon name="arrowLeft" size={18} /></a>
+          <VariationActionMenu />
+        </div>
         <div>
-          <span className="eyebrow">{t('refineThisDesign')} · {detail?.currentArtifact ? `v${detail.currentArtifact.version}` : '—'}</span>
-          <h1>{headingTitle}</h1>
-          <p>{detail?.job.prompt ?? t('loadingVariation')}</p>
+          <p className="ed-prompt-title">{detail?.job.prompt ?? t('loadingVariation')}</p>
         </div>
         <div className="ed-cmd" aria-label="Variation actions">
-          <button
-            className="btn"
-            data-testid="download-html-button"
-            onClick={() => void downloadZip()}
-            disabled={!detail?.variation.currentArtifactId || exportStatus === 'exporting'}
-          >
-            <Icon name="external" size={14} /> {exportStatus === 'exporting' ? t('exporting') : t('exportHtml')}
-          </button>
-          <button
-            className="btn"
-            data-testid="share-button"
-            onClick={() => void createShareLink()}
-            disabled={!detail?.variation.currentArtifactId || shareStatus === 'creating'}
-          >
-            <Icon name="link" size={14} /> {shareStatus === 'creating' ? t('sharing') : t('shareLink')}
-          </button>
-          <button
-            className="btn"
-            data-testid="save-as-template-button"
-            onClick={() => void saveAsTemplate()}
-            disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html' || saveTemplateStatus === 'saving'}
-          >
-            <Icon name="sparkles" size={14} /> {saveTemplateStatus === 'saving' ? t('importing') : t('saveAsTemplate')}
-          </button>
-          <UserActionCluster />
-          <button
-            className="lock"
-            data-testid="lock-version-button"
-            onClick={lockCurrentVersion}
-            disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
-          >
-            <Icon name="lock" size={14} /> {lockedVersion && lockedVersion.artifactId === detail?.currentArtifact?.id ? `${t('locked')} v${lockedVersion.version}` : t('lockThisVersion')}
-          </button>
+          <div className="ed-action-row">
+            <div className="variation-export-actions" aria-label="Artifact actions">
+              <button
+                className="btn"
+                data-testid="download-html-button"
+                onClick={() => void downloadZip()}
+                disabled={!detail?.variation.currentArtifactId || exportStatus === 'exporting'}
+              >
+                <Icon name="external" size={14} /> {exportStatus === 'exporting' ? t('exporting') : t('exportHtml')}
+              </button>
+              <button
+                className="btn"
+                data-testid="share-button"
+                onClick={() => void createShareLink()}
+                disabled={!detail?.variation.currentArtifactId || shareStatus === 'creating'}
+              >
+                <Icon name="link" size={14} /> {shareStatus === 'creating' ? t('sharing') : t('shareLink')}
+              </button>
+              <button
+                className="btn"
+                data-testid="save-as-template-button"
+                onClick={() => void saveAsTemplate()}
+                disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html' || saveTemplateStatus === 'saving'}
+              >
+                <Icon name="sparkles" size={14} /> {saveTemplateStatus === 'saving' ? t('importing') : t('saveAsTemplate')}
+              </button>
+            </div>
+            <UserActionCluster mode="profileOnly" />
+          </div>
         </div>
       </header>
 
@@ -585,45 +597,58 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         </section>
 
         <aside className="refine">
-          <div className="refine-tabs" role="tablist" aria-label="Variation tools">
-            {([
-              { id: 'annotate', label: t('tabAnnotate') },
-              { id: 'direction', label: t('tabDirection') },
-              { id: 'inspect', label: t('tabInspect') },
-            ] as const).map(tab => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                data-testid={`side-panel-tab-${tab.id}`}
-                aria-selected={sidePanelTab === tab.id}
-                className={sidePanelTab === tab.id ? 'active' : ''}
-                onClick={() => setSidePanelTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="refine-status-container">
+            <span className="variation-index">{variationNumber}</span>
+            <button
+              className="lock"
+              data-testid="lock-version-button"
+              onClick={toggleCurrentVersionLock}
+              disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
+            >
+              <Icon name={isCurrentVersionLocked ? 'x' : 'lock'} size={14} /> {isCurrentVersionLocked ? t('unlockVersion') : t('lockThisVersion')}
+            </button>
           </div>
 
-          <div className="refine-body">
-            <div className="field">
+          <div className="refine-chat-container">
+            <div className="chat-refine-box">
               <label>{t('refinePrompt')}</label>
-              <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} />
+              <div className="chat-refine-input">
+                <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={2} placeholder={t('refinePromptPlaceholder')} />
+                <button
+                  type="button"
+                  aria-label={status === 'refining' ? t('refining') : t('submitRefine')}
+                  data-testid="refine-button"
+                  disabled={status === 'refining' || !prompt.trim() || !detail?.variation.currentArtifactId}
+                  onClick={() => void submitRefine()}
+                >
+                  <Icon name="arrowUp" size={16} />
+                </button>
+              </div>
             </div>
-            <div className="refine-actions">
-              <button onClick={() => { setPrompt('') }} disabled={status === 'refining'}>{t('clear')}</button>
-              <button
-                className="primary"
-                data-testid="refine-button"
-                disabled={status === 'refining' || !detail?.variation.currentArtifactId}
-                onClick={() => void submitRefine()}
-              >
-                {status === 'refining' ? t('refining') : t('submitRefine')} <Icon name="arrowRight" size={14} />
-              </button>
+          </div>
+
+          <div className="refine-tool-container">
+            <div className="refine-tabs" role="tablist" aria-label="Variation tools">
+              {([
+                { id: 'annotate', label: t('tabAnnotate') },
+                { id: 'direction', label: t('tabDirection') },
+                { id: 'inspect', label: t('tabInspect') },
+              ] as const).map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  data-testid={`side-panel-tab-${tab.id}`}
+                  aria-selected={sidePanelTab === tab.id}
+                  className={sidePanelTab === tab.id ? 'active' : ''}
+                  onClick={() => setSidePanelTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            <hr className="divider" />
-
+            <div className="refine-body">
             {sidePanelTab === 'annotate' ? (
               <section className="side-panel-section">
                 <div className="anno-tools" aria-label="Annotation tool">
@@ -664,12 +689,19 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                         onClick={() => selectAnnotation(index)}
                       >
                         <span className="n">{index + 1}</span>
-                        <span className="t">{shape.type} · {annotationSummary(shape)}</span>
-                        <span className="x" style={{ display: 'inline-flex', gap: 6 }}>
-                          {shape.type === 'text' ? (
-                            <button type="button" data-testid="edit-annotation-button" onClick={(e) => { e.stopPropagation(); editTextAnnotation(index) }} style={{ background: 'transparent', border: 0, color: 'var(--muted)', padding: 0, display: 'inline-flex' }}><Icon name="pen" size={13} /></button>
-                          ) : null}
-                          <button type="button" data-testid="delete-annotation-button" onClick={(e) => { e.stopPropagation(); deleteAnnotation(index) }} style={{ background: 'transparent', border: 0, color: 'var(--muted)', padding: 0, fontSize: 11 }}>✕</button>
+                        <label className="annotation-note-field" onClick={event => event.stopPropagation()}>
+                          <span>{shape.type} · {annotationSummary(shape)}</span>
+                          <textarea
+                            data-testid="edit-annotation-button"
+                            value={annotationNote(shape)}
+                            rows={1}
+                            placeholder="输入此框选区域的修改说明"
+                            onFocus={() => selectAnnotation(index)}
+                            onChange={event => updateAnnotationNote(index, event.target.value)}
+                          />
+                        </label>
+                        <span className="x">
+                          <button type="button" data-testid="delete-annotation-button" aria-label="Delete annotation" onClick={(e) => { e.stopPropagation(); deleteAnnotation(index) }}>×</button>
                         </span>
                       </div>
                     ))}
@@ -776,6 +808,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                 </div>
               </section>
             ) : null}
+            </div>
           </div>
         </aside>
       </section>
@@ -789,6 +822,12 @@ function annotationIconName(tool: AnnotationTool): IconName {
   if (tool === 'arrow') return 'arrowUpRight'
   if (tool === 'pen') return 'pen'
   return 'type'
+}
+
+function formatVariationNumber(title?: string | null): string {
+  const match = title?.match(/\d+/)
+  const value = match ? Number.parseInt(match[0]!, 10) : 1
+  return Number.isFinite(value) ? String(value).padStart(2, '0') : '01'
 }
 
 function AnnotationView(props: { shape: AnnotationShape; index: number; selected: boolean; onSelect: () => void }): React.JSX.Element | null {
@@ -808,6 +847,7 @@ function AnnotationView(props: { shape: AnnotationShape; index: number; selected
         }}
       >
         <span>{index + 1}</span>
+        {shape.note?.trim() ? <strong>{shape.note}</strong> : null}
       </button>
     )
   }
@@ -945,6 +985,8 @@ function AnnotationPenView(props: { points: Array<{ x: number; y: number }>; ind
 }
 
 function annotationSummary(shape: AnnotationShape): string {
+  const note = annotationNote(shape).trim()
+  if (note) return note.length > 42 ? `${note.slice(0, 42)}...` : note
   switch (shape.type) {
     case 'rect':
       return `${percent(shape.x)}, ${percent(shape.y)} · ${percent(shape.w)} x ${percent(shape.h)}`
@@ -959,6 +1001,11 @@ function annotationSummary(shape: AnnotationShape): string {
     default:
       return 'annotation'
   }
+}
+
+function annotationNote(shape: AnnotationShape): string {
+  if (shape.type === 'text') return shape.text
+  return shape.note ?? ''
 }
 
 function percent(value: number): string {
@@ -1032,6 +1079,18 @@ function writeLockedVariationVersion(locked: LockedVariationVersion): void {
       ...parsed,
       [locked.variationId]: locked,
     }))
+  } catch {
+    // Locking is a local MVP affordance until backend collaboration state lands.
+  }
+}
+
+function removeLockedVariationVersion(variationId: string): void {
+  try {
+    const raw = window.localStorage.getItem(lockedVariationStorageKey)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Record<string, LockedVariationVersion>
+    delete parsed[variationId]
+    window.localStorage.setItem(lockedVariationStorageKey, JSON.stringify(parsed))
   } catch {
     // Locking is a local MVP affordance until backend collaboration state lands.
   }

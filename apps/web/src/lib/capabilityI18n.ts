@@ -110,6 +110,15 @@ const templatePacks: Record<string, { name: string; desc: string }> = {
   dtp_developer_workflow: { name: '开发者工作流', desc: '面向 API、CLI、基础设施与代码相关产品的精准开发者工具系统。' },
   dtp_warm_commerce: { name: '暖色电商', desc: '面向精选商品、生活方式与亲和转化的产品电商系统。' },
   dtp_data_operations: { name: '数据密集运营', desc: '面向仪表盘、管理工具、监控与重复流程的紧凑运营系统。' },
+  dtp_dynamic_encyclopedia_card: { name: '动态百科词条卡片', desc: '用于紧凑知识词条、实体事实与移动端 iframe 嵌入的交互式百科卡片模版包。' },
+  dtp_dynamic_encyclopedia_summary_card: { name: '动态百科·摘要卡', desc: '用于核心实体事实、简短摘要与关键指标的子模版。' },
+  dtp_dynamic_encyclopedia_timeline_card: { name: '动态百科·时间线卡', desc: '用于人物传记、历史、发布时间线与阶段性发展的子模版。' },
+}
+
+/** 官方交互范式中文名/描述(按稳定 ID)。 */
+const interactionParadigms: Record<string, { name: string; desc: string }> = {
+  ip_entity_summary: { name: '实体摘要', desc: '以事实为先的紧凑结构，呈现身份、定义、别名、指标与必要背景。' },
+  ip_timeline_story: { name: '时间线叙事', desc: '按时间顺序组织生平阶段、发行历史、企业发展、事件或作品演进。' },
 }
 
 /** 官方 safe skill 中文名/描述/规则/负向约束/质量检查(按 skill 稳定 ID)。 */
@@ -234,6 +243,8 @@ export function useCapabilityI18n() {
     }),
     templatePackName: (id: string, en: string) => pick(language, templatePacks[id]?.name, en),
     templatePackDesc: (id: string, en: string) => pick(language, templatePacks[id]?.desc, en),
+    interactionParadigmName: (id: string, en: string) => pick(language, interactionParadigms[id]?.name, en),
+    interactionParadigmDesc: (id: string, en: string) => pick(language, interactionParadigms[id]?.desc, en),
     skillName: (id: string, en: string) => pick(language, skills[id]?.name, en),
     skillDesc: (id: string, en: string) => pick(language, skills[id]?.desc, en),
     skillRules: (id: string, en: string[]) =>

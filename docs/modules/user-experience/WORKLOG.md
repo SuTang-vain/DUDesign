@@ -1252,3 +1252,220 @@
 
 - 为 Activity Stream 增加针对 loop event 的浏览器 E2E fixture。
 - 在 variation 卡片上展示最近一次 loop stopped reason 和 repair attempt。
+
+## 2026-07-03 UX-M25 Dynamic Encyclopedia Composer Entry
+
+### 已完成
+
+- 首页 composer 新增产品模式切换：
+  - `Web & App`
+  - `Dynamic encyclopedia card`
+- 产品模式与 source mode 保持正交：
+  - product mode 决定业务链路。
+  - source mode 仍表示新建 HTML / 基于已有 HTML。
+- 切换到动态百科卡片模式后自动设置：
+  - `tpl_dynamic_encyclopedia_entry`
+  - `dtp_dynamic_encyclopedia_card`
+  - `sk_encyclopedia_entry_guidance`
+  - `mcp_encyclopedia_democase_readonly`
+  - `loop_encyclopedia_spec_review`
+- 动态百科模式提交时先调用：
+  - `POST /api/encyclopedia/entry-guidance`
+  - 低置信时先展示 guidance，不直接创建 job。
+  - 再次提交时调用 confirm API 后创建 job。
+- guidance summary 展示：
+  - 分类结果。
+  - 置信度。
+  - interaction paradigm。
+  - 推荐子模板。
+  - democase references。
+  - 低置信确认提示。
+- create job 使用 guidance 返回的 `capabilityRequirements` 和 `templateRequirements`，避免前端拼接 BabeL-O 私有 prompt。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/web`
+- `npm --workspace @dudesign/web run build`
+
+### 后续建议
+
+- 增加专门 Playwright E2E：切换动态百科卡片模式 -> 输入词条 -> guidance 展示 -> 创建 job。
+- 低置信状态增加改选分类/子模板 UI。
+- 将 democase references 展示升级为可展开详情。
+
+## 2026-07-03 UX-M26 Dynamic Encyclopedia Composer E2E
+
+### 已完成
+
+- `mock-product-flow.spec.ts` 新增动态百科模式专项 E2E：
+  - 切换到 Dynamic encyclopedia card。
+  - 验证词条输入 placeholder。
+  - 验证能力摘要自动切到动态百科 scene/template/loop。
+  - 输入“百度百科”企业词条。
+  - 等待 `POST /api/encyclopedia/entry-guidance`。
+  - 验证 democase reference 命中 `demo_baidu_baike_company`。
+  - 验证创建 job 后 snapshot 使用动态百科 product mode、skill、MCP 和 review loop。
+- 新增低置信专项 E2E：
+  - 输入 fallback 词条。
+  - 页面停留在首页。
+  - 展示 guidance summary 和 Low confidence 提示。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/web`
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/web run test:e2e -- --grep "dynamic encyclopedia mode"`
+
+### 后续建议
+
+- 为低置信状态增加子模板/分类改选控件。
+- 增加 democase references 展开详情的可访问性测试。
+
+## 2026-07-03 UX-M27 Dynamic Encyclopedia Low Confidence Template Selection
+
+### 已完成
+
+- 低置信 guidance card 的推荐子模板从静态标签升级为可选按钮。
+- 用户可以在确认前保留或取消 1-3 个推荐子模板。
+- confirm 请求使用用户当前选择的 `selectedTemplateIds`，不再固定使用 guidance 默认模板。
+- Playwright E2E 覆盖：
+  - 低置信词条先停留在首页展示 guidance。
+  - 取消一个默认推荐子模板。
+  - 再次提交后调用 confirm API。
+  - 创建 job 后 snapshot 只包含用户确认保留的模板。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/web`
+- `NEXT_PUBLIC_DUDESIGN_API_URL=http://127.0.0.1:4000 npm --workspace @dudesign/web run build`
+- `DUDESIGN_WEB_URL=http://localhost:3002 npm --workspace @dudesign/web run test:e2e -- --grep "dynamic encyclopedia mode"`
+
+### 后续建议
+
+- 增加分类改选控件，让低置信词条可改 primary / secondary category。
+- 增加 democase references 展开详情和可访问性测试。
+
+## 2026-07-03 UX-M28 Dynamic Encyclopedia Classification Override
+
+### 已完成
+
+- 低置信 guidance card 新增分类快捷改选：
+  - 企业、学校、名人、历史人物、影视作品、文学著作、游戏、产品设备、知识术语。
+- 改选时间线类分类时，前端自动切换到时间线子模板。
+- confirm 请求携带 `classificationOverride` 和当前模板选择。
+- Playwright E2E 覆盖：
+  - 低置信词条从默认“知识 / 知识术语”改选为“作品 / 游戏”。
+  - 确认后创建 job。
+  - job snapshot 使用 `dtp_dynamic_encyclopedia_timeline_card` 和 `ip_timeline_story`。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow"`
+- `NEXT_PUBLIC_DUDESIGN_API_URL=http://127.0.0.1:4000 npm --workspace @dudesign/web run build`
+- `DUDESIGN_WEB_URL=http://localhost:3002 npm --workspace @dudesign/web run test:e2e -- --grep "dynamic encyclopedia mode"`
+
+### 后续建议
+
+- 增加 democase references 展开详情和命中原因展示。
+- 将分类快捷选项抽为 API 返回的可配置分类 taxonomy，避免长期写死在前端。
+
+## 2026-07-03 UX-M29 Dynamic Encyclopedia Democase Explainability
+
+### 已完成
+
+- guidance card 中的 `democaseReferences` 从单行标题升级为可展开详情。
+- 每个参考案例展示：
+  - 案例标题。
+  - 命中分。
+  - 摘要说明。
+  - 命中关键词。
+- 低置信链路 E2E 使用弱命中 `baidu baike`：
+  - 保持低置信确认态。
+  - 展开 `demo_baidu_baike_company`。
+  - 验证 `Score`、`Matched keywords` 和命中词可见。
+- 本地 E2E 临时 `3002` 端口默认连到 `127.0.0.1:4000`，避免 production preview 测试时出现 `Model No model`。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/web`
+- `NEXT_PUBLIC_DUDESIGN_API_URL=http://127.0.0.1:4000 npm --workspace @dudesign/web run build`
+- `DUDESIGN_WEB_URL=http://localhost:3002 npm --workspace @dudesign/web run test:e2e -- --grep "dynamic encyclopedia mode"`
+
+### 后续建议
+
+- 将参考案例命中原因与真实 democase 只读 API 返回字段对齐。
+- 为 details 展开状态增加可访问性检查。
+
+## 2026-07-03 UX-M30 Semi-Auto Review Pending Panel
+
+### 已完成
+
+- 结果墙新增半自动审查确认面板：
+  - 触发条件：动态百科 job、`loop_encyclopedia_spec_review`、`maxRepairAttempts = 1`、artifact quality 非 `pass`。
+  - 展示 `Review pending`、审查失败/警告摘要和第一条质量问题。
+  - 提供三个用户动作入口：
+    - `Confirm repair`：当前标记为 repair queued 的前端预留状态。
+    - `Skip`：收起该 variation 的审查提示。
+    - `Manual edit`：进入单变体编辑页。
+- E2E 扩展 `artifact preview visibility` fixture：
+  - mock 动态百科半自动审查 job。
+  - 验证质量失败 banner。
+  - 验证 Review pending 面板。
+  - 验证确认修复、跳过、手动修改入口。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/web`
+- `NEXT_PUBLIC_DUDESIGN_API_URL=http://127.0.0.1:4000 npm --workspace @dudesign/web run build`
+- `DUDESIGN_WEB_URL=http://localhost:3002 npm --workspace @dudesign/web run test:e2e -- --grep "artifact preview visibility"`
+- `DUDESIGN_WEB_URL=http://localhost:3002 npm --workspace @dudesign/web run test:e2e -- --grep "dynamic encyclopedia mode"`
+
+### 后续建议
+
+- 将 Review pending 状态持久化，避免刷新后丢失用户已跳过/已确认状态。
+- 第 4 层补 spec review finding 到 BabeL-O refine prompt 的标准注入。
+
+## 2026-07-03 UX-M31 Semi-Auto Review Backend Actions
+
+### 已完成
+
+- 结果墙 Review pending 面板接入真实后端动作：
+  - `Confirm repair` 调用 `POST /api/variations/:id/review-actions`，成功后显示 repair queued。
+  - `Skip` 调用同一 API，成功后收起当前 variation 审查提示。
+  - 提交中禁用按钮，避免重复点击。
+- E2E 扩展 `artifact preview visibility` fixture：
+  - mock review action API。
+  - 断言 `confirm_repair` 请求体携带当前 artifact id。
+  - 刷新后再次触发 `skip`，断言同样走后端 API。
+- `user-experience/TODO.md` 已更新：确认修复/跳过 API 已接通，完整审查报告和持久化 pending 状态待补。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 当后端有结构化 spec finding 后，在面板展示多条 findings、严重级别和修复 diff 摘要。
+
+## 2026-07-03 UX-M32 Review Action Resume State
+
+### 已完成
+
+- 结果墙读取 `variation.reviewAction`：
+  - 当前 artifact 已 `repair_queued` 时，刷新后继续展示 queued 状态，不再显示确认按钮。
+  - 当前 artifact 已 `skipped` 时，刷新后不再展示 Review pending 面板。
+  - 如果 review action 指向旧 artifact，新 artifact 仍会重新进入 pending。
+- E2E 扩展 `artifact preview visibility` fixture：
+  - confirm repair 后刷新，断言 queued 状态从 snapshot 恢复。
+  - skip 后刷新，断言 pending 面板继续隐藏。
+- `user-experience/TODO.md` 已更新：刷新恢复已完成，完整结构化审查报告待补。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 增加 UI 说明：当前修复已排队，用户仍可进入 Manual edit。
+- 结构化 spec findings 接入后，将面板从单条 quality issue 升级为 findings 列表。

@@ -138,12 +138,8 @@ test('annotation tools support circle arrow pen text and runtime summary is visi
   await expect(page.getByTestId('annotation-list-row').nth(1)).toHaveClass(/active/)
   await expect(page.getByTestId('annotation-arrow')).toHaveClass(/selected/)
 
-  page.once('dialog', async dialog => {
-    await expect(dialog.message()).toContain('Edit annotation note')
-    await dialog.accept('Clarify the revised label')
-  })
-  await page.getByTestId('edit-annotation-button').click()
-  await expect(page.getByTestId('annotation-list').getByText(/Clarify the revised label/)).toBeVisible()
+  await page.getByTestId('edit-annotation-button').nth(1).fill('Clarify the revised label')
+  await expect(page.getByTestId('edit-annotation-button').nth(1)).toHaveValue('Clarify the revised label')
 
   await page.getByTestId('delete-annotation-button').first().click()
   await expect(page.getByTestId('annotation-list-row')).toHaveCount(3)

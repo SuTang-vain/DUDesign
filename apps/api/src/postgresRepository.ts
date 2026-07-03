@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
-import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
+import type { Artifact, DesignJob, DesignSession, DesignVariation, EncyclopediaEntryGuidance, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
 import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type AuthIdentity, type AuthSession, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
@@ -192,6 +192,7 @@ export class PostgresRepository extends InMemoryStore {
     this.designEvents.clear()
     this.authIdentities.clear()
     this.authSessions.clear()
+    this.encyclopediaEntryGuidances.clear()
 
     for (const row of (await this.pool.query('select * from users')).rows) this.users.set(row.id, mapUser(row))
     for (const row of (await this.pool.query('select * from workspaces')).rows) this.workspaces.set(row.id, mapWorkspace(row))
@@ -243,6 +244,10 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from auth_sessions')).rows) {
       const session = mapAuthSession(row)
       this.authSessions.set(session.tokenHash, session)
+    }
+    for (const row of (await this.pool.query('select * from encyclopedia_entry_guidances order by created_at')).rows) {
+      const guidance = mapEncyclopediaEntryGuidance(row)
+      this.encyclopediaEntryGuidances.set(guidance.id, guidance)
     }
     for (const row of (await this.pool.query('select event from design_events order by created_at, id')).rows) {
       const event = mapDesignEvent(row)
@@ -361,6 +366,22 @@ export class PostgresRepository extends InMemoryStore {
     return templateVersion
   }
 
+  override async saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): Promise<EncyclopediaEntryGuidance> {
+    await this.persistEncyclopediaEntryGuidance(guidance)
+    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
+    return guidance
+  }
+
+  override async getEncyclopediaEntryGuidanceById(guidanceId: string): Promise<EncyclopediaEntryGuidance | null> {
+    const cached = this.encyclopediaEntryGuidances.get(guidanceId)
+    if (cached) return cached
+    const row = (await this.pool.query('select * from encyclopedia_entry_guidances where id = $1', [guidanceId])).rows[0]
+    if (!row) return null
+    const guidance = mapEncyclopediaEntryGuidance(row)
+    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
+    return guidance
+  }
+
   override async appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): Promise<SessionMessage> {
     const created: SessionMessage = {
       id: createId('msg'),
@@ -383,6 +404,7 @@ export class PostgresRepository extends InMemoryStore {
       workspaceId: input.session.workspaceId,
       prompt: input.prompt,
       sourceMode: input.sourceMode,
+      productMode: input.productMode ?? 'web_app',
       variationCount: input.variationCount,
       templateRequirements: input.templateRequirements,
       status: 'queued',
@@ -1059,6 +1081,11 @@ export class PostgresRepository extends InMemoryStore {
     const jobRow = (await this.pool.query('select * from design_jobs where id = $1', [jobId])).rows[0]
     if (!jobRow) return null
     const job = mapJob(jobRow)
+    const messages = (await this.pool.query(`
+      select * from session_messages
+      where session_id = $1
+      order by created_at
+    `, [job.sessionId])).rows.map(mapMessage)
     const variations = (await this.pool.query(`
       select * from design_variations
       where job_id = $1
@@ -1071,7 +1098,7 @@ export class PostgresRepository extends InMemoryStore {
       where v.job_id = $1
       order by a.created_at desc
     `, [jobId])).rows.map(mapArtifact)
-    return { job, variations, artifacts }
+    return { job, messages, variations, artifacts }
   }
 
   override async getSessionWorkspaceContext(sessionId: string): Promise<SessionWorkspaceContext | null> {
@@ -2059,9 +2086,10 @@ export class PostgresRepository extends InMemoryStore {
 
   private async persistJob(job: DesignJob): Promise<void> {
     await this.pool.query(`
-      insert into design_jobs (id, session_id, user_id, workspace_id, prompt, source_mode, variation_count, template_requirements, status, total_input_tokens, total_output_tokens, total_cost_cents, started_at, completed_at, created_at, updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16)
+      insert into design_jobs (id, session_id, user_id, workspace_id, prompt, source_mode, product_mode, variation_count, template_requirements, status, total_input_tokens, total_output_tokens, total_cost_cents, started_at, completed_at, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17)
       on conflict (id) do update set
+        product_mode = excluded.product_mode,
         status = excluded.status,
         total_input_tokens = excluded.total_input_tokens,
         total_output_tokens = excluded.total_output_tokens,
@@ -2070,7 +2098,7 @@ export class PostgresRepository extends InMemoryStore {
         completed_at = excluded.completed_at,
         updated_at = excluded.updated_at
     `, [
-      job.id, job.sessionId, job.userId, job.workspaceId, job.prompt, job.sourceMode, job.variationCount,
+      job.id, job.sessionId, job.userId, job.workspaceId, job.prompt, job.sourceMode, job.productMode, job.variationCount,
       JSON.stringify(job.templateRequirements), job.status, job.totalInputTokens, job.totalOutputTokens,
       job.totalCostCents, job.startedAt, job.completedAt, job.createdAt, job.updatedAt,
     ])
@@ -2332,6 +2360,54 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
+  private async persistEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): Promise<void> {
+    await this.pool.query(`
+      insert into encyclopedia_entry_guidances (
+        id, user_id, workspace_id, product_mode, entry_title, raw_input, context,
+        primary_category, secondary_category, confidence, signals, recommended_template_ids,
+        selected_template_ids, interaction_paradigm_id, automation_mode, status, confirmed_at, metadata, created_at, updated_at
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20)
+      on conflict (id) do update set
+        entry_title = excluded.entry_title,
+        raw_input = excluded.raw_input,
+        context = excluded.context,
+        primary_category = excluded.primary_category,
+        secondary_category = excluded.secondary_category,
+        confidence = excluded.confidence,
+        signals = excluded.signals,
+        recommended_template_ids = excluded.recommended_template_ids,
+        selected_template_ids = excluded.selected_template_ids,
+        interaction_paradigm_id = excluded.interaction_paradigm_id,
+        automation_mode = excluded.automation_mode,
+        status = excluded.status,
+        confirmed_at = excluded.confirmed_at,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      guidance.id,
+      guidance.userId,
+      guidance.workspaceId,
+      guidance.productMode,
+      guidance.entryTitle,
+      guidance.rawInput,
+      guidance.context,
+      guidance.primaryCategory,
+      guidance.secondaryCategory,
+      guidance.confidence,
+      JSON.stringify(guidance.signals),
+      JSON.stringify(guidance.recommendedTemplateIds),
+      JSON.stringify(guidance.selectedTemplateIds),
+      guidance.interactionParadigmId,
+      guidance.automationMode,
+      guidance.status,
+      guidance.confirmedAt,
+      JSON.stringify(guidance.metadata),
+      guidance.createdAt,
+      guidance.updatedAt,
+    ])
+  }
+
   private async getUserModelAccess(userId: string, modelServiceId: string): Promise<UserModelAccess | null> {
     const row = (await this.pool.query(`
       select *
@@ -2464,6 +2540,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
 function isDesignTemplatePack(value: unknown): value is DesignTemplatePack {
   if (!isPlainObject(value)) return false
   return typeof value.id === 'string'
@@ -2546,6 +2626,31 @@ function mapMessage(row: any): SessionMessage {
   }
 }
 
+function mapEncyclopediaEntryGuidance(row: any): EncyclopediaEntryGuidance {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+    productMode: row.product_mode,
+    entryTitle: row.entry_title,
+    rawInput: row.raw_input,
+    context: row.context,
+    primaryCategory: row.primary_category,
+    secondaryCategory: row.secondary_category,
+    confidence: Number(row.confidence),
+    signals: stringArray(row.signals),
+    recommendedTemplateIds: stringArray(row.recommended_template_ids),
+    selectedTemplateIds: stringArray(row.selected_template_ids),
+    interactionParadigmId: row.interaction_paradigm_id ?? 'ip_entity_summary',
+    automationMode: row.automation_mode,
+    status: row.status,
+    confirmedAt: row.confirmed_at ? toIso(row.confirmed_at) : null,
+    metadata: row.metadata ?? {},
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
 function mapJob(row: any): DesignJob {
   return {
     id: row.id,
@@ -2554,6 +2659,7 @@ function mapJob(row: any): DesignJob {
     workspaceId: row.workspace_id,
     prompt: row.prompt,
     sourceMode: row.source_mode,
+    productMode: row.product_mode ?? 'web_app',
     variationCount: row.variation_count,
     templateRequirements: row.template_requirements ?? {},
     status: row.status,

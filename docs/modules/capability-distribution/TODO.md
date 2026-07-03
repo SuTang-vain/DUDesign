@@ -197,26 +197,34 @@
 
 ## Phase CAP-8：动态百科卡片能力包
 
-> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`（v0.2）。
+> 实现前需钉死的决策见该文档第 12 节；以下任务已对齐 12.1–12.6。
 
-- [ ] 定义 `ProductMode = web_app | dynamic_encyclopedia_card` 与 Capability Preset 的关系，明确不替代 `sourceMode`。
+- [x] 定义 `ProductMode = web_app | dynamic_encyclopedia_card` 与 Capability Preset 的关系，明确不替代 `sourceMode`（12.4：`productMode` 作为 `DesignJob` 顶层字段，不进 `templateRequirements`，由 application-service 落地）。
 - [ ] 将“动态百科词条卡片”建模为父模板包，保留固定 viewport、iframe、touch/scroll、交付安全约束。
-- [ ] 为 `DesignTemplatePack` 增加父子关系规划：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`、`supportedInteractionParadigms`。
-- [ ] 注册首批动态百科子模板：
-  - [ ] 摘要事实卡。
-  - [ ] 时间线叙事卡。
-  - [ ] 关系图谱卡。
-  - [ ] 对比辨析卡。
-  - [ ] 探索互动卡。
-- [ ] 建模 `InteractionParadigm`，避免把交互范式和视觉模板包混在同一个字段。
-- [ ] 注册官方 safe skill：`sk_encyclopedia_entry_guidance`。
-- [ ] 注册只读 MCP Tool Binding：`mcp_encyclopedia_democase_readonly`，初期允许 mock。
-- [ ] 注册百科规范审查 loop profile：`loop_encyclopedia_spec_review`。
+- [ ] 为 `DesignTemplatePack` 增加父子关系字段：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`（12.6：删除 `supportedInteractionParadigms`，交互范式关联以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源，反向查询由服务层派生）。
+- [ ] 注册首批动态百科子模板，对齐父包 `packageChildren` 声明（12.5）：
+  - [ ] 摘要事实卡 `dtp_dynamic_encyclopedia_summary_card`。
+  - [ ] 时间线叙事卡 `dtp_dynamic_encyclopedia_timeline_card`。
+  - [ ] 关系图谱卡 `dtp_dynamic_encyclopedia_relation_card`。
+  - [ ] 对比辨析卡 `dtp_dynamic_encyclopedia_compare_card`。
+  - [ ] 可展开事实卡 `dtp_dynamic_encyclopedia_expandable_card`。
+- [ ] 下一批扩展：探索互动卡 `dtp_dynamic_encyclopedia_explore_card`（12.5：不在首批，若提前须同步更新父包 `packageChildren` 文案）。
+- [ ] 建模 `InteractionParadigm`，`compatibleTemplatePackIds` 为唯一事实来源，避免把交互范式和视觉模板包混在同一个字段。
+- [ ] 注册词条引导插件三件（12.6），沿用 `plug_` / `sk_` / `mcp_` 三段命名：
+  - [ ] `plug_encyclopedia_entry_guidance`（CapabilityPlugin）。
+  - [ ] `sk_encyclopedia_entry_guidance`（DesignSkill，`pluginId` 指向 plug）。
+  - [ ] `mcp_encyclopedia_democase_readonly`（McpToolBinding，`pluginId` 指向 plug），初期允许 mock。
+- [ ] democase MCP binding 的 `permissionPolicy.scopes` 显式声明 `['readonly_context']`，通过 `isMvpSafePluginPolicy` 校验（12.6）。
+- [ ] 明确 democase MCP binding 只服务生成期 agent；词条引导向导的分类查询由 application-service 直连 democase 只读服务，不经此 binding（12.1）。
+- [ ] 改造 `AutomationLoopProfile` 契约（12.2）：`qualityGate` 改为 `qualityGates: ('static' | 'pixel' | 'spec')[]`，删除 `enablePixelGate`，新增 `repairStrategy: 'spec_review_refine'`；迁移 `loop_fast`/`loop_standard` → `['static']`、`loop_deep_repair` → `['static', 'pixel']`。
+- [ ] 注册百科规范审查 loop profile `loop_encyclopedia_spec_review`，默认 `qualityGates: ['static', 'spec', 'pixel']`、`maxRepairAttempts: 2`；finding source 保留 `llm_review` 但标注 Phase 2，MVP 不启用（12.3）。
 - [ ] 定义动态百科 Capability Preset：自动选择词条引导、动态百科模板包和自动审查。
-- [ ] 将分类、子模板、交互范式、review mode 写入 capability/job snapshot，保证 resume 不漂移。
+- [x] 将分类、子模板、交互范式、review mode 写入 capability/job snapshot，保证 resume 不漂移；当前 confirmed guidance 已持久化 selected child template、interaction paradigm 和 review mode，并通过 create job 写入 `templateRequirements.businessContext`。
 
 验收：
 
 - 动态百科模式可以通过能力分发系统表达，不新增第五层架构。
 - “词条引导”被拆为 MCP、skill、业务向导，而不是塞进单一插件。
 - 父模板包、子模板、交互范式有明确边界和版本化路径。
+- `AutomationLoopProfile` 契约改造不破坏现有 `loop_fast`/`standard`/`deep_repair` 行为。

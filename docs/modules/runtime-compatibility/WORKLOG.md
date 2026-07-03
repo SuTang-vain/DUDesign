@@ -3,6 +3,22 @@
 > 模块：Runtime Compatibility Layer
 > 维护方式：按日期追加。记录 BabeL-O 适配、协议漂移、contract 测试和升级治理。
 
+## 2026-07-03 RTC-M8.1 Product Mode Runtime Pass-through
+
+### 已完成
+
+- `SpawnVariationAgentsInput` 增加 `productMode`，默认兼容 `web_app`。
+- `BabelORuntimeClient.spawnVariationAgent()` 将 `productMode` 传给 BabeL-O `/v1/agents`。
+- Runtime Gateway 测试覆盖 `dynamic_encyclopedia_card` 透传，确保后续 adapter 可基于产物形态区分上下文。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b && node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 后续关注
+
+- 后续补动态百科 prompt context golden：product mode、词条引导 skill、democase tool policy、子模板和交互范式需要一起进入固定 baseline。
+
 ## 2026-07-03 RTC-M8 Dynamic Encyclopedia Runtime Boundary Planning
 
 ### 已完成
@@ -1583,3 +1599,140 @@
 - 本轮采用 browser pooling 作为低风险优化，先避免每个 artifact quality gate 都启动一个 Chromium。
 - 独立 preview quality worker 暂不在本轮拆出；后续如 pixel gate 成为生成链路瓶颈，再把 screenshot/pixel analysis 全部移到 worker queue，并让生成链路只记录 pending quality status。
 - workspace root 安全策略由 adapter 执行，业务服务层继续只消费 DUDesign 标准 artifact/file event，不直接信任 raw runtime 文件路径。
+
+## 2026-07-03 RTC-M30 Dynamic Encyclopedia Spec Repair Context
+
+### 已完成
+
+- 自动修复 prompt 支持结构化 `specFindings` block。
+- `POST /api/variations/:id/review-actions` 的 `confirm_repair` 会从 artifact quality metadata 读取 spec findings，并注入 BabeL-O refine queue prompt。
+- 自动 automation loop repair 同样复用 spec findings 注入逻辑。
+- Prompt block 使用 DUDesign 标准结构：
+  - finding id。
+  - source：`static_rule` / `template_rule` / `pixel_gate`。
+  - severity：`error` / `warning`。
+  - message。
+  - repair hint。
+- Runtime Gateway 仍只消费标准化后的 prompt，不直接读取 DUDesign 数据库、guidance 表或 democase 数据库。
+- `runtime-compatibility/TODO.md` 已将“百科规范 repair context 编译为 refine prompt block”标记完成。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="Automation Loop repair prompt|Dynamic encyclopedia spec review|mock API flow"`
+
+### 后续建议
+
+- 增加 spec review repair context golden replay，固定 prompt block 结构。
+- 跑真实 BabeL-O staging smoke，确认结构化 finding prompt 对 refine 结果有实际修复效果。
+
+## 2026-07-03 RTC-M31 Spec Repair Prompt Golden Replay
+
+### 已完成
+
+- 将 `Automation Loop repair prompt` 中的动态百科 spec findings 测试升级为精确 golden baseline。
+- Golden 固定：
+  - quality issue 顺序。
+  - `Structured dynamic encyclopedia spec findings:` block 标题。
+  - finding id。
+  - source。
+  - severity。
+  - message。
+  - repair hint。
+  - 原始用户目标和模板上下文位置。
+- `runtime-compatibility/TODO.md` 已将 spec review repair context golden replay 标记完成。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="Automation Loop repair prompt|Dynamic encyclopedia spec review"`
+
+### 后续建议
+
+- 继续补词条引导 skill prompt block、democase MCP tool policy、动态百科子模板 prompt context 的 golden replay。
+- 跑真实 BabeL-O staging smoke，验证 golden prompt block 在真实 refine 中能稳定修复 spec findings。
+
+## 2026-07-03 RTC-M32 Dynamic Encyclopedia Template Prompt Golden
+
+### 已完成
+
+- `BabelORuntimeClient` 的 assigned template prompt block 增加动态百科 business context：
+  - guidance id。
+  - entry title。
+  - primary/secondary category。
+  - interaction paradigm id。
+  - recommended child template ids。
+  - automation mode。
+- Runtime Gateway `SpawnVariationAgentsInput.templateRequirements` 增加标准 `businessContext` 类型。
+- 将动态百科 child template prompt context 测试升级为 golden baseline，固定：
+  - child template id/name/description。
+  - business context 字段顺序。
+  - color/typography/spacing/component tokens。
+  - fixed PC/WISE viewport rules。
+  - timeline/scroll/touch constraints。
+  - do/don't rules。
+  - stable template snapshot footer。
+- `runtime-compatibility/TODO.md` 已将“动态百科子模板 prompt context” golden 标记完成。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `node --test packages/runtime-gateway/dist/babelOClient.test.js`
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api apps/web`
+
+### 后续建议
+
+- 继续补词条引导 skill prompt block golden。
+- 继续补 democase MCP tool policy golden。
+- 最后跑真实 BabeL-O staging 动态百科端到端 smoke。
+
+## 2026-07-03 RTC-M33 Dynamic Encyclopedia Plugin Policy Golden
+
+### 已完成
+
+- 为 `BabelORuntimeClient.spawnVariationAgent()` 增加动态百科插件上下文 golden replay：
+  - `sk_encyclopedia_entry_guidance` 的 rules、prompt guidance、negative rules、quality checklist 被编译为稳定 `DUDesign plugin context`。
+  - `mcp_encyclopedia_democase_readonly` 被编译为只读 MCP policy prompt line。
+  - 传给 BabeL-O 的 `templateRequirements.toolPolicy` 固定为 `policy_only`，只包含 `readonly_context`、`requiresUserAuth=false`、`auditLevel=usage`。
+- 明确 democase MCP binding 当前仍是生成期 policy/context，不让 Babel-O 直接读取 DUDesign 数据库或 democase 数据库。
+- `runtime-compatibility/TODO.md` 已将词条引导 skill prompt block 和 democase MCP tool policy golden 标记完成。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 后续建议
+
+- 继续补“父模板包 + 子模板 + 交互范式”的分层 prompt context，完成 RTC-8 最后一块上下文编译任务。
+- 跑真实 BabeL-O staging 动态百科端到端 smoke，验证词条引导、democase policy、子模板和 spec review repair 在真实内核下的组合效果。
+
+## 2026-07-03 RTC-M34 Dynamic Encyclopedia Layered Template Context
+
+### 已完成
+
+- 扩展 `CreateDesignJobRequest.templateRequirements` 与 Runtime Gateway 输入契约：
+  - 支持保存 `interactionParadigm` snapshot。
+  - 支持保存并恢复 `businessContext`。
+- `ApplicationService` 的 entry guidance response 现在会把交互范式快照写入 `templateRequirements.interactionParadigm`。
+- `normalizeTemplateRequirements()` 保留 `businessContext` 与 `interactionParadigm`，避免 retry/resume 后动态百科上下文漂移。
+- `BabelORuntimeClient` 的 template prompt block 支持分层输出：
+  - parent template package。
+  - parent inherited constraints / do / don't。
+  - assigned child template。
+  - dynamic encyclopedia business context。
+  - interaction paradigm snapshot。
+  - child template tokens、layout、sections、do/don't。
+- 新增 golden replay：`golden replays layered dynamic encyclopedia template and interaction context`。
+- `runtime-compatibility/TODO.md` 已将“父模板包、子模板和交互范式分层 prompt context”标记完成。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api apps/web`
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 后续建议
+
+- RTC-8 现在只剩真实 BabeL-O staging 动态百科卡片端到端 smoke。
+- Staging smoke 需要覆盖：entry guidance -> job creation -> runtime prompt -> artifact quality/spec review -> preview/export。

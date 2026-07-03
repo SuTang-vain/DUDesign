@@ -3,6 +3,36 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-03 APP-M32 DesignJob Product Mode
+
+### 已完成
+
+- 将 `productMode` 顶层化到 `DesignJob`：
+  - contracts `CreateDesignJobRequest.productMode`。
+  - domain `DesignJob.productMode`。
+  - InMemoryStore / PostgresRepository 创建与读取。
+  - PostgreSQL migration `0011_product_mode.sql`。
+  - `GET /api/design-jobs/:id` 和 variation detail 的 job snapshot 自动带出 `productMode`。
+- 默认值为 `web_app`，旧请求不传时保持现有行为。
+- `ApplicationService.createDesignJob()` 将 `productMode` 写入 message metadata 和 job fact。
+- design job worker 将 `productMode` 传入 Runtime Gateway。
+- API flow smoke 覆盖：
+  - `from_existing_html` 旧流程默认 `web_app`。
+  - 显式 `dynamic_encyclopedia_card` 可进入 job snapshot。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway && npm --workspace @dudesign/api exec tsc -b && node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/mock-flow.test.js`
+
+### 决策
+
+- 本轮只将 `productMode` 放在 job 层，不改 `DesignSession`。原因是同一 session 后续可能包含多个不同 product mode 的任务，job 才是动态百科业务事实来源。
+- `productMode` 不进入 `templateRequirements`，避免污染 capability snapshot。
+
+### 后续关注
+
+- 下一步实现 `POST /api/encyclopedia/entry-guidance` mock flow，并在创建动态百科 job 前生成 guidance snapshot。
+
 ## 2026-07-03 APP-M31 Dynamic Encyclopedia Business Orchestration Planning
 
 ### 已完成
@@ -2006,3 +2036,317 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 评估手动 refine API 是否在长任务模式下也切到 queue-backed。
 - Redis worker staging smoke 覆盖 automatic repair。
+
+## 2026-07-03 APP-M34 Dynamic Encyclopedia Entry Guidance Mock API
+
+### 已完成
+
+- 新增 `POST /api/encyclopedia/entry-guidance` mock 初版。
+- 新增 `EncyclopediaEntryGuidanceResponse` contract，显式返回：
+  - `productMode = dynamic_encyclopedia_card`
+  - 词条 title/raw input/context
+  - mock 分类结果、confidence、signals
+  - 推荐动态百科 child template
+  - 自动勾选的 capability requirements
+  - 可写入 job snapshot 的 `templateRequirements.businessContext`
+- `ApplicationService` 增加确定性 mock 分类器：
+  - 企业 / 学校
+  - 名人 / 历史人物
+  - 影视作品 / 文学著作 / 游戏
+  - 产品设备 / 知识术语
+- 推荐逻辑优先选择动态百科子模板：
+  - `dtp_dynamic_encyclopedia_summary_card`
+  - `dtp_dynamic_encyclopedia_timeline_card`
+- API smoke 增加链路覆盖：
+  - 词条输入 -> guidance -> 创建 dynamic encyclopedia job -> snapshot 固定 capability/plugin/template。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway`
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 后续建议
+
+- 将 guidance 从无状态 response 升级为可持久化领域对象。
+- 增加 `GET /api/encyclopedia/entry-guidance/:id` 与确认推荐 API。
+- 引入 democase readonly service mock，替换纯规则分类器的部分 context。
+- 将 interaction paradigm、low-confidence confirmation 和 democase reference 写入 immutable snapshot。
+
+## 2026-07-03 APP-M35 Dynamic Encyclopedia Guidance Persistence
+
+### 已完成
+
+- 新增 `EncyclopediaEntryGuidance` 领域模型。
+- 新增 Repository 方法：
+  - `saveEncyclopediaEntryGuidance()`
+  - `getEncyclopediaEntryGuidanceById()`
+- `InMemoryStore` 增加 guidance map 和读写方法。
+- `PostgresRepository` 增加 SQL-native guidance 读写。
+- 新增 PostgreSQL migration：`0012_encyclopedia_entry_guidance.sql`。
+- `POST /api/encyclopedia/entry-guidance` 改为持久化后返回。
+- 新增：
+  - `GET /api/encyclopedia/entry-guidance/:id`
+  - `POST /api/encyclopedia/entry-guidance/:id/confirm`
+- confirmation 支持覆盖：
+  - `selectedTemplateIds`
+  - `automationMode`
+- API smoke 覆盖：
+  - create guidance
+  - reload guidance
+  - confirm guidance
+  - 用 confirmed guidance 创建 job
+  - job snapshot 固定 selected child template 和 semi-auto repair attempts
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway`
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/capabilities.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/mock-flow.test.js`
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `node --test packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 后续建议
+
+- 增加 PostgreSQL opt-in smoke，确认 guidance hydrate/no-hydrate 均可读取。
+- 将 interaction paradigm 显式写入 guidance 和 job immutable snapshot。
+- 增加 low-confidence confirmation 规则和前端 pending 状态。
+
+## 2026-07-03 APP-M36 Guidance PostgreSQL Smoke Coverage
+
+### 已完成
+
+- `postgresRepository.test.ts` 增加 `EncyclopediaEntryGuidance` SQL integration 断言：
+  - save confirmed guidance
+  - startup hydrate 后从 cache 读取 confirmed guidance
+  - 清空 cache 后通过 SQL-native `getEncyclopediaEntryGuidanceById()` 读取
+  - 再次 hydrate 后保持 confirmed 状态
+- `postgres-api-flow.test.ts` 已复用 shared API smoke，因此 no-hydrate API flow 会覆盖：
+  - create guidance
+  - reload guidance
+  - confirm guidance
+  - 使用 confirmed guidance 创建 job
+
+### 验证
+
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/postgresRepository.test.js apps/api/dist/postgres-api-flow.test.js`
+
+### 说明
+
+- 当前本地未设置 `DUDESIGN_POSTGRES_TEST_URL` 时，PostgreSQL integration suite 会按设计 skip；本轮已完成编译与测试装载验证。
+- 设置真实测试库后，同一套测试会实际验证 hydrate/no-hydrate guidance 读写。
+
+### 后续建议
+
+- 在本机或 CI 的 PostgreSQL 测试环境中设置 `DUDESIGN_POSTGRES_TEST_URL` 跑一次真实 opt-in。
+- 增加 low-confidence confirmation 规则和前端 pending 状态。
+
+## 2026-07-03 APP-M37 Guidance Interaction Paradigm Snapshot
+
+### 已完成
+
+- `EncyclopediaEntryGuidance` 领域模型新增 `interactionParadigmId`。
+- `EncyclopediaEntryGuidanceResponse` 新增：
+  - `interactionParadigm`
+  - `recommendedTemplates[].interactionParadigmId`
+  - `templateRequirements.businessContext.interactionParadigmId`
+- PostgreSQL guidance 表新增 `interaction_paradigm_id`：
+  - 同步更新 `0001_initial_schema.sql`
+  - 更新 `0012_encyclopedia_entry_guidance.sql`
+  - 新增兼容迁移 `0013_guidance_interaction_paradigm.sql`
+- guidance 创建时基于分类结果选择默认 interaction paradigm：
+  - summary/entity：`ip_entity_summary`
+  - timeline/story：`ip_timeline_story`
+- guidance confirm 时根据用户确认的 child template 更新 interaction paradigm。
+- API smoke 验证：
+  - draft guidance 返回 `ip_entity_summary`
+  - confirm timeline child template 后返回 `ip_timeline_story`
+  - 创建 job 后 `templateRequirements.businessContext.interactionParadigmId` 固定为 `ip_timeline_story`
+- PostgreSQL repository smoke fixture 覆盖 `interactionParadigmId` hydrate 和 SQL-native read。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway`
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/mock-flow.test.js apps/api/dist/postgresRepository.test.js apps/api/dist/postgres-api-flow.test.js`
+
+### 后续建议
+
+- 增加 low-confidence confirmation 规则和前端 pending 状态。
+- 引入 democase readonly service mock，让 interaction paradigm 推荐不只依赖关键词规则。
+
+## 2026-07-03 APP-M38 Low Confidence Guidance Confirmation
+
+### 已完成
+
+- `EncyclopediaEntryGuidanceStatus` 扩展为：
+  - `draft`
+  - `needs_confirmation`
+  - `confirmed`
+- `EncyclopediaEntryGuidanceResponse` 新增 `requiresConfirmation`。
+- 低置信分类阈值暂定为 `< 0.6`。
+- 创建 guidance 时：
+  - 高置信进入 `draft`
+  - 低置信进入 `needs_confirmation`
+- confirm API 保持统一入口：
+  - 可确认低置信 guidance
+  - 可覆盖 selected template
+  - 可覆盖 automation mode
+- PostgreSQL schema check 更新：
+  - `0001_initial_schema.sql`
+  - `0012_encyclopedia_entry_guidance.sql`
+  - 新增 `0014_guidance_needs_confirmation_status.sql`
+- API smoke 覆盖：
+  - fallback 词条 `玄青云影` 进入 `needs_confirmation`
+  - confirm 后转为 `confirmed`
+  - `automationMode = off` 时 loop profile 回落到 `loop_standard`
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway`
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/mock-flow.test.js apps/api/dist/postgresRepository.test.js apps/api/dist/postgres-api-flow.test.js`
+
+### 后续建议
+
+- 用户端在动态百科模式展示低置信确认 UI。
+- 接入 democase readonly service mock，降低 fallback 分类概率。
+
+## 2026-07-03 APP-M39 Encyclopedia Democase Readonly Mock
+
+### 已完成
+
+- 新增 `apps/api/src/encyclopediaDemocase.ts`。
+- 提供 application-service 直连的 readonly mock democase lookup，不经 Runtime Gateway，不走 MCP binding。
+- 内置首批 mock cases：
+  - `demo_baidu_baike_company`
+  - `demo_company_history`
+  - `demo_knowledge_term`
+  - `demo_game_release`
+- guidance 创建时结合 democase context：
+  - 增强分类结果和置信度。
+  - 调整模板推荐顺序。
+  - 优先使用 democase 的 interaction paradigm。
+  - 将 democase references 写入 guidance metadata。
+- `EncyclopediaEntryGuidanceResponse` 新增 `democaseReferences`，用于前端展示参考案例。
+- API smoke 覆盖：
+  - 百度百科企业词条命中 `demo_baidu_baike_company`。
+  - fallback 词条不命中 democase，仍进入 `needs_confirmation`。
+  - “发展史/融资/上市”类输入命中 `demo_company_history`，优先推荐 timeline child template。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain packages/runtime-gateway`
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/mock-flow.test.js apps/api/dist/postgresRepository.test.js apps/api/dist/postgres-api-flow.test.js`
+
+### 后续建议
+
+- 用户端展示 `democaseReferences` 作为“参考案例”说明。
+- 将 mock democase lookup 替换为真实只读 API 客户端，并增加超时/降级策略。
+- 后续生成期 democase MCP binding 仍由 runtime compatibility 层处理。
+
+## 2026-07-03 APP-M40 Guidance Classification Override
+
+### 已完成
+
+- `ConfirmEncyclopediaEntryGuidanceRequest` 新增 `classificationOverride`。
+- confirm API 支持用户覆盖 L1/L2 分类：
+  - `primaryCategory`
+  - `secondaryCategory`
+- 服务端校验允许的分类组合，拒绝未知分类。
+- 当分类被覆盖时：
+  - 重新计算 1-3 个动态百科子模板候选。
+  - 重新计算 `interactionParadigmId`。
+  - 将 `user_override` 写入 guidance signals。
+  - 更新 guidance classification、recommended templates、selected templates 和 business context。
+- API smoke 覆盖：
+  - fallback 低置信词条确认时改选为 `作品 / 游戏`。
+  - 确认后使用 `dtp_dynamic_encyclopedia_timeline_card`。
+  - 确认后 interaction paradigm 为 `ip_timeline_story`。
+  - 创建 job 后 snapshot 继承确认后的分类/模板/交互范式。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow"`
+
+### 后续建议
+
+- 将允许分类组合从服务端硬编码升级为 taxonomy registry / democase database 配置。
+- 为非法 classification override 增加专门 API negative test。
+
+## 2026-07-03 APP-M41 Semi-Auto Review Action API
+
+### 已完成
+
+- 新增 `ReviewVariationActionRequest` / `ReviewVariationActionResponse` 契约。
+- 新增 `POST /api/variations/:id/review-actions`：
+  - `confirm_repair`：校验 variation/artifact 权限，基于 artifact quality issues 生成 automation repair prompt，发布 `design.loop_repair_planned`，并复用 automation loop refine queue。
+  - `skip`：写入 session system message，记录用户跳过当前 artifact 的审查修复。
+- review action message 记录 variation、artifact version、action、note 和 queue idempotency key，便于后续审计和恢复。
+- `application-service/TODO.md` 已更新：确认修复 API 完成，持久化 review pending 状态仍待补。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 将 review pending / skipped / confirmed 状态落到专门表或 variation metadata，避免刷新后只依赖前端状态。
+- 将百科规范审查器 finding 接入 `qualityGates` 数组契约，再由 review action 读取结构化 findings 生成修复 prompt。
+
+## 2026-07-03 APP-M42 Review Action Snapshot Projection
+
+### 已完成
+
+- `JobSnapshot` 增加 `messages`，InMemory/PostgreSQL repository 均返回 job 所属 session messages。
+- `GET /api/design-jobs/:id` 从 `variation_review_action` session message metadata 聚合每个 variation 的最后一次 review action。
+- variation snapshot 新增 `reviewAction`：
+  - `action`
+  - `status`
+  - `artifactId`
+  - `artifactVersion`
+  - `createdAt`
+- 保留 session message 作为审计事实源，snapshot 只做轻量投影，避免本轮新增表结构。
+- `application-service/TODO.md` 已将半自动确认修复 API 与 snapshot 恢复标记完成。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 共享 API smoke 已增加：confirm repair -> GET job snapshot -> `variation.reviewAction.status = repair_queued`，Postgres API flow 会在 `DUDESIGN_POSTGRES_TEST_URL` 存在时复用同一断言。
+- 后续若 review action 查询量上升，可从 session message 投影升级为 `variation_review_actions` 专用表。
+
+## 2026-07-03 APP-M43 Dynamic Encyclopedia Spec Review Findings
+
+### 已完成
+
+- 新增确定性动态百科规范审查器 `encyclopediaSpecReview.ts`。
+- 首批 finding 覆盖：
+  - viewport meta。
+  - 外部脚本。
+  - 显式 scroll container。
+  - 全局 touch gesture 禁用。
+  - touch event interception 风险。
+  - 百科内容结构。
+  - timeline child template 与时间线内容一致性。
+- `ArtifactQualityReport` / `ArtifactQualitySummary` 增加可选 `specFindings`。
+- 动态百科 job 或包含 `spec` quality gate 的 automation profile 会运行 spec review，并将 finding 合并进 artifact quality metadata。
+- spec review 采用 `static_rule` / `template_rule` / `pixel_gate` source，MVP 不启用 `llm_review`。
+- `application-service/TODO.md` 已更新 spec review checker 状态。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="Automation Loop repair prompt|Dynamic encyclopedia spec review|mock API flow"`
+
+### 后续建议
+
+- 将 finding 展示到用户端 Review pending 面板，而不只展示第一条 quality issue。
+- 增加真实动态百科 fixture HTML，覆盖 summary/timeline/relation 等子模板的规则差异。

@@ -4,7 +4,7 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: /What shall we design today/i })).toBeVisible()
-  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
+  await expect(page.getByTestId('workspace-selector')).toContainText(/Personal Workspace|个人工作区/)
   await expect(page.getByTestId('generate-button')).toBeEnabled()
 
   await page.getByTestId('prompt-input').fill(prompt)

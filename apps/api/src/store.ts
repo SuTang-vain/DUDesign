@@ -10,6 +10,7 @@ import type {
   UserModelAccess,
   Workspace,
   WorkspaceMember,
+  EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
 import type {
@@ -120,6 +121,7 @@ export class InMemoryStore implements ApplicationRepository {
   readonly designEvents = new Map<string, DesignEvent[]>()
   readonly authIdentities = new Map<string, AuthIdentity>()
   readonly authSessions = new Map<string, AuthSession>()
+  readonly encyclopediaEntryGuidances = new Map<string, EncyclopediaEntryGuidance>()
 
   readonly devUser: User
   readonly devWorkspace: Workspace
@@ -341,6 +343,15 @@ export class InMemoryStore implements ApplicationRepository {
     const current = await this.getDesignTemplatePackById(templateId, userId, workspaceId)
     if (!current) return null
     return this.designTemplatePackVersions.get(designTemplatePackVersionKey(templateId, version)) ?? null
+  }
+
+  saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance> {
+    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
+    return guidance
+  }
+
+  getEncyclopediaEntryGuidanceById(guidanceId: string): MaybePromise<EncyclopediaEntryGuidance | null> {
+    return this.encyclopediaEntryGuidances.get(guidanceId) ?? null
   }
 
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
@@ -641,6 +652,7 @@ export class InMemoryStore implements ApplicationRepository {
     session: DesignSession
     prompt: string
     sourceMode: DesignJob['sourceMode']
+    productMode?: DesignJob['productMode']
     variationCount: number
     templateRequirements: Record<string, unknown>
   }): MaybePromise<DesignJob> {
@@ -652,6 +664,7 @@ export class InMemoryStore implements ApplicationRepository {
       workspaceId: input.session.workspaceId,
       prompt: input.prompt,
       sourceMode: input.sourceMode,
+      productMode: input.productMode ?? 'web_app',
       variationCount: input.variationCount,
       templateRequirements: input.templateRequirements,
       status: 'queued',
@@ -733,17 +746,19 @@ export class InMemoryStore implements ApplicationRepository {
 
   getJobSnapshot(jobId: string): MaybePromise<{
     job: DesignJob
+    messages: SessionMessage[]
     variations: DesignVariation[]
     artifacts: Artifact[]
   } | null> {
     const job = this.jobs.get(jobId)
     if (!job) return null
+    const messages = this.messages.get(job.sessionId) ?? []
     const variations = [...this.variations.values()].filter(variation => variation.jobId === jobId)
     const variationIds = new Set(variations.map(variation => variation.id))
     const artifacts = [...this.artifacts.values()].filter(
       artifact => artifact.variationId && variationIds.has(artifact.variationId),
     )
-    return { job, variations, artifacts }
+    return { job, messages, variations, artifacts }
   }
 
   getVariationDetailSnapshot(variationId: string): MaybePromise<VariationDetailSnapshot | null> {

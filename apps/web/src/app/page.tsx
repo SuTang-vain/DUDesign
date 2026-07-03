@@ -4,8 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   createDesignJob,
+  createEncyclopediaEntryGuidance,
   createSession,
   createSourceArtifact,
+  confirmEncyclopediaEntryGuidance,
   getCapabilities,
   getBootstrap,
   getUserPreferences,
@@ -19,7 +21,7 @@ import {
   type ModelOption,
   type SessionSnapshot,
 } from '@/lib/api'
-import type { DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignTemplatePack, EncyclopediaEntryGuidanceResponse, UserCapabilityPreference } from '@dudesign/contracts'
 import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { DesignSystemPicker } from '@/components/DesignSystemPicker'
@@ -38,6 +40,17 @@ const promptExamples = [
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'plugins' | 'loop' | 'model' | null
 type ContextPanel = 'files' | 'loop' | 'plugins'
+const entryClassificationOptions = [
+  { primaryCategory: '机构组织', secondaryCategory: '企业', label: '企业' },
+  { primaryCategory: '机构组织', secondaryCategory: '学校', label: '学校' },
+  { primaryCategory: '人物', secondaryCategory: '名人', label: '名人' },
+  { primaryCategory: '人物', secondaryCategory: '历史人物', label: '历史人物' },
+  { primaryCategory: '作品', secondaryCategory: '影视作品', label: '影视作品' },
+  { primaryCategory: '作品', secondaryCategory: '文学著作', label: '文学著作' },
+  { primaryCategory: '作品', secondaryCategory: '游戏', label: '游戏' },
+  { primaryCategory: '物品产品', secondaryCategory: '产品设备', label: '产品设备' },
+  { primaryCategory: '知识', secondaryCategory: '知识术语', label: '知识术语' },
+]
 const floatingMenuGlassStyle: React.CSSProperties = {
   backdropFilter: 'blur(18px) saturate(160%)',
   WebkitBackdropFilter: 'blur(18px) saturate(160%)',
@@ -55,6 +68,8 @@ type CapabilityPreferenceDraft = {
   negativeRequirements?: string
 }
 
+type ProductMode = 'web_app' | 'dynamic_encyclopedia_card'
+
 const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
 export default function HomePage(): React.JSX.Element {
@@ -62,7 +77,8 @@ export default function HomePage(): React.JSX.Element {
   const c18n = useCapabilityI18n()
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null)
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
-  const [prompt, setPrompt] = useState(promptExamples[0]!)
+  const [prompt, setPrompt] = useState('')
+  const [productMode, setProductMode] = useState<ProductMode>('web_app')
   const [variationCount, setVariationCount] = useState(3)
   const [mode, setMode] = useState<'new_html' | 'from_existing_html'>('new_html')
   const [styles, setStyles] = useState('minimal, trustworthy')
@@ -103,6 +119,10 @@ export default function HomePage(): React.JSX.Element {
   const [preferencesOpen, setPreferencesOpen] = useState<boolean>(false)
   const [preferencesSaving, setPreferencesSaving] = useState<boolean>(false)
   const [userPreference, setUserPreference] = useState<UserCapabilityPreference | null>(null)
+  const [entryGuidance, setEntryGuidance] = useState<EncyclopediaEntryGuidanceResponse | null>(null)
+  const [entryGuidanceTemplateIds, setEntryGuidanceTemplateIds] = useState<string[]>([])
+  const [entryGuidanceClassification, setEntryGuidanceClassification] = useState<{ primaryCategory: string; secondaryCategory: string } | null>(null)
+  const [guidanceStatus, setGuidanceStatus] = useState<'idle' | 'loading' | 'confirming' | 'error'>('idle')
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -219,6 +239,32 @@ export default function HomePage(): React.JSX.Element {
     })
   }
 
+  function selectProductMode(next: ProductMode): void {
+    setProductMode(next)
+    setEntryGuidance(null)
+    setEntryGuidanceTemplateIds([])
+    setEntryGuidanceClassification(null)
+    setGuidanceStatus('idle')
+    if (next === 'dynamic_encyclopedia_card') {
+      setMode('new_html')
+      setDomainTemplateId('tpl_dynamic_encyclopedia_entry')
+      setVisualMode('pack')
+      setSelectedTemplatePackIds(['dtp_dynamic_encyclopedia_card'])
+      setAutoDistributePacks(true)
+      setSelectedSkillIds(['sk_encyclopedia_entry_guidance'])
+      setSelectedMcpToolIds(['mcp_encyclopedia_democase_readonly'])
+      setLoopProfileId('loop_encyclopedia_spec_review')
+      return
+    }
+    if (domainTemplateId === 'tpl_dynamic_encyclopedia_entry') {
+      setDomainTemplateId(capabilities?.defaults.domainTemplateId ?? '')
+      setSelectedTemplatePackIds([])
+      setSelectedSkillIds([])
+      setSelectedMcpToolIds([])
+      setLoopProfileId(capabilities?.defaults.loopProfileId ?? '')
+    }
+  }
+
   async function importDesignMd(designMd: string, name?: string): Promise<void> {
     setTemplateImporting(true)
     setTemplateImportNotice(null)
@@ -333,6 +379,42 @@ export default function HomePage(): React.JSX.Element {
     setStatus('submitting')
     setError(null)
     try {
+      let guidedCapabilityRequirements: Awaited<ReturnType<typeof createEncyclopediaEntryGuidance>>['capabilityRequirements'] | undefined
+      let guidedTemplateRequirements: Awaited<ReturnType<typeof createEncyclopediaEntryGuidance>>['templateRequirements'] | undefined
+      if (productMode === 'dynamic_encyclopedia_card') {
+        setGuidanceStatus(entryGuidance?.requiresConfirmation ? 'confirming' : 'loading')
+        const guidance = entryGuidance?.requiresConfirmation
+          ? await confirmEncyclopediaEntryGuidance(entryGuidance.guidanceId, {
+            selectedTemplateIds: entryGuidanceTemplateIds.length
+                ? entryGuidanceTemplateIds
+                : entryGuidance.templateRequirements.designTemplatePackIds,
+              classificationOverride: entryGuidanceClassification ?? undefined,
+              automationMode: 'auto',
+            })
+          : await createEncyclopediaEntryGuidance({
+              workspaceId: workspace?.id ?? bootstrap.workspace.id,
+              entry: prompt.trim(),
+              maxTemplateRecommendations: Math.min(3, variationCount),
+              automationMode: 'auto',
+            })
+        setEntryGuidance(guidance)
+        setEntryGuidanceTemplateIds(guidance.templateRequirements.designTemplatePackIds ?? [])
+        setEntryGuidanceClassification({
+          primaryCategory: guidance.classification.primaryCategory,
+          secondaryCategory: guidance.classification.secondaryCategory,
+        })
+        setGuidanceStatus('idle')
+        if (guidance.requiresConfirmation) {
+          setStatus('idle')
+          return
+        }
+        guidedCapabilityRequirements = guidance.capabilityRequirements
+        guidedTemplateRequirements = guidance.templateRequirements
+        setSelectedTemplatePackIds(guidance.templateRequirements.designTemplatePackIds ?? [])
+        setLoopProfileId(guidance.capabilityRequirements.automation?.loopProfileId ?? 'loop_encyclopedia_spec_review')
+        setSelectedSkillIds(guidance.capabilityRequirements.plugins?.skillIds ?? [])
+        setSelectedMcpToolIds(guidance.capabilityRequirements.plugins?.mcpToolIds ?? [])
+      }
       const session = await createSession({
         workspaceId: workspace?.id ?? bootstrap.workspace.id,
         mode,
@@ -343,10 +425,11 @@ export default function HomePage(): React.JSX.Element {
         sessionId: session.session.id,
         prompt: prompt.trim(),
         sourceMode: mode,
+        productMode,
         sourceArtifactId: sourceArtifact?.id ?? null,
         modelServiceId: modelServiceId || undefined,
         variationCount,
-        capabilityRequirements: {
+        capabilityRequirements: guidedCapabilityRequirements ?? {
           template: {
             domainTemplateId: domainTemplateId || undefined,
             // 视觉系统二选一:模板包(完整设计令牌)或 自定义(审美+配色)互斥
@@ -369,7 +452,7 @@ export default function HomePage(): React.JSX.Element {
             mcpToolIds: selectedMcpToolIds.length ? selectedMcpToolIds : undefined,
           },
         },
-        templateRequirements: {
+        templateRequirements: guidedTemplateRequirements ?? {
           styles: styles.split(',').map(style => style.trim()).filter(Boolean),
           deviceTargets: ['desktop', 'mobile'],
           notes: designDirectionNotes(referenceBrand, negativeRequirements),
@@ -556,12 +639,12 @@ export default function HomePage(): React.JSX.Element {
             <span className="heading-line heading-line-b">{renderHeadingChars(journeyLine, 'DUdesign')}</span>
           </h1>
           <div className="composer-head">
-            <div className="mode-tabs" role="tablist" aria-label={t('sourceMode')}>
-              <button className={mode === 'new_html' ? 'active' : ''} onClick={() => setMode('new_html')}>
-                {t('newHtml')}
+            <div className="product-tabs" role="tablist" aria-label={t('productMode')}>
+              <button className={productMode === 'web_app' ? 'active' : ''} type="button" onClick={() => selectProductMode('web_app')}>
+                {t('webAppMode')}
               </button>
-              <button className={mode === 'from_existing_html' ? 'active' : ''} onClick={() => setMode('from_existing_html')}>
-                {t('existingHtml')}
+              <button className={productMode === 'dynamic_encyclopedia_card' ? 'active' : ''} type="button" onClick={() => selectProductMode('dynamic_encyclopedia_card')}>
+                {t('dynamicEncyclopediaMode')}
               </button>
             </div>
             <button className="btn ghost sm" type="button" onClick={() => setPrompt('')}>
@@ -574,7 +657,7 @@ export default function HomePage(): React.JSX.Element {
               <textarea
                 data-testid="prompt-input"
                 aria-label={t('designPrompt')}
-                placeholder={t('describePromptPlaceholder')}
+                placeholder={productMode === 'dynamic_encyclopedia_card' ? t('entryPromptPlaceholder') : t('describePromptPlaceholder')}
                 value={prompt}
                 onChange={event => setPrompt(event.target.value)}
                 rows={5}
@@ -892,6 +975,92 @@ export default function HomePage(): React.JSX.Element {
               </button>
             </div>
           </div>
+
+          {productMode === 'dynamic_encyclopedia_card' && entryGuidance ? (
+            <div className={`entry-guidance-card${entryGuidance.requiresConfirmation ? ' needs-confirmation' : ''}`} data-testid="entry-guidance-summary">
+              <div>
+                <span className="eyebrow">{t('entryGuidance')}</span>
+                <strong>{entryGuidance.classification.primaryCategory} / {entryGuidance.classification.secondaryCategory}</strong>
+                <small>{t('confidence')} {Math.round(entryGuidance.classification.confidence * 100)}% · {c18n.interactionParadigmName(entryGuidance.interactionParadigm.id, entryGuidance.interactionParadigm.name)}</small>
+              </div>
+              {entryGuidance.requiresConfirmation ? (
+                <div className="entry-guidance-classifications" data-testid="entry-guidance-classification-options">
+                  {entryClassificationOptions.map(option => {
+                    const active = entryGuidanceClassification?.primaryCategory === option.primaryCategory
+                      && entryGuidanceClassification.secondaryCategory === option.secondaryCategory
+                    return (
+                      <button
+                        key={`${option.primaryCategory}-${option.secondaryCategory}`}
+                        type="button"
+                        className={active ? 'selected' : ''}
+                        data-testid={`entry-guidance-classification-${option.secondaryCategory}`}
+                        onClick={() => {
+                          setEntryGuidanceClassification({
+                            primaryCategory: option.primaryCategory,
+                            secondaryCategory: option.secondaryCategory,
+                          })
+                          if (['历史人物', '影视作品', '文学著作', '游戏'].includes(option.secondaryCategory)) {
+                            setEntryGuidanceTemplateIds(['dtp_dynamic_encyclopedia_timeline_card'])
+                          } else {
+                            setEntryGuidanceTemplateIds(['dtp_dynamic_encyclopedia_summary_card'])
+                          }
+                        }}
+                        aria-pressed={active}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <div className="entry-guidance-tags">
+                {entryGuidance.recommendedTemplates.slice(0, 3).map(template => (
+                  <button
+                    key={template.designTemplatePackId}
+                    type="button"
+                    className={entryGuidanceTemplateIds.includes(template.designTemplatePackId) ? 'selected' : ''}
+                    data-testid={`entry-guidance-template-${template.designTemplatePackId}`}
+                    onClick={() => {
+                      setEntryGuidanceTemplateIds(current => {
+                        if (current.includes(template.designTemplatePackId)) {
+                          return current.length > 1 ? current.filter(id => id !== template.designTemplatePackId) : current
+                        }
+                        return [...current, template.designTemplatePackId].slice(0, 3)
+                      })
+                    }}
+                    aria-pressed={entryGuidanceTemplateIds.includes(template.designTemplatePackId)}
+                  >
+                    {entryGuidanceTemplateIds.includes(template.designTemplatePackId) ? '✓ ' : ''}{c18n.templatePackName(template.designTemplatePackId, template.name)}
+                  </button>
+                ))}
+              </div>
+              {entryGuidance.democaseReferences.length ? (
+                <div className="entry-guidance-democases" data-testid="entry-guidance-democases">
+                  <span className="eyebrow">{t('democaseReferences')}</span>
+                  {entryGuidance.democaseReferences.slice(0, 3).map(item => (
+                    <details key={item.caseId} data-testid={`entry-guidance-democase-${item.caseId}`}>
+                      <summary>
+                        <strong>{item.title}</strong>
+                        <small>{t('democaseScore')} {Math.round(item.score * 100)}%</small>
+                      </summary>
+                      <p>{item.summary}</p>
+                      {item.matchedKeywords.length ? (
+                        <div className="entry-guidance-keywords">
+                          <span>{t('democaseMatchedKeywords')}</span>
+                          {item.matchedKeywords.slice(0, 6).map(keyword => (
+                            <i key={keyword}>{keyword}</i>
+                          ))}
+                        </div>
+                      ) : null}
+                    </details>
+                  ))}
+                </div>
+              ) : null}
+              {entryGuidance.requiresConfirmation ? (
+                <p className="warn">{t('lowConfidenceGuidance')}</p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="examples">
             <div className="examples-track">
