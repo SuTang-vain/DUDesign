@@ -148,7 +148,12 @@
 - [ ] 管理官方视觉 profile。
 - [ ] 管理官方色板和参考品牌。
 - [ ] 管理官方 Design Template Pack。
-- [ ] 管理业务模板包及其子模板，例如“动态百科词条卡片”。
+- [x] 管理业务模板包及其子模板，例如“动态百科词条卡片”。
+- [x] 增加模板治理 lint：尺寸约束、颜色 token、禁止项、source/license 预留、runtime prompt block 覆盖度。
+- [x] 管理端 CAP-6 只读治理面板展示官方模板、业务模板包、lint 状态、子模板草案和 prompt block coverage。
+- [ ] 管理端模板编辑 / 发布 / 禁用写操作与审计流。
+
+> 用户前端模板列表已确认保持当前页面形态，本阶段不再推进“官方 / 我的 / 业务模板包 / 最近使用”分组和模板详情页改造。
 - [ ] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
 - [ ] 管理官方 skill。
 - [ ] 管理 MCP 插件可见性和权限。
@@ -189,3 +194,29 @@
 
 - 能力分发系统不破坏现有无模板/无插件 job 流程。
 - 旧 job/session 在能力配置升级后仍可 resume。
+
+## Phase CAP-8：动态百科卡片能力包
+
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+
+- [ ] 定义 `ProductMode = web_app | dynamic_encyclopedia_card` 与 Capability Preset 的关系，明确不替代 `sourceMode`。
+- [ ] 将“动态百科词条卡片”建模为父模板包，保留固定 viewport、iframe、touch/scroll、交付安全约束。
+- [ ] 为 `DesignTemplatePack` 增加父子关系规划：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`、`supportedInteractionParadigms`。
+- [ ] 注册首批动态百科子模板：
+  - [ ] 摘要事实卡。
+  - [ ] 时间线叙事卡。
+  - [ ] 关系图谱卡。
+  - [ ] 对比辨析卡。
+  - [ ] 探索互动卡。
+- [ ] 建模 `InteractionParadigm`，避免把交互范式和视觉模板包混在同一个字段。
+- [ ] 注册官方 safe skill：`sk_encyclopedia_entry_guidance`。
+- [ ] 注册只读 MCP Tool Binding：`mcp_encyclopedia_democase_readonly`，初期允许 mock。
+- [ ] 注册百科规范审查 loop profile：`loop_encyclopedia_spec_review`。
+- [ ] 定义动态百科 Capability Preset：自动选择词条引导、动态百科模板包和自动审查。
+- [ ] 将分类、子模板、交互范式、review mode 写入 capability/job snapshot，保证 resume 不漂移。
+
+验收：
+
+- 动态百科模式可以通过能力分发系统表达，不新增第五层架构。
+- “词条引导”被拆为 MCP、skill、业务向导，而不是塞进单一插件。
+- 父模板包、子模板、交互范式有明确边界和版本化路径。

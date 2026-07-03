@@ -102,6 +102,12 @@
 - [ ] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
 - [ ] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。
 - [ ] 支持 capability usage events 查询。
+- [ ] 管理动态百科父模板包、子模板和交互范式。
+- [ ] 管理百科 L1/L2/L3 分类到子模板/交互范式的映射。
+- [ ] 展示 democase MCP 健康状态、调用量、失败率和审计摘要。
+- [ ] 展示动态百科词条引导命中率、低置信度比例和人工确认比例。
+- [ ] 展示百科规范审查通过率、常见失败原因和自动修复成功率。
+- [ ] 支持禁用风险子模板、词条引导 skill、democase MCP binding 或审查规则，并写入 audit log。
 
 验收：
 

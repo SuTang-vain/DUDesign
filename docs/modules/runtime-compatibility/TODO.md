@@ -165,3 +165,24 @@
 
 - 管理端可以定位 runtime 层失败。
 - 用户端看到的是可理解降级提示。
+
+## Phase RTC-8：动态百科 Runtime Context
+
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+
+- [ ] Runtime Gateway 支持接收 `productMode=dynamic_encyclopedia_card` 的标准上下文。
+- [ ] 将词条引导 skill 编译为受控 prompt block。
+- [ ] 将 democase MCP binding 编译为只读 tool policy，初期可保持 `policy_only` 或 mock result。
+- [ ] 将父模板包、子模板和交互范式编译为分层 prompt context。
+- [ ] 将百科规范 repair context 编译为 refine prompt block。
+- [ ] 增加 golden replay：
+  - [ ] 词条引导 skill prompt block。
+  - [ ] democase MCP tool policy。
+  - [ ] 动态百科子模板 prompt context。
+  - [ ] spec review repair context。
+- [ ] 增加 BabeL-O staging smoke：动态百科卡片模式端到端生成。
+
+验收：
+
+- Babel-O 只消费 DUDesign 标准化上下文和 tool policy，不直接读取 DUDesign 数据库或 democase 数据库。
+- Runtime event drift 不影响动态百科业务层的 guidance、snapshot 和 review report。

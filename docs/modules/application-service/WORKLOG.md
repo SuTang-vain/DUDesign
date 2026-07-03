@@ -3,6 +3,27 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-03 APP-M31 Dynamic Encyclopedia Business Orchestration Planning
+
+### 已完成
+
+- 将动态百科卡片业务编排写入业务服务层 TODO：Phase APP-9。
+- 明确 `productMode` 与现有 `sourceMode` 正交，动态百科卡片也可以从零生成或基于已有 HTML 修改。
+- 明确词条分类、模板推荐、低置信度确认、半自动审查确认都属于 Application Service 状态机，不属于 Runtime Gateway。
+- 规划 `EncyclopediaEntryGuidance` 和 `EncyclopediaSpecReviewReport` 两类业务事实对象。
+- 规划 entry guidance API 与 spec review repair/skip API。
+
+### 决策
+
+- 短期可以把 `productMode` 和 guidance context 写入 `templateRequirements` / job snapshot；中期再 SQL 字段化。
+- `guidanceId` 必须进入 job snapshot，保证旧 session resume 和管理端排查可追溯。
+- 百科规范审查器先做确定性规则，再接入 LLM review 或真实 MCP 验证能力。
+
+### 后续关注
+
+- 先以 mock democase lookup 打通业务链路，再切换真实 MCP。
+- 审查 report 与 repair prompt 只保存摘要/hash，避免事件流和审计表写入过长 HTML。
+
 ## 2026-07-02 APP-M30 Design Template Pack PostgreSQL Persistence
 
 ### 已完成

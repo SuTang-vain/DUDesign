@@ -3,6 +3,30 @@
 > 模块：Runtime Compatibility Layer
 > 维护方式：按日期追加。记录 BabeL-O 适配、协议漂移、contract 测试和升级治理。
 
+## 2026-07-03 RTC-M8 Dynamic Encyclopedia Runtime Boundary Planning
+
+### 已完成
+
+- 将动态百科 Runtime Context 写入 TODO：Phase RTC-8。
+- 明确 Runtime Gateway 在动态百科链路中的职责：
+  - 编译词条引导 skill prompt block。
+  - 编译 democase MCP tool policy。
+  - 编译父模板包、子模板、交互范式上下文。
+  - 编译百科规范 repair context。
+  - 继续归一化 BabeL-O 原始事件。
+- 明确 Runtime Gateway 不负责分类、模板推荐、审查报告存储和半自动确认状态机。
+
+### 决策
+
+- Babel-O 不直接理解 DUDesign 的动态百科数据库模型，只接收标准化 prompt context 和 tool policy。
+- democase MCP 真实调用前，仍需先固定 contract 和 golden，避免后续真实接入造成事件/上下文漂移。
+- spec review repair prompt 由业务层构造摘要和修复目标，Gateway 只负责按 runtime 契约注入。
+
+### 后续关注
+
+- 等 Application Service 形成 guidance snapshot schema 后，补 Runtime Gateway golden。
+- 真实 MCP smoke 需要覆盖 unavailable 降级，不能让工具失败表现为 runtime 崩溃。
+
 ## 2026-06-26
 
 ### 已完成

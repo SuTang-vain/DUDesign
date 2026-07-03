@@ -437,6 +437,11 @@ button {
   margin-bottom: 12px;
 }
 
+.template-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
 .capability-strip {
   display: flex;
   flex-wrap: wrap;
@@ -452,6 +457,70 @@ button {
   font-size: 12px;
   font-weight: 700;
   padding: 7px 10px;
+}
+
+.template-governance-list {
+  display: grid;
+  gap: 12px;
+}
+
+.template-governance-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 14px;
+}
+
+.template-governance-row header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.template-governance-row p {
+  color: var(--muted);
+  margin: 5px 0;
+  max-width: 760px;
+}
+
+.template-token-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.template-token-grid span,
+.subtemplate-strip span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+.subtemplate-strip,
+.finding-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.finding-list span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
+.align-end {
+  align-items: flex-end;
 }
 
 .support-user-header {

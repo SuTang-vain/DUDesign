@@ -3,6 +3,32 @@
 > 模块：Capability Distribution System
 > 维护方式：按日期追加。记录模板、插件、自动化 loop、能力编译策略和跨层治理决策。
 
+## 2026-07-03 CAP-M8 Dynamic Encyclopedia Card Planning
+
+### 已完成
+
+- 新增业务规划文档：`docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+- 明确动态百科卡片是 `ProductMode + Capability Preset + Business Wizard`，不替代现有 `sourceMode`。
+- 明确“词条引导”对用户可表现为一个能力，但系统内部必须拆成：
+  - democase 只读 MCP Tool Binding。
+  - 百科词条分类与模板匹配 Design Skill。
+  - Application Service 词条引导向导。
+- 明确“动态百科词条卡片模板包”需要拆出父模板包、子模板和交互范式三层，避免把交互玩法和视觉 token 混在同一模板实体。
+- 明确“自动审查”复用 Automation Loop，但需要新增 `loop_encyclopedia_spec_review`、百科规范审查器，以及自动/半自动/关闭三种 review mode。
+- CAP-8 已加入 TODO，作为动态百科能力包的准入阶段。
+
+### 决策
+
+- `ProductMode` 与 `SourceMode` 正交：动态百科卡片也应支持从零生成和基于已有 HTML 修改。
+- Capability Distribution 只管理模板、插件、MCP、loop profile 和 preset；分类、模板匹配、半自动确认状态机由 Application Service 编排。
+- Runtime Gateway 只消费业务层解析后的标准上下文和 tool policy，不直接读取 democase 数据库或用户上传原文。
+
+### 后续关注
+
+- 先补 DesignTemplatePack 父子关系与 InteractionParadigm 契约，再做用户端模式切换。
+- `mcp_encyclopedia_democase_readonly` 初期可 mock，但 contract 要按真实 MCP 调用设计。
+- 自动审查规则需要与 `dtp_dynamic_encyclopedia_card` rationale 和 KeDU 分类体系对齐。
+
 ## 2026-07-03 CAP-M5.1 DESIGN.md Private Template Browser E2E
 
 ### 已完成
@@ -1026,3 +1052,60 @@
 - 管理端治理：官方场景模板、视觉 profile、色板、参考品牌、Design Template Pack CRUD。
 - 用户端：在模板选择器中强化官方模板 / 我的模板 / 业务模板包的分组展示。
 - Runtime Gateway：继续把模板包 prompt block 纳入真实 BabeL-O golden event / prompt contract 回放。
+
+## 2026-07-03 CAP-6 Template Governance Closure
+
+### 已完成
+
+- 新增管理端模板治理只读 API：
+  - `GET /api/admin/capabilities/templates`
+  - 返回官方模板、用户/工作区模板、业务模板包的治理摘要。
+  - 返回 lint 状态、required actions、prompt block coverage 和子模板草案。
+- 新增 CAP-6 模板治理 lint：
+  - schema version。
+  - official visibility/status。
+  - primary/surface color token。
+  - typography/component token。
+  - negative rules / anti-clone trade dress guardrail。
+  - `rationale.sections` 是否足以进入 runtime prompt block。
+  - “动态百科词条卡片”专属检查：
+    - PC `788x492`。
+    - WISE `380x456`。
+    - explicit `scroll-container`。
+    - iframe/touchmove 兼容约束。
+    - 子模板草案覆盖 summary/timeline/relation/comparison/expandable。
+- “动态百科词条卡片”业务模板包子模板草案已结构化：
+  - `summary-card`
+  - `timeline-card`
+  - `relation-card`
+  - `comparison-card`
+  - `expandable-fact-card`
+- 管理端新增 `Templates` section：
+  - 展示 total / official / business packs / lint warnings。
+  - 展示 write mode、publish 权限、registry edit 权限。
+  - 展示每个模板包的 lint、token 数、section 数、prompt block coverage 和子模板草案。
+
+### 决策
+
+- 用户前端模板列表保持当前页面形态，本阶段不推进：
+  - 官方 / 我的 / 业务模板包 / 最近使用分组改造。
+  - 业务模板包详情页。
+  - 动态百科模板选择后的 composer summary 额外文案。
+- CAP-6 当前先做只读治理面板和 lint，编辑 / 发布 / 禁用写操作后续单独做审计流，不在没有审核链路时直接开放。
+- 子模板先作为业务模板包的草案 metadata/rationale 展示，后续当需要独立编辑、发布、统计时再拆成独立表。
+
+### 验证
+
+- 待运行：
+  - `npm run typecheck`
+  - `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/apiFlowSmoke.test.js apps/api/dist/officialDesignTemplatePacks.test.js`
+  - `npm --workspace @dudesign/admin run build`
+
+### 下一步
+
+- 管理端模板编辑 / 发布 / 禁用写操作：
+  - developer 可编辑 registry 草案。
+  - operator 可发布/禁用。
+  - 所有写操作进入 audit log。
+- 增加 CAP-6 source/license 字段的真实 schema，而不是仅 lint 预留。
+- 将模板治理结果接入 staging smoke dashboard。

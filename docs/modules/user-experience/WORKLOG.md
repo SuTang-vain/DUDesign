@@ -3,6 +3,29 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-03 UX-M25 Dynamic Encyclopedia Mode Planning
+
+### 已完成
+
+- 将动态百科卡片业务线写入用户端 TODO：Phase UX-8。
+- 明确用户端要新增的是产品模式切换 `Web&App / 动态百科卡片`，而不是删除“新建 HTML / 基于已有 HTML”。
+- 明确动态百科模式下的三件套联动：
+  - 词条引导。
+  - 动态百科词条卡片模板包。
+  - 自动审查。
+- 明确用户端需要展示分类置信度、推荐子模板、推荐理由和半自动审查报告。
+
+### 决策
+
+- 动态百科模式下，用户端只负责展示与确认，不直接访问 democase 数据库。
+- 自动勾选能力必须可撤销，避免 preset 变成不可解释的隐式行为。
+- 半自动审查需要用户端新增确认修复交互，不能复用普通 refine 输入框草草处理。
+
+### 后续关注
+
+- 等 Application Service 提供 entry guidance API 后，再实现前端推荐确认流程。
+- E2E 需要覆盖 source mode 与 product mode 正交组合，避免旧的“基于已有 HTML”能力回退。
+
 ## 2026-07-03 UX-M24 Template Library And Capability Controls
 
 ### 已完成

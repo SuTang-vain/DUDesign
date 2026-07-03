@@ -218,6 +218,35 @@
 - [x] 定义 PostgreSQL 业务表草案。
 - [x] 定义 immutable usage event 领域模型。
 - [x] 在 generation/refine/export/share 写入 usage event。
+
+## Phase APP-9：动态百科业务编排
+
+> 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`。
+
+- [ ] 新增或快照化 `productMode`，与现有 `sourceMode` 正交。
+- [ ] 设计 `EncyclopediaEntryGuidance` 领域对象，保存词条输入、分类结果、推荐模板、democase 引用和用户确认状态。
+- [ ] 新增词条引导 API：
+  - [ ] `POST /api/encyclopedia/entry-guidance`。
+  - [ ] `GET /api/encyclopedia/entry-guidance/:id`。
+  - [ ] `POST /api/encyclopedia/entry-guidance/:id/confirm`。
+- [ ] 接入 democase lookup mock，后续替换为真实 MCP tool result。
+- [ ] 实现 L1/L2/L3 分类结果、置信度和 low-confidence confirmation 规则。
+- [ ] 实现分类 -> 交互范式 -> 动态百科子模板的推荐与 1-3 个候选输出。
+- [ ] 创建 design job 时将 guidance、classification、child template、interaction paradigm、review mode 写入 immutable snapshot。
+- [ ] 新增百科规范审查器：
+  - [ ] 固定 viewport。
+  - [ ] iframe/touch/scroll 行为。
+  - [ ] 外部依赖和静态安全。
+  - [ ] 必备章节。
+  - [ ] 中立语气和模板一致性。
+- [ ] 支持 review mode：`off`、`semi_auto`、`auto`。
+- [ ] 半自动模式增加 `review_pending_confirmation` 状态和确认修复 API。
+- [ ] API smoke：词条 -> guidance -> 确认推荐 -> 创建 job -> snapshot 固定业务上下文。
+
+验收：
+
+- 分类、模板匹配、审查控制流都在业务服务层可测试、可追溯。
+- Runtime unavailable 时，已完成的 guidance、snapshot、artifact 和审查报告仍可读取。
 - [x] 抽象 Repository 接口，让 `ApplicationService` 不再类型绑定 `InMemoryStore`。
 - [x] 建立 PostgreSQL SQL-first baseline migration。
 - [x] 实现 PostgreSQL Repository 初版：migration、seed、hydrate、write-through 持久化。
