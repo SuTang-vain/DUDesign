@@ -38,6 +38,11 @@ const promptExamples = [
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'plugins' | 'loop' | 'model' | null
 type ContextPanel = 'files' | 'loop' | 'plugins'
+const floatingMenuGlassStyle: React.CSSProperties = {
+  backdropFilter: 'blur(18px) saturate(160%)',
+  WebkitBackdropFilter: 'blur(18px) saturate(160%)',
+  zIndex: 40,
+}
 type CapabilityPreferenceDraft = {
   visualMode?: 'pack' | 'custom'
   domainTemplateId?: string
@@ -1152,6 +1157,7 @@ function FloatingMenu(props: {
         const height = above ? Math.min(fixedHeight, spaceAbove) : Math.min(fixedHeight, spaceBelow)
         const top = above ? rect.top - 8 - height : rect.bottom + 8
         setStyle({
+          ...floatingMenuGlassStyle,
           position: 'fixed',
           top,
           left,
@@ -1171,6 +1177,7 @@ function FloatingMenu(props: {
         : menu.offsetHeight
 
       setStyle({
+        ...floatingMenuGlassStyle,
         position: 'fixed',
         top: Math.max(viewportPadding, rect.top - menuHeight - 8),
         left,
@@ -1203,6 +1210,7 @@ function FloatingMenu(props: {
       data-menu-root="true"
       data-testid={props.testId}
       style={style ?? {
+        ...floatingMenuGlassStyle,
         position: 'fixed',
         left: 0,
         top: 0,
