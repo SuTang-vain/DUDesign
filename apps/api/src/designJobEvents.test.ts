@@ -107,6 +107,35 @@ describe('Design job event persistence and partial failures', () => {
     harness = null
   })
 
+  it('keeps artifact-backed variations completed when late runtime events arrive out of order', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('late-streaming-after-complete'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Late runtime event ordering',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Runtime emits completed artifact before a late streaming heartbeat.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {},
+    })
+    const snapshot = await waitForJob(harness, job.job.id, 'completed')
+    assert.equal(snapshot.variations[0]?.status, 'completed')
+    assert.ok(snapshot.variations[0]?.currentArtifactId)
+
+    const streamText = await getText(harness, `/api/design-jobs/${job.job.id}/stream`)
+    assert.match(streamText, /design\.variation_completed/)
+    assert.match(streamText, /design\.variation_streaming/)
+    await harness.close()
+    harness = null
+  })
+
   it('runs one automation repair when generated artifact fails the static gate and attempts remain', async () => {
     harness = await startApiFlowHarness(new ApplicationService({
       runtime: new ControlledRuntimeGateway('quality-failure'),
@@ -288,7 +317,7 @@ class NoopScreenshotQueue extends InMemoryDesignJobQueue {
 }
 
 class ControlledRuntimeGateway implements RuntimeGateway {
-  constructor(private readonly mode: 'all-complete' | 'partial-failure' | 'quality-failure' | 'quality-failure-still-fails' | 'quality-failure-runtime-unavailable') {}
+  constructor(private readonly mode: 'all-complete' | 'partial-failure' | 'late-streaming-after-complete' | 'quality-failure' | 'quality-failure-still-fails' | 'quality-failure-runtime-unavailable') {}
 
   async getRuntimeHealth() {
     return {
@@ -353,6 +382,15 @@ class ControlledRuntimeGateway implements RuntimeGateway {
         costCents: 1,
       },
     })
+    if (this.mode === 'late-streaming-after-complete') {
+      yield createDesignEvent({
+        type: 'design.variation_streaming',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: 'runtime_variation_1',
+        payload: { channel: 'system', delta: 'late runtime heartbeat' },
+      })
+    }
     if (this.mode === 'partial-failure') {
       yield createDesignEvent({
         type: 'design.variation_failed',

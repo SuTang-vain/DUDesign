@@ -1,9 +1,10 @@
 # DUDesign 动态百科卡片业务逻辑规划
 
-> 版本：v0.1
+> 版本：v0.2
 > 日期：2026-07-03
 > 文档类型：业务逻辑规划
 > 状态：规划准入
+> 本版变更：新增第 12 节“实现前需钉死的决策”，覆盖第 5/6/7/9 节初版表述；第 12 节及之后章节顺延。
 > 适用对象：产品、业务负责人、前端、后端、Runtime Gateway、运营治理
 > 关联文档：
 > - `docs/weekly-feature-roadmap.md`
@@ -633,7 +634,101 @@ BabeL-O 仍作为生成与 refine 的运行时内核。DUDesign 通过 Runtime G
 
 ---
 
-## 12. MVP 推进顺序
+## 12. 实现前需钉死的决策
+
+本节决策覆盖上文第 5、6、7、9 节的初版表述。以下 5 项必须在 Stage 1 准入阶段定死，否则 Stage 3（词条引导向导）与 Stage 5（百科规范审查）会返工。每项给出推荐方案与理由。
+
+### 12.1 democase 查询走两条独立路径（方案 A）
+
+democase 数据在两个时机被消费：词条引导向导在 job 创建前做分类（生成前）；BabeL-O agent 在生成期补充 in-context 案例（生成中）。两条路径职责不同，不应共用一个 MCP binding。
+
+**决策**：向导直连 democase 只读服务；MCP binding 只服务生成期 agent。
+
+| 路径 | 调用方 | 时机 | 形态 | 入口 |
+| --- | --- | --- | --- | --- |
+| 分类查询 | Application Service（词条引导向导） | job 创建前 | 后端服务直连 democase 只读 API | `POST /api/encyclopedia/entry-guidance` 内部调用 |
+| 生成期案例补充 | BabeL-O agent | 生成中 | MCP Tool Binding，经 tool policy 注入 | `pluginPromptBlock`（[babelOClient.ts:578](../../packages/runtime-gateway/src/babelOClient.ts)） |
+
+理由：向导分类需要确定性、低延迟、可重放，不适合走 BabeL-O execute（额外配额与流式开销）；生成期案例补充是 agent 自主决策的 in-context 增强，本就该走 MCP。两条路径共享同一份 democase 只读数据源，但客户端与调用契约不同，分别建模更清晰。
+
+约束：
+
+- democase 只读服务对内暴露一份查询接口，向导与 MCP server 都基于它实现，避免数据口径分裂。
+- 向导直连路径不经过 Runtime Gateway，结果不进入 BabeL-O prompt；只有 MCP 路径的结果进入 prompt 且必须标注来源。
+- MCP server 仍受 `isMvpSafePluginPolicy` 约束，scope 显式声明为 `readonly_context`（见 12.6）。
+
+### 12.2 质量门改为数组，弃用 enablePixelGate
+
+当前 `qualityGate: 'static' | 'pixel'`（[contracts/api.ts:240](../../packages/contracts/src/api.ts)）把门禁类型与开关耦合，无法表达“spec + pixel 同时启用”。第 7.1 节同时给 `qualityGate: 'spec'` 与 `enablePixelGate: true` 会产生语义冲突。
+
+**决策**：`qualityGate` 改为数组，删除 `enablePixelGate`。
+
+```ts
+type AutomationLoopProfile = {
+  // ...
+  qualityGates: ('static' | 'pixel' | 'spec')[]   // 取代 qualityGate + enablePixelGate
+  repairStrategy: 'none' | 'minimal_refine' | 'deep_refine' | 'spec_review_refine'
+}
+```
+
+门禁语义：数组按顺序执行，任一 `error` 级 finding 即判 `fail`，`warning` 不阻断；`pixel` 在实现上已包含 `static` 检查（见 `analyzeHtmlArtifactQualityWithPixelGate`），数组去重后生效。
+
+兼容现有 profile：
+
+| profile | 现有 qualityGate | 新 qualityGates |
+| --- | --- | --- |
+| `loop_fast` | `static` | `['static']` |
+| `loop_standard` | `static` | `['static']` |
+| `loop_deep_repair` | `pixel` | `['static', 'pixel']` |
+| `loop_encyclopedia_spec_review`（新） | — | `['static', 'spec', 'pixel']` |
+
+### 12.3 llm_review 标记为 Phase 2
+
+第 7.2 节 finding source 含 `'llm_review'`，但其运行模型、成本核算、调用入口均未定义。MVP 不引入未定义的 LLM 调用路径。
+
+**决策**：MVP 阶段 spec review checker 只产出 `'static_rule'` / `'template_rule'` / `'pixel_gate'` 三类 finding；`'llm_review'` 标记为 Phase 2，不进入 Stage 5。第 7.2 节的 finding source 枚举保留 `llm_review` 但加注释“Phase 2，MVP 不启用”。
+
+Phase 2 落地前置条件（需单独设计）：
+
+- LLM review 走 BabeL-O `POST /v1/execute` 还是独立模型调用，二选一。
+- 成本计入 loop `maxCostCents` 上限，单独计价。
+- 延迟与 `maxDurationMs` 的核算关系。
+- finding 可复现性（相同 artifact + 相同 rule 产出相同 finding）。
+
+### 12.4 productMode 顶层化
+
+第 9.1 节建议 productMode “短期先进入 `templateRequirements`”。但 `DesignJob.sourceMode` 是顶层字段（[models.ts:129](../../packages/domain/src/models.ts)），productMode 与其正交对等，应同样顶层化。`templateRequirements` 是 capability 解析后的不可变快照（`Record<string, unknown>`，[models.ts:131](../../packages/domain/src/models.ts)），混入 productMode 会污染快照语义。
+
+**决策**：`DesignJob.productMode` 作为顶层字段，与 `sourceMode` 并列，同步加入 `DesignSession`、`CreateDesignJobRequest`、`SessionSnapshot`，流转路径与 `sourceMode` 完全对齐（[page.tsx](../../apps/web/src/app/page.tsx) → service.ts → babelOClient.ts）。不进 `templateRequirements`。
+
+理由：两个正交维度应同构处理。短期塞进快照会造成 sourceMode/productMode 不对称，且不可变快照不应承载产品模式这种业务身份字段；中期迁移成本高于一开始就顶层化。
+
+### 12.5 子模板清单对齐父包 rationale
+
+父包 `packageChildren`（[officialDesignTemplatePacks.ts:433](../../apps/api/src/officialDesignTemplatePacks.ts)）声明子模板为 “summary, timeline, relation, comparison, and expandable fact-card”。第 6.2 节用 “explore” 替换了 “expandable fact-card”，二者不是同一概念。
+
+**决策**：首批子模板对齐父包声明的 5 个；explore 作为下一批扩展。
+
+| 子模板 ID | 对应父包声明 | 适用内容 |
+| --- | --- | --- |
+| `dtp_dynamic_encyclopedia_summary_card` | summary | 核心事实、摘要、关键指标 |
+| `dtp_dynamic_encyclopedia_timeline_card` | timeline | 经历、历史、阶段演进 |
+| `dtp_dynamic_encyclopedia_relation_card` | relation | 人物/作品/组织关系 |
+| `dtp_dynamic_encyclopedia_compare_card` | comparison | 参数、版本、差异对比 |
+| `dtp_dynamic_encyclopedia_expandable_card` | expandable fact-card | 可展开事实卡、长内容分区 |
+| `dtp_dynamic_encyclopedia_explore_card`（下一批） | —（新增） | 热区探索、地图、空间探索 |
+
+理由：首批子模板必须与父包 rationale 一致，否则 Stage 2 注册时父子声明打架。explore 对应地域/景区垂类，需求真实但不在父包首批声明内，作为下一批扩展更稳妥。若确需首批纳入 explore，须同步更新父包 `packageChildren` 文案。
+
+### 12.6 附：次要约定
+
+- **交互范式与模板包的关联单向化**：第 6.2 节给 pack 加 `supportedInteractionParadigms`，第 6.3 节给 paradigm 加 `compatibleTemplatePackIds`，双向引用会产生不一致。以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源，删除 pack 侧 `supportedInteractionParadigms`；如需反向查询，由服务层派生缓存，不持久化为事实。
+- **插件三件注册约定**：词条引导需同时注册 `plug_encyclopedia_entry_guidance`（CapabilityPlugin）+ `sk_encyclopedia_entry_guidance`（DesignSkill，`pluginId` 指向 plug）+ `mcp_encyclopedia_democase_readonly`（McpToolBinding，`pluginId` 指向 plug），沿用 [capabilities.ts](../../apps/api/src/capabilities.ts) 现有 `plug_` / `sk_` / `mcp_` 三段命名约定。第 4.3 节 preset 中的 `skillIds` / `mcpToolIds` 分别指向 skill 与 binding 的 id，符合现有约定，无需改名。
+- **MVP 安全 scope 显式声明**：democase MCP binding 的 `permissionPolicy.scopes` 显式声明为 `['readonly_context']`，确保通过 `isMvpSafePluginPolicy` 校验（该策略当前只放行 `readonly_context` / `asset_readonly` / `validation_only`）。
+
+---
+
+## 13. MVP 推进顺序
 
 ### Stage 1：规划准入与契约补齐
 
@@ -689,7 +784,7 @@ BabeL-O 仍作为生成与 refine 的运行时内核。DUDesign 通过 Runtime G
 
 ---
 
-## 13. 测试与验收
+## 14. 测试与验收
 
 ### Unit
 
@@ -728,7 +823,7 @@ BabeL-O 仍作为生成与 refine 的运行时内核。DUDesign 通过 Runtime G
 
 ---
 
-## 14. 风险与应对
+## 15. 风险与应对
 
 | 风险 | 影响 | 应对 |
 | --- | --- | --- |
@@ -742,7 +837,7 @@ BabeL-O 仍作为生成与 refine 的运行时内核。DUDesign 通过 Runtime G
 
 ---
 
-## 15. 文档准入结论
+## 16. 文档准入结论
 
 本业务线允许进入 DUDesign 文档库，原因：
 

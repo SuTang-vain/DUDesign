@@ -2089,7 +2089,9 @@ export class ApplicationService {
   private async applyEventSideEffects(event: DesignEvent): Promise<void> {
     if (!event.variationId) return
     switch (event.type) {
-      case 'design.variation_queued':
+      case 'design.variation_queued': {
+        const current = await this.store.getVariationById(event.variationId)
+        if (current && isTerminalVariationStatus(current.status)) break
         await this.store.applyVariationEvent({
           variationId: event.variationId,
           status: 'queued',
@@ -2097,14 +2099,19 @@ export class ApplicationService {
           runtimeAgentJobId: event.payload.runtimeAgentJobId,
         })
         break
-      case 'design.variation_streaming':
+      }
+      case 'design.variation_streaming': {
+        const current = await this.store.getVariationById(event.variationId)
+        if (current && isTerminalVariationStatus(current.status)) break
         await this.store.applyVariationEvent({ variationId: event.variationId, status: 'streaming' })
         break
+      }
       case 'design.variation_artifact_updated':
         {
           const context = await this.store.getVariationJobContext(event.variationId)
           const variation = context?.variation
           const job = context?.job
+          const terminalStatus = variation && isTerminalVariationStatus(variation.status) ? variation.status : null
           const artifact = variation
             ? await this.materializeArtifactFromRuntimePayload({
                 event,
@@ -2116,7 +2123,7 @@ export class ApplicationService {
             : undefined
           await this.store.applyVariationEvent({
             variationId: event.variationId,
-            status: artifact ? 'rendering_preview' : 'streaming',
+            status: terminalStatus ?? (artifact ? 'rendering_preview' : 'streaming'),
             artifactId: artifact?.id,
             previewUrl: artifact ? `/api/variations/${event.variationId}/preview` : undefined,
           })
@@ -2135,7 +2142,7 @@ export class ApplicationService {
         await this.writeMockArtifactBody(artifact.id)
         await this.store.applyVariationEvent({
           variationId: event.variationId,
-          status: 'rendering_preview',
+          status: variation && isTerminalVariationStatus(variation.status) ? variation.status : 'rendering_preview',
           artifactId: artifact.id,
           previewUrl: event.payload.previewUrl,
         })
@@ -2213,6 +2220,10 @@ export class ApplicationService {
         }
         break
       case 'design.variation_failed':
+        {
+          const current = await this.store.getVariationById(event.variationId)
+          if (current && isTerminalVariationStatus(current.status)) break
+        }
         await this.store.applyVariationEvent({
           variationId: event.variationId,
           status: 'failed',
@@ -2242,11 +2253,10 @@ export class ApplicationService {
     errorCode = 'RUNTIME_UNAVAILABLE',
   ): Promise<void> {
     const snapshot = await this.store.getJobSnapshot(jobId)
-    const terminalStatuses = new Set<DesignVariationStatus>(['completed', 'failed', 'cancelled'])
     const message = error instanceof Error ? error.message : 'Runtime unavailable.'
     for (const variationId of variationIdsByIndex.values()) {
       const variation = snapshot?.variations.find(candidate => candidate.id === variationId)
-      if (variation && terminalStatuses.has(variation.status)) continue
+      if (variation && (isTerminalVariationStatus(variation.status) || variation.currentArtifactId)) continue
       const failedEvent = createDesignEvent({
         type: 'design.variation_failed',
         sessionId: snapshot?.job.sessionId,
@@ -2264,7 +2274,10 @@ export class ApplicationService {
   }
 
   private async finalizeQueuedDesignJob(jobId: string): Promise<void> {
-    const snapshot = await this.store.getJobSnapshot(jobId)
+    let snapshot = await this.store.getJobSnapshot(jobId)
+    if (!snapshot) return
+    await this.reconcileArtifactBackedVariationsBeforeFinalization(snapshot)
+    snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) return
     const completedVariationCount = snapshot.variations.filter(variation => variation.status === 'completed').length
     const failedVariationCount = snapshot.variations.filter(variation => variation.status === 'failed').length
@@ -2285,6 +2298,36 @@ export class ApplicationService {
         failedVariationCount,
       },
     }))
+  }
+
+  private async reconcileArtifactBackedVariationsBeforeFinalization(
+    snapshot: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobSnapshot']>>>,
+  ): Promise<void> {
+    for (const variation of snapshot.variations) {
+      if (isTerminalVariationStatus(variation.status) || !variation.currentArtifactId) continue
+      const previewUrl = variation.previewUrl ?? `/api/variations/${variation.id}/preview`
+      await this.store.applyVariationEvent({
+        variationId: variation.id,
+        status: 'completed',
+        artifactId: variation.currentArtifactId,
+        previewUrl,
+        inputTokens: variation.inputTokens,
+        outputTokens: variation.outputTokens,
+        costCents: variation.costCents,
+      })
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.variation_completed',
+        sessionId: variation.sessionId,
+        jobId: snapshot.job.id,
+        variationId: variation.id,
+        payload: {
+          artifactId: variation.currentArtifactId,
+          inputTokens: variation.inputTokens,
+          outputTokens: variation.outputTokens,
+          costCents: variation.costCents,
+        },
+      }))
+    }
   }
 
   private async recordCapabilityUsageEvents(input: {
@@ -4022,6 +4065,10 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceMemberRole, number> = {
 
 function roleAllows(actual: WorkspaceMemberRole, required: WorkspaceMemberRole): boolean {
   return WORKSPACE_ROLE_RANK[actual] >= WORKSPACE_ROLE_RANK[required]
+}
+
+function isTerminalVariationStatus(status: DesignVariationStatus): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
 function escapeHtml(value: string): string {
