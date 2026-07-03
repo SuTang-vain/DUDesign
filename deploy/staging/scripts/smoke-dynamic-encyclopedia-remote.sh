@@ -224,7 +224,7 @@ import json
 import sys
 
 data = json.load(open(sys.argv[1]))
-artifact = data.get("artifact") or {}
+artifact = data.get("exportArtifact") or {}
 if artifact.get("kind") != "export_zip":
     raise SystemExit(f"expected export_zip artifact, got {artifact}")
 if not artifact.get("downloadUrl"):
