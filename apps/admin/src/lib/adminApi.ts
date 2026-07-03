@@ -264,6 +264,59 @@ export type CostSummaryResponse = {
   }>
 }
 
+export type AdminTemplateGovernanceEntry = {
+  id: string
+  name: string
+  description: string | null
+  source: 'official' | 'user' | 'workspace' | 'imported'
+  status: 'draft' | 'published' | 'archived' | 'disabled'
+  visibility: 'private' | 'workspace' | 'public'
+  version: string
+  lintStatus: 'passed' | 'warning' | 'failed'
+  governanceStatus: 'published' | 'draft' | 'disabled' | 'archived'
+  category: 'official-template-pack' | 'business-template-package' | 'user-template'
+  colorTokenCount: number
+  componentCount: number
+  sectionCount: number
+  childTemplates: Array<{
+    id: string
+    name: string
+    description: string
+  }>
+  requiredActions: string[]
+  findings: Array<{
+    severity: 'error' | 'warning' | 'info'
+    code: string
+    message: string
+  }>
+  promptBlockCoverage: {
+    colors: boolean
+    components: boolean
+    sections: boolean
+    dos: boolean
+    donts: boolean
+  }
+}
+
+export type AdminTemplateGovernanceResponse = {
+  templates: AdminTemplateGovernanceEntry[]
+  totals: {
+    total: number
+    official: number
+    privateOrWorkspace: number
+    businessTemplatePackages: number
+    passed: number
+    warning: number
+    failed: number
+  }
+  governance: {
+    canEditRegistry: boolean
+    canPublish: boolean
+    writeMode: 'planned'
+    message: string
+  }
+}
+
 export type AdminUserSupportSession = {
   id: string
   workspaceId: string
@@ -362,6 +415,10 @@ export async function getAdminModels(role: AdminRole): Promise<AdminModelsRespon
 
 export async function syncAdminModels(role: AdminRole): Promise<SyncAdminModelsResponse> {
   return postJson('/api/admin/models/sync', role, {})
+}
+
+export async function getAdminTemplateGovernance(role: AdminRole): Promise<AdminTemplateGovernanceResponse> {
+  return getJson('/api/admin/capabilities/templates', role)
 }
 
 export async function updateAdminModel(

@@ -12,6 +12,7 @@ import {
   getCostSummary,
   getMemoryGovernance,
   getRuntimeHealth,
+  getAdminTemplateGovernance,
   getUserModelAccess,
   getUserSupport,
   rebuildArtifactScreenshot,
@@ -27,6 +28,7 @@ import {
   type AdminModel,
   type AdminRole,
   type AdminMemoryGovernanceResponse,
+  type AdminTemplateGovernanceResponse,
   type AdminUserModelAccess,
   type AdminUserSupportResponse,
   type AuditLog,
@@ -35,11 +37,12 @@ import {
   type SyncAdminModelsResponse,
 } from '@/lib/adminApi'
 
-type AdminSection = 'runtime' | 'models' | 'jobs' | 'artifacts' | 'support' | 'memory' | 'audit'
+type AdminSection = 'runtime' | 'models' | 'templates' | 'jobs' | 'artifacts' | 'support' | 'memory' | 'audit'
 
 const adminSections: Array<{ id: AdminSection; label: string }> = [
   { id: 'runtime', label: 'Runtime Health' },
   { id: 'models', label: 'Model Services' },
+  { id: 'templates', label: 'Templates' },
   { id: 'jobs', label: 'Job Controls' },
   { id: 'artifacts', label: 'Artifacts' },
   { id: 'support', label: 'User Support' },
@@ -57,6 +60,7 @@ export default function AdminHomePage(): React.JSX.Element {
   const [models, setModels] = useState<AdminModel[]>([])
   const [modelAccess, setModelAccess] = useState<AdminUserModelAccess[]>([])
   const [modelSyncSummary, setModelSyncSummary] = useState<SyncAdminModelsResponse | null>(null)
+  const [templateGovernance, setTemplateGovernance] = useState<AdminTemplateGovernanceResponse | null>(null)
   const [memoryGovernance, setMemoryGovernance] = useState<AdminMemoryGovernanceResponse | null>(null)
   const [supportUsers, setSupportUsers] = useState<AdminUserSupportResponse['users']>([])
   const [costs, setCosts] = useState<CostSummaryResponse | null>(null)
@@ -102,7 +106,7 @@ export default function AdminHomePage(): React.JSX.Element {
       ])
       setRuntime(health)
       setAuditLogs(audits.auditLogs)
-      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess()])
+      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess(), refreshTemplateGovernance()])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -166,6 +170,15 @@ export default function AdminHomePage(): React.JSX.Element {
     try {
       const modelData = await getAdminModels(role)
       setModels(modelData.models)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function refreshTemplateGovernance(): Promise<void> {
+    try {
+      const templates = await getAdminTemplateGovernance(role)
+      setTemplateGovernance(templates)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -455,6 +468,85 @@ export default function AdminHomePage(): React.JSX.Element {
                       <button className="secondary-button" onClick={() => void toggleUserModelAccess(access, !access.enabled)} disabled={loading}>
                         {access.enabled ? 'Block' : 'Allow'}
                       </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+          ) : null}
+
+          {activeSection === 'templates' ? (
+          <section className="panel wide-panel">
+            <div className="panel-header">
+              <div>
+                <h2>Template Governance</h2>
+                <p className="muted">Official scene templates, visual profiles, palettes, brand references, and business template packages are tracked here as CAP-6 governance assets.</p>
+              </div>
+              <button className="secondary-button" onClick={() => void refreshTemplateGovernance()} disabled={loading}>
+                Refresh templates
+              </button>
+            </div>
+            <div className="metric-grid template-metrics">
+              <div className="metric">
+                <span>Total</span>
+                <strong>{templateGovernance?.totals.total ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Official</span>
+                <strong>{templateGovernance?.totals.official ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Business packs</span>
+                <strong>{templateGovernance?.totals.businessTemplatePackages ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Lint warnings</span>
+                <strong>{(templateGovernance?.totals.warning ?? 0) + (templateGovernance?.totals.failed ?? 0)}</strong>
+              </div>
+            </div>
+            <div className="capability-strip">
+              <span>write mode: {templateGovernance?.governance.writeMode ?? 'unknown'}</span>
+              <span>publish: {templateGovernance?.governance.canPublish ? 'allowed' : 'restricted'}</span>
+              <span>registry edit: {templateGovernance?.governance.canEditRegistry ? 'developer' : 'restricted'}</span>
+            </div>
+            <p className="muted">{templateGovernance?.governance.message ?? 'Template governance has not loaded yet.'}</p>
+            {!templateGovernance || templateGovernance.templates.length === 0 ? (
+              <p className="muted">No template governance entries loaded.</p>
+            ) : (
+              <div className="template-governance-list">
+                {templateGovernance.templates.map(template => (
+                  <article className="template-governance-row" key={template.id}>
+                    <header>
+                      <div>
+                        <strong>{template.name}</strong>
+                        <p>{template.description ?? 'No description.'}</p>
+                        <small>{template.id} · v{template.version} · {template.category}</small>
+                      </div>
+                      <div className="compact-metrics align-end">
+                        <span className={`status-pill ${templateLintClass(template.lintStatus)}`}>{template.lintStatus}</span>
+                        <span>{template.source} · {template.governanceStatus}</span>
+                      </div>
+                    </header>
+                    <div className="template-token-grid">
+                      <span>{template.colorTokenCount} colors</span>
+                      <span>{template.componentCount} components</span>
+                      <span>{template.sectionCount} sections</span>
+                      <span>{coverageSummary(template.promptBlockCoverage)}</span>
+                    </div>
+                    {template.childTemplates.length > 0 ? (
+                      <div className="subtemplate-strip">
+                        {template.childTemplates.map(child => (
+                          <span key={child.id} title={child.description}>{child.name}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="finding-list">
+                      {template.findings.slice(0, 4).map(finding => (
+                        <span className={`severity ${findingSeverityClass(finding.severity)}`} key={`${template.id}-${finding.code}`}>
+                          {finding.code}: {finding.message}
+                        </span>
+                      ))}
                     </div>
                   </article>
                 ))}
@@ -952,4 +1044,21 @@ function memoryStatusClass(status: AdminMemoryGovernanceResponse['users'][number
   if (status === 'isolated') return 'compatible'
   if (status === 'namespace_conflict') return 'unavailable'
   return 'degraded'
+}
+
+function templateLintClass(status: AdminTemplateGovernanceResponse['templates'][number]['lintStatus']): string {
+  if (status === 'passed') return 'compatible'
+  if (status === 'warning') return 'degraded'
+  return 'unavailable'
+}
+
+function findingSeverityClass(severity: 'error' | 'warning' | 'info'): string {
+  if (severity === 'error') return 'blocked'
+  if (severity === 'warning') return 'warning'
+  return 'ok'
+}
+
+function coverageSummary(coverage: AdminTemplateGovernanceResponse['templates'][number]['promptBlockCoverage']): string {
+  const passed = Object.values(coverage).filter(Boolean).length
+  return `${passed}/${Object.keys(coverage).length} prompt fields`
 }

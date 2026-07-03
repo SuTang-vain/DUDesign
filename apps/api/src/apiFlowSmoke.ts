@@ -210,6 +210,34 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
 
   const initialTemplates = await getJson<ListDesignTemplatePacksResponse>('/api/design-templates')
   assert.ok(initialTemplates.templates.length >= 6)
+  const templateGovernance = await getJson<{
+    templates: Array<{
+      id: string
+      category: string
+      lintStatus: string
+      childTemplates: Array<{ id: string }>
+      promptBlockCoverage: { colors: boolean; components: boolean; sections: boolean; dos: boolean; donts: boolean }
+    }>
+    totals: { businessTemplatePackages: number }
+    governance: { writeMode: string }
+  }>('/api/admin/capabilities/templates', {
+    headers: { 'x-dudesign-admin-role': 'operator' },
+  })
+  const encyclopediaGovernance = templateGovernance.templates.find(template => template.id === 'dtp_dynamic_encyclopedia_card')
+  assert.ok(encyclopediaGovernance)
+  assert.equal(encyclopediaGovernance.category, 'business-template-package')
+  assert.equal(encyclopediaGovernance.lintStatus, 'passed')
+  assert.ok(encyclopediaGovernance.childTemplates.some(template => template.id === 'summary-card'))
+  assert.ok(encyclopediaGovernance.childTemplates.some(template => template.id === 'timeline-card'))
+  assert.deepEqual(encyclopediaGovernance.promptBlockCoverage, {
+    colors: true,
+    components: true,
+    sections: true,
+    dos: true,
+    donts: true,
+  })
+  assert.equal(templateGovernance.totals.businessTemplatePackages, 1)
+  assert.equal(templateGovernance.governance.writeMode, 'planned')
   const importedTemplate = await postJson<SaveDesignTemplatePackResponse>('/api/design-templates/import-design-md', {
     name: 'Smoke Private Template',
     designMd: `---

@@ -135,6 +135,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/admin/capabilities/templates') {
+    sendJson(res, 200, await service.listAdminTemplateGovernance(ctx))
+    return
+  }
+
   const adminModelMatch = url.pathname.match(/^\/api\/admin\/models\/([^/]+)$/)
   if (method === 'PATCH' && adminModelMatch) {
     sendJson(res, 200, await service.updateAdminModel(ctx, decodeURIComponent(adminModelMatch[1]!), await readJson(req)))

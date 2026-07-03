@@ -430,7 +430,7 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
         iframeTouch: 'Avoid iframe pinch/zoom conflicts. Do not globally intercept touchmove. If prevention is required, only block non-scroll areas and always allow .scroll-container and iframe targets.',
         canvasTouch: 'Canvas-like interactions must use touch-action: pan-x pan-y and should leave physical spacing from iframe or scroll areas.',
         compatibility: 'Android compatibility is prioritized: avoid video resources, downloads, and jump links unless explicitly requested.',
-        packageChildren: 'This root template represents a package. Future child templates should specialize summary, timeline, relation, comparison, and expandable fact-card layouts while inheriting these constraints.',
+        packageChildren: 'This root template represents a package. Child drafts: summary-card (entity summary and key facts), timeline-card (events or development history), relation-card (related entities and lightweight graph preview), comparison-card (side-by-side fact comparison), expandable-fact-card (progressive disclosure for long encyclopedic details). All child templates inherit sizing, color, iframe/touch, and scroll constraints.',
       },
     },
     previewArtifactId: null,

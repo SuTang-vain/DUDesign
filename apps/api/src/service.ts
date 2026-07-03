@@ -57,6 +57,42 @@ import {
   type AutomationLoopStopReason,
 } from './automationLoop.js'
 
+type AdminTemplateLintFinding = {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  message: string
+}
+
+type AdminTemplateGovernanceEntry = {
+  id: string
+  name: string
+  description: string | null
+  source: DesignTemplatePack['source']
+  status: DesignTemplatePack['status']
+  visibility: DesignTemplatePack['visibility']
+  version: string
+  lintStatus: 'passed' | 'warning' | 'failed'
+  governanceStatus: 'published' | 'draft' | 'disabled' | 'archived'
+  category: 'official-template-pack' | 'business-template-package' | 'user-template'
+  colorTokenCount: number
+  componentCount: number
+  sectionCount: number
+  childTemplates: Array<{
+    id: string
+    name: string
+    description: string
+  }>
+  requiredActions: string[]
+  findings: AdminTemplateLintFinding[]
+  promptBlockCoverage: {
+    colors: boolean
+    components: boolean
+    sections: boolean
+    dos: boolean
+    donts: boolean
+  }
+}
+
 export class ApplicationService {
   readonly store: ApplicationRepository
   readonly events: JobEventBus
@@ -1404,6 +1440,33 @@ export class ApplicationService {
   async listAdminModels(ctx: RequestContext) {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
     return this.store.listAdminModels()
+  }
+
+  async listAdminTemplateGovernance(ctx: RequestContext) {
+    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    const templates = await this.store.listDesignTemplatePacks(ctx.userId)
+    const entries = templates.map(adminTemplateGovernanceEntry)
+    const totals = entries.reduce(
+      (acc, entry) => {
+        acc.total += 1
+        acc[entry.lintStatus] += 1
+        if (entry.category === 'business-template-package') acc.businessTemplatePackages += 1
+        if (entry.source === 'official') acc.official += 1
+        if (entry.source !== 'official') acc.privateOrWorkspace += 1
+        return acc
+      },
+      { total: 0, official: 0, privateOrWorkspace: 0, businessTemplatePackages: 0, passed: 0, warning: 0, failed: 0 },
+    )
+    return {
+      templates: entries,
+      totals,
+      governance: {
+        canEditRegistry: ctx.adminRole === 'developer',
+        canPublish: ctx.adminRole === 'operator' || ctx.adminRole === 'developer',
+        writeMode: 'planned' as const,
+        message: 'Template publish/disable actions are planned; current CAP-6 surface is read-only governance with lint and prompt coverage.',
+      },
+    }
   }
 
   async syncAdminModels(ctx: RequestContext) {
@@ -3523,6 +3586,125 @@ function languageForPath(path: string): 'html' | 'css' | 'javascript' | 'typescr
 
 function fileSortKey(path: string): string {
   return path === 'index.html' ? `0:${path}` : `1:${path}`
+}
+
+function adminTemplateGovernanceEntry(pack: DesignTemplatePack): AdminTemplateGovernanceEntry {
+  const findings = lintAdminTemplatePack(pack)
+  const hasErrors = findings.some(finding => finding.severity === 'error')
+  const hasWarnings = findings.some(finding => finding.severity === 'warning')
+  const promptBlockCoverage = {
+    colors: Object.keys(pack.designTokens.colors).length > 0,
+    components: Object.keys(pack.designTokens.components).length > 0,
+    sections: Object.keys(pack.rationale.sections).length > 0,
+    dos: pack.rationale.dos.length > 0,
+    donts: pack.rationale.donts.length > 0,
+  }
+  return {
+    id: pack.id,
+    name: pack.name,
+    description: pack.description,
+    source: pack.source,
+    status: pack.status,
+    visibility: pack.visibility,
+    version: pack.version,
+    lintStatus: hasErrors ? 'failed' : hasWarnings ? 'warning' : 'passed',
+    governanceStatus: pack.status,
+    category: pack.id === 'dtp_dynamic_encyclopedia_card'
+      ? 'business-template-package'
+      : pack.source === 'official'
+        ? 'official-template-pack'
+        : 'user-template',
+    colorTokenCount: Object.keys(pack.designTokens.colors).length,
+    componentCount: Object.keys(pack.designTokens.components).length,
+    sectionCount: Object.keys(pack.rationale.sections).length,
+    childTemplates: childTemplateDrafts(pack),
+    requiredActions: findings.filter(finding => finding.severity !== 'info').map(finding => finding.message),
+    findings,
+    promptBlockCoverage,
+  }
+}
+
+function lintAdminTemplatePack(pack: DesignTemplatePack): AdminTemplateLintFinding[] {
+  const findings: AdminTemplateLintFinding[] = []
+  if (pack.schemaVersion !== DESIGN_TEMPLATE_PACK_SCHEMA_VERSION) {
+    findings.push({ severity: 'error', code: 'schema-version', message: `Unexpected schema version ${pack.schemaVersion}.` })
+  }
+  if (pack.source === 'official' && pack.visibility !== 'public') {
+    findings.push({ severity: 'error', code: 'official-visibility', message: 'Official templates must be public.' })
+  }
+  if (pack.source === 'official' && pack.status !== 'published') {
+    findings.push({ severity: 'warning', code: 'official-status', message: 'Official templates should be published or explicitly disabled.' })
+  }
+  if (!pack.designTokens.colors.primary) {
+    findings.push({ severity: 'error', code: 'missing-primary-color', message: 'Missing primary color token.' })
+  }
+  if (!pack.designTokens.colors.surface && !pack.designTokens.colors.background) {
+    findings.push({ severity: 'warning', code: 'missing-surface-color', message: 'Missing surface/background color token.' })
+  }
+  if (Object.keys(pack.designTokens.typography).length === 0) {
+    findings.push({ severity: 'warning', code: 'missing-typography', message: 'Missing typography tokens.' })
+  }
+  if (Object.keys(pack.designTokens.components).length === 0) {
+    findings.push({ severity: 'error', code: 'missing-components', message: 'Missing component rules; runtime prompt block would be too weak.' })
+  }
+  if (pack.rationale.donts.length === 0) {
+    findings.push({ severity: 'error', code: 'missing-negative-rules', message: 'Missing forbidden/negative rules.' })
+  }
+  if (!pack.rationale.donts.some(rule => /copy|imitate|trade dress/i.test(rule))) {
+    findings.push({ severity: 'warning', code: 'missing-trade-dress-guardrail', message: 'Missing explicit anti-clone or trade dress guardrail.' })
+  }
+  if (Object.keys(pack.rationale.sections).length === 0) {
+    findings.push({ severity: 'warning', code: 'missing-sections', message: 'Missing rationale sections; detailed constraints will not appear in runtime prompt.' })
+  }
+  if (pack.id === 'dtp_dynamic_encyclopedia_card') {
+    lintDynamicEncyclopediaTemplatePack(pack, findings)
+  }
+  if (findings.length === 0) {
+    findings.push({ severity: 'info', code: 'lint-passed', message: 'Template pack passes CAP-6 governance lint.' })
+  }
+  return findings
+}
+
+function lintDynamicEncyclopediaTemplatePack(pack: DesignTemplatePack, findings: AdminTemplateLintFinding[]): void {
+  const components = pack.designTokens.components
+  const sectionsText = Object.values(pack.rationale.sections).join('\n')
+  const pcFrame = components['pc-card-frame']
+  const wiseFrame = components['wise-standard-frame']
+  const scrollContainer = components['scroll-container']
+  if (!componentNumber(pcFrame, 'width', 788) || !componentNumber(pcFrame, 'height', 492)) {
+    findings.push({ severity: 'error', code: 'dynamic-card-pc-size', message: 'Dynamic encyclopedia PC frame must be exactly 788x492.' })
+  }
+  if (!componentNumber(wiseFrame, 'width', 380) || !componentNumber(wiseFrame, 'height', 456)) {
+    findings.push({ severity: 'error', code: 'dynamic-card-wise-size', message: 'Dynamic encyclopedia WISE standard frame must be exactly 380x456.' })
+  }
+  if (!componentString(scrollContainer, 'overflowY', 'auto')) {
+    findings.push({ severity: 'error', code: 'dynamic-card-scroll-container', message: 'Dynamic encyclopedia template must define an explicit overflow-y:auto scroll container.' })
+  }
+  if (!/touchmove/i.test(sectionsText) || !/iframe/i.test(sectionsText)) {
+    findings.push({ severity: 'error', code: 'dynamic-card-touch-constraints', message: 'Dynamic encyclopedia template must include iframe/touchmove compatibility constraints.' })
+  }
+  if (!/summary-card/i.test(sectionsText) || !/timeline-card/i.test(sectionsText) || !/relation-card/i.test(sectionsText)) {
+    findings.push({ severity: 'warning', code: 'dynamic-card-child-drafts', message: 'Dynamic encyclopedia template package should list summary, timeline, relation, comparison, and expandable child drafts.' })
+  }
+}
+
+function childTemplateDrafts(pack: DesignTemplatePack): AdminTemplateGovernanceEntry['childTemplates'] {
+  if (pack.id !== 'dtp_dynamic_encyclopedia_card') return []
+  return [
+    { id: 'summary-card', name: '摘要卡', description: '实体标题、摘要、关键事实和主要行动。' },
+    { id: 'timeline-card', name: '时间线卡', description: '事件、版本、历史沿革或生命周期节点。' },
+    { id: 'relation-card', name: '关系卡', description: '相关实体、轻量关系图和跳转替代型本地交互。' },
+    { id: 'comparison-card', name: '对比卡', description: '两个或多个实体的关键事实横向比较。' },
+    { id: 'expandable-fact-card', name: '展开事实卡', description: '长百科内容的渐进展开与局部滚动。' },
+  ]
+}
+
+function componentNumber(component: Record<string, unknown> | undefined, key: string, expected: number): boolean {
+  return typeof component?.[key] === 'number' && component[key] === expected
+}
+
+function componentString(component: Record<string, unknown> | undefined, key: string, expected: string): boolean {
+  return typeof component?.[key] === 'string' && component[key] === expected
 }
 
 function isCodeFilePath(path: string): boolean {
