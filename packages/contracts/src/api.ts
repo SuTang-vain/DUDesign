@@ -335,6 +335,7 @@ export type EncyclopediaEntryGuidanceResponse = {
   interactionParadigm: InteractionParadigm
   capabilityRequirements: CapabilityRequirements
   templateRequirements: NonNullable<CreateDesignJobRequest['templateRequirements']> & {
+    interactionParadigm: InteractionParadigm
     businessContext: {
       guidanceId: ID
       entryTitle: string
