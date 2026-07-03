@@ -93,6 +93,18 @@ type AdminTemplateGovernanceEntry = {
   }
 }
 
+type AdminCapabilityRegistryAsset = {
+  id: string
+  name: string
+  type: 'scene-template' | 'visual-profile' | 'color-palette' | 'brand-reference' | 'design-template-pack' | 'business-template-package'
+  status: 'active' | 'warning' | 'blocked'
+  version: string | null
+  description: string
+  summary: string[]
+  requiredActions: string[]
+  linkedAssetIds: string[]
+}
+
 export class ApplicationService {
   readonly store: ApplicationRepository
   readonly events: JobEventBus
@@ -1446,6 +1458,8 @@ export class ApplicationService {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     const templates = await this.store.listDesignTemplatePacks(ctx.userId)
     const entries = templates.map(adminTemplateGovernanceEntry)
+    const capabilities = listCapabilities()
+    const registryAssets = adminCapabilityRegistryAssets(capabilities, entries)
     const totals = entries.reduce(
       (acc, entry) => {
         acc.total += 1
@@ -1460,6 +1474,21 @@ export class ApplicationService {
     return {
       templates: entries,
       totals,
+      registryAssets,
+      registryTotals: registryAssets.reduce(
+        (acc, asset) => {
+          acc.total += 1
+          acc[asset.type] = (acc[asset.type] ?? 0) + 1
+          acc[asset.status] += 1
+          return acc
+        },
+        {
+          total: 0,
+          active: 0,
+          warning: 0,
+          blocked: 0,
+        } as Record<string, number>,
+      ),
       governance: {
         canEditRegistry: ctx.adminRole === 'developer',
         canPublish: ctx.adminRole === 'operator' || ctx.adminRole === 'developer',
@@ -3586,6 +3615,125 @@ function languageForPath(path: string): 'html' | 'css' | 'javascript' | 'typescr
 
 function fileSortKey(path: string): string {
   return path === 'index.html' ? `0:${path}` : `1:${path}`
+}
+
+function adminCapabilityRegistryAssets(
+  capabilities: ReturnType<typeof listCapabilities>,
+  templateEntries: AdminTemplateGovernanceEntry[],
+): AdminCapabilityRegistryAsset[] {
+  return [
+    ...capabilities.domainTemplates.map(template => {
+      const requiredActions = [
+        ...(template.structure.sections.length ? [] : ['Scene template needs recommended sections.']),
+        ...(template.structure.requiredElements.length ? [] : ['Scene template needs required elements.']),
+        ...(template.constraints.length ? [] : ['Scene template needs constraints.']),
+        ...(template.variationDirections.length ? [] : ['Scene template needs variation directions.']),
+      ]
+      return {
+        id: template.id,
+        name: template.name,
+        type: 'scene-template' as const,
+        status: requiredActions.length ? 'warning' as const : 'active' as const,
+        version: template.contentVersion,
+        description: template.description,
+        summary: [
+          `category: ${template.category}`,
+          `${template.structure.sections.length} sections`,
+          `${template.constraints.length} constraints`,
+          `${template.variationDirections.length} variation directions`,
+        ],
+        requiredActions,
+        linkedAssetIds: [],
+      }
+    }),
+    ...capabilities.aestheticProfiles.map(profile => {
+      const missingPaletteIds = profile.colorPaletteIds.filter(id => !capabilities.colorPalettes.some(palette => palette.id === id))
+      const requiredActions = [
+        ...(profile.mood.length ? [] : ['Visual profile needs mood metadata.']),
+        ...(profile.bestFor.length ? [] : ['Visual profile needs bestFor metadata.']),
+        ...(profile.avoidFor.length ? [] : ['Visual profile needs avoidFor metadata.']),
+        ...(missingPaletteIds.length ? [`Missing linked palettes: ${missingPaletteIds.join(', ')}.`] : []),
+      ]
+      return {
+        id: profile.id,
+        name: profile.name,
+        type: 'visual-profile' as const,
+        status: missingPaletteIds.length ? 'blocked' as const : requiredActions.length ? 'warning' as const : 'active' as const,
+        version: null,
+        description: profile.description,
+        summary: [
+          `density: ${profile.density}`,
+          `formality: ${profile.formality}`,
+          `${profile.colorPaletteIds.length} linked palettes`,
+          `${profile.negativeRules.length} negative rules`,
+        ],
+        requiredActions,
+        linkedAssetIds: profile.colorPaletteIds,
+      }
+    }),
+    ...capabilities.colorPalettes.map(palette => {
+      const requiredActions = [
+        ...(palette.colors.length >= 3 ? [] : ['Palette should contain at least 3 colors.']),
+        ...(palette.usage.primary ? [] : ['Palette needs primary usage token.']),
+        ...(palette.usage.background ? [] : ['Palette needs background usage token.']),
+        ...(palette.accessibilityNotes.length ? [] : ['Palette needs accessibility notes.']),
+      ]
+      return {
+        id: palette.id,
+        name: palette.name,
+        type: 'color-palette' as const,
+        status: requiredActions.length ? 'warning' as const : 'active' as const,
+        version: null,
+        description: palette.colors.join(', '),
+        summary: [
+          `${palette.colors.length} colors`,
+          `${Object.keys(palette.usage).length} usage tokens`,
+          `${palette.accessibilityNotes.length} accessibility notes`,
+        ],
+        requiredActions,
+        linkedAssetIds: [],
+      }
+    }),
+    ...capabilities.brandStyleReferences.map(brand => {
+      const requiredActions = [
+        ...(brand.inspirationOnly ? [] : ['Brand reference must be inspiration-only.']),
+        ...(brand.visualPrinciples.length ? [] : ['Brand reference needs visual principles.']),
+        ...(brand.forbiddenRules.length ? [] : ['Brand reference needs forbidden rules.']),
+      ]
+      return {
+        id: brand.id,
+        name: brand.name,
+        type: 'brand-reference' as const,
+        status: requiredActions.length ? 'warning' as const : 'active' as const,
+        version: null,
+        description: brand.description,
+        summary: [
+          brand.brandFamily,
+          `${brand.visualPrinciples.length} principles`,
+          `${brand.forbiddenRules.length} forbidden rules`,
+          'inspiration only',
+        ],
+        requiredActions,
+        linkedAssetIds: [],
+      }
+    }),
+    ...templateEntries.map(template => ({
+      id: template.id,
+      name: template.name,
+      type: template.category === 'business-template-package' ? 'business-template-package' as const : 'design-template-pack' as const,
+      status: template.lintStatus === 'failed' ? 'blocked' as const : template.lintStatus === 'warning' ? 'warning' as const : 'active' as const,
+      version: template.version,
+      description: template.description ?? 'No description.',
+      summary: [
+        `${template.colorTokenCount} colors`,
+        `${template.componentCount} components`,
+        `${template.sectionCount} sections`,
+        `${template.childTemplates.length} child drafts`,
+      ],
+      requiredActions: template.requiredActions,
+      linkedAssetIds: [],
+    })),
+  ]
 }
 
 function adminTemplateGovernanceEntry(pack: DesignTemplatePack): AdminTemplateGovernanceEntry {

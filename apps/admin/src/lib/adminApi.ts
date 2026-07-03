@@ -309,6 +309,18 @@ export type AdminTemplateGovernanceResponse = {
     warning: number
     failed: number
   }
+  registryAssets: Array<{
+    id: string
+    name: string
+    type: 'scene-template' | 'visual-profile' | 'color-palette' | 'brand-reference' | 'design-template-pack' | 'business-template-package'
+    status: 'active' | 'warning' | 'blocked'
+    version: string | null
+    description: string
+    summary: string[]
+    requiredActions: string[]
+    linkedAssetIds: string[]
+  }>
+  registryTotals: Record<string, number>
   governance: {
     canEditRegistry: boolean
     canPublish: boolean

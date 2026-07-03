@@ -489,20 +489,20 @@ export default function AdminHomePage(): React.JSX.Element {
             </div>
             <div className="metric-grid template-metrics">
               <div className="metric">
-                <span>Total</span>
-                <strong>{templateGovernance?.totals.total ?? 0}</strong>
+                <span>Registry assets</span>
+                <strong>{templateGovernance?.registryTotals.total ?? 0}</strong>
               </div>
               <div className="metric">
-                <span>Official</span>
-                <strong>{templateGovernance?.totals.official ?? 0}</strong>
+                <span>Scenes</span>
+                <strong>{templateGovernance?.registryTotals['scene-template'] ?? 0}</strong>
               </div>
               <div className="metric">
-                <span>Business packs</span>
-                <strong>{templateGovernance?.totals.businessTemplatePackages ?? 0}</strong>
+                <span>Visual / palette / brand</span>
+                <strong>{(templateGovernance?.registryTotals['visual-profile'] ?? 0) + (templateGovernance?.registryTotals['color-palette'] ?? 0) + (templateGovernance?.registryTotals['brand-reference'] ?? 0)}</strong>
               </div>
               <div className="metric">
                 <span>Lint warnings</span>
-                <strong>{(templateGovernance?.totals.warning ?? 0) + (templateGovernance?.totals.failed ?? 0)}</strong>
+                <strong>{(templateGovernance?.registryTotals.warning ?? 0) + (templateGovernance?.registryTotals.blocked ?? 0)}</strong>
               </div>
             </div>
             <div className="capability-strip">
@@ -514,6 +514,39 @@ export default function AdminHomePage(): React.JSX.Element {
             {!templateGovernance || templateGovernance.templates.length === 0 ? (
               <p className="muted">No template governance entries loaded.</p>
             ) : (
+              <>
+              <div className="registry-governance-groups">
+                {registryGroups(templateGovernance.registryAssets).map(group => (
+                  <section className="registry-governance-group" key={group.type}>
+                    <header>
+                      <h3>{registryGroupTitle(group.type)}</h3>
+                      <span className="status-pill">{group.assets.length}</span>
+                    </header>
+                    <div className="registry-asset-grid">
+                      {group.assets.map(asset => (
+                        <article className="registry-asset-card" key={asset.id}>
+                          <div>
+                            <strong>{asset.name}</strong>
+                            <p>{asset.description}</p>
+                            <small>{asset.id}{asset.version ? ` · v${asset.version}` : ''}</small>
+                          </div>
+                          <span className={`status-pill ${assetStatusClass(asset.status)}`}>{asset.status}</span>
+                          <div className="template-token-grid compact">
+                            {asset.summary.slice(0, 4).map(item => <span key={item}>{item}</span>)}
+                          </div>
+                          {asset.requiredActions.length > 0 ? (
+                            <div className="finding-list">
+                              {asset.requiredActions.slice(0, 3).map(action => (
+                                <span className="severity warning" key={action}>{action}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
               <div className="template-governance-list">
                 {templateGovernance.templates.map(template => (
                   <article className="template-governance-row" key={template.id}>
@@ -551,6 +584,7 @@ export default function AdminHomePage(): React.JSX.Element {
                   </article>
                 ))}
               </div>
+              </>
             )}
           </section>
           ) : null}
@@ -1061,4 +1095,38 @@ function findingSeverityClass(severity: 'error' | 'warning' | 'info'): string {
 function coverageSummary(coverage: AdminTemplateGovernanceResponse['templates'][number]['promptBlockCoverage']): string {
   const passed = Object.values(coverage).filter(Boolean).length
   return `${passed}/${Object.keys(coverage).length} prompt fields`
+}
+
+function registryGroups(assets: AdminTemplateGovernanceResponse['registryAssets']): Array<{
+  type: AdminTemplateGovernanceResponse['registryAssets'][number]['type']
+  assets: AdminTemplateGovernanceResponse['registryAssets']
+}> {
+  const order: Array<AdminTemplateGovernanceResponse['registryAssets'][number]['type']> = [
+    'scene-template',
+    'visual-profile',
+    'color-palette',
+    'brand-reference',
+    'design-template-pack',
+    'business-template-package',
+  ]
+  return order
+    .map(type => ({ type, assets: assets.filter(asset => asset.type === type) }))
+    .filter(group => group.assets.length > 0)
+}
+
+function registryGroupTitle(type: AdminTemplateGovernanceResponse['registryAssets'][number]['type']): string {
+  switch (type) {
+    case 'scene-template': return 'Official Scene Templates'
+    case 'visual-profile': return 'Official Visual Profiles'
+    case 'color-palette': return 'Official Palettes'
+    case 'brand-reference': return 'Official Brand References'
+    case 'business-template-package': return 'Business Template Packages'
+    case 'design-template-pack': return 'Official Design Template Packs'
+  }
+}
+
+function assetStatusClass(status: AdminTemplateGovernanceResponse['registryAssets'][number]['status']): string {
+  if (status === 'active') return 'compatible'
+  if (status === 'warning') return 'degraded'
+  return 'unavailable'
 }

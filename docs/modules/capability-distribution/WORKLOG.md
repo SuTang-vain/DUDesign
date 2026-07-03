@@ -1096,10 +1096,9 @@
 
 ### 验证
 
-- 待运行：
-  - `npm run typecheck`
-  - `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/apiFlowSmoke.test.js apps/api/dist/officialDesignTemplatePacks.test.js`
-  - `npm --workspace @dudesign/admin run build`
+- `npm run typecheck`
+- `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/mock-flow.test.js apps/api/dist/officialDesignTemplatePacks.test.js`
+- `npm --workspace @dudesign/admin run build`
 
 ### 下一步
 
