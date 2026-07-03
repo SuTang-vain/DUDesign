@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { createVariationThroughUi } from './helpers'
 
+const API_BASE = process.env.DUDESIGN_API_URL ?? 'http://127.0.0.1:4000'
+
 test('UX-M1 mock product flow works through browser clicks', async ({ page }) => {
   await createVariationThroughUi(page, 'A crisp landing page for a browser-click E2E design flow')
 
@@ -207,6 +209,67 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Minimal Mono')
 })
 
+test('workbench can import DESIGN.md and generate with the private template', async ({ page }) => {
+  const templateName = `Browser Private Template ${Date.now()}`
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByTestId('template-pill-trigger').click()
+  await expect(page.getByTestId('template-library-picker')).toBeVisible()
+  await page.getByRole('button', { name: /Mine/ }).click()
+  await page.getByRole('button', { name: /Import DESIGN\.md/ }).click()
+  await page.getByPlaceholder('Template name (optional)').fill(templateName)
+  await page.getByTestId('import-design-md-textarea').fill(privateDesignMd(templateName))
+
+  const importResponsePromise = page.waitForResponse(response =>
+    response.url().includes('/api/design-templates/import-design-md') && response.request().method() === 'POST',
+  )
+  await page.getByTestId('import-design-md-submit').click()
+  const importResponse = await importResponsePromise
+  expect(importResponse.ok()).toBe(true)
+  const importPayload = await importResponse.json() as { template: { id: string; name: string; source: string } }
+  expect(importPayload.template.name).toBe(templateName)
+  expect(importPayload.template.source).toBe('user')
+
+  await expect(page.getByText('Template imported.')).toBeVisible()
+  const importedCard = page.getByTestId(`template-card-${importPayload.template.id}`)
+  await expect(importedCard).toBeVisible()
+  await expect(importedCard).toHaveClass(/active/)
+  await expect(page.getByTestId('capability-summary')).toContainText('1 templates')
+
+  await page.keyboard.press('Escape')
+  await page.getByTestId('prompt-input').fill('A landing page generated from an imported private DESIGN.md template')
+  const createJobResponsePromise = page.waitForResponse(response =>
+    response.url().includes('/api/design-jobs') && response.request().method() === 'POST',
+  )
+  await page.getByTestId('generate-button').click()
+  const createJobResponse = await createJobResponsePromise
+  expect(createJobResponse.ok()).toBe(true)
+  await expect(page).toHaveURL(/\/jobs\/job_/)
+  await expect(page.getByTestId('variation-grid')).toBeVisible()
+
+  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
+  expect(jobId).toBeTruthy()
+  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
+  expect(jobSnapshotResponse.ok()).toBe(true)
+  const jobPayload = await jobSnapshotResponse.json() as {
+    job: {
+      designTemplatePacks: Array<{ id: string; name: string; source: string }>
+    }
+    variations: Array<{ designTemplatePack: { id: string; name: string } | null }>
+  }
+  expect(jobPayload.job.designTemplatePacks).toHaveLength(1)
+  expect(jobPayload.job.designTemplatePacks[0]).toMatchObject({
+    id: importPayload.template.id,
+    name: templateName,
+    source: 'user',
+  })
+  expect(jobPayload.variations[0]?.designTemplatePack).toMatchObject({
+    id: importPayload.template.id,
+    name: templateName,
+  })
+})
+
 async function expectPopoverInViewport(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator): Promise<void> {
   const box = await locator.boundingBox()
   expect(box).not.toBeNull()
@@ -216,6 +279,39 @@ async function expectPopoverInViewport(page: import('@playwright/test').Page, lo
   expect(Math.ceil(box!.x + box!.width)).toBeLessThanOrEqual(viewport!.width)
   expect(Math.floor(box!.y)).toBeGreaterThanOrEqual(0)
   expect(Math.ceil(box!.y + box!.height)).toBeLessThanOrEqual(viewport!.height)
+}
+
+function privateDesignMd(name: string): string {
+  return `---
+name: ${name}
+description: Browser E2E private template.
+colors:
+  primary: "#2347FF"
+  on-primary: "#FFFFFF"
+  surface: "#F7F8FC"
+typography:
+  display:
+    fontFamily: Inter
+    fontSize: 48px
+    fontWeight: 700
+  body:
+    fontFamily: Inter
+    fontSize: 16px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+---
+
+## Overview
+
+Browser imported private template for SaaS-style landing pages.
+
+## Do's and Don'ts
+
+- Do: Use clear sections and generous whitespace.
+- Don't: Use decorative noise.
+`
 }
 
 test('result wall explains partial and failed generation states', async ({ page }) => {

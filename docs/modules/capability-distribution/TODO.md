@@ -179,7 +179,7 @@
 - [x] Runtime Gateway golden：capability context 编译稳定。
 - [ ] Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定。
 - [ ] E2E：模板 + 插件 + standard loop 生成。
-- [ ] E2E：上传或粘贴 `DESIGN.md` -> 保存私有模板 -> 用该模板生成。
+- [x] E2E：上传或粘贴 `DESIGN.md` -> 保存私有模板 -> 用该模板生成。
 - [ ] E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
 - [x] E2E：用户偏好恢复。
 - [ ] MCP smoke：从 `policy_only` 升级到真实调用后，覆盖授权、审计、结果注入和回放。

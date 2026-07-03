@@ -223,6 +223,8 @@ export default function HomePage(): React.JSX.Element {
         const exists = current.some(pack => pack.id === result.template.id)
         return exists ? current.map(pack => pack.id === result.template.id ? result.template : pack) : [result.template, ...current]
       })
+      setVisualMode('pack')
+      setSelectedTemplatePackIds([result.template.id])
       const kind = result.summary.errors > 0 ? 'err' : result.summary.warnings > 0 ? 'warn' : 'ok'
       setTemplateImportNotice({ kind, text: `${t('importSuccess')} (${result.summary.errors}e / ${result.summary.warnings}w / ${result.summary.info}i)` })
     } catch (err) {

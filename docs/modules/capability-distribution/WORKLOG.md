@@ -3,6 +3,32 @@
 > 模块：Capability Distribution System
 > 维护方式：按日期追加。记录模板、插件、自动化 loop、能力编译策略和跨层治理决策。
 
+## 2026-07-03 CAP-M5.1 DESIGN.md Private Template Browser E2E
+
+### 已完成
+
+- 用户端模板导入闭环增加浏览器 E2E：
+  - 打开模板库。
+  - 切换到“我的模板”。
+  - 粘贴 `DESIGN.md`。
+  - 创建用户私有 `DesignTemplatePack`。
+  - 自动选中新导入模板。
+  - 使用该模板创建 design job。
+  - 通过 job snapshot 验证 `designTemplatePacks` 和 variation assignment 均指向该私有模板。
+- 首页导入成功后自动切换到 template pack 模式，并将新模板设为唯一选中模板，减少用户导入后忘记选择的误操作。
+- CAP-7 中 `DESIGN.md -> 私有模板 -> 生成` 的 E2E 门禁已标记完成。
+
+### 验证
+
+- `npm --workspace @dudesign/web run build`
+- `npm --workspace @dudesign/web run test:e2e -- e2e/mock-product-flow.spec.ts -g "import DESIGN.md"`
+- `npm --workspace @dudesign/web run test:e2e -- e2e/mock-product-flow.spec.ts -g "capability distribution|import DESIGN.md"`
+
+### 后续关注
+
+- 继续补 `选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot` 的专门 E2E。
+- 结果页/详情页后续可显式展示本次使用的 Design Template Pack 名称，避免用户只能从 API snapshot 验证。
+
 ## 2026-07-03 CAP-M5 User-Facing Capability Library
 
 ### 已完成
