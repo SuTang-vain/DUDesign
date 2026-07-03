@@ -219,6 +219,8 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       promptBlockCoverage: { colors: boolean; components: boolean; sections: boolean; dos: boolean; donts: boolean }
     }>
     totals: { businessTemplatePackages: number }
+    registryAssets: Array<{ id: string; type: string; status: string }>
+    registryTotals: Record<string, number>
     governance: { writeMode: string }
   }>('/api/admin/capabilities/templates', {
     headers: { 'x-dudesign-admin-role': 'operator' },
@@ -237,6 +239,14 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     donts: true,
   })
   assert.equal(templateGovernance.totals.businessTemplatePackages, 1)
+  assert.equal(templateGovernance.registryTotals['scene-template'] >= 1, true)
+  assert.equal(templateGovernance.registryTotals['visual-profile'] >= 1, true)
+  assert.equal(templateGovernance.registryTotals['color-palette'] >= 1, true)
+  assert.equal(templateGovernance.registryTotals['brand-reference'] >= 1, true)
+  assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'tpl_fintech_trust' && asset.type === 'scene-template'))
+  assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'aes_trustworthy_saas' && asset.type === 'visual-profile'))
+  assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'pal_blue_white_trust' && asset.type === 'color-palette'))
+  assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'brand_apple_inspired' && asset.type === 'brand-reference'))
   assert.equal(templateGovernance.governance.writeMode, 'planned')
   const importedTemplate = await postJson<SaveDesignTemplatePackResponse>('/api/design-templates/import-design-md', {
     name: 'Smoke Private Template',

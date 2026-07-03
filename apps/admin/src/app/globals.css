@@ -464,6 +464,52 @@ button {
   gap: 12px;
 }
 
+.registry-governance-groups {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.registry-governance-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 14px;
+}
+
+.registry-governance-group > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.registry-governance-group h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.registry-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.registry-asset-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+.registry-asset-card p {
+  color: var(--muted);
+  margin: 5px 0;
+}
+
 .template-governance-row {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -490,6 +536,11 @@ button {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.template-token-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 0;
 }
 
 .template-token-grid span,

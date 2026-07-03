@@ -144,10 +144,10 @@
 
 ## Phase CAP-6：管理端治理
 
-- [ ] 管理官方场景模板。
-- [ ] 管理官方视觉 profile。
-- [ ] 管理官方色板和参考品牌。
-- [ ] 管理官方 Design Template Pack。
+- [x] 管理官方场景模板。
+- [x] 管理官方视觉 profile。
+- [x] 管理官方色板和参考品牌。
+- [x] 管理官方 Design Template Pack。
 - [x] 管理业务模板包及其子模板，例如“动态百科词条卡片”。
 - [x] 增加模板治理 lint：尺寸约束、颜色 token、禁止项、source/license 预留、runtime prompt block 覆盖度。
 - [x] 管理端 CAP-6 只读治理面板展示官方模板、业务模板包、lint 状态、子模板草案和 prompt block coverage。

@@ -1108,3 +1108,53 @@
   - 所有写操作进入 audit log。
 - 增加 CAP-6 source/license 字段的真实 schema，而不是仅 lint 预留。
 - 将模板治理结果接入 staging smoke dashboard。
+
+## 2026-07-03 CAP-6 Official Registry Governance
+
+### 已完成
+
+- 管理端 CAP-6 治理范围从 Design Template Pack 扩展到完整官方 registry：
+  - 官方场景模板 / `DomainTemplate`
+  - 官方视觉 profile / `AestheticProfile`
+  - 官方色板 / `ColorPalette`
+  - 官方参考品牌 / `BrandStyleReference`
+  - 官方 Design Template Pack
+  - 业务模板包 / `Business Template Package`
+- `GET /api/admin/capabilities/templates` 新增：
+  - `registryAssets`
+  - `registryTotals`
+- registry asset 统一治理字段：
+  - `id`
+  - `name`
+  - `type`
+  - `status`
+  - `version`
+  - `description`
+  - `summary`
+  - `requiredActions`
+  - `linkedAssetIds`
+- 管理端 `Templates` section 增加官方 registry 分组：
+  - `Official Scene Templates`
+  - `Official Visual Profiles`
+  - `Official Palettes`
+  - `Official Brand References`
+  - `Official Design Template Packs`
+  - `Business Template Packages`
+- API smoke 增加断言，确保 CAP-6 返回至少一个 scene、visual、palette、brand reference，并能定位：
+  - `tpl_fintech_trust`
+  - `aes_trustworthy_saas`
+  - `pal_blue_white_trust`
+  - `brand_apple_inspired`
+
+### 决策
+
+- 本阶段“管理”定义为只读治理、lint、关联完整性和状态可视化。
+- 编辑 / 发布 / 禁用仍保留为下一阶段写操作，不在本阶段混入，以免缺少 audit/approval 链路。
+- 用户前端模板选择器继续保持当前 UI，不受 CAP-6 管理端治理扩展影响。
+
+### 验证
+
+- 待运行：
+  - `npm run typecheck`
+  - `npm --workspace @dudesign/api exec tsc -b && node --test --test-concurrency=1 apps/api/dist/mock-flow.test.js`
+  - `npm --workspace @dudesign/admin run build`
