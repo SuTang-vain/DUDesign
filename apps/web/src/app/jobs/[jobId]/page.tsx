@@ -8,6 +8,7 @@ import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, getDesignJob, reviewVariationAction, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
+import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
 import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
 
 type ArtifactQuality = NonNullable<JobSnapshot['artifacts'][number]['quality']>
@@ -280,15 +281,15 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
               </div>
               {quality && quality.status !== 'pass' ? (
                 <div className={`var-quality ${quality.status}`} data-testid="variation-quality-banner">
-                  <strong>{quality.status === 'fail' ? 'Quality failed' : 'Quality · warn'}</strong>
-                  <span>{quality.issues[0] ?? 'Generated artifact needs attention.'}</span>
+                  <strong>{quality.status === 'fail' ? 'Quality failed' : isInfrastructureQualityWarning(quality.issues[0]) ? 'Quality check notice' : 'Quality · warn'}</strong>
+                  <span>{formatQualityIssue(quality.issues[0])}</span>
                 </div>
               ) : null}
               {semiAutoReview && quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
                 <section className="review-pending-panel" data-testid="review-pending-panel">
                   <span className="eyebrow">Review pending</span>
-                  <strong>{quality.status === 'fail' ? 'Spec review failed' : 'Spec review warning'}</strong>
-                  <p>{quality.issues[0] ?? 'Review found an issue that needs confirmation.'}</p>
+                  <strong>{quality.status === 'fail' ? 'Spec review failed' : isInfrastructureQualityWarning(quality.issues[0]) ? 'Visual check unavailable' : 'Spec review warning'}</strong>
+                  <p>{formatQualityIssue(quality.issues[0])}</p>
                   {reviewDecision === 'repair_queued' ? (
                     <small>Repair request is queued for the next automation milestone.</small>
                   ) : (

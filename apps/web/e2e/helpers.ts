@@ -5,9 +5,10 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
 
   await expect(page.getByRole('heading', { name: /What shall we design today/i })).toBeVisible()
   await expect(page.getByTestId('workspace-selector')).toContainText(/Personal Workspace|个人工作区/)
-  await expect(page.getByTestId('generate-button')).toBeEnabled()
+  await expect(page.getByTestId('generate-button')).toBeDisabled()
 
   await page.getByTestId('prompt-input').fill(prompt)
+  await expect(page.getByTestId('generate-button')).toBeEnabled()
   await page.getByText('3 drafts').click()
   await page.getByTestId('variation-count-input').getByRole('button', { name: '3' }).click()
   await page.getByTestId('generate-button').click()
@@ -18,7 +19,7 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
   await expect(page.getByTestId('runtime-activity')).toContainText('Runtime activity')
   await expect(page.getByTestId('runtime-activity')).toContainText('Variation 01')
   await expect(page.getByTestId('runtime-activity')).toContainText(/Generating|Completed|Rendering preview|DONE|readying preview/)
-  await expect(page.getByText(/3\s*\/\s*3 variations completed/)).toBeVisible()
+  await expect(page.getByText(/3\s*\/\s*3 completed/)).toBeVisible()
   await expect(page.locator('.variation-view-tabs')).toHaveCount(0)
   await expect(page.locator('.code-stream-trace')).toHaveCount(0)
 

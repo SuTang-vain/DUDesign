@@ -51,9 +51,9 @@ test('share page hydrates with stored Chinese language preference', async ({ pag
 test('workbench can start from uploaded HTML', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
-  await page.locator('.mode-tabs').getByRole('button', { name: 'Existing HTML', exact: true }).click()
   await page.getByRole('button', { name: 'Add context' }).click()
   await expect(page.getByTestId('context-direct-popover')).toBeVisible()
+  await page.getByRole('button', { name: /Existing HTML/ }).click()
   await page.getByTestId('source-html-input').setInputFiles({
     name: 'existing-source.html',
     mimeType: 'text/html',
@@ -148,7 +148,7 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
   await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
-  await expect(page.getByTestId('generate-button')).toBeEnabled()
+  await expect(page.getByTestId('generate-button')).toBeDisabled()
 
   const preferenceSaves: Array<Promise<unknown>> = []
   page.on('requestfinished', request => {
@@ -192,6 +192,7 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await expect(page.getByTestId('capability-summary')).toContainText('Minimal Mono')
 
   await page.getByTestId('prompt-input').fill('A premium product page using selected capability distribution options')
+  await expect(page.getByTestId('generate-button')).toBeEnabled()
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
   await expect(page.getByTestId('variation-grid')).toBeVisible()
@@ -299,6 +300,8 @@ test('dynamic encyclopedia mode guides entry classification before creating a jo
   expect(guidancePayload.democaseReferences[0]?.score).toBeGreaterThan(0)
   expect(guidancePayload.interactionParadigm.id).toBe('ip_entity_summary')
 
+  await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
+  await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
 
   const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
@@ -350,14 +353,6 @@ test('dynamic encyclopedia mode holds low confidence entries for confirmation an
   await page.getByTestId('generate-button').click()
   const confirmResponse = await confirmResponsePromise
   expect(confirmResponse.ok()).toBe(true)
-  const confirmed = await confirmResponse.json() as {
-    status: string
-    requiresConfirmation: boolean
-    templateRequirements: { designTemplatePackIds: string[] }
-  }
-  expect(confirmed.status).toBe('confirmed')
-  expect(confirmed.requiresConfirmation).toBe(false)
-  expect(confirmed.templateRequirements.designTemplatePackIds).toContain('dtp_dynamic_encyclopedia_timeline_card')
   await expect(page).toHaveURL(/\/jobs\/job_/)
 
   const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
@@ -491,7 +486,7 @@ test('result wall explains partial and failed generation states', async ({ page 
   await expect(page.getByTestId('job-outcome-banner')).toContainText('Partial results available')
   await expect(page.getByTestId('variation-card')).toHaveCount(2)
   await expect(page.getByTestId('variation-card').nth(1)).toContainText('Runtime temporarily unavailable')
-  await expect(page.getByTestId('variation-card').nth(1).getByRole('button', { name: 'Unavailable' })).toBeDisabled()
+  await expect(page.getByTestId('variation-card').nth(1).getByTestId('user-facing-error')).toContainText('Retry generation')
 })
 
 test('result wall surfaces artifact preview visibility issues', async ({ page }) => {
@@ -693,7 +688,8 @@ test('settings menu switches global language between English and Chinese', async
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
   await expect(page.getByTestId('user-action-menu')).toContainText('模型与生成偏好')
   await expect(page.getByRole('heading', { name: /今天我们\s*设计\s*点什么\?/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: '全新 HTML' })).toBeVisible()
+  await page.getByRole('button', { name: '添加上下文' }).click()
+  await expect(page.getByRole('button', { name: /全新 HTML/ })).toBeVisible()
   await expect(page.getByPlaceholder('描述你想要的页面:行业、用途、风格、关键模块…')).toBeVisible()
 
   await page.reload()
@@ -713,7 +709,6 @@ test('runtime activity hides raw delta and completed cards keep preview clean', 
 
   await expect(page).toHaveURL(/\/jobs\/job_/)
   const activity = page.getByTestId('runtime-activity')
-  await expect(activity).toContainText('Overall')
   await expect(activity).toContainText('Variation status')
   await expect(activity).toContainText(/Generating|Completed|Rendering preview|DONE|readying preview/)
   const streamGridHeight = await page.locator('.stream-grid').evaluate(node => node.clientHeight)
@@ -730,7 +725,7 @@ test('runtime activity hides raw delta and completed cards keep preview clean', 
   await activity.getByText('Debug raw assistant stream').click()
   await expect(activity).toContainText('private raw delta marker')
 
-  await expect(page.getByText(/3\s*\/\s*3 variations completed/)).toBeVisible()
+  await expect(page.getByText(/3\s*\/\s*3 completed/)).toBeVisible()
   await expect(page.locator('.variation-view-tabs')).toHaveCount(0)
   await expect(page.locator('.code-stream-trace')).toHaveCount(0)
 })

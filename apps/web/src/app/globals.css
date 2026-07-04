@@ -654,6 +654,70 @@ a { color: inherit; text-decoration: none; }
 }
 .composer-tools .menu-root { position: relative; display: inline-flex; }
 
+.dynamic-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.dynamic-flow-step {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+.dynamic-flow-step .n {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+.dynamic-flow-step strong {
+  display: block;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.25;
+}
+.dynamic-flow-step small {
+  display: block;
+  min-width: 0;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dynamic-flow-step.done {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: var(--accent-soft);
+}
+.dynamic-flow-step.done .n {
+  background: var(--accent);
+  color: #fff;
+}
+.dynamic-flow-step.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.dynamic-flow-step.active .n {
+  background: var(--accent-soft);
+  color: var(--accent-on);
+}
+
 .entry-guidance-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3529,6 +3593,7 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 980px) {
   .home-shell, .ed-grid { grid-template-columns: 1fr; }
   .home-side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .dynamic-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ed-topbar, .share-topbar { grid-template-columns: 1fr; }
   .ed-topbar .ed-cmd, .share-topbar .share-actions { grid-column: 1; }
   .var-grid, .inspire-grid, .share-stats { grid-template-columns: 1fr; }
@@ -3541,6 +3606,7 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 560px) {
   .home-main, .job-shell, .ed-shell, .share-shell { padding: 18px; }
   .home-topbar, .composer-head { flex-direction: column; align-items: stretch; }
+  .dynamic-flow { grid-template-columns: 1fr; }
   .composer-tools { flex-wrap: wrap; }
   .tool.send { margin-left: 0; }
   .job-topbar { flex-direction: column; align-items: stretch; }

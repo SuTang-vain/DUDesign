@@ -265,6 +265,16 @@ export default function HomePage(): React.JSX.Element {
     }
   }
 
+  function handlePromptChange(value: string): void {
+    setPrompt(value)
+    if (productMode === 'dynamic_encyclopedia_card') {
+      setEntryGuidance(null)
+      setEntryGuidanceTemplateIds([])
+      setEntryGuidanceClassification(null)
+      setGuidanceStatus('idle')
+    }
+  }
+
   async function importDesignMd(designMd: string, name?: string): Promise<void> {
     setTemplateImporting(true)
     setTemplateImportNotice(null)
@@ -347,6 +357,42 @@ export default function HomePage(): React.JSX.Element {
       && (mode === 'new_html' || Boolean(sourceArtifact))
   }, [bootstrap, mode, prompt, sourceArtifact, sourceUploadStatus, status])
 
+  const dynamicSteps = useMemo(() => {
+    if (productMode !== 'dynamic_encyclopedia_card') return []
+    return [
+      {
+        id: 'guidance',
+        label: t('entryGuidance'),
+        detail: entryGuidance
+          ? `${entryGuidance.classification.primaryCategory} / ${entryGuidance.classification.secondaryCategory} · ${Math.round(entryGuidance.classification.confidence * 100)}%`
+          : t('entryGuidancePending'),
+        state: guidanceStatus === 'loading' ? 'active' : entryGuidance ? 'done' : 'idle',
+      },
+      {
+        id: 'template',
+        label: t('templateConfirm'),
+        detail: entryGuidanceTemplateIds.length
+          ? entryGuidanceTemplateIds.map(id => c18n.templatePackName(id, id)).join(' · ')
+          : t('templateConfirmPending'),
+        state: entryGuidance?.requiresConfirmation ? 'active' : entryGuidanceTemplateIds.length ? 'done' : 'idle',
+      },
+      {
+        id: 'review',
+        label: t('autoReview'),
+        detail: entryGuidance?.capabilityRequirements.automation?.maxRepairAttempts === 1
+          ? t('semiAutoRepairEnabled')
+          : t('autoReviewEnabled'),
+        state: entryGuidance ? 'done' : 'idle',
+      },
+      {
+        id: 'generate',
+        label: t('generatePreview'),
+        detail: status === 'submitting' && entryGuidance ? t('submittingToRuntime') : t('generatePreviewPending'),
+        state: status === 'submitting' && entryGuidance ? 'active' : 'idle',
+      },
+    ] as const
+  }, [c18n, entryGuidance, entryGuidanceTemplateIds, guidanceStatus, productMode, status, t])
+
 
   async function uploadSourceFile(file: File | null): Promise<void> {
     if (!file || !bootstrap) return
@@ -382,21 +428,44 @@ export default function HomePage(): React.JSX.Element {
       let guidedCapabilityRequirements: Awaited<ReturnType<typeof createEncyclopediaEntryGuidance>>['capabilityRequirements'] | undefined
       let guidedTemplateRequirements: Awaited<ReturnType<typeof createEncyclopediaEntryGuidance>>['templateRequirements'] | undefined
       if (productMode === 'dynamic_encyclopedia_card') {
-        setGuidanceStatus(entryGuidance?.requiresConfirmation ? 'confirming' : 'loading')
-        const guidance = entryGuidance?.requiresConfirmation
+        if (!entryGuidance) {
+          setGuidanceStatus('loading')
+          const guidance = await createEncyclopediaEntryGuidance({
+            workspaceId: workspace?.id ?? bootstrap.workspace.id,
+            entry: prompt.trim(),
+            maxTemplateRecommendations: Math.min(3, variationCount),
+            automationMode: 'semi_auto',
+          })
+          setEntryGuidance(guidance)
+          setEntryGuidanceTemplateIds(guidance.templateRequirements.designTemplatePackIds ?? [])
+          setEntryGuidanceClassification({
+            primaryCategory: guidance.classification.primaryCategory,
+            secondaryCategory: guidance.classification.secondaryCategory,
+          })
+          setSelectedTemplatePackIds(guidance.templateRequirements.designTemplatePackIds ?? [])
+          setLoopProfileId(guidance.capabilityRequirements.automation?.loopProfileId ?? 'loop_encyclopedia_spec_review')
+          setSelectedSkillIds(guidance.capabilityRequirements.plugins?.skillIds ?? [])
+          setSelectedMcpToolIds(guidance.capabilityRequirements.plugins?.mcpToolIds ?? [])
+          setGuidanceStatus('idle')
+          setStatus('idle')
+          return
+        }
+
+        setGuidanceStatus('confirming')
+        const needsExplicitConfirmation = entryGuidance.requiresConfirmation
+          || !sameStringSet(entryGuidanceTemplateIds, entryGuidance.templateRequirements.designTemplatePackIds ?? [])
+          || Boolean(entryGuidanceClassification
+            && (entryGuidanceClassification.primaryCategory !== entryGuidance.classification.primaryCategory
+              || entryGuidanceClassification.secondaryCategory !== entryGuidance.classification.secondaryCategory))
+        const guidance = needsExplicitConfirmation
           ? await confirmEncyclopediaEntryGuidance(entryGuidance.guidanceId, {
             selectedTemplateIds: entryGuidanceTemplateIds.length
                 ? entryGuidanceTemplateIds
                 : entryGuidance.templateRequirements.designTemplatePackIds,
               classificationOverride: entryGuidanceClassification ?? undefined,
-              automationMode: 'auto',
+              automationMode: 'semi_auto',
             })
-          : await createEncyclopediaEntryGuidance({
-              workspaceId: workspace?.id ?? bootstrap.workspace.id,
-              entry: prompt.trim(),
-              maxTemplateRecommendations: Math.min(3, variationCount),
-              automationMode: 'auto',
-            })
+          : entryGuidance
         setEntryGuidance(guidance)
         setEntryGuidanceTemplateIds(guidance.templateRequirements.designTemplatePackIds ?? [])
         setEntryGuidanceClassification({
@@ -472,6 +541,7 @@ export default function HomePage(): React.JSX.Element {
     } catch (err) {
       setError((err as Error).message)
       setStatus('error')
+      setGuidanceStatus('idle')
     }
   }
 
@@ -510,7 +580,7 @@ export default function HomePage(): React.JSX.Element {
         window.location.href = `/jobs/${latestJob.id}`
         return
       }
-      setPrompt(session.lastPrompt || session.title)
+      handlePromptChange(session.lastPrompt || session.title)
       setMode(session.mode)
       setResumeId(null)
     } catch (err) {
@@ -543,7 +613,7 @@ export default function HomePage(): React.JSX.Element {
           <span className="kbd">⌘K</span>
         </label>
 
-        <button className="side-new" type="button" onClick={() => setPrompt('')}>
+        <button className="side-new" type="button" onClick={() => handlePromptChange('')}>
           <span className="plus"><Icon name="plus" size={12} /></span>{t('newSession')}
         </button>
 
@@ -647,7 +717,7 @@ export default function HomePage(): React.JSX.Element {
                 {t('dynamicEncyclopediaMode')}
               </button>
             </div>
-            <button className="btn ghost sm" type="button" onClick={() => setPrompt('')}>
+            <button className="btn ghost sm" type="button" onClick={() => handlePromptChange('')}>
               {t('startWithYourDesign')}
             </button>
           </div>
@@ -659,7 +729,7 @@ export default function HomePage(): React.JSX.Element {
                 aria-label={t('designPrompt')}
                 placeholder={productMode === 'dynamic_encyclopedia_card' ? t('entryPromptPlaceholder') : t('describePromptPlaceholder')}
                 value={prompt}
-                onChange={event => setPrompt(event.target.value)}
+                onChange={event => handlePromptChange(event.target.value)}
                 rows={5}
               />
             </div>
@@ -970,11 +1040,33 @@ export default function HomePage(): React.JSX.Element {
                 </div>
               </DirectPillMenu>
 
-              <button className="tool send" type="button" data-testid="generate-button" aria-label={t('generateDesignVariations')} disabled={!canSubmit} onClick={() => void submit()}>
+              <button
+                className="tool send"
+                type="button"
+                data-testid="generate-button"
+                aria-label={productMode === 'dynamic_encyclopedia_card' && !entryGuidance ? t('runEntryGuidance') : t('generateDesignVariations')}
+                title={productMode === 'dynamic_encyclopedia_card' && !entryGuidance ? t('runEntryGuidance') : t('generateDesignVariations')}
+                disabled={!canSubmit}
+                onClick={() => void submit()}
+              >
                 {status === 'submitting' ? '...' : <Icon name="arrowUp" size={16} />}
               </button>
             </div>
           </div>
+
+          {productMode === 'dynamic_encyclopedia_card' ? (
+            <section className="dynamic-flow" data-testid="dynamic-encyclopedia-flow" aria-label={t('dynamicFlow')}>
+              {dynamicSteps.map((step, index) => (
+                <div key={step.id} className={`dynamic-flow-step ${step.state}`}>
+                  <span className="n">{index + 1}</span>
+                  <span>
+                    <strong>{step.label}</strong>
+                    <small>{step.detail}</small>
+                  </span>
+                </div>
+              ))}
+            </section>
+          ) : null}
 
           {productMode === 'dynamic_encyclopedia_card' && entryGuidance ? (
             <div className={`entry-guidance-card${entryGuidance.requiresConfirmation ? ' needs-confirmation' : ''}`} data-testid="entry-guidance-summary">
@@ -1068,7 +1160,7 @@ export default function HomePage(): React.JSX.Element {
                 <button
                   key={`${example}-${index}`}
                   type="button"
-                  onClick={() => setPrompt(example)}
+                  onClick={() => handlePromptChange(example)}
                   aria-hidden={index >= promptExamples.length || undefined}
                   tabIndex={index >= promptExamples.length ? -1 : undefined}
                 >
@@ -1116,7 +1208,7 @@ export default function HomePage(): React.JSX.Element {
           </div>
           <div className="inspire-grid">
             {promptExamples.map((example, index) => (
-              <button key={example} className="inspire-card" type="button" onClick={() => setPrompt(example)}>
+              <button key={example} className="inspire-card" type="button" onClick={() => handlePromptChange(example)}>
                 <span className="num">0{index + 1}</span>
                 <strong>{example.split(':')[0]}</strong>
                 <span className="chip tag info">{String(index + 1).padStart(2, '0')}</span>
@@ -1506,4 +1598,10 @@ function writeTemplateRecent(ids: string[]): Array<{ id: string; ts: number }> {
     // best-effort
   }
   return trimmed
+}
+
+function sameStringSet(left: string[] | undefined, right: string[] | undefined): boolean {
+  const a = [...new Set(left ?? [])].sort()
+  const b = [...new Set(right ?? [])].sort()
+  return a.length === b.length && a.every((value, index) => value === b[index])
 }

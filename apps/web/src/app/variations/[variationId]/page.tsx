@@ -8,6 +8,7 @@ import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
+import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'circle' | 'arrow' | 'pen' | 'text'
@@ -750,8 +751,8 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
                 {selectedArtifactQuality && selectedArtifactQuality.status !== 'pass' ? (
                   <div className={`var-quality ${selectedArtifactQuality.status}`} data-testid="artifact-quality-summary" style={{ borderRadius: 'var(--radius)' }}>
-                    <strong>{selectedArtifactQuality.status === 'fail' ? t('qualityFailed') : t('qualityWarn')}</strong>
-                    <span>{selectedArtifactQuality.issues[0] ?? 'Generated artifact needs attention.'}</span>
+                    <strong>{selectedArtifactQuality.status === 'fail' ? t('qualityFailed') : isInfrastructureQualityWarning(selectedArtifactQuality.issues[0]) ? t('qualityNotice') : t('qualityWarn')}</strong>
+                    <span>{formatQualityIssue(selectedArtifactQuality.issues[0])}</span>
                   </div>
                 ) : null}
 

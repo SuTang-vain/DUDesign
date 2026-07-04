@@ -113,12 +113,18 @@ const templatePacks: Record<string, { name: string; desc: string }> = {
   dtp_dynamic_encyclopedia_card: { name: '动态百科词条卡片', desc: '用于紧凑知识词条、实体事实与移动端 iframe 嵌入的交互式百科卡片模版包。' },
   dtp_dynamic_encyclopedia_summary_card: { name: '动态百科·摘要卡', desc: '用于核心实体事实、简短摘要与关键指标的子模版。' },
   dtp_dynamic_encyclopedia_timeline_card: { name: '动态百科·时间线卡', desc: '用于人物传记、历史、发布时间线与阶段性发展的子模版。' },
+  dtp_dynamic_encyclopedia_relation_card: { name: '动态百科·关系图谱卡', desc: '用于相关实体、人物关系、作品关联与轻量本地关系图谱的子模版。' },
+  dtp_dynamic_encyclopedia_compare_card: { name: '动态百科·对比辨析卡', desc: '用于概念辨析、产品规格、版本差异和横向事实比较的子模版。' },
+  dtp_dynamic_encyclopedia_expandable_card: { name: '动态百科·可展开事实卡', desc: '用于长事实、分层说明、来源注释和渐进展开阅读的子模版。' },
 }
 
 /** 官方交互范式中文名/描述(按稳定 ID)。 */
 const interactionParadigms: Record<string, { name: string; desc: string }> = {
   ip_entity_summary: { name: '实体摘要', desc: '以事实为先的紧凑结构，呈现身份、定义、别名、指标与必要背景。' },
   ip_timeline_story: { name: '时间线叙事', desc: '按时间顺序组织生平阶段、发行历史、企业发展、事件或作品演进。' },
+  ip_relation_map: { name: '关系图谱', desc: '围绕当前实体展示相关人物、作品、组织、角色与概念连接。' },
+  ip_fact_compare: { name: '事实对比', desc: '用于概念辨析、规格差异、版本对照和并列事实比较。' },
+  ip_expandable_facts: { name: '可展开事实', desc: '用于长事实、章节化说明、来源注释和渐进披露。' },
 }
 
 /** 官方 safe skill 中文名/描述/规则/负向约束/质量检查(按 skill 稳定 ID)。 */
