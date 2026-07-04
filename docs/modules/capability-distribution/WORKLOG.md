@@ -1302,3 +1302,42 @@
 ### 验证
 
 - `node --test apps/api/dist/mock-flow.test.js`
+
+## 2026-07-03 CAP-M8.6 Dynamic Encyclopedia Parent/Child Template Pack
+
+### 已完成
+
+- 将 `dtp_dynamic_encyclopedia_card` 固化为动态百科父模板包：
+  - `templateRole = parent_pack`
+  - `supportedProductModes = ['dynamic_encyclopedia_card']`
+  - `supportedEntryCategories = ['encyclopedia']`
+  - 保留 PC `788x492`、WISE `380x456`、iframe/touch/scroll、交付安全约束。
+- `DesignTemplatePack` 父子关系字段已作为契约事实使用：
+  - `parentPackId`
+  - `templateRole`
+  - `supportedProductModes`
+  - `supportedEntryCategories`
+- 删除/避免 pack 侧 `supportedInteractionParadigms`，以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源。
+- 注册首批 5 个动态百科子模板，并与父包 `packageChildren` 声明对齐：
+  - `dtp_dynamic_encyclopedia_summary_card`
+  - `dtp_dynamic_encyclopedia_timeline_card`
+  - `dtp_dynamic_encyclopedia_relation_card`
+  - `dtp_dynamic_encyclopedia_compare_card`
+  - `dtp_dynamic_encyclopedia_expandable_card`
+- 扩展 `InteractionParadigm`：
+  - `ip_entity_summary`
+  - `ip_timeline_story`
+  - `ip_relation_map`
+  - `ip_fact_compare`
+  - `ip_expandable_facts`
+- guidance 推荐逻辑从摘要/时间线二选一升级为按词条类别和 democase 信号推荐 1-3 个动态百科子模板。
+- 用户端 capability i18n 增加新增模板和交互范式中文名/描述。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 将 `dynamicEncyclopediaRuleTemplateIds` 从硬编码规则迁移到真实分类体系/模板适配表。
+- 补 API smoke：关系图谱卡、对比辨析卡、可展开事实卡分别被 guidance 推荐并进入 job snapshot。

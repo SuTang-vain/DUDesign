@@ -1182,7 +1182,9 @@ export class ApplicationService {
       throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
     }
     const artifact = snapshot.artifact
-    if (!artifact) return renderMockVariationHtml(variation, null)
+    if (!artifact) {
+      throw createHttpError(404, 'ARTIFACT_NOT_FOUND', 'Variation does not have a preview artifact yet.')
+    }
     if (artifact.kind !== 'html') {
       throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation preview can only be read from HTML artifacts.')
     }
@@ -2226,15 +2228,13 @@ export class ApplicationService {
     const templates = await this.store.listDesignTemplatePacks(userId, guidance.workspaceId)
     return guidance.recommendedTemplateIds.map((templateId, index) => {
       const template = templates.find(candidate => candidate.id === templateId)
-      const isTimeline = templateId.includes('timeline')
+      const recommendation = dynamicEncyclopediaTemplateRecommendation(templateId, `${guidance.primaryCategory} ${guidance.secondaryCategory}`)
       return {
         designTemplatePackId: templateId,
         name: template?.name ?? templateId,
         interactionParadigmId: interactionParadigmIdForTemplatePack(templateId) ?? guidance.interactionParadigmId,
-        reason: isTimeline
-          ? '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。'
-          : '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
-        confidence: isTimeline ? 0.82 : 0.86,
+        reason: recommendation.reason,
+        confidence: recommendation.confidence,
         selected: guidance.selectedTemplateIds.includes(templateId) || (guidance.selectedTemplateIds.length === 0 && index === 0),
       }
     })
@@ -2250,16 +2250,7 @@ export class ApplicationService {
   ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
     const categoryText = `${primaryCategory} ${secondaryCategory}`
     const democasePreferredIds = democaseMatches.flatMap(match => match.preferredTemplateIds)
-    const rulePreferredIds = categoryText.includes('历史')
-      || categoryText.includes('影视')
-      || categoryText.includes('文学')
-      || categoryText.includes('游戏')
-      || categoryText.includes('事件')
-      || categoryText.includes('时间')
-      ? ['dtp_dynamic_encyclopedia_timeline_card', 'dtp_dynamic_encyclopedia_summary_card']
-      : categoryText.includes('企业') || categoryText.includes('机构')
-        ? ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card']
-        : ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card']
+    const rulePreferredIds = dynamicEncyclopediaRuleTemplateIds(categoryText)
     const preferredIds = [...new Set([...democasePreferredIds, ...rulePreferredIds])]
     const templates = await this.store.listDesignTemplatePacks(userId, workspaceId)
     const results: EncyclopediaEntryGuidanceResponse['recommendedTemplates'] = []
@@ -2267,17 +2258,13 @@ export class ApplicationService {
     for (const templateId of preferredIds) {
       const template = templates.find(candidate => candidate.id === templateId)
       if (!template) continue
-      const isTimeline = template.id.includes('timeline')
+      const recommendation = dynamicEncyclopediaTemplateRecommendation(template.id, categoryText)
       results.push({
         designTemplatePackId: template.id,
         name: template.name,
         interactionParadigmId: interactionParadigmIdForTemplatePack(template.id) ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory),
-        reason: isTimeline
-          ? '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。'
-          : '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
-        confidence: isTimeline
-          ? categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('游戏') || categoryText.includes('企业') ? 0.82 : 0.68
-          : 0.86,
+        reason: recommendation.reason,
+        confidence: recommendation.confidence,
         selected: results.length < maxTemplateRecommendations,
       })
       if (results.length >= maxTemplateRecommendations) break
@@ -4133,14 +4120,88 @@ function normalizeGuidanceClassificationOverride(input: unknown): {
 
 function recommendedInteractionParadigmId(primaryCategory: string, secondaryCategory: string): string {
   const categoryText = `${primaryCategory} ${secondaryCategory}`
-  return categoryText.includes('历史')
+  if (categoryText.includes('对比') || categoryText.includes('辨析') || categoryText.includes('产品') || categoryText.includes('设备')) {
+    return 'ip_fact_compare'
+  }
+  if (categoryText.includes('历史')
     || categoryText.includes('影视')
     || categoryText.includes('文学')
     || categoryText.includes('游戏')
     || categoryText.includes('事件')
-    || categoryText.includes('时间')
-    ? 'ip_timeline_story'
-    : 'ip_entity_summary'
+    || categoryText.includes('时间')) {
+    return 'ip_timeline_story'
+  }
+  if (categoryText.includes('关系') || categoryText.includes('角色') || categoryText.includes('组织')) {
+    return 'ip_relation_map'
+  }
+  return 'ip_entity_summary'
+}
+
+function dynamicEncyclopediaRuleTemplateIds(categoryText: string): string[] {
+  if (categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('事件') || categoryText.includes('时间')) {
+    return [
+      'dtp_dynamic_encyclopedia_timeline_card',
+      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_dynamic_encyclopedia_relation_card',
+    ]
+  }
+  if (categoryText.includes('产品') || categoryText.includes('设备') || categoryText.includes('对比') || categoryText.includes('辨析')) {
+    return [
+      'dtp_dynamic_encyclopedia_compare_card',
+      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_dynamic_encyclopedia_expandable_card',
+    ]
+  }
+  if (categoryText.includes('知识') || categoryText.includes('术语') || categoryText.includes('概念')) {
+    return [
+      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_dynamic_encyclopedia_compare_card',
+      'dtp_dynamic_encyclopedia_expandable_card',
+    ]
+  }
+  if (categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('学校')) {
+    return [
+      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_dynamic_encyclopedia_timeline_card',
+      'dtp_dynamic_encyclopedia_relation_card',
+    ]
+  }
+  return [
+    'dtp_dynamic_encyclopedia_summary_card',
+    'dtp_dynamic_encyclopedia_timeline_card',
+    'dtp_dynamic_encyclopedia_expandable_card',
+  ]
+}
+
+function dynamicEncyclopediaTemplateRecommendation(templatePackId: string, categoryText: string): { reason: string; confidence: number } {
+  if (templatePackId.includes('timeline')) {
+    return {
+      reason: '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。',
+      confidence: categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('企业') ? 0.82 : 0.68,
+    }
+  }
+  if (templatePackId.includes('relation')) {
+    return {
+      reason: '词条包含人物、组织、作品、角色或概念之间的连接关系，适合用轻量关系图谱组织。',
+      confidence: categoryText.includes('人物') || categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('游戏') || categoryText.includes('作品') ? 0.78 : 0.66,
+    }
+  }
+  if (templatePackId.includes('compare')) {
+    return {
+      reason: '词条存在概念辨析、规格差异或横向比较需求，适合用对比辨析结构。',
+      confidence: categoryText.includes('知识') || categoryText.includes('术语') || categoryText.includes('产品') || categoryText.includes('设备') ? 0.8 : 0.64,
+    }
+  }
+  if (templatePackId.includes('expandable')) {
+    return {
+      reason: '词条内容层级较多或细节较长，适合用可展开事实区做渐进披露。',
+      confidence: categoryText.includes('知识') || categoryText.includes('文学') || categoryText.includes('影视') || categoryText.includes('历史') ? 0.76 : 0.62,
+    }
+  }
+  return {
+    reason: '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
+    confidence: 0.86,
+  }
 }
 
 function interactionParadigmIdForTemplatePack(templatePackId: string): string | null {

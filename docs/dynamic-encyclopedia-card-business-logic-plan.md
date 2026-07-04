@@ -300,7 +300,7 @@ POST /api/encyclopedia/entry-guidance
 
 ### 6.2 子模板
 
-当前 `DesignTemplatePack` 尚未结构化表达父子关系。建议新增字段：
+当前 `DesignTemplatePack` 已结构化表达父子关系。字段如下：
 
 ```ts
 type DesignTemplatePack = {
@@ -308,9 +308,10 @@ type DesignTemplatePack = {
   templateRole?: 'parent_pack' | 'child_template'
   supportedProductModes?: ProductMode[]
   supportedEntryCategories?: string[]
-  supportedInteractionParadigms?: string[]
 }
 ```
+
+交互范式关联不写入模板包字段；以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源，反向查询由服务层派生。
 
 首批建议子模板：
 
@@ -854,4 +855,3 @@ Phase 2 落地前置条件（需单独设计）：
 - 更新 `docs/modules/runtime-compatibility/TODO.md`。
 - 更新 `docs/modules/admin-console/TODO.md`。
 - 在相关 `WORKLOG.md` 中记录本次规划决策。
-

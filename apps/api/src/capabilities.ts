@@ -269,6 +269,36 @@ const interactionParadigms: InteractionParadigm[] = [
     requiredDataShape: ['dated or ordered events', 'phase labels', 'short event descriptions'],
     compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
   },
+  {
+    id: 'ip_relation_map',
+    name: 'Relation Map',
+    category: 'encyclopedia',
+    description: 'A local relationship interaction for connected entities, roles, works, organizations, and related concepts.',
+    bestFor: ['名人', '历史人物', '企业', '机构组织', '影视作品', '文学著作', '游戏'],
+    avoidFor: ['entries with no related entities or relationship context'],
+    requiredDataShape: ['current entity', 'related entities', 'relationship labels', 'short relation notes'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_relation_card'],
+  },
+  {
+    id: 'ip_fact_compare',
+    name: 'Fact Compare',
+    category: 'encyclopedia',
+    description: 'A comparison interaction for disambiguation, specs, editions, concept differences, or side-by-side facts.',
+    bestFor: ['知识术语', '物品产品', '产品设备', '企业', '学校', '游戏'],
+    avoidFor: ['entries without comparable facts or dimensions'],
+    requiredDataShape: ['comparison targets', 'fact dimensions', 'short values', 'difference notes'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_compare_card'],
+  },
+  {
+    id: 'ip_expandable_facts',
+    name: 'Expandable Facts',
+    category: 'encyclopedia',
+    description: 'A progressive disclosure interaction for long facts, sections, caveats, and layered explanations.',
+    bestFor: ['知识术语', '历史人物', '影视作品', '文学著作', '文化活动', '机构组织'],
+    avoidFor: ['entries that fit in a short summary without layered sections'],
+    requiredDataShape: ['section titles', 'short summaries', 'expanded details', 'source notes'],
+    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_expandable_card'],
+  },
 ]
 
 export const DYNAMIC_ENCYCLOPEDIA_PRESET = {

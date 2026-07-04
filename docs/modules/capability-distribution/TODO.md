@@ -201,16 +201,16 @@
 > 实现前需钉死的决策见该文档第 12 节；以下任务已对齐 12.1–12.6。
 
 - [x] 定义 `ProductMode = web_app | dynamic_encyclopedia_card` 与 Capability Preset 的关系，明确不替代 `sourceMode`（12.4：`productMode` 作为 `DesignJob` 顶层字段，不进 `templateRequirements`，由 application-service 落地）。
-- [ ] 将“动态百科词条卡片”建模为父模板包，保留固定 viewport、iframe、touch/scroll、交付安全约束。
-- [ ] 为 `DesignTemplatePack` 增加父子关系字段：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`（12.6：删除 `supportedInteractionParadigms`，交互范式关联以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源，反向查询由服务层派生）。
-- [ ] 注册首批动态百科子模板，对齐父包 `packageChildren` 声明（12.5）：
-  - [ ] 摘要事实卡 `dtp_dynamic_encyclopedia_summary_card`。
-  - [ ] 时间线叙事卡 `dtp_dynamic_encyclopedia_timeline_card`。
-  - [ ] 关系图谱卡 `dtp_dynamic_encyclopedia_relation_card`。
-  - [ ] 对比辨析卡 `dtp_dynamic_encyclopedia_compare_card`。
-  - [ ] 可展开事实卡 `dtp_dynamic_encyclopedia_expandable_card`。
+- [x] 将“动态百科词条卡片”建模为父模板包，保留固定 viewport、iframe、touch/scroll、交付安全约束。
+- [x] 为 `DesignTemplatePack` 增加父子关系字段：`parentPackId`、`templateRole`、`supportedProductModes`、`supportedEntryCategories`（12.6：删除 `supportedInteractionParadigms`，交互范式关联以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源，反向查询由服务层派生）。
+- [x] 注册首批动态百科子模板，对齐父包 `packageChildren` 声明（12.5）：
+  - [x] 摘要事实卡 `dtp_dynamic_encyclopedia_summary_card`。
+  - [x] 时间线叙事卡 `dtp_dynamic_encyclopedia_timeline_card`。
+  - [x] 关系图谱卡 `dtp_dynamic_encyclopedia_relation_card`。
+  - [x] 对比辨析卡 `dtp_dynamic_encyclopedia_compare_card`。
+  - [x] 可展开事实卡 `dtp_dynamic_encyclopedia_expandable_card`。
 - [ ] 下一批扩展：探索互动卡 `dtp_dynamic_encyclopedia_explore_card`（12.5：不在首批，若提前须同步更新父包 `packageChildren` 文案）。
-- [ ] 建模 `InteractionParadigm`，`compatibleTemplatePackIds` 为唯一事实来源，避免把交互范式和视觉模板包混在同一个字段。
+- [x] 建模 `InteractionParadigm`，`compatibleTemplatePackIds` 为唯一事实来源，避免把交互范式和视觉模板包混在同一个字段。
 - [ ] 注册词条引导插件三件（12.6），沿用 `plug_` / `sk_` / `mcp_` 三段命名：
   - [ ] `plug_encyclopedia_entry_guidance`（CapabilityPlugin）。
   - [ ] `sk_encyclopedia_entry_guidance`（DesignSkill，`pluginId` 指向 plug）。

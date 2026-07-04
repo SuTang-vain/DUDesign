@@ -28,9 +28,37 @@ ENV NODE_ENV=production
 COPY --from=build /app ./
 RUN mkdir -p /app/.dudesign/artifacts
 
+FROM runtime AS runtime-chromium
+ARG APT_MIRROR=
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s#http://deb.debian.org/debian#$APT_MIRROR#g; s#http://security.debian.org/debian-security#$APT_MIRROR-security#g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+      chromium \
+      fonts-liberation \
+      fonts-noto-color-emoji \
+      fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM mcr.microsoft.com/playwright:v1.61.1-noble AS runtime-playwright
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app ./
+RUN mkdir -p /app/.dudesign/artifacts
+
 FROM runtime AS api
 ARG INSTALL_PLAYWRIGHT_DEPS=false
 RUN if [ "$INSTALL_PLAYWRIGHT_DEPS" = "true" ]; then npx playwright install --with-deps chromium; fi
+EXPOSE 4000
+CMD ["npm", "--workspace", "@dudesign/api", "run", "start"]
+
+FROM runtime-playwright AS api-playwright
+EXPOSE 4000
+CMD ["npm", "--workspace", "@dudesign/api", "run", "start"]
+
+FROM runtime-chromium AS api-system-chromium
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 EXPOSE 4000
 CMD ["npm", "--workspace", "@dudesign/api", "run", "start"]
 

@@ -18,9 +18,10 @@ services:
     build:
       context: ../..
       dockerfile: deploy/staging/Dockerfile
-      target: api
+      target: ${API_IMAGE_TARGET:-api}
       args:
         INSTALL_PLAYWRIGHT_DEPS: ${INSTALL_PLAYWRIGHT_DEPS:-false}
+        APT_MIRROR: ${APT_MIRROR:-}
     restart: unless-stopped
     depends_on:
       postgres:

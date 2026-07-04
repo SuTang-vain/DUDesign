@@ -7,8 +7,12 @@ let browserPromise: Promise<BrowserLike> | null = null
 
 export async function getPooledChromiumBrowser(): Promise<BrowserLike> {
   if (!browserPromise) {
+    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim()
     browserPromise = import('playwright')
-      .then(({ chromium }) => chromium.launch({ headless: true }))
+      .then(({ chromium }) => chromium.launch({
+        headless: true,
+        ...(executablePath ? { executablePath } : {}),
+      }))
       .catch(error => {
         browserPromise = null
         throw error

@@ -80,11 +80,20 @@ describe('capability plugin registry', () => {
     const capabilities = listCapabilities()
     const summary = capabilities.interactionParadigms.find(item => item.id === 'ip_entity_summary')
     const timeline = capabilities.interactionParadigms.find(item => item.id === 'ip_timeline_story')
+    const relation = capabilities.interactionParadigms.find(item => item.id === 'ip_relation_map')
+    const compare = capabilities.interactionParadigms.find(item => item.id === 'ip_fact_compare')
+    const expandable = capabilities.interactionParadigms.find(item => item.id === 'ip_expandable_facts')
 
     assert.equal(summary?.category, 'encyclopedia')
     assert.deepEqual(summary?.compatibleTemplatePackIds, ['dtp_dynamic_encyclopedia_summary_card'])
     assert.equal(timeline?.category, 'encyclopedia')
     assert.deepEqual(timeline?.compatibleTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
+    assert.equal(relation?.category, 'encyclopedia')
+    assert.deepEqual(relation?.compatibleTemplatePackIds, ['dtp_dynamic_encyclopedia_relation_card'])
+    assert.equal(compare?.category, 'encyclopedia')
+    assert.deepEqual(compare?.compatibleTemplatePackIds, ['dtp_dynamic_encyclopedia_compare_card'])
+    assert.equal(expandable?.category, 'encyclopedia')
+    assert.deepEqual(expandable?.compatibleTemplatePackIds, ['dtp_dynamic_encyclopedia_expandable_card'])
   })
 
   it('snapshots selected skills and MCP bindings into a stable plugin profile', () => {

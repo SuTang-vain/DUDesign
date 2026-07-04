@@ -361,6 +361,16 @@ Reusable smoke test template.
   assert.equal(timelineDemocaseGuidance.interactionParadigm.id, 'ip_timeline_story')
   assert.equal(timelineDemocaseGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_timeline_card')
 
+  const compareGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '大语言模型和搜索引擎的概念区别、技术定义与适用场景对比',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(compareGuidance.interactionParadigm.id, 'ip_fact_compare')
+  assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_compare_card'))
+  assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_expandable_card'))
+
   const confirmedEntryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
     `/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}/confirm`,
     {

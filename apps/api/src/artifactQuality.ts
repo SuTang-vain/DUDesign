@@ -60,9 +60,17 @@ export async function analyzeHtmlArtifactQualityWithPixelGate(
   } catch (error) {
     return mergeQualityReports(base, {
       status: 'warn',
-      issues: [`Pixel quality gate could not run: ${error instanceof Error ? error.message : 'unknown error'}.`],
+      issues: [`Pixel quality gate could not run: ${pixelGateErrorMessage(error)}.`],
     })
   }
+}
+
+function pixelGateErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'unknown error'
+  if (/Executable doesn't exist/i.test(message) && /ms-playwright|playwright install/i.test(message)) {
+    return 'Playwright browser is not installed in this environment; rendered screenshot checks are disabled'
+  }
+  return message.split('\n')[0] ?? 'unknown error'
 }
 
 async function analyzeRenderedPixelIssues(html: string, timeoutMs = 6000): Promise<string[]> {

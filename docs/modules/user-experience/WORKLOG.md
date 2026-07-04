@@ -1469,3 +1469,28 @@
 
 - 增加 UI 说明：当前修复已排队，用户仍可进入 Manual edit。
 - 结构化 spec findings 接入后，将面板从单条 quality issue 升级为 findings 列表。
+
+## 2026-07-03 UX-M33 Dynamic Encyclopedia Flow Closure
+
+### 已完成
+
+- 首页动态百科模式新增流程条，将用户路径串成：
+  - 词条引导。
+  - 模板确认。
+  - 自动审查。
+  - 生成预览。
+- 动态百科提交改为两阶段：
+  - 第一次提交只调用 entry guidance，返回分类、democase、推荐模板和插件/loop 配置。
+  - 用户确认或调整模板/分类后，第二次提交才创建 design job。
+- prompt、示例卡片和新建会话入口都会清空旧 guidance，避免新词条复用旧词条推荐。
+- 生成按钮根据当前阶段切换为“分析词条引导”或“生成设计变体”的可访问标签。
+- Playwright 浏览器缺失导致 pixel quality gate 无法运行时，用户端不再展示原始堆栈，改为“视觉检查未启用”的可理解提示。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+
+### 后续建议
+
+- 为动态百科两阶段首页流程补 Playwright E2E：首次点击停留在首页、展示流程条 done/active 状态，二次点击创建 job。
+- 将自动审查状态接入结构化 spec findings，展示规则、严重级别、建议修复和半自动 diff。

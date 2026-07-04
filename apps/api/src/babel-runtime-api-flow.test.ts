@@ -35,6 +35,7 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
   let maxActiveStreams = 0
   let unsafeBundle = false
   let qualityShell = false
+  let runtimeStreamError = false
   let sessionCreateCount = 0
   let resumeMode: 'resumed' | 'fail_then_rebuild' = 'resumed'
   const refineBodies: unknown[] = []
@@ -107,6 +108,16 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
                   inputTokens: 50,
                   outputTokens: 120,
                   costCents: 1,
+                }),
+              ].join('\n') + '\n')
+            }
+            if (runtimeStreamError) {
+              return streamResponse([
+                JSON.stringify({ type: 'assistant_delta', delta: `Streaming ${streamId}` }),
+                JSON.stringify({
+                  type: 'error',
+                  code: 'SYNTHETIC_RUNTIME_FAILURE',
+                  message: 'Synthetic runtime failure before writing index.html.',
                 }),
               ].join('\n') + '\n')
             }
@@ -253,6 +264,38 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     const escapeAttempt = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/assets/%5C..%5Cstyles.css`)
     assert.equal(escapeAttempt.status, 400)
     assert.equal(maxActiveStreams, 2)
+  })
+
+  it('does not serve mock preview HTML for failed runtime variations without artifacts', async () => {
+    runtimeStreamError = true
+    try {
+      const bootstrap = await getJson<{ workspace: { id: string } }>('/api/dev/bootstrap')
+      const createdSession = await postJson<CreateSessionResponse>('/api/sessions', {
+        workspaceId: bootstrap.workspace.id,
+        title: 'BabeL-O failed preview smoke',
+      })
+      const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+        sessionId: createdSession.session.id,
+        prompt: 'A runtime task that fails before artifact creation',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        templateRequirements: {},
+      })
+
+      const jobSnapshot = await waitForJob(createdJob.job.id)
+      const variation = jobSnapshot.variations[0]!
+      assert.equal(jobSnapshot.job.status, 'failed')
+      assert.equal(variation.status, 'failed')
+      assert.equal(jobSnapshot.artifacts.length, 0)
+
+      const preview = await fetch(`${harness.baseUrl}/api/variations/${variation.id}/preview`)
+      assert.equal(preview.status, 404)
+      const body = await preview.text()
+      assert.doesNotMatch(body, /Mock preview/)
+      assert.match(body, /ARTIFACT_NOT_FOUND|preview artifact/)
+    } finally {
+      runtimeStreamError = false
+    }
   })
 
   it('passes current artifact html and annotation suffix to mocked BabeL-O refine', async () => {

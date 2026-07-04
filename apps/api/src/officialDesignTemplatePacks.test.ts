@@ -60,6 +60,9 @@ describe('officialDesignTemplatePacks', () => {
   it('includes a dynamic encyclopedia card template package with fixed viewport constraints', () => {
     const pack = officialDesignTemplatePacks.find(item => item.id === 'dtp_dynamic_encyclopedia_card')
     assert.ok(pack)
+    assert.equal(pack.templateRole, 'parent_pack')
+    assert.deepEqual(pack.supportedProductModes, ['dynamic_encyclopedia_card'])
+    assert.deepEqual(pack.supportedEntryCategories, ['encyclopedia'])
     assert.equal(pack.designTokens.colors.primary, '#6487FA')
     assert.equal(pack.designTokens.components['pc-card-frame']?.width, 788)
     assert.equal(pack.designTokens.components['pc-card-frame']?.height, 492)
@@ -67,6 +70,11 @@ describe('officialDesignTemplatePacks', () => {
     assert.equal(pack.designTokens.components['wise-standard-frame']?.height, 456)
     assert.match(pack.rationale.sections.sizing ?? '', /788x492/)
     assert.match(pack.rationale.sections.iframeTouch ?? '', /touchmove/)
+    assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_summary_card/)
+    assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_timeline_card/)
+    assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_relation_card/)
+    assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_compare_card/)
+    assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_expandable_card/)
     assert.ok(pack.rationale.donts.some(rule => /touch-action: none/i.test(rule)))
   })
 
@@ -74,6 +82,9 @@ describe('officialDesignTemplatePacks', () => {
     const childIds = [
       'dtp_dynamic_encyclopedia_summary_card',
       'dtp_dynamic_encyclopedia_timeline_card',
+      'dtp_dynamic_encyclopedia_relation_card',
+      'dtp_dynamic_encyclopedia_compare_card',
+      'dtp_dynamic_encyclopedia_expandable_card',
     ]
 
     for (const childId of childIds) {
@@ -82,9 +93,14 @@ describe('officialDesignTemplatePacks', () => {
       assert.equal(pack.parentPackId, 'dtp_dynamic_encyclopedia_card')
       assert.equal(pack.templateRole, 'child_template')
       assert.deepEqual(pack.supportedProductModes, ['dynamic_encyclopedia_card'])
+      assert.ok((pack.supportedEntryCategories ?? []).length > 0)
       assert.equal(pack.designTokens.components['pc-card-frame']?.width, 788)
+      assert.equal(pack.designTokens.components['pc-card-frame']?.height, 492)
       assert.equal(pack.designTokens.components['wise-standard-frame']?.width, 380)
+      assert.equal(pack.designTokens.components['wise-standard-frame']?.height, 456)
+      assert.equal(pack.designTokens.components['scroll-container']?.overflowY, 'auto')
       assert.match(pack.rationale.sections.parentPack ?? '', /dtp_dynamic_encyclopedia_card/)
+      assert.equal('supportedInteractionParadigms' in pack, false)
     }
   })
 })
