@@ -6,8 +6,9 @@ base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
 agent_reach_port="${DUDESIGN_STAGING_AGENT_REACH_MCP_PORT:-4520}"
 agent_reach_query="${DUDESIGN_STAGING_AGENT_REACH_QUERY:-dynamic encyclopedia card iframe interaction references}"
 agent_reach_search_command="${DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND:-}"
+agent_reach_mcporter_config="${DUDESIGN_STAGING_AGENT_REACH_MCPORTER_CONFIG:-}"
 
-ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_MCP_PORT=$(printf '%q' "$agent_reach_port") AGENT_REACH_QUERY=$(printf '%q' "$agent_reach_query") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_MCP_PORT=$(printf '%q' "$agent_reach_port") AGENT_REACH_QUERY=$(printf '%q' "$agent_reach_query") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") AGENT_REACH_MCPORTER_CONFIG=$(printf '%q' "$agent_reach_mcporter_config") bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
@@ -20,6 +21,14 @@ fi
 if ! command -v mcporter >/dev/null 2>&1 && [ -z "${AGENT_REACH_SEARCH_COMMAND:-}" ]; then
   echo 'agent-reach-smoke:mcporter is required unless AGENT_REACH_SEARCH_COMMAND is set' >&2
   exit 1
+fi
+
+if [ -z "${AGENT_REACH_SEARCH_COMMAND:-}" ] && [ -z "${AGENT_REACH_MCPORTER_CONFIG:-}" ]; then
+  if [ -f "$HOME/config/mcporter.json" ]; then
+    AGENT_REACH_MCPORTER_CONFIG="$HOME/config/mcporter.json"
+  elif [ -f "$HOME/.mcporter/mcporter.json" ]; then
+    AGENT_REACH_MCPORTER_CONFIG="$HOME/.mcporter/mcporter.json"
+  fi
 fi
 
 compose_profile_args=''
@@ -42,7 +51,7 @@ trap cleanup EXIT
 
 cp deploy/staging/.env /tmp/dudesign-agent-reach.env.backup
 
-AGENT_REACH_MCP_PORT="$AGENT_REACH_MCP_PORT" python3 deploy/staging/scripts/agent-reach-mcp-adapter.py &
+AGENT_REACH_MCP_PORT="$AGENT_REACH_MCP_PORT" AGENT_REACH_MCPORTER_CONFIG="${AGENT_REACH_MCPORTER_CONFIG:-}" python3 deploy/staging/scripts/agent-reach-mcp-adapter.py &
 AGENT_REACH_ADAPTER_PID=$!
 sleep 1
 

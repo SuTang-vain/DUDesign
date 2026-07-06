@@ -4,8 +4,9 @@ set -euo pipefail
 remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
 base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
 agent_reach_search_command="${DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND:-}"
+agent_reach_mcporter_config="${DUDESIGN_STAGING_AGENT_REACH_MCPORTER_CONFIG:-}"
 
-ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") AGENT_REACH_MCPORTER_CONFIG=$(printf '%q' "$agent_reach_mcporter_config") bash -s" <<'REMOTE'
 set -euo pipefail
 
 current="$BASE_DIR/dudesign/current"
@@ -43,6 +44,20 @@ echo "agent-reach-preflight:smoke-present"
 
 if command -v mcporter >/dev/null 2>&1; then
   echo "agent-reach-preflight:mcporter $(command -v mcporter)"
+  if [ -z "${AGENT_REACH_MCPORTER_CONFIG:-}" ]; then
+    if [ -f "$HOME/config/mcporter.json" ]; then
+      AGENT_REACH_MCPORTER_CONFIG="$HOME/config/mcporter.json"
+    elif [ -f "$HOME/.mcporter/mcporter.json" ]; then
+      AGENT_REACH_MCPORTER_CONFIG="$HOME/.mcporter/mcporter.json"
+    fi
+  fi
+  if [ -n "${AGENT_REACH_MCPORTER_CONFIG:-}" ]; then
+    if [ ! -f "$AGENT_REACH_MCPORTER_CONFIG" ]; then
+      echo "agent-reach-preflight:missing mcporter config $AGENT_REACH_MCPORTER_CONFIG" >&2
+      exit 3
+    fi
+    echo "agent-reach-preflight:mcporter-config $AGENT_REACH_MCPORTER_CONFIG"
+  fi
 elif [ -n "${AGENT_REACH_SEARCH_COMMAND:-}" ]; then
   echo "agent-reach-preflight:custom-search-command"
 else

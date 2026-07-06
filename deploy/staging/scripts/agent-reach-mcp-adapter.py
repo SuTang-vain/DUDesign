@@ -84,8 +84,13 @@ def run_agent_reach_search(query: str, limit: int) -> tuple[str, Any]:
         raise RuntimeError("mcporter is required for Agent-Reach web search, or set AGENT_REACH_SEARCH_COMMAND.")
 
     expression = f"exa.web_search_exa(query: {json.dumps(query)}, numResults: {int(limit)})"
+    command = ["mcporter"]
+    mcporter_config = os.environ.get("AGENT_REACH_MCPORTER_CONFIG", "").strip()
+    if mcporter_config:
+        command.extend(["--config", mcporter_config])
+    command.extend(["call", expression])
     completed = subprocess.run(
-        ["mcporter", "call", expression],
+        command,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

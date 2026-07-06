@@ -1911,6 +1911,63 @@
 - 将 fixture command 替换为真实 Agent-Reach/mcporter command 后，重新运行 preflight + smoke。
 - 记录真实 provider payload schema，并按需调整 `agent-reach-mcp-adapter.py` 的 `collect_sources()`。
 
+## 2026-07-06 CAP-9.1 Real Agent-Reach Staging Install
+
+### 已完成
+
+- 在 staging 主机 `tyy` 安装 Agent-Reach 本体：
+  - 安装位置：`/home/ubuntu/.agent-reach-venv`
+  - 版本：`agent-reach 1.5.0`
+  - Skill 安装位置：`/home/ubuntu/.agents/skills/agent-reach`
+- 按官方安装指南补齐基础依赖：
+  - `python3.12-venv`
+  - `pipx`
+  - `nodejs`
+  - `npm`
+  - `mcporter`
+- 配置 Exa MCP：
+  - `mcporter config add exa https://mcp.exa.ai/mcp`
+  - 配置文件位置：`/home/ubuntu/config/mcporter.json`
+- `agent-reach doctor --json` 当前核心可用渠道：
+  - `exa_search`：ok，active backend 为 `Exa via mcporter`
+  - `web`：ok，active backend 为 `Jina Reader`
+  - `rss`：ok，active backend 为 `feedparser`
+  - `bilibili`：ok，active backend 为 `B站搜索 API`
+- `agent-reach check-update` 返回当前已是最新版本。
+
+### DUDesign 适配修复
+
+- `agent-reach-mcp-adapter.py` 支持 `AGENT_REACH_MCPORTER_CONFIG`：
+  - 当设置该变量时，adapter 调用 `mcporter --config <path> call ...`。
+  - 避免 `mcporter` 依赖当前 release 目录下的 `config/mcporter.json`。
+- `preflight-agent-reach-remote.sh` 自动探测：
+  - `$HOME/config/mcporter.json`
+  - `$HOME/.mcporter/mcporter.json`
+- `smoke-agent-reach-remote.sh` 启动 adapter 时注入探测到的 `AGENT_REACH_MCPORTER_CONFIG`。
+- `staging.env.example` 增加 `DUDESIGN_STAGING_AGENT_REACH_MCPORTER_CONFIG`。
+
+### 验证结果
+
+- 直接验证 `mcporter` + Exa：
+  - `mcporter call 'exa.web_search_exa(query: "DUDesign Agent-Reach smoke test", numResults: 1)'`
+  - 能返回真实搜索结果。
+- DUDesign preflight：
+  - `agent-reach-preflight:mcporter /usr/local/bin/mcporter`
+  - `agent-reach-preflight:mcporter-config /home/ubuntu/config/mcporter.json`
+  - `agent-reach-preflight:ready`
+- DUDesign real smoke：
+  - `deploy/staging/scripts/smoke-agent-reach-remote.sh`
+  - 输出 `agent-reach-smoke:completed`
+  - 真实链路为 `mcporter + Exa -> Agent-Reach MCP adapter -> DUDesign MCP execute -> research context artifact -> pinned job snapshot`。
+
+### 风险与后续关注
+
+- `npm install -g mcporter` 在 Ubuntu apt Node 18.19.1 上出现 engine warning：
+  - `mcporter@0.12.3` 声明需要 Node `>=24`
+  - 当前 smoke 实测可用，但中期建议把 staging Node 升级到 LTS/新版，避免后续 mcporter 更新后不兼容。
+- `preflight` 仍提示 `agent-reach-cli-not-installed`，因为 Agent-Reach 安装在 venv，不在默认 PATH；当前 DUDesign smoke 依赖 `mcporter + Exa`，不受影响。
+- 可选渠道如 Twitter、Reddit、小红书等仍需登录态、代理或额外后端，不纳入本次 DUDesign 网络检索 MVP 验收。
+
 ### 本轮补充
 
 - 新增 contracts：

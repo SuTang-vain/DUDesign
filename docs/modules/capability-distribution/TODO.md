@@ -255,7 +255,7 @@
 - [x] 增加真实 Agent-Reach staging preflight：检查远端脚本部署、Python、Docker、mcporter / `AGENT_REACH_SEARCH_COMMAND`。
 - [x] 在已部署 staging 上运行 Agent-Reach preflight，确认 DUDesign 脚本、Python、Docker 已就位，当前阻塞为检索后端未安装或未配置。
 - [x] 支持从本地 `DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND` 转发自定义检索命令到远端，并用 fixture 命令跑通 preflight + smoke。
-- [ ] 在安装 `mcporter` / Agent-Reach 的 staging 主机上运行真实 Agent-Reach smoke，并记录 provider result schema 差异。
+- [x] 在安装 `mcporter` / Agent-Reach 的 staging 主机上运行真实 Agent-Reach smoke，并记录 provider result schema 差异。
 
 验收：
 
