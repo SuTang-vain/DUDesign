@@ -229,12 +229,12 @@ export class ArkSeedreamImageMcpExecutor implements McpExecutor {
         signal: controller.signal,
       })
       if (!response.ok) {
-        return mcpUnavailableResult(request, `Ark Seedream image provider returned ${response.status}: ${await safeResponseText(response)}`, completedAt)
+        return arkSeedreamUnavailableResult(request, `Ark Seedream image provider returned ${response.status}: ${await safeResponseText(response)}`, completedAt)
       }
       const payload = await response.json() as unknown
       const imageUrl = arkImageUrl(payload)
       if (!imageUrl) {
-        return mcpUnavailableResult(request, 'Ark Seedream image provider returned no image URL.', completedAt)
+        return arkSeedreamUnavailableResult(request, 'Ark Seedream image provider returned no image URL.', completedAt)
       }
       const imageGeneration = imageGenerationArtifactFromProvider({
         provider: 'ark_seedream',
@@ -245,10 +245,24 @@ export class ArkSeedreamImageMcpExecutor implements McpExecutor {
       })
       return imageGenerationResult(request, imageGeneration, completedAt)
     } catch (error) {
-      return mcpUnavailableResult(request, error instanceof Error ? error.message : 'Ark Seedream image provider request failed.', completedAt)
+      return arkSeedreamUnavailableResult(request, error instanceof Error ? error.message : 'Ark Seedream image provider request failed.', completedAt)
     } finally {
       clearTimeout(timeout)
     }
+  }
+}
+
+function arkSeedreamUnavailableResult(request: McpInvocationRequest, message: string, completedAt: string): McpInvocationResult {
+  const result = mcpUnavailableResult(request, message, completedAt)
+  return {
+    ...result,
+    data: {
+      ...(result.data ?? {}),
+      mcpToolId: request.mcpToolId,
+      serverName: request.serverName,
+      toolName: request.toolName,
+      provider: 'ark_seedream',
+    },
   }
 }
 

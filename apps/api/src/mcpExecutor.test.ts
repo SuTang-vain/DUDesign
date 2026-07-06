@@ -283,6 +283,10 @@ describe('ArkSeedreamImageMcpExecutor', () => {
     assert.equal(result.status, 'unavailable')
     assert.equal(result.error?.code, 'MCP_UNAVAILABLE')
     assert.match(result.error?.message ?? '', /429/)
+    assert.equal(result.data?.serverName, 'image-generation')
+    assert.equal(result.data?.toolName, 'generateArkSeedreamImage')
+    assert.equal(result.data?.mcpToolId, 'mcp_image_generation_ark_seedream')
+    assert.equal(result.data?.provider, 'ark_seedream')
   })
 
   async function startServer(handler: http.RequestListener): Promise<string> {

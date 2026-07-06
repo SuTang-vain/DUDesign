@@ -2106,3 +2106,27 @@
 - 在具备 `ARK_API_KEY` 的 staging secret 环境运行：
   - `DUDESIGN_STAGING_ARK_REAL_SMOKE=1 deploy/staging/scripts/smoke-ark-image-remote.sh`
 - 若真实 provider 返回额外成本/用量字段，继续收敛到 `ImageGenerationArtifact.costCents`，不把原始 provider payload 暴露给前端或 runtime。
+
+## 2026-07-06 CAP-9.2 Image Provider Unavailable UX Mapping
+
+### 已完成
+
+- 前端 `toUserFacingError` 增加 MCP 上下文识别：
+  - `MCP_UNAVAILABLE + image-generation` 映射为 “Image generation temporarily unavailable”。
+  - action 固定为 “Continue without images”，强调可稍后重试或切换 provider。
+  - 非图片 MCP 继续使用通用 capability unavailable 文案，避免影响 Agent-Reach、质量检查等其他工具。
+- 新增 `mcpInvocationToUserError(result)` helper，供后续 Activity Stream、插件执行面板、toast 统一复用 MCP result 的用户文案。
+- API client 支持透传 error payload 中的 `context`/`data`，为 HTTP 错误场景保留同一套文案映射。
+- Ark Seedream provider unavailable 结果补充 `serverName`、`toolName`、`mcpToolId`、`provider`，但不泄露密钥或 provider 原始 payload。
+- 增加 web mapper 测试和 API Ark unavailable 上下文断言。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="ArkSeedream"`
+- `node --test apps/web/test/capability-errors.test.mjs`
+
+### 后续关注
+
+- 将 `mcpInvocationToUserError` 接入用户端 Activity Stream/插件执行结果 UI。
+- 为图片生成失败增加可操作按钮：继续无图、重试图片、切换 provider。

@@ -15,6 +15,7 @@ export type UserErrorInput = {
   status?: number | null
   recoverable?: boolean | null
   scope?: 'api' | 'job' | 'variation' | 'runtime' | 'stream'
+  context?: Record<string, unknown> | null
 }
 
 export class ApiClientError extends Error {
@@ -22,11 +23,12 @@ export class ApiClientError extends Error {
   readonly code: string
   readonly userError: UserFacingError
 
-  constructor(input: { status: number; code?: string | null; message?: string | null }) {
+  constructor(input: { status: number; code?: string | null; message?: string | null; context?: Record<string, unknown> | null }) {
     const userError = toUserFacingError({
       status: input.status,
       code: input.code,
       message: input.message,
+      context: input.context,
       scope: 'api',
     })
     super(userError.message)
@@ -41,6 +43,10 @@ export function toUserFacingError(input: UserErrorInput): UserFacingError {
   const code = normalizeCode(input.code)
   const rawMessage = cleanMessage(input.message)
   const retryable = input.recoverable ?? defaultRetryable(code, input.status)
+  const context = input.context ?? {}
+  const serverName = typeof context.serverName === 'string' ? context.serverName : undefined
+  const toolName = typeof context.toolName === 'string' ? context.toolName : undefined
+  const mcpToolId = typeof context.mcpToolId === 'string' ? context.mcpToolId : undefined
 
   if (code === 'RUNTIME_UNAVAILABLE' || code === 'RUNTIME_REQUEST_TIMEOUT' || code === 'RUNTIME_STREAM_IDLE_TIMEOUT') {
     return {
@@ -59,6 +65,17 @@ export function toUserFacingError(input: UserErrorInput): UserFacingError {
       message: 'This model is not enabled for your account. Choose another model or ask an administrator to enable access.',
       action: 'Choose another model',
       retryable: false,
+      severity: 'warning',
+      detail: rawMessage,
+    }
+  }
+
+  if (code === 'MCP_UNAVAILABLE' && (serverName === 'image-generation' || toolName?.toLowerCase().includes('image') || mcpToolId?.includes('image_generation'))) {
+    return {
+      title: 'Image generation temporarily unavailable',
+      message: 'The design can continue without generated images. Retry image generation later or switch to another image provider.',
+      action: 'Continue without images',
+      retryable: true,
       severity: 'warning',
       detail: rawMessage,
     }

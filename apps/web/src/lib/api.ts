@@ -335,13 +335,15 @@ async function errorMessage(res: Response): Promise<string> {
   return `HTTP ${res.status}`
 }
 
-async function errorPayload(res: Response): Promise<{ code?: string; message?: string }> {
+async function errorPayload(res: Response): Promise<{ code?: string; message?: string; context?: Record<string, unknown> }> {
   const payload = await res.json().catch(() => null)
   if (payload && typeof payload === 'object' && 'error' in payload) {
-    const error = payload.error as { code?: unknown; message?: unknown }
+    const error = payload.error as { code?: unknown; message?: unknown; context?: unknown; data?: unknown }
+    const context = isRecord(error.context) ? error.context : isRecord(error.data) ? error.data : undefined
     return {
       code: typeof error.code === 'string' ? error.code : undefined,
       message: typeof error.message === 'string' ? error.message : undefined,
+      context,
     }
   }
   return {}
@@ -353,5 +355,10 @@ async function apiError(res: Response): Promise<ApiClientError> {
     status: res.status,
     code: payload.code,
     message: payload.message,
+    context: payload.context,
   })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
