@@ -17,12 +17,16 @@ test('MCP invocation audit supports filters and long replay keys', async ({ page
   await expect(democaseHealthRow).toContainText('mcp_encyclopedia_democase_readonly')
   await expect(democaseHealthRow).toContainText('MCP_UNAVAILABLE')
   const healthPanel = page.getByTestId('mcp-health-panel')
-  await healthPanel.getByLabel('From').fill('2026-07-06T09:00')
-  await healthPanel.getByLabel('To').fill('2026-07-06T11:00')
+  const fromFilter = '2026-07-06T09:00'
+  const toFilter = '2026-07-06T11:00'
+  const expectedFrom = encodeURIComponent(new Date(fromFilter).toISOString())
+  const expectedTo = encodeURIComponent(new Date(toFilter).toISOString())
+  await healthPanel.getByLabel('From').fill(fromFilter)
+  await healthPanel.getByLabel('To').fill(toFilter)
   await expect.poll(() => requests.some(url =>
     url.includes('/api/admin/mcp/summary')
-    && url.includes('createdFrom=2026-07-06T09%3A00%3A00.000Z')
-    && url.includes('createdTo=2026-07-06T11%3A00%3A00.000Z'),
+    && url.includes(`createdFrom=${expectedFrom}`)
+    && url.includes(`createdTo=${expectedTo}`),
   )).toBe(true)
   await expect(page.getByTestId('mcp-invocation-audit-panel')).toBeVisible()
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('mcpinv_ok_long')
