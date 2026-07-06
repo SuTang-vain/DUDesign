@@ -1878,6 +1878,39 @@
   - `deploy/staging/scripts/smoke-agent-reach-remote.sh`
 - 若真实 provider payload 和 adapter 预期不一致，只调整 adapter 的 source collection/normalization，不改变 DUDesign `ResearchContextArtifact` contract。
 
+## 2026-07-06 CAP-9.1 Custom Search Command Bridge
+
+### 已完成
+
+- `preflight-agent-reach-remote.sh` 支持从本地传入 `DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND`，并在远端映射为 `AGENT_REACH_SEARCH_COMMAND`。
+- `smoke-agent-reach-remote.sh` 支持从本地传入 `DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND`，避免要求操作者手动登录远端 export。
+- `staging.env.example` 增加 `DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND` 说明：
+  - 命令运行在 staging 主机。
+  - stdin 接收 `{"query":"...","numResults":N}`。
+  - stdout 需要输出可被 adapter 解析的 JSON 或文本。
+
+### 验证结果
+
+- 使用 fixture search command 跑通 preflight：
+  - `agent-reach-preflight:custom-search-command`
+  - `agent-reach-preflight:ready`
+- 使用 fixture search command 跑通 smoke：
+  - adapter 归一化 fixture search result。
+  - API 执行 `mcp_agent_reach_search`。
+  - research context 写入 artifact。
+  - 后续 job snapshot 固定 `researchContextArtifactIds` 与 `researchContexts`。
+  - 输出 `agent-reach-smoke:completed`。
+
+### 决策
+
+- 这一步只证明 DUDesign 自定义检索命令桥、HTTP MCP adapter、artifact 写入和 job snapshot 链路可用。
+- 这一步不等同于真实 Agent-Reach provider smoke；真实 provider 仍需安装 `mcporter` / Agent-Reach，或提供调用真实 Agent-Reach 的 `DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND`。
+
+### 后续关注
+
+- 将 fixture command 替换为真实 Agent-Reach/mcporter command 后，重新运行 preflight + smoke。
+- 记录真实 provider payload schema，并按需调整 `agent-reach-mcp-adapter.py` 的 `collect_sources()`。
+
 ### 本轮补充
 
 - 新增 contracts：

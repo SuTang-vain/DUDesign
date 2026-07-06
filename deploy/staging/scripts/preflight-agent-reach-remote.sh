@@ -3,8 +3,9 @@ set -euo pipefail
 
 remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
 base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
+agent_reach_search_command="${DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND:-}"
 
-ssh "$remote" "BASE_DIR='$base_dir' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") bash -s" <<'REMOTE'
 set -euo pipefail
 
 current="$BASE_DIR/dudesign/current"

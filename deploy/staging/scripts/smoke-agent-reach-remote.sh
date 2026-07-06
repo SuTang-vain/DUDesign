@@ -5,8 +5,9 @@ remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
 base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
 agent_reach_port="${DUDESIGN_STAGING_AGENT_REACH_MCP_PORT:-4520}"
 agent_reach_query="${DUDESIGN_STAGING_AGENT_REACH_QUERY:-dynamic encyclopedia card iframe interaction references}"
+agent_reach_search_command="${DUDESIGN_STAGING_AGENT_REACH_SEARCH_COMMAND:-}"
 
-ssh "$remote" "BASE_DIR='$base_dir' AGENT_REACH_MCP_PORT='$agent_reach_port' AGENT_REACH_QUERY='$agent_reach_query' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR=$(printf '%q' "$base_dir") AGENT_REACH_MCP_PORT=$(printf '%q' "$agent_reach_port") AGENT_REACH_QUERY=$(printf '%q' "$agent_reach_query") AGENT_REACH_SEARCH_COMMAND=$(printf '%q' "$agent_reach_search_command") bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
