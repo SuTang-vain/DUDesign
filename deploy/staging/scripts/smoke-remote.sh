@@ -83,3 +83,4 @@ retry_curl public-admin /tmp/dudesign-public-admin.html "$public_base/admin/"
 
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smoke-babelo-prompt-remote.sh"
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smoke-mcp-http-remote.sh"
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/smoke-ark-image-remote.sh"

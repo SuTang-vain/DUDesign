@@ -2082,3 +2082,27 @@
 - 在有 `ARK_API_KEY` 的 staging secret 环境跑真实 provider smoke。
 - 增加用户端/Activity Stream 的图片 provider unavailable 细分文案。
 - 决定是否为真实图片二进制引入 capability artifact read endpoint，替代当前 JSON artifact 引用。
+
+## 2026-07-06 CAP-9.2 Ark Seedream Opt-in Staging Smoke
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/smoke-ark-image-remote.sh`：
+  - 默认在 `DUDESIGN_STAGING_ARK_REAL_SMOKE!=1` 时输出 skipped，不阻塞默认 staging deploy。
+  - 有密钥时临时写入 staging `.env`，启用 `DUDESIGN_IMAGE_GENERATION_PROVIDER=ark_seedream`。
+  - 通过 DUDesign 标准 `/api/mcp/invocations/execute` 触发 `mcp_image_generation_ark_seedream`，不在 smoke 中直接绑定 Ark 原始 response。
+  - 断言返回 `ImageGenerationArtifact`、provider 为 `ark_seedream`、图片 URL 被替换为 artifact-backed `/api/capability-artifacts/:id`，不泄露 provider URL。
+  - 断言管理端 MCP audit 能按 job/tool/status 查询到本次调用。
+  - 退出时恢复原 staging `.env` 并重启 API，避免测试配置污染常驻服务。
+- `smoke-remote.sh` 挂载 Ark image smoke；默认只跳过，打开开关后才跑真实付费 provider。
+- `staging.env.example` 增加 opt-in Ark smoke 参数。
+
+### 验证
+
+- 待本轮执行 shell 静态检查、typecheck 与 API 测试。
+
+### 后续关注
+
+- 在具备 `ARK_API_KEY` 的 staging secret 环境运行：
+  - `DUDESIGN_STAGING_ARK_REAL_SMOKE=1 deploy/staging/scripts/smoke-ark-image-remote.sh`
+- 若真实 provider 返回额外成本/用量字段，继续收敛到 `ImageGenerationArtifact.costCents`，不把原始 provider payload 暴露给前端或 runtime。
