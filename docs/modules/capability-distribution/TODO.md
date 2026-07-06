@@ -253,6 +253,7 @@
 - [x] 增加 mock 网络搜索 MCP smoke：授权、调用、审核、artifact 写入、job snapshot 注入、审计和回放。
 - [x] 增加真实 Agent-Reach staging smoke 脚手架：标准 MCP HTTP adapter、远端 smoke 脚本、env example。
 - [x] 增加真实 Agent-Reach staging preflight：检查远端脚本部署、Python、Docker、mcporter / `AGENT_REACH_SEARCH_COMMAND`。
+- [x] 在已部署 staging 上运行 Agent-Reach preflight，确认 DUDesign 脚本、Python、Docker 已就位，当前阻塞为检索后端未安装或未配置。
 - [ ] 在安装 `mcporter` / Agent-Reach 的 staging 主机上运行真实 Agent-Reach smoke，并记录 provider result schema 差异。
 
 验收：

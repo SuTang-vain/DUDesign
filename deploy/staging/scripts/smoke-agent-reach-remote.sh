@@ -113,13 +113,27 @@ PY
 
 docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d api >/dev/null
 for attempt in 1 2 3 4 5; do
-  if curl -fsS -o /tmp/dudesign-agent-reach-bootstrap.json http://127.0.0.1/api/dev/bootstrap; then
+  if curl -fsS -o /tmp/dudesign-agent-reach-bootstrap.json http://127.0.0.1/api/dev/bootstrap \
+    && python3 - /tmp/dudesign-agent-reach-bootstrap.json <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(1)
+
+if not data.get("user", {}).get("id") or not data.get("workspace", {}).get("id"):
+    raise SystemExit(1)
+PY
+  then
     break
   fi
   sleep "$attempt"
 done
 curl -fsS -o /tmp/dudesign-agent-reach-bootstrap.json http://127.0.0.1/api/dev/bootstrap
 
+user_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["user"]["id"])' /tmp/dudesign-agent-reach-bootstrap.json)"
 workspace_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["workspace"]["id"])' /tmp/dudesign-agent-reach-bootstrap.json)"
 
 WORKSPACE_ID="$workspace_id" python3 - <<'PY' > /tmp/dudesign-agent-reach-session-payload.json
@@ -158,17 +172,18 @@ curl -fsS -o /tmp/dudesign-agent-reach-job.json \
   --data-binary @/tmp/dudesign-agent-reach-job-payload.json \
   http://127.0.0.1/api/design-jobs
 
-python3 - /tmp/dudesign-agent-reach-job.json <<'PY' > /tmp/dudesign-agent-reach-invoke-payload.json
+USER_ID="$user_id" WORKSPACE_ID="$workspace_id" SESSION_ID="$session_id" python3 - /tmp/dudesign-agent-reach-job.json <<'PY' > /tmp/dudesign-agent-reach-invoke-payload.json
 import json
 import os
 import sys
+
 job_response = json.load(open(sys.argv[1]))
 job = job_response["job"]
 variation = job_response["variations"][0]
 print(json.dumps({
-    "userId": job["userId"],
-    "workspaceId": job["workspaceId"],
-    "sessionId": job["sessionId"],
+    "userId": os.environ["USER_ID"],
+    "workspaceId": os.environ["WORKSPACE_ID"],
+    "sessionId": os.environ["SESSION_ID"],
     "jobId": job["id"],
     "variationId": variation["id"],
     "runtimeSessionId": None,

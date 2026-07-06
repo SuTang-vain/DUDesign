@@ -1835,6 +1835,49 @@
 3. 运行 `deploy/staging/scripts/preflight-agent-reach-remote.sh`，直到输出 `agent-reach-preflight:ready`。
 4. 运行 `deploy/staging/scripts/smoke-agent-reach-remote.sh`。
 
+## 2026-07-06 CAP-9.1 Staging Deploy And Smoke Stabilization
+
+### 已完成
+
+- 已将包含 Agent-Reach MCP adapter 与 staging smoke 脚本的版本部署到 staging。
+- 修复 `deploy/staging/scripts/smoke-mcp-http-remote.sh`：
+  - 增加 executable 权限，避免 `smoke-remote.sh` 调用时报 `Permission denied`。
+  - API 重启后等待 `/api/dev/bootstrap` 返回可用 JSON，避免刚启动时 502/空响应导致误判。
+  - MCP invocation payload 不再依赖 `/api/design-jobs` 返回完整 `userId/workspaceId/sessionId`，改为从 bootstrap 与 session 上下文取值。
+  - mock MCP server 从 `127.0.0.1` 改为 `0.0.0.0` 绑定，兼容 Linux Docker 容器通过 `host.docker.internal` 访问宿主机端口。
+- 修复 `deploy/staging/scripts/agent-reach-mcp-adapter.py`：
+  - adapter 从 `127.0.0.1` 改为 `0.0.0.0` 绑定，支持 staging API 容器访问。
+- 修复 `deploy/staging/scripts/smoke-agent-reach-remote.sh`：
+  - API 重启后校验 bootstrap user/workspace。
+  - Agent-Reach invocation payload 改为使用稳定上下文，不依赖轻量 job envelope。
+
+### 验证结果
+
+- `deploy/staging/scripts/deploy-remote.sh` 已完成部署；基础服务、public web/api/admin、runtime adapter health 均通过。
+- `deploy/staging/scripts/smoke-remote.sh` 已通过：
+  - BabeL-O prompt smoke 完成。
+  - MCP HTTP mock smoke 完成。
+- `deploy/staging/scripts/preflight-agent-reach-remote.sh` 已运行到外部检索后端检查：
+  - 远端 `python3` 已就位。
+  - 远端 `docker` 已就位。
+  - DUDesign current 部署目录已就位。
+  - 已部署 `agent-reach-mcp-adapter.py`。
+  - 已部署 `smoke-agent-reach-remote.sh`。
+  - 当前阻塞：staging 主机缺少 `mcporter`，且未配置 `AGENT_REACH_SEARCH_COMMAND`。
+
+### 决策
+
+- 当前不把 “Agent-Reach 真实搜索 smoke” 标记完成，因为外部检索后端尚未安装或配置。
+- 先确认 DUDesign 侧 HTTP MCP transport、artifact 写入、job snapshot 逻辑在 mock/staging 基础 smoke 中稳定，再接真实 provider。
+
+### 后续关注
+
+- 在 staging 主机安装 `mcporter` / Agent-Reach，或在远端 shell 环境提供 `AGENT_REACH_SEARCH_COMMAND`。
+- 再运行：
+  - `deploy/staging/scripts/preflight-agent-reach-remote.sh`
+  - `deploy/staging/scripts/smoke-agent-reach-remote.sh`
+- 若真实 provider payload 和 adapter 预期不一致，只调整 adapter 的 source collection/normalization，不改变 DUDesign `ResearchContextArtifact` contract。
+
 ### 本轮补充
 
 - 新增 contracts：

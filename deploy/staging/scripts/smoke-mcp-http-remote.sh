@@ -93,13 +93,29 @@ PY
 
 restart_api() {
   docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d api >/dev/null
-  for attempt in 1 2 3 4 5; do
-    if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap; then
+  for attempt in 1 2 3 4 5 6 7 8; do
+    if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap \
+      && python3 - /tmp/dudesign-mcp-bootstrap.json <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(1)
+
+if not data.get("workspace", {}).get("id"):
+    raise SystemExit(1)
+PY
+    then
       return 0
     fi
     sleep "$attempt"
   done
   curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap
+  echo 'mcp-http-smoke:bootstrap-not-ready' >&2
+  cat /tmp/dudesign-mcp-bootstrap.json >&2
+  exit 1
 }
 
 if [ "$MCP_REAL_SMOKE" = "1" ]; then
@@ -151,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 port = int(os.environ["MCP_PORT"])
-HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 PY
 
   MCP_PORT="$MCP_PORT" python3 /tmp/dudesign-mcp-smoke-server.py &
@@ -172,6 +188,7 @@ fi
 write_mcp_env "$mcp_base_url" "$mcp_endpoint_path" "$mcp_api_key" "$mcp_auth_header" "$mcp_timeout_ms"
 restart_api
 
+user_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["user"]["id"])' /tmp/dudesign-mcp-bootstrap.json)"
 workspace_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["workspace"]["id"])' /tmp/dudesign-mcp-bootstrap.json)"
 
 WORKSPACE_ID="$workspace_id" python3 - <<'PY' > /tmp/dudesign-mcp-session-payload.json
@@ -212,16 +229,18 @@ curl -fsS -o /tmp/dudesign-mcp-job.json \
   --data-binary @/tmp/dudesign-mcp-job-payload.json \
   http://127.0.0.1/api/design-jobs
 
-python3 - /tmp/dudesign-mcp-job.json <<'PY' > /tmp/dudesign-mcp-invoke-payload.json
+USER_ID="$user_id" WORKSPACE_ID="$workspace_id" SESSION_ID="$session_id" python3 - /tmp/dudesign-mcp-job.json <<'PY' > /tmp/dudesign-mcp-invoke-payload.json
 import json
+import os
 import sys
+
 job_response = json.load(open(sys.argv[1]))
 job = job_response["job"]
 variation = job_response["variations"][0]
 print(json.dumps({
-    "userId": job["userId"],
-    "workspaceId": job["workspaceId"],
-    "sessionId": job["sessionId"],
+    "userId": os.environ["USER_ID"],
+    "workspaceId": os.environ["WORKSPACE_ID"],
+    "sessionId": os.environ["SESSION_ID"],
     "jobId": job["id"],
     "variationId": variation["id"],
     "runtimeSessionId": None,

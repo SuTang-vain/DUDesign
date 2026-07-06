@@ -241,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     port = int(os.environ.get("AGENT_REACH_MCP_PORT", "4520"))
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
