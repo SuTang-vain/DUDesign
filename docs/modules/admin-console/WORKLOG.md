@@ -729,11 +729,13 @@
   - unavailable count。
   - 最近 democase error code/message。
   - 各 MCP tool 调用量、成功率、unavailable rate、最近状态和 replay key。
+  - 按时间范围筛选 MCP health summary。
 - 浏览器 smoke 覆盖：
   - democase degraded 状态展示。
   - success rate 展示。
   - tool health row 展示 `mcp_encyclopedia_democase_readonly`。
   - 最近 `MCP_UNAVAILABLE` 错误展示。
+  - summary 时间范围筛选参数传递。
 
 ### 验证
 
