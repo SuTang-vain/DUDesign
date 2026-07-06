@@ -23,6 +23,14 @@ export type HttpMcpExecutorConfig = {
   timeoutMs?: number
 }
 
+export type ArkSeedreamImageMcpExecutorConfig = {
+  apiKey: string
+  baseUrl?: string
+  model?: string
+  timeoutMs?: number
+  fallback?: McpExecutor
+}
+
 export class MockMcpExecutor implements McpExecutor {
   async execute(request: McpInvocationRequest): Promise<McpInvocationResult> {
     const completedAt = new Date().toISOString()
@@ -172,6 +180,78 @@ export class HttpMcpExecutor implements McpExecutor {
   }
 }
 
+export class ArkSeedreamImageMcpExecutor implements McpExecutor {
+  private readonly apiKey: string
+  private readonly baseUrl: string
+  private readonly model: string
+  private readonly timeoutMs: number
+  private readonly fallback: McpExecutor
+
+  constructor(config: ArkSeedreamImageMcpExecutorConfig) {
+    this.apiKey = config.apiKey
+    this.baseUrl = (config.baseUrl ?? 'https://ark.cn-beijing.volces.com/api/v3/images/generations').replace(/\/+$/, '')
+    this.model = config.model ?? 'doubao-seedream-5-0-260128'
+    this.timeoutMs = config.timeoutMs ?? 90000
+    this.fallback = config.fallback ?? new MockMcpExecutor()
+  }
+
+  async execute(request: McpInvocationRequest): Promise<McpInvocationResult> {
+    if (request.serverName !== 'image-generation' || request.toolName !== 'generateArkSeedreamImage') {
+      return this.fallback.execute(request)
+    }
+    const completedAt = new Date().toISOString()
+    const imageRequest = normalizeImageGenerationRequest({
+      ...request.input,
+      model: optionalString(request.input.model) ?? this.model,
+    })
+    if (isUnsafeImagePrompt(imageRequest.prompt)) {
+      return imageSafetyBlockedResult(request, imageRequest, completedAt)
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    try {
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'authorization': `Bearer ${this.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: imageRequest.model,
+          prompt: imageRequest.prompt,
+          response_format: 'url',
+          size: imageRequest.size,
+          stream: false,
+          watermark: imageRequest.watermark,
+          sequential_image_generation: 'disabled',
+        }),
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        return mcpUnavailableResult(request, `Ark Seedream image provider returned ${response.status}: ${await safeResponseText(response)}`, completedAt)
+      }
+      const payload = await response.json() as unknown
+      const imageUrl = arkImageUrl(payload)
+      if (!imageUrl) {
+        return mcpUnavailableResult(request, 'Ark Seedream image provider returned no image URL.', completedAt)
+      }
+      const imageGeneration = imageGenerationArtifactFromProvider({
+        provider: 'ark_seedream',
+        imageRequest,
+        imageUrl,
+        completedAt,
+        costCents: providerCostCents(payload),
+      })
+      return imageGenerationResult(request, imageGeneration, completedAt)
+    } catch (error) {
+      return mcpUnavailableResult(request, error instanceof Error ? error.message : 'Ark Seedream image provider request failed.', completedAt)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+}
+
 function invocationSource(request: McpInvocationRequest): McpInvocationResult['source'] {
   return {
     serverName: request.serverName,
@@ -251,7 +331,7 @@ function mockImageGenerationArtifact(request: McpInvocationRequest, completedAt:
     size: parsed.size,
     usageContext: parsed.usageContext,
   })).digest('hex')
-  const blocked = /logo|copyrighted|celebrity|private person|exact brand trade dress/i.test(parsed.prompt)
+  const blocked = isUnsafeImagePrompt(parsed.prompt)
   const artifactId = blocked ? null : `img_${promptHash.slice(0, 16)}`
   return {
     schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
@@ -272,6 +352,107 @@ function mockImageGenerationArtifact(request: McpInvocationRequest, completedAt:
     artifactId,
     createdAt: completedAt,
   }
+}
+
+function imageGenerationResult(
+  request: McpInvocationRequest,
+  imageGeneration: ImageGenerationArtifact,
+  completedAt: string,
+): McpInvocationResult {
+  return {
+    invocationId: request.invocationId,
+    status: imageGeneration.contentSafety.status === 'blocked' ? 'error' : 'ok',
+    mcpToolId: request.mcpToolId,
+    source: invocationSource(request),
+    summary: imageGeneration.contentSafety.status === 'blocked'
+      ? 'Image generation request was blocked by content safety policy.'
+      : `Generated ${imageGeneration.usageContext} image asset with ${imageGeneration.provider}.`,
+    references: imageGeneration.artifactId
+      ? [{ id: imageGeneration.artifactId, title: 'Generated image asset', url: imageGeneration.imageUrl }]
+      : [],
+    data: {
+      imageGeneration,
+      note: 'Image generation output is artifact-backed context only; provider keys and raw provider payloads are never exposed.',
+    },
+    ...(imageGeneration.contentSafety.status === 'blocked'
+      ? {
+          error: {
+            code: 'IMAGE_CONTENT_SAFETY_BLOCKED',
+            message: imageGeneration.contentSafety.reason ?? 'Image generation request failed content safety checks.',
+            retryable: false,
+          },
+        }
+      : {}),
+    completedAt,
+  }
+}
+
+function imageSafetyBlockedResult(
+  request: McpInvocationRequest,
+  imageRequest: ImageGenerationRequest,
+  completedAt: string,
+): McpInvocationResult {
+  return imageGenerationResult(request, {
+    schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
+    provider: 'ark_seedream',
+    model: imageRequest.model,
+    promptHash: imagePromptHash(imageRequest),
+    imageUrl: '',
+    size: imageRequest.size,
+    watermark: imageRequest.watermark,
+    usageContext: imageRequest.usageContext,
+    contentType: 'image/png',
+    contentSafety: {
+      status: 'blocked',
+      policy: imageRequest.contentSafety?.policy ?? 'standard',
+      reason: 'Prompt appears to request protected brand, celebrity, or copyrighted imagery.',
+    },
+    costCents: 0,
+    artifactId: null,
+    createdAt: completedAt,
+  }, completedAt)
+}
+
+function imageGenerationArtifactFromProvider(input: {
+  provider: string
+  imageRequest: ImageGenerationRequest
+  imageUrl: string
+  completedAt: string
+  costCents: number
+}): ImageGenerationArtifact {
+  const artifactId = `img_${imagePromptHash(input.imageRequest).slice(0, 16)}`
+  return {
+    schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
+    provider: input.provider,
+    model: input.imageRequest.model,
+    promptHash: imagePromptHash(input.imageRequest),
+    imageUrl: input.imageUrl,
+    size: input.imageRequest.size,
+    watermark: input.imageRequest.watermark,
+    usageContext: input.imageRequest.usageContext,
+    contentType: 'image/png',
+    contentSafety: {
+      status: 'passed',
+      policy: input.imageRequest.contentSafety?.policy ?? 'standard',
+      reason: null,
+    },
+    costCents: input.costCents,
+    artifactId,
+    createdAt: input.completedAt,
+  }
+}
+
+function imagePromptHash(imageRequest: ImageGenerationRequest): string {
+  return createHash('sha256').update(JSON.stringify({
+    prompt: imageRequest.prompt,
+    model: imageRequest.model,
+    size: imageRequest.size,
+    usageContext: imageRequest.usageContext,
+  })).digest('hex')
+}
+
+function isUnsafeImagePrompt(prompt: string): boolean {
+  return /logo|copyrighted|celebrity|private person|exact brand trade dress/i.test(prompt)
 }
 
 function normalizeImageGenerationRequest(input: Record<string, unknown>): ImageGenerationRequest {
@@ -327,6 +508,24 @@ function normalizeMcpExecutorResponse(payload: unknown): McpInvocationResult | n
   if (!Array.isArray(value.references)) return null
   if (typeof value.completedAt !== 'string') return null
   return value as McpInvocationResult
+}
+
+function arkImageUrl(payload: unknown): string | null {
+  if (!isRecord(payload)) return null
+  const data = payload.data
+  if (!Array.isArray(data)) return null
+  for (const item of data) {
+    if (!isRecord(item)) continue
+    if (typeof item.url === 'string' && item.url) return item.url
+    if (typeof item.image_url === 'string' && item.image_url) return item.image_url
+  }
+  return null
+}
+
+function providerCostCents(payload: unknown): number {
+  if (!isRecord(payload) || !isRecord(payload.usage)) return 0
+  const cents = Number(payload.usage.cost_cents ?? payload.usage.costCents)
+  return Number.isFinite(cents) && cents >= 0 ? Math.round(cents) : 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

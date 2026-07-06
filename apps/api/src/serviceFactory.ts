@@ -5,7 +5,7 @@ import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
 import { InMemoryDesignJobQueue, type DesignJobQueue } from './designJobQueue.js'
 import { createRedisDesignJobQueueFromEnv } from './redisDesignJobQueue.js'
-import { HttpMcpExecutor, MockMcpExecutor, type McpExecutor } from './mcpExecutor.js'
+import { ArkSeedreamImageMcpExecutor, HttpMcpExecutor, MockMcpExecutor, type McpExecutor } from './mcpExecutor.js'
 
 export type ApplicationProcessRole = 'api' | 'worker' | 'inline'
 
@@ -79,6 +79,25 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
 
 export function createMcpExecutorFromEnv(): McpExecutor {
   const provider = process.env.DUDESIGN_MCP_EXECUTOR ?? process.env.DUDESIGN_MCP_PROVIDER
+  const baseExecutor = createBaseMcpExecutorFromEnv(provider)
+  const imageProvider = process.env.DUDESIGN_IMAGE_GENERATION_PROVIDER ?? process.env.DUDESIGN_IMAGE_PROVIDER
+  if (imageProvider === 'ark_seedream') {
+    const apiKey = process.env.ARK_API_KEY ?? process.env.DUDESIGN_ARK_API_KEY
+    if (!apiKey) {
+      throw new Error('ARK_API_KEY or DUDESIGN_ARK_API_KEY is required when DUDESIGN_IMAGE_GENERATION_PROVIDER=ark_seedream.')
+    }
+    return new ArkSeedreamImageMcpExecutor({
+      apiKey,
+      baseUrl: process.env.ARK_IMAGE_GENERATION_URL ?? process.env.DUDESIGN_ARK_IMAGE_GENERATION_URL,
+      model: process.env.ARK_IMAGE_MODEL ?? process.env.DUDESIGN_ARK_IMAGE_MODEL,
+      timeoutMs: optionalPositiveInteger(process.env.ARK_IMAGE_TIMEOUT_MS ?? process.env.DUDESIGN_ARK_IMAGE_TIMEOUT_MS),
+      fallback: baseExecutor,
+    })
+  }
+  return baseExecutor
+}
+
+function createBaseMcpExecutorFromEnv(provider: string | undefined): McpExecutor {
   if (provider === 'http') {
     const baseUrl = process.env.DUDESIGN_MCP_BASE_URL
     if (!baseUrl) {

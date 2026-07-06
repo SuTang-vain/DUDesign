@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { afterEach, describe, it } from 'node:test'
 import type { AddressInfo } from 'node:net'
-import { HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
+import { ArkSeedreamImageMcpExecutor, HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
 import type { ImageGenerationArtifact, McpInvocationRequest, ResearchContextArtifact } from '@dudesign/contracts'
 
 describe('HttpMcpExecutor', () => {
@@ -185,6 +185,112 @@ describe('MockMcpExecutor', () => {
     assert.equal(imageGeneration?.artifactId, null)
     assert.equal(result.references.length, 0)
   })
+})
+
+describe('ArkSeedreamImageMcpExecutor', () => {
+  let server: http.Server | null = null
+
+  afterEach(async () => {
+    if (!server) return
+    await new Promise<void>(resolve => server?.close(() => resolve()))
+    server = null
+  })
+
+  it('calls Ark Seedream with server-side credentials and normalizes image URL results', async () => {
+    let received: { headers?: http.IncomingHttpHeaders; body?: any } = {}
+    const baseUrl = await startServer(async (req, res) => {
+      received = {
+        headers: req.headers,
+        body: await readJson(req),
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({
+        data: [{ url: 'https://ark.example.test/generated/image.png' }],
+        usage: { cost_cents: 18 },
+      }))
+    })
+    const executor = new ArkSeedreamImageMcpExecutor({
+      apiKey: 'ark-secret',
+      baseUrl,
+      model: 'doubao-seedream-test',
+    })
+
+    const result = await executor.execute({
+      ...request,
+      invocationId: 'mcpinv_ark_image_test',
+      mcpToolId: 'mcp_image_generation_ark_seedream',
+      serverName: 'image-generation',
+      toolName: 'generateArkSeedreamImage',
+      scopes: ['artifact_write', 'readonly_context'],
+      input: {
+        prompt: 'Original geometric blue card illustration.',
+        size: '2K',
+        watermark: true,
+        usageContext: 'template_illustration',
+      },
+      reason: 'Generate via Ark Seedream adapter.',
+    })
+
+    const imageGeneration = result.data?.imageGeneration as ImageGenerationArtifact | undefined
+    assert.equal(received.headers?.authorization, 'Bearer ark-secret')
+    assert.equal(received.body?.model, 'doubao-seedream-test')
+    assert.equal(received.body?.response_format, 'url')
+    assert.equal(result.status, 'ok')
+    assert.equal(imageGeneration?.provider, 'ark_seedream')
+    assert.equal(imageGeneration?.imageUrl, 'https://ark.example.test/generated/image.png')
+    assert.equal(imageGeneration?.costCents, 18)
+  })
+
+  it('falls back to the configured executor for non-image MCP tools', async () => {
+    const executor = new ArkSeedreamImageMcpExecutor({
+      apiKey: 'ark-secret',
+      fallback: new MockMcpExecutor(),
+    })
+
+    const result = await executor.execute({
+      ...request,
+      mcpToolId: 'mcp_accessibility_validate',
+      serverName: 'quality-tools',
+      toolName: 'validateAccessibility',
+      scopes: ['validation_only'],
+      input: { artifactId: 'art_1' },
+    })
+
+    assert.equal(result.status, 'ok')
+    assert.equal(result.summary, 'Accessibility validation accepted for queued artifact review.')
+  })
+
+  it('normalizes Ark provider failures into MCP unavailable results', async () => {
+    const baseUrl = await startServer(async (_req, res) => {
+      res.writeHead(429, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'rate limited' } }))
+    })
+    const executor = new ArkSeedreamImageMcpExecutor({
+      apiKey: 'ark-secret',
+      baseUrl,
+    })
+
+    const result = await executor.execute({
+      ...request,
+      invocationId: 'mcpinv_ark_unavailable_test',
+      mcpToolId: 'mcp_image_generation_ark_seedream',
+      serverName: 'image-generation',
+      toolName: 'generateArkSeedreamImage',
+      scopes: ['artifact_write', 'readonly_context'],
+      input: { prompt: 'Original abstract illustration.' },
+    })
+
+    assert.equal(result.status, 'unavailable')
+    assert.equal(result.error?.code, 'MCP_UNAVAILABLE')
+    assert.match(result.error?.message ?? '', /429/)
+  })
+
+  async function startServer(handler: http.RequestListener): Promise<string> {
+    server = http.createServer(handler)
+    await new Promise<void>(resolve => server?.listen(0, '127.0.0.1', () => resolve()))
+    const address = server.address() as AddressInfo
+    return `http://127.0.0.1:${address.port}`
+  }
 })
 
 const request: McpInvocationRequest = {

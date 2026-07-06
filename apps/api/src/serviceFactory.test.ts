@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import { BabelORuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
-import { HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
+import { ArkSeedreamImageMcpExecutor, HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
 
 import {
   applicationProcessRoleFromEnv,
@@ -39,6 +39,16 @@ const envKeys = [
   'DUDESIGN_MCP_API_KEY',
   'DUDESIGN_MCP_AUTH_HEADER',
   'DUDESIGN_MCP_TIMEOUT_MS',
+  'DUDESIGN_IMAGE_GENERATION_PROVIDER',
+  'DUDESIGN_IMAGE_PROVIDER',
+  'ARK_API_KEY',
+  'DUDESIGN_ARK_API_KEY',
+  'ARK_IMAGE_GENERATION_URL',
+  'DUDESIGN_ARK_IMAGE_GENERATION_URL',
+  'ARK_IMAGE_MODEL',
+  'DUDESIGN_ARK_IMAGE_MODEL',
+  'ARK_IMAGE_TIMEOUT_MS',
+  'DUDESIGN_ARK_IMAGE_TIMEOUT_MS',
 ] as const
 
 describe('createRuntimeGatewayFromEnv', () => {
@@ -126,6 +136,30 @@ describe('createMcpExecutorFromEnv', () => {
     assert.equal(Reflect.get(executor, 'baseUrl'), 'https://mcp.example.test')
     assert.equal(Reflect.get(executor, 'endpointPath'), '/invoke')
     assert.equal(Reflect.get(executor, 'timeoutMs'), 1234)
+  })
+
+  it('requires an Ark API key when image generation provider is enabled', () => {
+    process.env.DUDESIGN_IMAGE_GENERATION_PROVIDER = 'ark_seedream'
+
+    assert.throws(() => createMcpExecutorFromEnv(), /ARK_API_KEY/)
+  })
+
+  it('wraps the base MCP executor with Ark Seedream image generation when configured', () => {
+    process.env.DUDESIGN_MCP_EXECUTOR = 'http'
+    process.env.DUDESIGN_MCP_BASE_URL = 'https://mcp.example.test'
+    process.env.DUDESIGN_IMAGE_GENERATION_PROVIDER = 'ark_seedream'
+    process.env.ARK_API_KEY = 'ark-key'
+    process.env.ARK_IMAGE_GENERATION_URL = 'https://ark.example.test/images'
+    process.env.ARK_IMAGE_MODEL = 'doubao-seedream-test'
+    process.env.ARK_IMAGE_TIMEOUT_MS = '4321'
+
+    const executor = createMcpExecutorFromEnv()
+
+    assert.ok(executor instanceof ArkSeedreamImageMcpExecutor)
+    assert.equal(Reflect.get(executor, 'baseUrl'), 'https://ark.example.test/images')
+    assert.equal(Reflect.get(executor, 'model'), 'doubao-seedream-test')
+    assert.equal(Reflect.get(executor, 'timeoutMs'), 4321)
+    assert.ok(Reflect.get(executor, 'fallback') instanceof HttpMcpExecutor)
   })
 })
 

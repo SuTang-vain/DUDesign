@@ -268,10 +268,10 @@
   - [x] `plug_image_generation`。
   - [x] `sk_visual_asset_brief`。
   - [x] `mcp_image_generation_ark_seedream`。
-- [ ] 支持服务端调用火山方舟图片生成 provider；API key 只存在服务端 secret，不进入 skill、prompt、job snapshot。
+- [~] 支持服务端调用火山方舟图片生成 provider；API key 只存在服务端 secret，不进入 skill、prompt、job snapshot。Ark Seedream adapter 与 env 接入已完成；真实 smoke 待有 `ARK_API_KEY` 的 staging secret 环境验证。
 - [x] 图片结果写入 artifact store，预览/导出/分享只读取 artifact id。
-- [~] 增加 provider unavailable 降级事件：允许用户继续无图生成、换 provider 或稍后重试。MCP unavailable 通用事件已覆盖；图片 provider 细分错误待真实 provider 接入。
-- [~] 增加图片生成 smoke：成功生成、artifact 固化、内容安全失败、provider 不可用、成本记录。mock 成功、artifact 固化、内容安全失败和成本记录已覆盖；真实 provider unavailable smoke 待补。
+- [~] 增加 provider unavailable 降级事件：允许用户继续无图生成、换 provider 或稍后重试。MCP unavailable 通用事件和 Ark provider unavailable 归一化已覆盖；用户端细分文案待补。
+- [~] 增加图片生成 smoke：成功生成、artifact 固化、内容安全失败、provider 不可用、成本记录。mock 成功、artifact 固化、内容安全失败、成本记录和 Ark provider unavailable 单测已覆盖；真实 provider smoke 待补。
 
 验收：
 

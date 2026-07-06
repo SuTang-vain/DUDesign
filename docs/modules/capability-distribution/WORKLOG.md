@@ -2049,3 +2049,36 @@
   - `ARK_API_KEY` 仅存在服务端 secret。
   - 支持 provider unavailable、rate limit、content safety blocked、cost usage。
 - 增加真实 provider smoke，但默认 CI/staging smoke 仍使用 mock，避免依赖外部付费服务。
+
+## 2026-07-06 CAP-9.2 Ark Seedream Provider Adapter
+
+### 已完成
+
+- 新增 `ArkSeedreamImageMcpExecutor`：
+  - 只接管 `image-generation.generateArkSeedreamImage`。
+  - 非图片 MCP tool 继续交给 fallback executor，默认 fallback 为 `MockMcpExecutor`。
+  - 按火山方舟 images/generations 形态发送 `model`、`prompt`、`response_format=url`、`size`、`stream=false`、`watermark`、`sequential_image_generation=disabled`。
+  - 服务端通过 `Authorization: Bearer <ARK_API_KEY>` 注入密钥，密钥不会进入 skill、runtime prompt、job snapshot 或 MCP result。
+- `createMcpExecutorFromEnv()` 支持可选图片 provider：
+  - `DUDESIGN_IMAGE_GENERATION_PROVIDER=ark_seedream`
+  - `ARK_API_KEY` / `DUDESIGN_ARK_API_KEY`
+  - `ARK_IMAGE_GENERATION_URL`
+  - `ARK_IMAGE_MODEL`
+  - `ARK_IMAGE_TIMEOUT_MS`
+- `deploy/staging/staging.env.example` 增加 Ark provider env，但默认关闭，保持 staging/CI 不依赖外部付费服务。
+- Provider adapter 单测覆盖：
+  - server-side credential header。
+  - provider request body。
+  - provider URL result 归一化为 `ImageGenerationArtifact`。
+  - provider 429 / failure 归一化为 `MCP_UNAVAILABLE`。
+  - 非图片 MCP tool fallback 到基础 executor。
+
+### 验证
+
+- 待本轮统一执行 `npm run typecheck` 与 API 测试。
+
+### 后续关注
+
+- 在有 `ARK_API_KEY` 的 staging secret 环境跑真实 provider smoke。
+- 增加用户端/Activity Stream 的图片 provider unavailable 细分文案。
+- 决定是否为真实图片二进制引入 capability artifact read endpoint，替代当前 JSON artifact 引用。
