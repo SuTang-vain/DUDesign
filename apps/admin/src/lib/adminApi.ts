@@ -200,6 +200,8 @@ export type AdminMcpInvocationSummaryResponse = {
   }
   filters: {
     mcpToolId: string | null
+    createdFrom: string | null
+    createdTo: string | null
     limit: number
   }
 }
@@ -556,10 +558,14 @@ export async function getAdminMcpInvocations(role: AdminRole, filter: {
 
 export async function getAdminMcpSummary(role: AdminRole, filter: {
   mcpToolId?: string
+  createdFrom?: string
+  createdTo?: string
   limit?: number
 } = {}): Promise<AdminMcpInvocationSummaryResponse> {
   const params = new URLSearchParams()
   if (filter.mcpToolId) params.set('mcpToolId', filter.mcpToolId)
+  if (filter.createdFrom) params.set('createdFrom', filter.createdFrom)
+  if (filter.createdTo) params.set('createdTo', filter.createdTo)
   if (filter.limit) params.set('limit', String(filter.limit))
   return getJson(`/api/admin/mcp/summary${params.size ? `?${params.toString()}` : ''}`, role)
 }

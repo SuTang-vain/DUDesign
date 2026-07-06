@@ -82,6 +82,8 @@ export default function AdminHomePage(): React.JSX.Element {
   const [mcpVariationFilter, setMcpVariationFilter] = useState('')
   const [mcpToolFilter, setMcpToolFilter] = useState('')
   const [mcpStatusFilter, setMcpStatusFilter] = useState('')
+  const [mcpSummaryFromFilter, setMcpSummaryFromFilter] = useState('')
+  const [mcpSummaryToFilter, setMcpSummaryToFilter] = useState('')
   const [supportQuery, setSupportQuery] = useState('usr_dev')
   const [memoryQuery, setMemoryQuery] = useState('')
   const [modelUserId, setModelUserId] = useState('usr_dev')
@@ -114,7 +116,7 @@ export default function AdminHomePage(): React.JSX.Element {
   useEffect(() => {
     void refreshMcpSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role])
+  }, [role, mcpSummaryFromFilter, mcpSummaryToFilter])
 
   async function refresh(): Promise<void> {
     setLoading(true)
@@ -183,7 +185,11 @@ export default function AdminHomePage(): React.JSX.Element {
 
   async function refreshMcpSummary(): Promise<void> {
     try {
-      const data = await getAdminMcpSummary(role, { limit: 1000 })
+      const data = await getAdminMcpSummary(role, {
+        createdFrom: dateTimeFilterToIso(mcpSummaryFromFilter),
+        createdTo: dateTimeFilterToIso(mcpSummaryToFilter),
+        limit: 1000,
+      })
       setMcpSummary(data)
     } catch (err) {
       setError((err as Error).message)
@@ -1073,6 +1079,30 @@ export default function AdminHomePage(): React.JSX.Element {
               <button className="secondary-button" onClick={() => void refreshMcpSummary()} disabled={loading}>
                 Refresh health
               </button>
+            </div>
+            <div className="mcp-summary-filter-grid">
+              <label>
+                From
+                <input
+                  className="compact-input"
+                  type="datetime-local"
+                  value={mcpSummaryFromFilter}
+                  onChange={event => setMcpSummaryFromFilter(event.target.value)}
+                />
+              </label>
+              <label>
+                To
+                <input
+                  className="compact-input"
+                  type="datetime-local"
+                  value={mcpSummaryToFilter}
+                  onChange={event => setMcpSummaryToFilter(event.target.value)}
+                />
+              </label>
+              <div className="compact-metrics">
+                <span>range from {mcpSummary?.filters.createdFrom ? formatTime(mcpSummary.filters.createdFrom) : 'beginning'}</span>
+                <span>range to {mcpSummary?.filters.createdTo ? formatTime(mcpSummary.filters.createdTo) : 'now'}</span>
+              </div>
             </div>
             <div className="metric-grid mcp-health-metrics">
               <div className="metric">
