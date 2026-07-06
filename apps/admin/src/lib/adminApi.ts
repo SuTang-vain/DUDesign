@@ -124,6 +124,40 @@ export type AuditLogsResponse = {
   auditLogs: AuditLog[]
 }
 
+export type AdminMcpInvocationAuditEntry = {
+  invocationId: string
+  replayKey: string
+  userId: string
+  workspaceId: string
+  sessionId: string
+  jobId: string
+  variationId: string | null
+  mcpToolId: string
+  serverName: string
+  toolName: string
+  mode: 'authorized_invocation' | 'replay'
+  status: 'ok' | 'denied' | 'unavailable' | 'error'
+  summary: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  policySnapshotHash: string
+  runtimeContractVersion: string
+  referenceCount: number
+  requestedAt: string
+  completedAt: string
+}
+
+export type AdminMcpInvocationAuditResponse = {
+  invocations: AdminMcpInvocationAuditEntry[]
+  filters: {
+    jobId: string | null
+    variationId: string | null
+    mcpToolId: string | null
+    status: AdminMcpInvocationAuditEntry['status'] | null
+    limit: number
+  }
+}
+
 export type AdminJob = {
   id: string
   userId: string
@@ -456,6 +490,22 @@ export async function updateUserModelAccess(
 
 export async function getAuditLogs(role: AdminRole): Promise<AuditLogsResponse> {
   return getJson('/api/admin/audit-logs', role)
+}
+
+export async function getAdminMcpInvocations(role: AdminRole, filter: {
+  jobId?: string
+  variationId?: string
+  mcpToolId?: string
+  status?: string
+  limit?: number
+} = {}): Promise<AdminMcpInvocationAuditResponse> {
+  const params = new URLSearchParams()
+  if (filter.jobId) params.set('jobId', filter.jobId)
+  if (filter.variationId) params.set('variationId', filter.variationId)
+  if (filter.mcpToolId) params.set('mcpToolId', filter.mcpToolId)
+  if (filter.status) params.set('status', filter.status)
+  if (filter.limit) params.set('limit', String(filter.limit))
+  return getJson(`/api/admin/mcp/invocations${params.size ? `?${params.toString()}` : ''}`, role)
 }
 
 export async function getAdminJobs(role: AdminRole, filter: {

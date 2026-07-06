@@ -1924,3 +1924,75 @@
 - `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
 - `npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="MCP invocation|tool policy|dynamic encyclopedia"`
 - `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+## 2026-07-06 RTC-M41 MCP HTTP Transport Boundary
+
+### 已完成
+
+- 在 Application Service 层增加可配置 MCP transport：
+  - `mock`
+  - `http`
+- HTTP transport 仍只消费 DUDesign 标准 `McpInvocationRequest`，并只接受 DUDesign 标准 `McpInvocationResult`，不把外部 MCP server schema 泄漏给业务层或 Runtime Gateway。
+- HTTP transport 的失败统一归一化为 `MCP_UNAVAILABLE`，继续复用现有 audit/replay/toolContext 链路。
+- Staging env example 增加：
+  - `DUDESIGN_MCP_EXECUTOR`
+  - `DUDESIGN_MCP_BASE_URL`
+  - `DUDESIGN_MCP_ENDPOINT_PATH`
+  - `DUDESIGN_MCP_API_KEY`
+  - `DUDESIGN_MCP_AUTH_HEADER`
+  - `DUDESIGN_MCP_TIMEOUT_MS`
+
+### 边界
+
+- 本轮完成 transport adapter，不接具体外部 democase 数据库。
+- 真实 MCP server 需要遵循 DUDesign 标准 result envelope，或另行增加更下游的 server-specific adapter。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="MCP|mcp|serviceFactory|api flow|capabilities"`
+
+## 2026-07-06 RTC-M42 Staging MCP HTTP Smoke
+
+### 已完成
+
+- Staging smoke 新增 MCP HTTP transport 端到端验证：
+  - mock MCP server 返回标准 DUDesign `McpInvocationResult`。
+  - API 使用 `HttpMcpExecutor` 调用该 server。
+  - 结果进入现有 audit/replay/toolContext 链路。
+- 主 staging smoke 脚本会在基础 smoke 和 BabeL-O prompt smoke 后执行 MCP HTTP smoke。
+
+### 边界
+
+- 该 smoke 验证 DUDesign HTTP transport 和标准 envelope，不验证真实 democase 数据库。
+- 真实 MCP server 接入仍应新增独立 smoke，并保持默认 staging smoke 可离线运行。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-mcp-http-remote.sh`
+
+## 2026-07-06 RTC-M43 MCP Unavailable Degradation Event
+
+### 已完成
+
+- `POST /api/mcp/invocations/execute` 在 MCP executor 返回 `unavailable` 时，额外发布 DUDesign 标准事件：
+  - `design.runtime_warning`
+  - `code=MCP_UNAVAILABLE`
+  - `severity=warn`
+- 该事件绑定原始 session/job/variation，便于结果墙、单变体页和 SSE replay 用统一 runtime activity 方式展示。
+- 用户端错误映射新增 `MCP_UNAVAILABLE`，显示为“能力暂时不可用”，不再被误读为 runtime 崩溃。
+- API 事件测试覆盖：
+  - authorized MCP invocation 执行失败归一化为 unavailable。
+  - 不生成 tool context。
+  - `design.runtime_warning` 持久化并可通过 `/api/design-jobs/:id/stream` replay。
+- RTC-4.5 `MCP unavailable 降级事件` 标记完成。
+
+### 边界
+
+- 本轮只处理 MCP executor unavailable；MCP result `error` 的可恢复/不可恢复分类后续可按真实 server 错误码继续细化。
+- 前端复用现有 runtime activity 提示，不新增单独 MCP 面板。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="MCP|mcp|design job event"`

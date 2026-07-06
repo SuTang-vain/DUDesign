@@ -64,6 +64,17 @@ export function toUserFacingError(input: UserErrorInput): UserFacingError {
     }
   }
 
+  if (code === 'MCP_UNAVAILABLE') {
+    return {
+      title: 'Capability temporarily unavailable',
+      message: 'A selected tool or context provider could not be reached. The task is still saved, and you can continue without that tool or retry later.',
+      action: 'Retry capability',
+      retryable: true,
+      severity: 'warning',
+      detail: rawMessage,
+    }
+  }
+
   if (code === 'ARTIFACT_QUALITY_GATE') {
     return {
       title: 'Preview needs attention',
@@ -128,5 +139,5 @@ function cleanMessage(message: string | null | undefined): string {
 
 function defaultRetryable(code: string, status: number | null | undefined): boolean {
   if (status && status >= 500) return true
-  return code.startsWith('RUNTIME_') || code === 'UNKNOWN_ERROR'
+  return code.startsWith('RUNTIME_') || code === 'MCP_UNAVAILABLE' || code === 'UNKNOWN_ERROR'
 }

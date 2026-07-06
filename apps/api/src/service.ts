@@ -1,6 +1,7 @@
 import { createDesignEvent } from '@dudesign/contracts'
 import type {
   AdvancedTemplateConstraints,
+  AdminMcpInvocationAuditResponse,
   AuthorizeMcpInvocationRequest,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
@@ -21,6 +22,7 @@ import type {
   UserCapabilityPreference,
   McpInvocationRequest,
   McpInvocationResult,
+  McpInvocationAuditRecord,
 } from '@dudesign/contracts'
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import {
@@ -881,6 +883,19 @@ export class ApplicationService {
         result,
       },
     })
+    if (result.status === 'unavailable') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.runtime_warning',
+        sessionId: authorizationResponse.request.sessionId,
+        jobId: authorizationResponse.request.jobId,
+        variationId: authorizationResponse.request.variationId,
+        payload: {
+          severity: 'warn',
+          code: result.error?.code ?? 'MCP_UNAVAILABLE',
+          message: result.error?.message ?? result.summary,
+        },
+      }))
+    }
 
     return {
       ...authorizationResponse,
@@ -1729,6 +1744,37 @@ export class ApplicationService {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
     return {
       auditLogs: this.store.listAuditLogs(),
+    }
+  }
+
+  async listAdminMcpInvocationAudits(ctx: RequestContext, filter: {
+    jobId?: string | null
+    variationId?: string | null
+    mcpToolId?: string | null
+    status?: McpInvocationResult['status'] | null
+    limit?: number | null
+  } = {}): Promise<AdminMcpInvocationAuditResponse> {
+    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    const limit = clampInteger(filter.limit ?? 50, 1, 200)
+    const records = await this.store.listMcpInvocationAuditRecords({
+      jobId: cleanFilterValue(filter.jobId),
+      variationId: cleanFilterValue(filter.variationId),
+      mcpToolId: cleanFilterValue(filter.mcpToolId),
+      limit: filter.status ? 200 : limit,
+    })
+    const status = validMcpInvocationStatus(filter.status) ? filter.status : null
+    return {
+      invocations: records
+        .filter(record => !status || record.result.status === status)
+        .slice(0, limit)
+        .map(adminMcpInvocationAuditEntry),
+      filters: {
+        jobId: cleanFilterValue(filter.jobId) ?? null,
+        variationId: cleanFilterValue(filter.variationId) ?? null,
+        mcpToolId: cleanFilterValue(filter.mcpToolId) ?? null,
+        status,
+        limit,
+      },
     }
   }
 
@@ -4119,6 +4165,52 @@ function auditAuthorizationMetadata(authorization: McpInvocationAuthorization): 
     scopes: authorization.binding.scopes,
     requiresUserAuth: authorization.binding.requiresUserAuth,
   }
+}
+
+function adminMcpInvocationAuditEntry(record: McpInvocationAuditRecord): AdminMcpInvocationAuditResponse['invocations'][number] {
+  return {
+    invocationId: record.invocationId,
+    replayKey: record.replayKey,
+    userId: record.request.userId,
+    workspaceId: record.request.workspaceId,
+    sessionId: record.request.sessionId,
+    jobId: record.request.jobId,
+    variationId: record.request.variationId ?? null,
+    mcpToolId: record.request.mcpToolId,
+    serverName: record.request.serverName,
+    toolName: record.request.toolName,
+    mode: record.request.mode,
+    status: record.result.status,
+    summary: adminAuditPreview(record.result.summary, 220) ?? '',
+    errorCode: record.result.error?.code ?? null,
+    errorMessage: adminAuditPreview(record.result.error?.message ?? null, 220),
+    policySnapshotHash: record.policySnapshotHash,
+    runtimeContractVersion: record.runtimeContractVersion,
+    referenceCount: record.result.references.length,
+    requestedAt: record.request.requestedAt,
+    completedAt: record.completedAt,
+  }
+}
+
+function cleanFilterValue(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function validMcpInvocationStatus(value: unknown): value is McpInvocationResult['status'] {
+  return value === 'ok' || value === 'denied' || value === 'unavailable' || value === 'error'
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, Math.trunc(value)))
+}
+
+function adminAuditPreview(value: string | null | undefined, maxLength: number): string | null {
+  if (!value) return null
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength - 1)}...`
 }
 
 function mcpAuthorizationResult(

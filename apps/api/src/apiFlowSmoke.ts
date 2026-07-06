@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import type {
   CreateAnnotationBatchResponse,
   AuthorizeMcpInvocationResponse,
+  AdminMcpInvocationAuditResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
   CreateSourceArtifactResponse,
@@ -584,6 +585,25 @@ Reusable smoke test template.
   assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === authorizedMcpInvocation.invocationId && record.result.status === 'ok'))
   assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === executedMcpInvocation.invocationId && record.result.summary === 'Accessibility validation accepted for queued artifact review.'))
   assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === deniedMcpInvocation.invocationId && record.result.status === 'denied'))
+  const adminMcpInvocations = await getJson<AdminMcpInvocationAuditResponse>(
+    `/api/admin/mcp/invocations?jobId=${encodeURIComponent(createdJob.job.id)}`,
+    { headers: { 'x-dudesign-admin-role': 'support' } },
+  )
+  assert.equal(adminMcpInvocations.filters.jobId, createdJob.job.id)
+  assert.ok(adminMcpInvocations.invocations.some(invocation =>
+    invocation.invocationId === executedMcpInvocation.invocationId
+    && invocation.status === 'ok'
+    && invocation.replayKey === executedMcpInvocation.invocationAuditRecord.replayKey
+  ))
+  const deniedAdminMcpInvocations = await getJson<AdminMcpInvocationAuditResponse>(
+    `/api/admin/mcp/invocations?jobId=${encodeURIComponent(createdJob.job.id)}&mcpToolId=${encodeURIComponent('mcp_accessibility_validate')}&status=denied`,
+    { headers: { 'x-dudesign-admin-role': 'support' } },
+  )
+  assert.ok(deniedAdminMcpInvocations.invocations.every(invocation => invocation.status === 'denied'))
+  assert.ok(deniedAdminMcpInvocations.invocations.some(invocation =>
+    invocation.invocationId === deniedMcpInvocation.invocationId
+    && invocation.errorCode === 'MCP_SCOPE_DENIED'
+  ))
   assert.equal(jobSnapshot.job.designTemplatePacks.length, 3)
   assert.deepEqual(
     (storedCreatedJob?.templateRequirements.designTemplatePackVersions as Array<{ id: string; version: string }>).map(item => item.id),

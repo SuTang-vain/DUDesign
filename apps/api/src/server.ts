@@ -193,6 +193,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/admin/mcp/invocations') {
+    sendJson(res, 200, await service.listAdminMcpInvocationAudits(ctx, {
+      jobId: url.searchParams.get('jobId'),
+      variationId: url.searchParams.get('variationId'),
+      mcpToolId: url.searchParams.get('mcpToolId'),
+      status: url.searchParams.get('status') as any,
+      limit: parseOptionalInteger(url.searchParams.get('limit')),
+    }))
+    return
+  }
+
   if (method === 'GET' && url.pathname === '/api/admin/jobs') {
     sendJson(res, 200, await service.listAdminJobs(ctx, {
       status: url.searchParams.get('status'),
@@ -515,13 +526,13 @@ async function streamJobEvents(res: http.ServerResponse, service: ApplicationSer
     unsubscribe?.()
     res.end()
   }
-  const writeIfNew = (event: DesignEvent) => {
+  const writeIfNew = (event: DesignEvent, options: { closeOnTerminal?: boolean } = {}) => {
     if (closed) return
     const key = designEventReplayKey(event)
     if (seen.has(key)) return
     seen.add(key)
     writeSse(res, event)
-    if (event.type === 'design.job_completed') closeStream()
+    if (options.closeOnTerminal !== false && event.type === 'design.job_completed') closeStream()
   }
   const pollPersistedEvents = async () => {
     try {
@@ -533,8 +544,12 @@ async function streamJobEvents(res: http.ServerResponse, service: ApplicationSer
   }
 
   const persistedEvents = await service.listDesignJobEvents(ctx, jobId)
-  for (const event of persistedEvents) writeIfNew(event)
-  for (const event of service.events.replay(jobId)) writeIfNew(event)
+  for (const event of persistedEvents) writeIfNew(event, { closeOnTerminal: false })
+  for (const event of service.events.replay(jobId)) writeIfNew(event, { closeOnTerminal: false })
+  const snapshot = await service.getDesignJob(ctx, jobId)
+  if (snapshot.job.status === 'completed' || snapshot.job.status === 'failed' || snapshot.job.status === 'cancelled') {
+    closeStream()
+  }
   if (closed) return
 
   unsubscribe = service.events.subscribe(jobId, writeIfNew)
@@ -658,6 +673,12 @@ function sendError(res: http.ServerResponse, error: unknown): void {
       message: error instanceof Error ? error.message : 'Unknown error',
     },
   })
+}
+
+function parseOptionalInteger(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

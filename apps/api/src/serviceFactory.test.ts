@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import { BabelORuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
+import { HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
 
 import {
   applicationProcessRoleFromEnv,
+  createMcpExecutorFromEnv,
   createRuntimeGatewayFromEnv,
   shouldConsumeQueue,
 } from './serviceFactory.js'
@@ -30,6 +32,13 @@ const envKeys = [
   'DUDESIGN_SERVICE_ROLE',
   'DUDESIGN_QUEUE',
   'DUDESIGN_QUEUE_PROVIDER',
+  'DUDESIGN_MCP_EXECUTOR',
+  'DUDESIGN_MCP_PROVIDER',
+  'DUDESIGN_MCP_BASE_URL',
+  'DUDESIGN_MCP_ENDPOINT_PATH',
+  'DUDESIGN_MCP_API_KEY',
+  'DUDESIGN_MCP_AUTH_HEADER',
+  'DUDESIGN_MCP_TIMEOUT_MS',
 ] as const
 
 describe('createRuntimeGatewayFromEnv', () => {
@@ -81,6 +90,42 @@ describe('createRuntimeGatewayFromEnv', () => {
     const runtime = createRuntimeGatewayFromEnv()
 
     assert.ok(runtime instanceof BabelORuntimeGateway)
+  })
+})
+
+describe('createMcpExecutorFromEnv', () => {
+  afterEach(() => {
+    for (const key of envKeys) {
+      delete process.env[key]
+    }
+  })
+
+  it('uses the mock MCP executor by default', () => {
+    const executor = createMcpExecutorFromEnv()
+
+    assert.ok(executor instanceof MockMcpExecutor)
+  })
+
+  it('requires an HTTP base URL when the HTTP MCP executor is enabled', () => {
+    process.env.DUDESIGN_MCP_EXECUTOR = 'http'
+
+    assert.throws(() => createMcpExecutorFromEnv(), /DUDESIGN_MCP_BASE_URL/)
+  })
+
+  it('creates an HTTP MCP executor from env configuration', () => {
+    process.env.DUDESIGN_MCP_EXECUTOR = 'http'
+    process.env.DUDESIGN_MCP_BASE_URL = 'https://mcp.example.test'
+    process.env.DUDESIGN_MCP_ENDPOINT_PATH = '/invoke'
+    process.env.DUDESIGN_MCP_API_KEY = 'mcp-key'
+    process.env.DUDESIGN_MCP_AUTH_HEADER = 'x-mcp-key'
+    process.env.DUDESIGN_MCP_TIMEOUT_MS = '1234'
+
+    const executor = createMcpExecutorFromEnv()
+
+    assert.ok(executor instanceof HttpMcpExecutor)
+    assert.equal(Reflect.get(executor, 'baseUrl'), 'https://mcp.example.test')
+    assert.equal(Reflect.get(executor, 'endpointPath'), '/invoke')
+    assert.equal(Reflect.get(executor, 'timeoutMs'), 1234)
   })
 })
 

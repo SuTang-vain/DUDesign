@@ -334,6 +334,40 @@ export type ReplayMcpInvocationResponse = {
   audit: unknown
 }
 
+export type AdminMcpInvocationAuditEntry = {
+  invocationId: ID
+  replayKey: string
+  userId: ID
+  workspaceId: ID
+  sessionId: ID
+  jobId: ID
+  variationId: ID | null
+  mcpToolId: ID
+  serverName: string
+  toolName: string
+  mode: McpInvocationRequest['mode']
+  status: McpInvocationResult['status']
+  summary: string
+  errorCode: string | null
+  errorMessage: string | null
+  policySnapshotHash: string
+  runtimeContractVersion: string
+  referenceCount: number
+  requestedAt: string
+  completedAt: string
+}
+
+export type AdminMcpInvocationAuditResponse = {
+  invocations: AdminMcpInvocationAuditEntry[]
+  filters: {
+    jobId: ID | null
+    variationId: ID | null
+    mcpToolId: ID | null
+    status: McpInvocationResult['status'] | null
+    limit: number
+  }
+}
+
 export type AdvancedTemplateConstraints = {
   colorPaletteId?: ID | null
   styleNotes?: string[]

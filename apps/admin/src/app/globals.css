@@ -236,7 +236,8 @@ button {
   margin: 0 0 14px;
 }
 
-.job-filter-grid label {
+.job-filter-grid label,
+.mcp-filter-grid label {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -244,12 +245,28 @@ button {
   font-weight: 700;
 }
 
-.job-filter-grid .compact-input {
+.job-filter-grid .compact-input,
+.mcp-filter-grid .compact-input {
   width: 100%;
+}
+
+.mcp-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.mcp-filter-grid select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 11px;
 }
 
 .job-table,
 .artifact-table,
+.mcp-audit-table,
 .model-table,
 .memory-table,
 .support-list,
@@ -262,6 +279,8 @@ button {
 .job-row,
 .artifact-table-head,
 .artifact-row,
+.mcp-audit-head,
+.mcp-audit-row,
 .model-table-head,
 .model-row,
 .memory-table-head,
@@ -275,6 +294,7 @@ button {
 
 .job-table-head,
 .artifact-table-head,
+.mcp-audit-head,
 .model-table-head,
 .memory-table-head,
 .support-session-head {
@@ -327,6 +347,11 @@ button {
 .artifact-table-head,
 .artifact-row {
   grid-template-columns: minmax(280px, 1fr) 110px 130px 110px 120px minmax(220px, 0.8fr);
+}
+
+.mcp-audit-head,
+.mcp-audit-row {
+  grid-template-columns: minmax(280px, 1fr) 110px minmax(220px, 0.8fr) minmax(220px, 0.8fr) minmax(240px, 0.9fr);
 }
 
 .model-table-head,
@@ -400,6 +425,7 @@ button {
 
 .job-row,
 .artifact-row,
+.mcp-audit-row,
 .model-row,
 .memory-row,
 .support-user,
@@ -412,6 +438,7 @@ button {
 
 .job-row p,
 .artifact-row p,
+.mcp-audit-row p,
 .model-row p,
 .memory-row p,
 .support-user p,
@@ -425,10 +452,19 @@ button {
 
 .job-row small,
 .artifact-row small,
+.mcp-audit-row small,
 .model-row small,
 .memory-row small,
 .support-session-row small {
   color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.mcp-audit-row small {
+  color: var(--bad);
+}
+
+.replay-key {
   overflow-wrap: anywhere;
 }
 
@@ -735,6 +771,7 @@ button {
 
   .job-table-head,
   .artifact-table-head,
+  .mcp-audit-head,
   .model-table-head,
   .memory-table-head,
   .support-session-head {
@@ -743,6 +780,7 @@ button {
 
   .job-row,
   .artifact-row,
+  .mcp-audit-row,
   .model-row,
   .memory-row,
   .support-session-row,
@@ -752,6 +790,10 @@ button {
   }
 
   .job-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mcp-filter-grid {
     grid-template-columns: 1fr;
   }
 

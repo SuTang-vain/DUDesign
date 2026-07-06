@@ -651,3 +651,37 @@
   - support 只读不可执行 repair/revoke。
   - operator 可触发 rebuild screenshot/export repair/revoke share。
 - 后续可继续将 Artifact Explorer 拆成独立组件，减少 `app/page.tsx` 的治理面复杂度。
+
+## 2026-07-06 ADM-M17 MCP Invocation Audit Search
+
+### 已完成
+
+- 管理端 `Audit & MCP` 增加 MCP invocation audit 检索区块。
+- 支持按以下条件过滤：
+  - `jobId`
+  - `variationId`
+  - `mcpToolId`
+  - `status`
+- 表格展示：
+  - invocation id。
+  - result status。
+  - tool/server。
+  - job/variation context。
+  - summary/error。
+  - replay key。
+  - runtime contract version。
+- 管理端只展示脱敏摘要，不直接暴露 MCP tool raw input。
+
+### 验证
+
+- API smoke 新增 support 角色读取 MCP invocation audit 的断言。
+
+### 决策
+
+- MCP invocation audit 对 support/operator/developer 可读；普通 audit log 仍保持 operator/developer 可读。
+- MCP 排障入口与 `Audit Log` 合并为 `Audit & MCP`，避免治理控制台入口碎片化。
+
+### 下一步
+
+- 补 MCP invocation audit 管理端浏览器 smoke。
+- 增加 democase MCP 健康、调用量、失败率汇总面板。

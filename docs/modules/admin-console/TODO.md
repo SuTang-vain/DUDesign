@@ -104,6 +104,7 @@
 - [ ] 支持 capability usage events 查询。
 - [ ] 管理动态百科父模板包、子模板和交互范式（12.5：首批子模板为 summary/timeline/relation/compare/expandable，explore 为下一批）。
 - [ ] 管理百科 L1/L2/L3 分类到子模板/交互范式的映射（12.6：以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源）。
+- [x] 展示 MCP invocation 审计摘要，支持按 job、variation、tool、status 查询 replay key。
 - [ ] 展示 democase MCP 健康状态、调用量、失败率和审计摘要（12.1：MCP 只服务生成期 agent；向导直连查询不计入 MCP 审计）。
 - [ ] 展示动态百科词条引导命中率、低置信度比例和人工确认比例。
 - [ ] 展示百科规范审查通过率、常见失败原因和自动修复成功率（12.2：按 `qualityGates` 维度展示；12.3：`llm_review` 规则标 Phase 2，MVP 不展示）。
@@ -133,6 +134,8 @@
 - [x] Model Services 同步 diff/audit/missing 浏览器 smoke test。
 - [x] Model Services support 只读权限浏览器 smoke test。
 - [x] Runtime Health contract mismatch/degraded 浏览器 smoke test。
+- [x] MCP invocation audit API smoke test。
+- [ ] MCP invocation audit 管理端浏览器 smoke test。
 - [ ] Capability Governance 页面 smoke test。
 - [ ] 官方模板 lint/diff/preview smoke test。
 - [ ] 插件禁用后用户端创建 job 被拒绝的 Admin + API 联动测试。

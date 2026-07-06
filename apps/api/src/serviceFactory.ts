@@ -5,6 +5,7 @@ import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
 import { InMemoryDesignJobQueue, type DesignJobQueue } from './designJobQueue.js'
 import { createRedisDesignJobQueueFromEnv } from './redisDesignJobQueue.js'
+import { HttpMcpExecutor, MockMcpExecutor, type McpExecutor } from './mcpExecutor.js'
 
 export type ApplicationProcessRole = 'api' | 'worker' | 'inline'
 
@@ -16,6 +17,7 @@ export async function createApplicationServiceFromEnv(options: {
     rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
   })
   const runtime = createRuntimeGatewayFromEnv()
+  const mcpExecutor = createMcpExecutorFromEnv()
   const queue = createDesignJobQueueFromEnv()
   const consumeQueue = shouldConsumeQueue(role)
   if (process.env.DUDESIGN_REPOSITORY === 'postgres') {
@@ -26,9 +28,9 @@ export async function createApplicationServiceFromEnv(options: {
       connectionString: process.env.DATABASE_URL,
       hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
-    return new ApplicationService({ store, artifacts, runtime, queue, consumeQueue })
+    return new ApplicationService({ store, artifacts, runtime, mcpExecutor, queue, consumeQueue })
   }
-  return new ApplicationService({ artifacts, runtime, queue, consumeQueue })
+  return new ApplicationService({ artifacts, runtime, mcpExecutor, queue, consumeQueue })
 }
 
 export function applicationProcessRoleFromEnv(env: NodeJS.ProcessEnv = process.env): ApplicationProcessRole {
@@ -73,6 +75,24 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
       expectedContractVersion: process.env.BABELO_CONTRACT_VERSION ?? process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
     },
   })
+}
+
+export function createMcpExecutorFromEnv(): McpExecutor {
+  const provider = process.env.DUDESIGN_MCP_EXECUTOR ?? process.env.DUDESIGN_MCP_PROVIDER
+  if (provider === 'http') {
+    const baseUrl = process.env.DUDESIGN_MCP_BASE_URL
+    if (!baseUrl) {
+      throw new Error('DUDESIGN_MCP_BASE_URL is required when DUDESIGN_MCP_EXECUTOR=http.')
+    }
+    return new HttpMcpExecutor({
+      baseUrl,
+      endpointPath: process.env.DUDESIGN_MCP_ENDPOINT_PATH,
+      apiKey: process.env.DUDESIGN_MCP_API_KEY,
+      authHeaderName: process.env.DUDESIGN_MCP_AUTH_HEADER,
+      timeoutMs: optionalPositiveInteger(process.env.DUDESIGN_MCP_TIMEOUT_MS),
+    })
+  }
+  return new MockMcpExecutor()
 }
 
 function optionalPositiveInteger(value: string | undefined): number | undefined {

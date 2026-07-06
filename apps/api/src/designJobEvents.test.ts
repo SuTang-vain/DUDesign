@@ -1,15 +1,21 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
 import { createDesignEvent, type DesignEvent } from '@dudesign/contracts'
-import type {
-  RuntimeGateway,
-  SpawnVariationAgentsInput,
-  RefineVariationInput,
-  CreateRuntimeSessionInput,
-  ResumeRuntimeSessionInput,
-  CancelRuntimeJobInput,
+import {
+  mcpUnavailableResult,
+  type RuntimeGateway,
+  type SpawnVariationAgentsInput,
+  type RefineVariationInput,
+  type CreateRuntimeSessionInput,
+  type ResumeRuntimeSessionInput,
+  type CancelRuntimeJobInput,
 } from '@dudesign/runtime-gateway'
-import type { CreateDesignJobResponse, CreateSessionResponse, DesignJobSnapshotResponse } from '@dudesign/contracts'
+import type {
+  CreateDesignJobResponse,
+  CreateSessionResponse,
+  DesignJobSnapshotResponse,
+  ExecuteMcpInvocationResponse,
+} from '@dudesign/contracts'
 import { ApplicationService } from './service.js'
 import { InMemoryStore } from './store.js'
 import { JobEventBus } from './eventBus.js'
@@ -292,6 +298,73 @@ describe('Design job event persistence and partial failures', () => {
       `/api/variations/${job.variations[0]!.id}`,
     )
     assert.equal(detail.currentArtifact?.version, 1)
+
+    await harness.close()
+    harness = null
+  })
+
+  it('publishes a runtime warning when an authorized MCP invocation is unavailable', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('all-complete'),
+      queue: new NoopScreenshotQueue(),
+      mcpExecutor: {
+        execute: async request => mcpUnavailableResult(
+          request,
+          'quality-tools validateAccessibility endpoint is offline.',
+          '2026-07-06T00:00:00.000Z',
+        ),
+      },
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'MCP unavailable warning',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Generate a page that selects an accessibility validation MCP tool.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      capabilityRequirements: {
+        plugins: {
+          mcpToolIds: ['mcp_accessibility_validate'],
+        },
+      },
+      templateRequirements: {},
+    })
+    const snapshot = await waitForJob(harness, job.job.id, 'completed')
+    const variation = snapshot.variations[0]!
+
+    const executed = await postJson<ExecuteMcpInvocationResponse>(harness, '/api/mcp/invocations/execute', {
+      userId: 'usr_dev',
+      workspaceId: bootstrap.workspace.id,
+      sessionId: session.session.id,
+      jobId: job.job.id,
+      variationId: variation.id,
+      runtimeSessionId: null,
+      mcpToolId: 'mcp_accessibility_validate',
+      serverName: 'quality-tools',
+      toolName: 'validateAccessibility',
+      scopes: ['validation_only'],
+      input: { artifactId: variation.currentArtifactId },
+      reason: 'Validate generated artifact accessibility.',
+    })
+    assert.equal(executed.status, 'authorized')
+    assert.equal(executed.result.status, 'unavailable')
+    assert.equal(executed.result.error?.code, 'MCP_UNAVAILABLE')
+    assert.equal(executed.toolContext, null)
+
+    const events = await harness.service.store.listDesignEvents(job.job.id)
+    const warning = events.find(event => event.type === 'design.runtime_warning')
+    assert.equal(warning?.variationId, variation.id)
+    assert.equal(warning?.payload.code, 'MCP_UNAVAILABLE')
+    assert.equal(warning?.payload.severity, 'warn')
+    assert.match(warning?.payload.message ?? '', /quality-tools/)
+
+    const streamText = await getText(harness, `/api/design-jobs/${job.job.id}/stream`)
+    assert.match(streamText, /design\.runtime_warning/)
+    assert.match(streamText, /MCP_UNAVAILABLE/)
 
     await harness.close()
     harness = null

@@ -11,6 +11,14 @@ export default defineConfig({
     baseURL: process.env.DUDESIGN_ADMIN_URL ?? 'http://localhost:3002',
     trace: 'on-first-retry',
   },
+  webServer: process.env.DUDESIGN_ADMIN_URL
+    ? undefined
+    : {
+        command: 'npm --workspace @dudesign/admin run dev',
+        url: 'http://localhost:3002',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: 'chromium',

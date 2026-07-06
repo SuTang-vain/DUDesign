@@ -7,6 +7,7 @@ import {
   cancelJob,
   getAdminArtifacts,
   getAdminJobs,
+  getAdminMcpInvocations,
   getAdminModels,
   getAuditLogs,
   getCostSummary,
@@ -25,6 +26,7 @@ import {
   updateUserModelAccess,
   type AdminArtifact,
   type AdminJob,
+  type AdminMcpInvocationAuditEntry,
   type AdminModel,
   type AdminRole,
   type AdminMemoryGovernanceResponse,
@@ -47,7 +49,7 @@ const adminSections: Array<{ id: AdminSection; label: string }> = [
   { id: 'artifacts', label: 'Artifacts' },
   { id: 'support', label: 'User Support' },
   { id: 'memory', label: 'Memory' },
-  { id: 'audit', label: 'Audit Log' },
+  { id: 'audit', label: 'Audit & MCP' },
 ]
 
 export default function AdminHomePage(): React.JSX.Element {
@@ -55,6 +57,7 @@ export default function AdminHomePage(): React.JSX.Element {
   const [activeSection, setActiveSection] = useState<AdminSection>('runtime')
   const [runtime, setRuntime] = useState<RuntimeHealthResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [mcpInvocations, setMcpInvocations] = useState<AdminMcpInvocationAuditEntry[]>([])
   const [jobs, setJobs] = useState<AdminJob[]>([])
   const [artifacts, setArtifacts] = useState<AdminArtifact[]>([])
   const [models, setModels] = useState<AdminModel[]>([])
@@ -72,6 +75,10 @@ export default function AdminHomePage(): React.JSX.Element {
   const [jobCreatedToFilter, setJobCreatedToFilter] = useState('')
   const [artifactJobFilter, setArtifactJobFilter] = useState('')
   const [artifactKindFilter, setArtifactKindFilter] = useState('')
+  const [mcpJobFilter, setMcpJobFilter] = useState('')
+  const [mcpVariationFilter, setMcpVariationFilter] = useState('')
+  const [mcpToolFilter, setMcpToolFilter] = useState('')
+  const [mcpStatusFilter, setMcpStatusFilter] = useState('')
   const [supportQuery, setSupportQuery] = useState('usr_dev')
   const [memoryQuery, setMemoryQuery] = useState('')
   const [modelUserId, setModelUserId] = useState('usr_dev')
@@ -96,6 +103,11 @@ export default function AdminHomePage(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, artifactJobFilter, artifactKindFilter])
 
+  useEffect(() => {
+    void refreshMcpInvocations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, mcpJobFilter, mcpVariationFilter, mcpToolFilter, mcpStatusFilter])
+
   async function refresh(): Promise<void> {
     setLoading(true)
     setError(null)
@@ -106,7 +118,7 @@ export default function AdminHomePage(): React.JSX.Element {
       ])
       setRuntime(health)
       setAuditLogs(audits.auditLogs)
-      await Promise.all([refreshJobs(), refreshArtifacts(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess(), refreshTemplateGovernance()])
+      await Promise.all([refreshJobs(), refreshArtifacts(), refreshMcpInvocations(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess(), refreshTemplateGovernance()])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -141,6 +153,21 @@ export default function AdminHomePage(): React.JSX.Element {
         kind: artifactKindFilter || undefined,
       })
       setArtifacts(artifactData.artifacts)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function refreshMcpInvocations(): Promise<void> {
+    try {
+      const data = await getAdminMcpInvocations(role, {
+        jobId: mcpJobFilter.trim() || undefined,
+        variationId: mcpVariationFilter.trim() || undefined,
+        mcpToolId: mcpToolFilter.trim() || undefined,
+        status: mcpStatusFilter || undefined,
+        limit: 50,
+      })
+      setMcpInvocations(data.invocations)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -1020,7 +1047,97 @@ export default function AdminHomePage(): React.JSX.Element {
           ) : null}
 
           {activeSection === 'audit' ? (
-          <section className="panel">
+          <section className="panel wide-panel">
+            <div className="panel-header">
+              <div>
+                <h2>MCP Invocation Audit</h2>
+                <p className="muted">Search authorized tool calls, denials, unavailable transports, and replay keys without exposing raw tool input.</p>
+              </div>
+              <button className="secondary-button" onClick={() => void refreshMcpInvocations()} disabled={loading}>
+                Refresh MCP
+              </button>
+            </div>
+            <div className="mcp-filter-grid">
+              <label>
+                Job
+                <input
+                  className="compact-input"
+                  value={mcpJobFilter}
+                  onChange={event => setMcpJobFilter(event.target.value)}
+                  placeholder="job_..."
+                />
+              </label>
+              <label>
+                Variation
+                <input
+                  className="compact-input"
+                  value={mcpVariationFilter}
+                  onChange={event => setMcpVariationFilter(event.target.value)}
+                  placeholder="var_..."
+                />
+              </label>
+              <label>
+                MCP tool
+                <input
+                  className="compact-input"
+                  value={mcpToolFilter}
+                  onChange={event => setMcpToolFilter(event.target.value)}
+                  placeholder="mcp_..."
+                />
+              </label>
+              <label>
+                Status
+                <select value={mcpStatusFilter} onChange={event => setMcpStatusFilter(event.target.value)}>
+                  <option value="">all statuses</option>
+                  <option value="ok">ok</option>
+                  <option value="denied">denied</option>
+                  <option value="unavailable">unavailable</option>
+                  <option value="error">error</option>
+                </select>
+              </label>
+            </div>
+            {mcpInvocations.length === 0 ? (
+              <p className="muted">No MCP invocation records match the current filter.</p>
+            ) : (
+              <div className="mcp-audit-table">
+                <div className="mcp-audit-head">
+                  <span>Invocation</span>
+                  <span>Status</span>
+                  <span>Tool</span>
+                  <span>Context</span>
+                  <span>Replay</span>
+                </div>
+                {mcpInvocations.map(invocation => (
+                  <article className="mcp-audit-row" key={invocation.invocationId}>
+                    <div>
+                      <strong>{invocation.invocationId}</strong>
+                      <p>{invocation.summary ?? 'No summary.'}</p>
+                      {invocation.errorMessage ? <small>{invocation.errorCode ?? 'MCP_ERROR'}: {invocation.errorMessage}</small> : null}
+                    </div>
+                    <span className={`status-pill ${mcpStatusClass(invocation.status)}`}>{invocation.status}</span>
+                    <div className="compact-metrics">
+                      <span>{invocation.mcpToolId}</span>
+                      <span>{invocation.serverName}.{invocation.toolName}</span>
+                      <span>{invocation.referenceCount} refs</span>
+                    </div>
+                    <div className="compact-metrics">
+                      <span>{invocation.jobId}</span>
+                      <span>{invocation.variationId ?? 'job-level'}</span>
+                      <span>{formatTime(invocation.completedAt)}</span>
+                    </div>
+                    <div className="compact-metrics replay-key">
+                      <span>{invocation.replayKey}</span>
+                      <span>{invocation.runtimeContractVersion}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+          ) : null}
+
+          {activeSection === 'audit' ? (
+          <section className="panel wide-panel">
             <div className="panel-header">
               <h2>Audit Log</h2>
               <span className="status-pill">{role === 'support' ? 'restricted' : auditLogs.length}</span>
@@ -1078,6 +1195,12 @@ function memoryStatusClass(status: AdminMemoryGovernanceResponse['users'][number
   if (status === 'isolated') return 'compatible'
   if (status === 'namespace_conflict') return 'unavailable'
   return 'degraded'
+}
+
+function mcpStatusClass(status: AdminMcpInvocationAuditEntry['status']): string {
+  if (status === 'ok') return 'compatible'
+  if (status === 'denied' || status === 'unavailable') return 'degraded'
+  return 'unavailable'
 }
 
 function templateLintClass(status: AdminTemplateGovernanceResponse['templates'][number]['lintStatus']): string {

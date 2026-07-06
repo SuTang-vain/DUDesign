@@ -2502,3 +2502,101 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 增加真实 MCP transport adapter，并用同一套 replay API 保护线上排障和合规回放。
 - 在管理端增加 MCP invocation audit 检索 UI，支持按 job、variation、tool、result status 过滤。
+
+## 2026-07-06 APP-M49 MCP HTTP Transport Adapter
+
+### 已完成
+
+- `McpExecutor` 新增 `HttpMcpExecutor` 实现：
+  - 通过标准 `{ request }` envelope 调用 HTTP MCP executor。
+  - 支持 `baseUrl`、`endpointPath`、`apiKey`、`authHeaderName`、`timeoutMs`。
+  - 支持远端返回 `{ result }` 或直接返回标准 `McpInvocationResult`。
+  - HTTP 错误、超时、无效 result、invocation/tool mismatch 都归一化为 `MCP_UNAVAILABLE` result。
+- `serviceFactory` 新增 `createMcpExecutorFromEnv()`：
+  - 默认 `MockMcpExecutor`。
+  - `DUDESIGN_MCP_EXECUTOR=http` 时启用 `HttpMcpExecutor`。
+  - 缺少 `DUDESIGN_MCP_BASE_URL` 会启动失败。
+- `createApplicationServiceFromEnv()` 会把 MCP executor 注入 `ApplicationService`。
+- `deploy/staging/staging.env.example` 增加 MCP executor env 示例。
+- 单测覆盖：
+  - HTTP executor 标准 result。
+  - HTTP 失败降级为 unavailable。
+  - env factory 默认 mock、缺 base URL 报错、HTTP 配置创建。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="MCP|mcp|serviceFactory|api flow|capabilities"`
+
+### 后续建议
+
+- 增加 staging MCP HTTP smoke，使用一个本地/容器 mock MCP server 验证端到端 HTTP transport。
+- 后续真实 democase MCP server 接入时，只需提供 DUDesign 标准 result envelope，业务服务层不需要绑定外部数据库结构。
+
+## 2026-07-06 APP-M50 Staging MCP HTTP Smoke
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/smoke-mcp-http-remote.sh`：
+  - 在 staging 服务器上临时启动 Python mock MCP HTTP server。
+  - 临时将 `deploy/staging/.env` 切到 `DUDESIGN_MCP_EXECUTOR=http`。
+  - 重启 API 容器以加载 MCP env。
+  - 创建最小 session/job，执行 `POST /api/mcp/invocations/execute`。
+  - 验证 HTTP transport 返回 `Staging MCP HTTP smoke executed.`。
+  - 调用 replay API，验证 replay result/toolContext 与 execute 结果一致。
+  - 退出时恢复原 `.env` 并重启 API。
+- `deploy/staging/docker-compose.yml`：
+  - API 容器透传 `DUDESIGN_MCP_*` env。
+  - 增加 `host.docker.internal:host-gateway`，便于 staging smoke 让容器访问宿主 mock MCP server。
+- `deploy/staging/scripts/smoke-remote.sh` 串入 MCP HTTP smoke。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-mcp-http-remote.sh`
+
+### 后续建议
+
+- 在真实 MCP server 可用后，新增非 mock 的 `DUDESIGN_STAGING_MCP_REAL_SMOKE=1` 分支，避免默认 smoke 依赖外部私有服务。
+
+## 2026-07-06 APP-M51 Admin MCP Invocation Audit API
+
+### 已完成
+
+- Contracts 新增 `AdminMcpInvocationAuditEntry` 与 `AdminMcpInvocationAuditResponse`。
+- Application Service 新增 `listAdminMcpInvocationAudits()`：
+  - support/operator/developer 可读。
+  - 支持 `jobId`、`variationId`、`mcpToolId`、`status`、`limit` 过滤。
+  - 输出脱敏 summary/error，不暴露 raw MCP input。
+- API 新增：
+  - `GET /api/admin/mcp/invocations`
+- API smoke 增加：
+  - support 角色可以查询某个 job 的 MCP invocation audit。
+  - status/tool 过滤能定位 denied invocation。
+  - replay key 与 execute 记录保持一致。
+
+### 验证
+
+- 待本轮统一执行 `tsc` 与 API smoke。
+
+### 下一步
+
+- 补管理端浏览器 smoke，覆盖筛选条件和长 replay key 展示。
+- 在真实 democase MCP 接入后增加按 tool/provider 的健康汇总。
+
+## 2026-07-06 APP-M51 MCP Unavailable Warning Event
+
+### 已完成
+
+- MCP execute API 在授权通过但外部 tool/provider 不可用时，继续写入 `mcp.invocation.unavailable` audit log。
+- 同时发布 `design.runtime_warning`，将 `MCP_UNAVAILABLE` 作为用户可理解的能力降级事件进入 job event stream。
+- 该 warning 使用原 job/variation scope，刷新或 SSE replay 后仍能恢复提示。
+- 用户端 `toUserFacingError()` 增加 `MCP_UNAVAILABLE` 文案，明确提示能力暂不可用、任务仍已保存、可稍后重试。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="MCP|mcp|design job event"`
+
+### 后续建议
+
+- 真实 MCP server 接入后，按 server-specific error code 细分 unavailable、rate limit、auth expired 和 validation error。

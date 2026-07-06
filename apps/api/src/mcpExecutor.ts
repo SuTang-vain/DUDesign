@@ -6,6 +6,14 @@ export type McpExecutor = {
   execute(request: McpInvocationRequest): Promise<McpInvocationResult>
 }
 
+export type HttpMcpExecutorConfig = {
+  baseUrl: string
+  endpointPath?: string
+  apiKey?: string
+  authHeaderName?: string
+  timeoutMs?: number
+}
+
 export class MockMcpExecutor implements McpExecutor {
   async execute(request: McpInvocationRequest): Promise<McpInvocationResult> {
     const completedAt = new Date().toISOString()
@@ -53,6 +61,59 @@ export class MockMcpExecutor implements McpExecutor {
   }
 }
 
+export class HttpMcpExecutor implements McpExecutor {
+  private readonly baseUrl: string
+  private readonly endpointPath: string
+  private readonly apiKey: string | undefined
+  private readonly authHeaderName: string
+  private readonly timeoutMs: number
+
+  constructor(config: HttpMcpExecutorConfig) {
+    this.baseUrl = config.baseUrl.replace(/\/+$/, '')
+    this.endpointPath = normalizeEndpointPath(config.endpointPath)
+    this.apiKey = config.apiKey
+    this.authHeaderName = config.authHeaderName?.trim() || 'authorization'
+    this.timeoutMs = config.timeoutMs ?? 30000
+  }
+
+  async execute(request: McpInvocationRequest): Promise<McpInvocationResult> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    try {
+      const response = await fetch(`${this.baseUrl}${this.endpointPath}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ request }),
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        return mcpUnavailableResult(request, `MCP HTTP executor returned ${response.status}: ${await safeResponseText(response)}`)
+      }
+      const payload = await response.json() as unknown
+      const result = normalizeMcpExecutorResponse(payload)
+      if (!result) return mcpUnavailableResult(request, 'MCP HTTP executor returned an invalid result envelope.')
+      if (result.invocationId !== request.invocationId || result.mcpToolId !== request.mcpToolId) {
+        return mcpUnavailableResult(request, 'MCP HTTP executor result does not match the invocation request.')
+      }
+      return result
+    } catch (error) {
+      return mcpUnavailableResult(request, error instanceof Error ? error.message : 'MCP HTTP executor request failed.')
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private headers(): Record<string, string> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (this.apiKey) {
+      headers[this.authHeaderName] = this.authHeaderName.toLowerCase() === 'authorization'
+        ? `Bearer ${this.apiKey}`
+        : this.apiKey
+    }
+    return headers
+  }
+}
+
 function invocationSource(request: McpInvocationRequest): McpInvocationResult['source'] {
   return {
     serverName: request.serverName,
@@ -68,4 +129,36 @@ function optionalString(value: unknown): string | null {
 function optionalPositiveInteger(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function normalizeMcpExecutorResponse(payload: unknown): McpInvocationResult | null {
+  const value = isRecord(payload) && isRecord(payload.result) ? payload.result : payload
+  if (!isRecord(value)) return null
+  if (typeof value.invocationId !== 'string') return null
+  if (!['ok', 'denied', 'unavailable', 'error'].includes(String(value.status))) return null
+  if (typeof value.mcpToolId !== 'string') return null
+  if (!isRecord(value.source)) return null
+  if (typeof value.source.serverName !== 'string' || typeof value.source.toolName !== 'string' || !Array.isArray(value.source.scopes)) return null
+  if (typeof value.summary !== 'string') return null
+  if (!Array.isArray(value.references)) return null
+  if (typeof value.completedAt !== 'string') return null
+  return value as McpInvocationResult
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function normalizeEndpointPath(value: string | undefined): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return '/v1/mcp/invocations'
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+async function safeResponseText(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 500)
+  } catch {
+    return 'unreadable response body'
+  }
 }
