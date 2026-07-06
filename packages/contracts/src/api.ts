@@ -541,6 +541,8 @@ export type AdminMcpInvocationSummaryResponse = {
   }
   filters: {
     mcpToolId: ID | null
+    createdFrom: string | null
+    createdTo: string | null
     limit: number
   }
 }

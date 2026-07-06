@@ -1849,21 +1849,28 @@ export class ApplicationService {
 
   async getAdminMcpInvocationSummary(ctx: RequestContext, filter: {
     mcpToolId?: string | null
+    createdFrom?: string | null
+    createdTo?: string | null
     limit?: number | null
   } = {}): Promise<AdminMcpInvocationSummaryResponse> {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     const limit = clampInteger(filter.limit ?? 1000, 1, 1000)
     const mcpToolId = cleanFilterValue(filter.mcpToolId)
+    const createdFrom = cleanFilterValue(filter.createdFrom)
+    const createdTo = cleanFilterValue(filter.createdTo)
     const records = await this.store.listMcpInvocationAuditRecords({
       mcpToolId,
       limit,
     })
+    const scopedRecords = records.filter(record => recordInIsoRange(record.completedAt, createdFrom, createdTo))
     return {
-      totals: mcpInvocationTotals(records),
-      tools: mcpToolHealthSummaries(records),
-      democase: democaseMcpHealthSummary(records),
+      totals: mcpInvocationTotals(scopedRecords),
+      tools: mcpToolHealthSummaries(scopedRecords),
+      democase: democaseMcpHealthSummary(scopedRecords),
       filters: {
         mcpToolId: mcpToolId ?? null,
+        createdFrom: createdFrom ?? null,
+        createdTo: createdTo ?? null,
         limit,
       },
     }
@@ -4583,6 +4590,12 @@ function cleanFilterValue(value: string | null | undefined): string | undefined 
 
 function validMcpInvocationStatus(value: unknown): value is McpInvocationResult['status'] {
   return value === 'ok' || value === 'denied' || value === 'unavailable' || value === 'error'
+}
+
+function recordInIsoRange(value: string, from?: string, to?: string): boolean {
+  if (from && value < from) return false
+  if (to && value > to) return false
+  return true
 }
 
 function clampInteger(value: number, min: number, max: number): number {
