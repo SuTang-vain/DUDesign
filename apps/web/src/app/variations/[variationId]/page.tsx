@@ -29,6 +29,7 @@ type LockedVariationVersion = {
 }
 
 const lockedVariationStorageKey = 'dudesign.lockedVariationVersions'
+const taskTitleStorageKey = 'dudesign.variationTaskTitles'
 const otherPreviewDevices: Array<{ id: PreviewDevice; label: string; size: string }> = [
   { id: 'pc-medium', label: 'PC-medium', size: '788 x 492' },
   { id: 'mobile-medium', label: 'mobile-medium', size: '396 x 475' },
@@ -65,6 +66,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [saveTemplateStatus, setSaveTemplateStatus] = useState<'idle' | 'saving'>('idle')
   const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(null)
   const [lockedVersion, setLockedVersion] = useState<LockedVariationVersion | null>(null)
+  const [taskTitle, setTaskTitle] = useState('')
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const previewDeviceMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedArtifactQuality = qualityForArtifact(detail, selectedArtifactId)
@@ -104,6 +106,13 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       cancelled = true
     }
   }, [variationId, previewVersion])
+
+  useEffect(() => {
+    if (!detail) return
+    const key = detail.job.id || variationId
+    const storedTitle = key ? readTaskTitle(key) : null
+    setTaskTitle(storedTitle ?? summarizeTaskTitle(detail.job.prompt))
+  }, [detail?.job.id, detail?.job.prompt, variationId])
 
   useEffect(() => {
     if (!otherDeviceMenuOpen) return
@@ -309,6 +318,20 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     lockCurrentVersion()
   }
 
+  function commitTaskTitle(): void {
+    const key = detail?.job.id || variationId
+    const nextTitle = taskTitle.trim()
+    if (!key || !detail) return
+    if (!nextTitle) {
+      const fallbackTitle = summarizeTaskTitle(detail.job.prompt)
+      removeTaskTitle(key)
+      setTaskTitle(fallbackTitle)
+      return
+    }
+    writeTaskTitle(key, nextTitle)
+    setTaskTitle(nextTitle)
+  }
+
   function normalizedPoint(event: React.PointerEvent<HTMLDivElement>): { x: number; y: number } {
     const rect = event.currentTarget.getBoundingClientRect()
     return {
@@ -441,6 +464,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
   const variationNumber = formatVariationNumber(detail?.variation.title)
   const isCurrentVersionLocked = lockedVersion?.artifactId === detail?.currentArtifact?.id
+  const taskTitleFallback = detail ? summarizeTaskTitle(detail.job.prompt) : t('loadingVariation')
 
   return (
     <main className="ed-shell">
@@ -449,8 +473,22 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           <a href={detail ? `/jobs/${detail.job.id}` : '/'} className="back-link back" aria-label={t('allVariations')} title={t('allVariations')}><Icon name="arrowLeft" size={18} /></a>
           <VariationActionMenu />
         </div>
-        <div>
-          <p className="ed-prompt-title">{detail?.job.prompt ?? t('loadingVariation')}</p>
+        <div className="ed-title-block">
+          <input
+            className="ed-task-title-input"
+            aria-label={t('taskTitleLabel')}
+            title={detail?.job.prompt ?? taskTitleFallback}
+            value={taskTitle}
+            placeholder={taskTitleFallback}
+            onChange={event => setTaskTitle(event.target.value)}
+            onBlur={commitTaskTitle}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.currentTarget.blur()
+              }
+            }}
+          />
         </div>
         <div className="ed-cmd" aria-label="Variation actions">
           <div className="ed-action-row">
@@ -1095,6 +1133,89 @@ function removeLockedVariationVersion(variationId: string): void {
   } catch {
     // Locking is a local MVP affordance until backend collaboration state lands.
   }
+}
+
+function readTaskTitle(key: string): string | null {
+  try {
+    const raw = window.localStorage.getItem(taskTitleStorageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Record<string, string>
+    const title = parsed[key]?.trim()
+    return title || null
+  } catch {
+    return null
+  }
+}
+
+function writeTaskTitle(key: string, title: string): void {
+  try {
+    const raw = window.localStorage.getItem(taskTitleStorageKey)
+    const parsed = raw ? JSON.parse(raw) as Record<string, string> : {}
+    window.localStorage.setItem(taskTitleStorageKey, JSON.stringify({
+      ...parsed,
+      [key]: normalizeTaskTitle(title),
+    }))
+  } catch {
+    // Task titles are a local MVP affordance until backend session summaries land.
+  }
+}
+
+function removeTaskTitle(key: string): void {
+  try {
+    const raw = window.localStorage.getItem(taskTitleStorageKey)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Record<string, string>
+    delete parsed[key]
+    window.localStorage.setItem(taskTitleStorageKey, JSON.stringify(parsed))
+  } catch {
+    // Task titles are a local MVP affordance until backend session summaries land.
+  }
+}
+
+function summarizeTaskTitle(prompt: string): string {
+  const cleaned = normalizeTaskTitle(prompt)
+  if (!cleaned) return 'Untitled task'
+  const explicitTitle = extractExplicitTaskTitle(cleaned)
+  if (explicitTitle) return explicitTitle
+
+  const meaningfulLines = cleaned
+    .split(/[。！？!?；;\n\r]+/)
+    .map(line => normalizeTaskTitle(line.replace(/^#+\s*/, '')))
+    .filter(Boolean)
+    .filter(line => !/^(故事|story|用户|user|prompt|task|需求|背景|说明)\s*\d*[:：]?$/i.test(line))
+  const candidate = meaningfulLines.find(line => /落地页|网页|页面|产品|平台|dashboard|landing|website|homepage|app|设计|生成|开发/i.test(line))
+    ?? meaningfulLines[0]
+    ?? cleaned
+
+  return clampTaskTitle(candidate)
+}
+
+function extractExplicitTaskTitle(text: string): string | null {
+  const patterns = [
+    /(?:任务标题|标题|项目名称|会话标题)\s*[:：]\s*([^。！？!?\n\r]+)/i,
+    /(?:生成|开发|设计|制作|创建)(?:一个|一款|一份)?([^。！？!?\n\r]{4,48})/i,
+    /(?:做|改造)(?:一个|一款|一份)?([^。！？!?\n\r]{4,48})/i,
+  ]
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    const value = normalizeTaskTitle(match?.[1] ?? '')
+    if (value) return clampTaskTitle(value)
+  }
+  return null
+}
+
+function normalizeTaskTitle(value: string): string {
+  return value
+    .replace(/\*\*/g, '')
+    .replace(/[`"'“”‘’<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function clampTaskTitle(value: string): string {
+  const normalized = normalizeTaskTitle(value)
+  if (normalized.length <= 34) return normalized
+  return `${normalized.slice(0, 34).trim()}...`
 }
 
 function runtimeSummaryForVariation(detail: VariationDetailResponse | null): {

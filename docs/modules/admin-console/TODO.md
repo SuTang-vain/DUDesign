@@ -107,6 +107,12 @@
 - [ ] 展示 democase MCP 健康状态、调用量、失败率和审计摘要（12.1：MCP 只服务生成期 agent；向导直连查询不计入 MCP 审计）。
 - [ ] 展示动态百科词条引导命中率、低置信度比例和人工确认比例。
 - [ ] 展示百科规范审查通过率、常见失败原因和自动修复成功率（12.2：按 `qualityGates` 维度展示；12.3：`llm_review` 规则标 Phase 2，MVP 不展示）。
+- [ ] 百科规范审查失败原因需要展示 review context：
+  - [ ] artifact id / version。
+  - [ ] variation index。
+  - [ ] 当前 variation 实际分配 child template。
+  - [ ] job 级候选 template ids。
+  - [ ] 标记疑似审查上下文错误，例如非 timeline variation 触发 timeline mismatch。
 - [ ] 支持禁用风险子模板、词条引导 skill、democase MCP binding 或审查规则，并写入 audit log。
 
 验收：

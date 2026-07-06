@@ -6,6 +6,7 @@ import type {
   CapabilitySnapshot,
   CapabilityPlugin,
   CapabilityPluginSnapshot,
+  CapabilityPreset,
   ColorPalette,
   DesignSkill,
   DomainTemplate,
@@ -301,15 +302,21 @@ const interactionParadigms: InteractionParadigm[] = [
   },
 ]
 
-export const DYNAMIC_ENCYCLOPEDIA_PRESET = {
+export const DYNAMIC_ENCYCLOPEDIA_PRESET: CapabilityPreset = {
   id: 'preset_dynamic_encyclopedia_card',
   productMode: 'dynamic_encyclopedia_card',
+  name: 'Dynamic Encyclopedia Card',
+  description: 'Automatically selects entry guidance, the dynamic encyclopedia template package, democase readonly context, and encyclopedia spec review.',
   domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
   designTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
   skillIds: ['sk_encyclopedia_entry_guidance'],
   mcpToolIds: ['mcp_encyclopedia_democase_readonly'],
   loopProfileId: 'loop_encyclopedia_spec_review',
-} as const
+}
+
+const capabilityPresets: CapabilityPreset[] = [
+  DYNAMIC_ENCYCLOPEDIA_PRESET,
+]
 
 const colorPalettes: ColorPalette[] = [
   {
@@ -525,33 +532,16 @@ const capabilityPlugins: CapabilityPlugin[] = [
   },
   {
     id: 'plug_encyclopedia_entry_guidance',
-    type: 'skill',
+    type: 'mixed',
     visibility: 'official',
     name: 'Encyclopedia Entry Guidance',
-    description: 'Classifies encyclopedia entries, recommends card subtemplates, and keeps generation aligned with entry facts.',
-    category: 'encyclopedia',
-    safetyLevel: 'safe',
-    status: 'active',
-    permissionPolicy: {
-      scopes: ['readonly_context', 'validation_only'],
-      maxPromptChars: 2400,
-      allowRuntimeToolUse: false,
-      requiresUserAuth: false,
-      auditLevel: 'usage',
-    },
-  },
-  {
-    id: 'plug_encyclopedia_democase_readonly',
-    type: 'mcp_tool',
-    visibility: 'official',
-    name: 'Encyclopedia Democase Readonly',
-    description: 'Allows readonly retrieval of approved encyclopedia demo cases for generation-time context.',
+    description: 'Groups the entry guidance skill and readonly democase MCP binding for dynamic encyclopedia generation.',
     category: 'encyclopedia',
     safetyLevel: 'safe',
     status: 'active',
     permissionPolicy: {
       scopes: ['readonly_context'],
-      maxPromptChars: 800,
+      maxPromptChars: 2400,
       allowRuntimeToolUse: false,
       requiresUserAuth: false,
       auditLevel: 'usage',
@@ -681,7 +671,7 @@ const mcpToolBindings: McpToolBinding[] = [
   },
   {
     id: 'mcp_encyclopedia_democase_readonly',
-    pluginId: 'plug_encyclopedia_democase_readonly',
+    pluginId: 'plug_encyclopedia_entry_guidance',
     serverName: 'encyclopedia-democase',
     toolName: 'lookupEntryDemoCases',
     scopes: ['readonly_context'],
@@ -699,8 +689,6 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxCostCents: null,
     maxDurationMs: 120000,
     qualityGates: ['static'],
-    enablePixelGate: false,
-    qualityGate: 'static',
     repairStrategy: 'none',
   },
   {
@@ -711,8 +699,6 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxCostCents: 200,
     maxDurationMs: 300000,
     qualityGates: ['static'],
-    enablePixelGate: false,
-    qualityGate: 'static',
     repairStrategy: 'minimal_refine',
   },
   {
@@ -723,8 +709,6 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxCostCents: 500,
     maxDurationMs: 720000,
     qualityGates: ['static', 'pixel'],
-    enablePixelGate: true,
-    qualityGate: 'pixel',
     repairStrategy: 'deep_refine',
   },
   {
@@ -735,8 +719,6 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     maxCostCents: 500,
     maxDurationMs: 720000,
     qualityGates: ['static', 'spec', 'pixel'],
-    enablePixelGate: true,
-    qualityGate: 'pixel',
     repairStrategy: 'spec_review_refine',
   },
 ]
@@ -753,6 +735,7 @@ export function listCapabilities(): ListCapabilitiesResponse {
     skills: designSkills,
     mcpToolBindings,
     automationLoopProfiles,
+    capabilityPresets,
     defaults: {
       domainTemplateId: 'tpl_fintech_trust',
       aestheticProfileId: 'aes_trustworthy_saas',

@@ -246,14 +246,15 @@ export default function HomePage(): React.JSX.Element {
     setEntryGuidanceClassification(null)
     setGuidanceStatus('idle')
     if (next === 'dynamic_encyclopedia_card') {
+      const preset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
       setMode('new_html')
-      setDomainTemplateId('tpl_dynamic_encyclopedia_entry')
+      setDomainTemplateId(preset?.domainTemplateId ?? 'tpl_dynamic_encyclopedia_entry')
       setVisualMode('pack')
-      setSelectedTemplatePackIds(['dtp_dynamic_encyclopedia_card'])
+      setSelectedTemplatePackIds(preset?.designTemplatePackIds ?? ['dtp_dynamic_encyclopedia_card'])
       setAutoDistributePacks(true)
-      setSelectedSkillIds(['sk_encyclopedia_entry_guidance'])
-      setSelectedMcpToolIds(['mcp_encyclopedia_democase_readonly'])
-      setLoopProfileId('loop_encyclopedia_spec_review')
+      setSelectedSkillIds(preset?.skillIds ?? ['sk_encyclopedia_entry_guidance'])
+      setSelectedMcpToolIds(preset?.mcpToolIds ?? ['mcp_encyclopedia_democase_readonly'])
+      setLoopProfileId(preset?.loopProfileId ?? 'loop_encyclopedia_spec_review')
       return
     }
     if (domainTemplateId === 'tpl_dynamic_encyclopedia_entry') {
@@ -346,6 +347,14 @@ export default function HomePage(): React.JSX.Element {
   const selectedPalette = availablePalettes.find(palette => palette.id === colorPaletteId)
     ?? capabilities?.colorPalettes.find(palette => palette.id === colorPaletteId)
   const selectedLoop = capabilities?.automationLoopProfiles.find(profile => profile.id === loopProfileId)
+  const pluginsById = new Map((capabilities?.plugins ?? []).map(plugin => [plugin.id, plugin]))
+  const selectedSkillSummary = (capabilities?.skills ?? [])
+    .filter(skill => selectedSkillIds.includes(skill.id))
+    .map(skill => c18n.skillName(skill.id, pluginsById.get(skill.pluginId)?.name ?? skill.id))
+  const selectedMcpToolSummary = (capabilities?.mcpToolBindings ?? [])
+    .filter(binding => selectedMcpToolIds.includes(binding.id))
+    .map(binding => binding.id)
+  const selectedPluginSummary = [...selectedSkillSummary, ...selectedMcpToolSummary]
   function selectContextPanel(panel: ContextPanel): void {
     setContextPanel(panel)
   }
@@ -848,6 +857,7 @@ export default function HomePage(): React.JSX.Element {
                           pluginsHint: t('skillsSafeOnlyHint'),
                           pluginTypeSkill: t('pluginTypeSkill'),
                           pluginTypeMcp: t('pluginTypeMcp'),
+                          pluginTypeMixed: t('pluginTypeMixed'),
                           safetyLevel: t('safetyLevel'),
                           safe: t('safe'),
                           reviewRequired: t('reviewRequired'),
@@ -1191,6 +1201,9 @@ export default function HomePage(): React.JSX.Element {
                   <span className="chip"><span className="k">{t('palette')}</span>{selectedPalette ? c18n.paletteName(selectedPalette.id, selectedPalette.name) : t('palette')}</span>
                 </>
               )}
+              {selectedPluginSummary.length ? (
+                <span className="chip"><span className="k">{t('plugins')}</span>{selectedPluginSummary.slice(0, 2).join(' · ')}{selectedPluginSummary.length > 2 ? ` +${selectedPluginSummary.length - 2}` : ''}</span>
+              ) : null}
               <span className="chip"><span className="k">{t('loop')}</span>{selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : t('loop')}</span>
             </div>
           ) : null}

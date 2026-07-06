@@ -11,11 +11,11 @@ describe('capability plugin registry', () => {
 
     assert.equal(fast?.repairStrategy, 'none')
     assert.equal(fast?.maxRepairAttempts, 0)
+    assert.deepEqual(fast?.qualityGates, ['static'])
     assert.equal(standard?.maxCostCents, 200)
     assert.equal(standard?.maxDurationMs, 300000)
+    assert.deepEqual(standard?.qualityGates, ['static'])
     assert.deepEqual(deep?.qualityGates, ['static', 'pixel'])
-    assert.equal(deep?.enablePixelGate, true)
-    assert.equal(deep?.qualityGate, 'pixel')
     assert.equal(deep?.repairStrategy, 'deep_refine')
 
     const encyclopediaReview = capabilities.automationLoopProfiles.find(profile => profile.id === 'loop_encyclopedia_spec_review')
@@ -45,25 +45,46 @@ describe('capability plugin registry', () => {
     assert.ok(capabilities.plugins.some(plugin => plugin.id === 'plug_static_export_safe'))
     assert.ok(capabilities.skills.some(skill => skill.id === 'sk_static_export_safe'))
     assert.ok(capabilities.mcpToolBindings.some(binding => binding.id === 'mcp_accessibility_validate'))
-    assert.ok(capabilities.plugins.some(plugin => plugin.id === 'plug_encyclopedia_entry_guidance'))
-    assert.ok(capabilities.plugins.some(plugin => plugin.id === 'plug_encyclopedia_democase_readonly'))
-    assert.ok(capabilities.skills.some(skill => skill.id === 'sk_encyclopedia_entry_guidance'))
-    assert.ok(capabilities.mcpToolBindings.some(binding => binding.id === 'mcp_encyclopedia_democase_readonly'))
+    const guidancePlugin = capabilities.plugins.find(plugin => plugin.id === 'plug_encyclopedia_entry_guidance')
+    const guidanceSkill = capabilities.skills.find(skill => skill.id === 'sk_encyclopedia_entry_guidance')
+    const democaseBinding = capabilities.mcpToolBindings.find(binding => binding.id === 'mcp_encyclopedia_democase_readonly')
+    assert.ok(guidancePlugin)
+    assert.equal(guidancePlugin.type, 'mixed')
+    assert.deepEqual(guidancePlugin.permissionPolicy.scopes, ['readonly_context'])
+    assert.ok(guidanceSkill)
+    assert.equal(guidanceSkill.pluginId, 'plug_encyclopedia_entry_guidance')
+    assert.ok(democaseBinding)
+    assert.equal(democaseBinding.pluginId, 'plug_encyclopedia_entry_guidance')
+    assert.deepEqual(democaseBinding.scopes, ['readonly_context'])
     assert.equal(capabilities.plugins.every(plugin => plugin.status === 'active'), true)
   })
 
   it('snapshots the dynamic encyclopedia preset capabilities', () => {
+    const capabilities = listCapabilities()
+    const preset = capabilities.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+    assert.ok(preset)
+    assert.equal(preset.productMode, 'dynamic_encyclopedia_card')
+    assert.equal(preset.domainTemplateId, 'tpl_dynamic_encyclopedia_entry')
+    assert.deepEqual(preset.designTemplatePackIds, ['dtp_dynamic_encyclopedia_card'])
+    assert.deepEqual(preset.skillIds, ['sk_encyclopedia_entry_guidance'])
+    assert.deepEqual(preset.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+    assert.equal(preset.loopProfileId, 'loop_encyclopedia_spec_review')
+    assert.ok(capabilities.domainTemplates.some(item => item.id === preset.domainTemplateId))
+    assert.ok(capabilities.skills.some(item => item.id === preset.skillIds[0]))
+    assert.ok(capabilities.mcpToolBindings.some(item => item.id === preset.mcpToolIds[0]))
+    assert.ok(capabilities.automationLoopProfiles.some(item => item.id === preset.loopProfileId))
+
     const snapshot = resolveCapabilitySnapshot({
       template: {
-        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
-        designTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
+        domainTemplateId: preset.domainTemplateId,
+        designTemplatePackIds: preset.designTemplatePackIds,
       },
       plugins: {
-        skillIds: ['sk_encyclopedia_entry_guidance'],
-        mcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+        skillIds: preset.skillIds,
+        mcpToolIds: preset.mcpToolIds,
       },
       automation: {
-        loopProfileId: 'loop_encyclopedia_spec_review',
+        loopProfileId: preset.loopProfileId,
       },
     })
 
@@ -71,7 +92,7 @@ describe('capability plugin registry', () => {
     assert.deepEqual(snapshot.plugins.skillIds, ['sk_encyclopedia_entry_guidance'])
     assert.deepEqual(snapshot.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
     assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.allowedMcpToolIds, ['mcp_encyclopedia_democase_readonly'])
-    assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.scopes, ['readonly_context', 'validation_only'])
+    assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.scopes, ['readonly_context'])
     assert.equal(snapshot.automation.loopProfile.id, 'loop_encyclopedia_spec_review')
     assert.deepEqual(snapshot.automation.loopProfile.qualityGates, ['static', 'spec', 'pixel'])
   })

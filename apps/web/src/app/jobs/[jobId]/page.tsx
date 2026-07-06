@@ -5,6 +5,7 @@ import type { DesignEvent } from '@dudesign/contracts'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { VariationActionMenu } from '@/components/VariationActionMenu'
+import { CapabilitySummary } from '@/components/CapabilitySummary'
 import { Icon } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, getDesignJob, reviewVariationAction, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
@@ -251,20 +252,19 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       {jobNotice ? <UserNotice notice={jobNotice} onRetry={() => window.location.reload()} /> : null}
       {jobOutcome ? <JobOutcomeBanner outcome={jobOutcome} /> : null}
 
-      <div className="job-progress">
-        <div className="meta">
-          <div className="stats">
-            <div><b>{completedCount}</b><span>/{totalCount} {t('completed')}</span></div>
-            <div><b>{Math.max(totalCount - completedCount - failedCount, 0)}</b><span>{t('running')}</span></div>
-            <div><b>{failedCount}</b><span>{t('failedLabel')}</span></div>
+      <section className="job-run-card">
+        <CapabilitySummary snapshot={snapshot?.job.capabilitySnapshot} variant="inline" testId="job-capability-snapshot" />
+
+        <div className="job-progress">
+          <div className="meta">
+            <div className="job-status-line">{compactProgressLabel(completedCount, failedCount, totalCount, t)}</div>
+            <div className="bar" style={{ '--bar-fill': `${runtimeProgress}%` } as React.CSSProperties}><i></i></div>
           </div>
-          <div className="bar" style={{ '--bar-fill': `${runtimeProgress}%` } as React.CSSProperties}><i></i></div>
+          <div className="rt">
+            <div className="pct">{runtimeProgress}<span>%</span></div>
+          </div>
         </div>
-        <div className="rt">
-          <div className="pct">{runtimeProgress}<span>%</span></div>
-          <small>{latestJobActivity?.summary ?? runtimeProgressLabel(completedCount, failedCount, totalCount, streamState)}</small>
-        </div>
-      </div>
+      </section>
 
       <section data-testid="variation-grid" className="var-grid">
         {variations.map(variation => {
@@ -532,6 +532,19 @@ function runtimeProgressLabel(
   return `${base} · ${Math.max(totalCount - completedCount - failedCount, 0)} running`
 }
 
+function compactProgressLabel(
+  completedCount: number,
+  failedCount: number,
+  totalCount: number,
+  t: ReturnType<typeof useLanguage>['t'],
+): string {
+  const runningCount = Math.max(totalCount - completedCount - failedCount, 0)
+  if (totalCount === 0) return t('queued')
+  if (failedCount > 0) return `${completedCount}/${totalCount} ${t('completed')} · ${failedCount} ${t('failedLabel')}`
+  if (runningCount > 0) return `${completedCount}/${totalCount} ${t('completed')} · ${runningCount} ${t('running')}`
+  return `${completedCount}/${totalCount} ${t('completed')}`
+}
+
 function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]): Omit<StreamLine, 'id'> | null {
   const variation = event.variationId ? variations.find(item => item.id === event.variationId) : null
   const inferredIndex = variation?.index ?? inferVariationIndex(event)
@@ -618,7 +631,7 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         variationLabel,
         stage: 'loop',
         summary: 'Automation loop started',
-        detail: `${event.payload.profileId} · ${event.payload.qualityGate} gate · ${event.payload.maxRepairAttempts} repair attempts`,
+        detail: `${event.payload.profileId} · ${event.payload.qualityGates.join('+')} gates · ${event.payload.maxRepairAttempts} repair attempts`,
       }
     case 'design.loop_quality_checked':
       return {
@@ -628,7 +641,7 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         summary: qualityCheckSummary(event.payload.status, event.payload.attempt),
         detail: event.payload.issues.length > 0
           ? event.payload.issues.slice(0, 2).join(' · ')
-          : `${event.payload.gate} quality gate passed for artifact ${event.payload.artifactId}`,
+          : `${event.payload.gates.join('+')} quality gates passed for artifact ${event.payload.artifactId}`,
       }
     case 'design.loop_repair_planned':
       return {

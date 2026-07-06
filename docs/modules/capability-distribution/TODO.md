@@ -183,10 +183,10 @@
 - [x] API smoke：导入 `DESIGN.md` 后创建 job，并验证 template pack snapshot 不漂移。
 - [x] API smoke：用户模板 version 更新后旧 job resume 仍使用旧 snapshot。
 - [x] Runtime Gateway golden：capability context 编译稳定。
-- [ ] Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定。
-- [ ] E2E：模板 + 插件 + standard loop 生成。
+- [x] Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定。
+- [x] E2E：模板 + 插件 + standard loop 生成。
 - [x] E2E：上传或粘贴 `DESIGN.md` -> 保存私有模板 -> 用该模板生成。
-- [ ] E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
+- [x] E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
 - [x] E2E：用户偏好恢复。
 - [ ] MCP smoke：从 `policy_only` 升级到真实调用后，覆盖授权、审计、结果注入和回放。
 
@@ -211,15 +211,19 @@
   - [x] 可展开事实卡 `dtp_dynamic_encyclopedia_expandable_card`。
 - [ ] 下一批扩展：探索互动卡 `dtp_dynamic_encyclopedia_explore_card`（12.5：不在首批，若提前须同步更新父包 `packageChildren` 文案）。
 - [x] 建模 `InteractionParadigm`，`compatibleTemplatePackIds` 为唯一事实来源，避免把交互范式和视觉模板包混在同一个字段。
-- [ ] 注册词条引导插件三件（12.6），沿用 `plug_` / `sk_` / `mcp_` 三段命名：
-  - [ ] `plug_encyclopedia_entry_guidance`（CapabilityPlugin）。
-  - [ ] `sk_encyclopedia_entry_guidance`（DesignSkill，`pluginId` 指向 plug）。
-  - [ ] `mcp_encyclopedia_democase_readonly`（McpToolBinding，`pluginId` 指向 plug），初期允许 mock。
-- [ ] democase MCP binding 的 `permissionPolicy.scopes` 显式声明 `['readonly_context']`，通过 `isMvpSafePluginPolicy` 校验（12.6）。
-- [ ] 明确 democase MCP binding 只服务生成期 agent；词条引导向导的分类查询由 application-service 直连 democase 只读服务，不经此 binding（12.1）。
-- [ ] 改造 `AutomationLoopProfile` 契约（12.2）：`qualityGate` 改为 `qualityGates: ('static' | 'pixel' | 'spec')[]`，删除 `enablePixelGate`，新增 `repairStrategy: 'spec_review_refine'`；迁移 `loop_fast`/`loop_standard` → `['static']`、`loop_deep_repair` → `['static', 'pixel']`。
-- [ ] 注册百科规范审查 loop profile `loop_encyclopedia_spec_review`，默认 `qualityGates: ['static', 'spec', 'pixel']`、`maxRepairAttempts: 2`；finding source 保留 `llm_review` 但标注 Phase 2，MVP 不启用（12.3）。
-- [ ] 定义动态百科 Capability Preset：自动选择词条引导、动态百科模板包和自动审查。
+- [x] 注册词条引导插件三件（12.6），沿用 `plug_` / `sk_` / `mcp_` 三段命名：
+  - [x] `plug_encyclopedia_entry_guidance`（CapabilityPlugin）。
+  - [x] `sk_encyclopedia_entry_guidance`（DesignSkill，`pluginId` 指向 plug）。
+  - [x] `mcp_encyclopedia_democase_readonly`（McpToolBinding，`pluginId` 指向 plug），初期允许 mock。
+- [x] democase MCP binding 的 `permissionPolicy.scopes` 显式声明 `['readonly_context']`，通过 `isMvpSafePluginPolicy` 校验（12.6）。
+- [x] 明确 democase MCP binding 只服务生成期 agent；词条引导向导的分类查询由 application-service 直连 democase 只读服务，不经此 binding（12.1）。
+- [x] 改造 `AutomationLoopProfile` 契约（12.2）：`qualityGate` 改为 `qualityGates: ('static' | 'pixel' | 'spec')[]`，删除 `enablePixelGate`，新增 `repairStrategy: 'spec_review_refine'`；迁移 `loop_fast`/`loop_standard` → `['static']`、`loop_deep_repair` → `['static', 'pixel']`。
+- [x] 注册百科规范审查 loop profile `loop_encyclopedia_spec_review`，默认 `qualityGates: ['static', 'spec', 'pixel']`、`maxRepairAttempts: 2`；finding source 保留 `llm_review` 但标注 Phase 2，MVP 不启用（12.3）。
+- [x] 明确动态百科 spec review 的模版上下文来源：
+  - [x] job 级 `designTemplatePackIds` 只代表本次 job 可用/候选模板集合。
+  - [x] `variationTemplateAssignments` 是单个 variation 审查和 refine 的 child template 事实来源。
+  - [x] 自动修复 prompt 中的 selected template 应使用当前 variation 实际分配模板，避免把 timeline 规则错误应用到 summary/compare/data 等非 timeline 变体。
+- [x] 定义动态百科 Capability Preset：自动选择词条引导、动态百科模板包和自动审查。
 - [x] 将分类、子模板、交互范式、review mode 写入 capability/job snapshot，保证 resume 不漂移；当前 confirmed guidance 已持久化 selected child template、interaction paradigm 和 review mode，并通过 create job 写入 `templateRequirements.businessContext`。
 
 验收：

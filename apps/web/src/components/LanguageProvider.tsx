@@ -146,6 +146,7 @@ const translations: Record<AppLanguage, Record<string, string>> = {
     // editor
     allVariations: 'All variations',
     refineThisDesign: 'Refine this design',
+    taskTitleLabel: 'Task title',
     loadingVariation: 'Loading variation context…',
     exportHtml: 'Export',
     exporting: 'Exporting',
@@ -219,6 +220,7 @@ const translations: Record<AppLanguage, Record<string, string>> = {
     flowPill: 'Automation',
     pluginTypeSkill: 'Skill',
     pluginTypeMcp: 'MCP tool',
+    pluginTypeMixed: 'Skill + MCP',
     contextReserved: 'Reserved for a later release',
     designSystem: 'Design system',
     visualSystem: 'Visual system',
@@ -400,6 +402,7 @@ const translations: Record<AppLanguage, Record<string, string>> = {
     // editor
     allVariations: '全部变体',
     refineThisDesign: '精炼此设计',
+    taskTitleLabel: '任务标题',
     loadingVariation: '正在加载变体…',
     exportHtml: '导出',
     exporting: '导出中',
@@ -473,6 +476,7 @@ const translations: Record<AppLanguage, Record<string, string>> = {
     flowPill: '自动化',
     pluginTypeSkill: '技能',
     pluginTypeMcp: 'MCP 工具',
+    pluginTypeMixed: '技能 + MCP',
     contextReserved: '预留,后续版本开放',
     designSystem: '设计系统',
     visualSystem: '视觉系统',

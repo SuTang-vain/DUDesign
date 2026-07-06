@@ -64,7 +64,7 @@ test('workbench can start from uploaded HTML', async ({ page }) => {
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
   await expect(page.getByTestId('variation-grid')).toBeVisible()
-  await expect(page.getByTestId('job-capability-snapshot')).toHaveCount(0)
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Design direction')
 })
 
 test('composer menus close on outside click and do not stack', async ({ page }) => {
@@ -178,25 +178,72 @@ test('workbench can choose capability distribution options', async ({ page }) =>
 
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Add context' }).click()
+  await page.getByRole('button', { name: /^Plugins/ }).click()
+  await page.getByTestId('plugin-filter-skill').click()
+  await page.getByTestId('plugin-card-plug_static_export_safe').click()
   await page.getByRole('button', { name: 'Automation' }).click()
+  await expect(page.getByTestId('loop-profile-options')).toBeVisible()
   await page.getByTestId('loop-profile-options').getByRole('button', { name: /Standard/ }).click()
 
   await expect(page.getByTestId('capability-summary')).toContainText('Premium Product Page')
   await expect(page.getByTestId('capability-summary')).toContainText('Premium Minimal')
   await expect(page.getByTestId('capability-summary')).toContainText('Minimal Mono')
+  await expect(page.getByTestId('capability-summary')).toContainText('Static Export Safe')
   await expect(page.getByTestId('capability-summary')).toContainText('Standard')
   await expect.poll(() => preferenceSaves.length).toBeGreaterThanOrEqual(4)
   await page.reload()
   await expect(page.getByTestId('capability-summary')).toContainText('Premium Product Page')
   await expect(page.getByTestId('capability-summary')).toContainText('Premium Minimal')
   await expect(page.getByTestId('capability-summary')).toContainText('Minimal Mono')
+  await page.getByRole('button', { name: 'Add context' }).click()
+  await page.getByRole('button', { name: /^Plugins/ }).click()
+  await page.getByTestId('plugin-filter-skill').click()
+  await page.getByTestId('plugin-card-plug_static_export_safe').click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('capability-summary')).toContainText('Static Export Safe')
+
+  await page.getByTestId('template-pill-trigger').click()
+  await page.getByRole('button', { name: /Template pack/ }).click()
+  await expect(page.getByTestId('template-library-picker')).toBeVisible()
+  await page.getByTestId('template-card-dtp_premium_product_launch').click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('capability-summary')).toContainText('1 templates')
 
   await page.getByTestId('prompt-input').fill('A premium product page using selected capability distribution options')
   await expect(page.getByTestId('generate-button')).toBeEnabled()
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
   await expect(page.getByTestId('variation-grid')).toBeVisible()
-  await expect(page.getByTestId('job-capability-snapshot')).toHaveCount(0)
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Premium Product Page')
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Trustworthy SaaS')
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Blue White Trust')
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Static Export Safe')
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Standard')
+  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
+  expect(jobId).toBeTruthy()
+  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
+  expect(jobSnapshotResponse.ok()).toBe(true)
+  const jobPayload = await jobSnapshotResponse.json() as {
+    job: {
+      designTemplatePacks: Array<{ id: string }>
+      capabilitySnapshot: {
+        template: {
+          domainTemplate: { id: string }
+          aestheticProfile: { id: string }
+          colorPalette: { id: string }
+        }
+        plugins: { skillIds: string[]; mcpToolIds: string[] }
+        automation: { loopProfile: { id: string } }
+      }
+    }
+  }
+  expect(jobPayload.job.designTemplatePacks.map(pack => pack.id)).toContain('dtp_premium_product_launch')
+  expect(jobPayload.job.capabilitySnapshot.template.domainTemplate.id).toBe('tpl_premium_product_page')
+  expect(jobPayload.job.capabilitySnapshot.template.aestheticProfile.id).toBe('aes_trustworthy_saas')
+  expect(jobPayload.job.capabilitySnapshot.template.colorPalette.id).toBe('pal_blue_white_trust')
+  expect(jobPayload.job.capabilitySnapshot.plugins.skillIds).toContain('sk_static_export_safe')
+  expect(jobPayload.job.capabilitySnapshot.plugins.mcpToolIds).toEqual([])
+  expect(jobPayload.job.capabilitySnapshot.automation.loopProfile.id).toBe('loop_standard')
   const variationUrl = await page.getByTestId('open-variation-link').first().getAttribute('href')
   expect(variationUrl).toMatch(/^\/variations\/var_/)
   await page.goto(variationUrl!)
@@ -206,8 +253,62 @@ test('workbench can choose capability distribution options', async ({ page }) =>
   await directionTab.click({ force: true })
   await expect(directionTab).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Product Page')
-  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Premium Minimal')
-  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Minimal Mono')
+  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Trustworthy SaaS')
+  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Blue White Trust')
+  await expect(page.getByTestId('variation-capability-snapshot')).toContainText('Static Export Safe')
+})
+
+test('workbench can choose an official safe skill and see the job capability snapshot', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add context' }).click()
+  await page.getByRole('button', { name: /^Plugins/ }).click()
+  await expect(page.getByTestId('plugins-picker')).toBeVisible()
+  await page.getByTestId('plugin-filter-skill').click()
+  const staticExportPlugin = page.getByTestId('plugin-card-plug_static_export_safe')
+  await expect(staticExportPlugin).toBeVisible()
+  await staticExportPlugin.click()
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('capability-summary')).toContainText('Static Export Safe')
+  await page.getByTestId('prompt-input').fill('A static landing page generated with an official safe skill')
+
+  const createJobResponsePromise = page.waitForResponse(response =>
+    response.url().includes('/api/design-jobs') && response.request().method() === 'POST',
+  )
+  await page.getByTestId('generate-button').click()
+  const createJobResponse = await createJobResponsePromise
+  expect(createJobResponse.ok()).toBe(true)
+  await expect(page).toHaveURL(/\/jobs\/job_/)
+  await expect(page.getByTestId('variation-grid')).toBeVisible()
+  await expect(page.getByTestId('job-capability-snapshot')).toContainText('Static Export Safe')
+
+  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
+  expect(jobId).toBeTruthy()
+  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
+  expect(jobSnapshotResponse.ok()).toBe(true)
+  const jobPayload = await jobSnapshotResponse.json() as {
+    job: {
+      capabilitySnapshot: {
+        plugins: {
+          skillIds: string[]
+          mcpToolIds: string[]
+          pluginSnapshot: {
+            skills: Array<{ id: string }>
+            toolPolicy: {
+              allowedMcpToolIds: string[]
+              mode?: string
+            }
+          }
+        }
+      }
+    }
+  }
+  expect(jobPayload.job.capabilitySnapshot.plugins.skillIds).toContain('sk_static_export_safe')
+  expect(jobPayload.job.capabilitySnapshot.plugins.mcpToolIds).toEqual([])
+  expect(jobPayload.job.capabilitySnapshot.plugins.pluginSnapshot.skills.map(skill => skill.id)).toContain('sk_static_export_safe')
+  expect(jobPayload.job.capabilitySnapshot.plugins.pluginSnapshot.toolPolicy.allowedMcpToolIds).toEqual([])
 })
 
 test('workbench can import DESIGN.md and generate with the private template', async ({ page }) => {
@@ -526,6 +627,9 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
             schemaVersion: '2026-07-01.dudesign-capabilities.v2',
             template: {
               domainTemplate: { id: 'tpl_dynamic_encyclopedia_entry', name: 'Dynamic Encyclopedia Entry' },
+              aestheticProfile: { id: 'aes_dynamic_encyclopedia', name: 'Dynamic Encyclopedia' },
+              colorPalette: { id: 'pal_dynamic_encyclopedia', name: 'Dynamic Encyclopedia Blue' },
+              brandStyleReference: null,
             },
             automation: {
               loopProfile: { id: 'loop_encyclopedia_spec_review', name: 'Encyclopedia Spec Review' },

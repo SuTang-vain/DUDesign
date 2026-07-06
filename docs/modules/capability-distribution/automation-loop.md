@@ -54,8 +54,7 @@ Loop 不定义领域风格，不决定插件权限，也不能无限重试。它
 - `maxRepairAttempts = 0`
 - `maxCostCents = null`
 - `maxDurationMs = 120000`
-- `qualityGate = static`
-- `enablePixelGate = false`
+- `qualityGates = ['static']`
 - 只发布质量 warning，不自动 refine。
 
 ### 3.2 standard
@@ -67,8 +66,7 @@ Loop 不定义领域风格，不决定插件权限，也不能无限重试。它
 - `maxRepairAttempts = 1`
 - `maxCostCents = 200`
 - `maxDurationMs = 300000`
-- `qualityGate = static`
-- `enablePixelGate = false`
+- `qualityGates = ['static']`
 - 静态质量失败后自动生成一次最小 repair prompt 并调用 refine。
 
 ### 3.3 deep repair
@@ -80,8 +78,7 @@ Loop 不定义领域风格，不决定插件权限，也不能无限重试。它
 - `maxRepairAttempts = 2`
 - `maxCostCents = 500`
 - `maxDurationMs = 720000`
-- `qualityGate = pixel`
-- `enablePixelGate = true`
+- `qualityGates = ['static', 'pixel']`
 - 静态 + pixel gate 都参与诊断。
 - 需要 UI 明确成本/耗时更高。
 
@@ -121,7 +118,7 @@ type DesignLoopStartedEvent = {
   payload: {
     profileId: 'loop_fast' | 'loop_standard' | 'loop_deep_repair'
     maxRepairAttempts: number
-    qualityGate: 'static' | 'pixel'
+    qualityGates: ('static' | 'pixel' | 'spec')[]
   }
 }
 ```
@@ -133,7 +130,7 @@ type DesignLoopQualityCheckedEvent = {
   payload: {
     artifactId: string
     attempt: number
-    gate: 'static' | 'pixel'
+    gates: ('static' | 'pixel' | 'spec')[]
     status: 'pass' | 'warn' | 'fail'
     issues: string[]
   }
@@ -214,7 +211,8 @@ type DesignLoopStoppedEvent = {
 variation_completed
   -> materialize artifact
   -> analyze static quality
-  -> if profile.enablePixelGate: analyze pixel quality
+  -> if profile.qualityGates includes pixel: analyze pixel quality
+  -> if profile.qualityGates includes spec: analyze product spec quality
   -> publish loop_quality_checked
   -> if pass: publish loop_completed
   -> if fail/warn: evaluate repair policy

@@ -1341,3 +1341,199 @@
 
 - 将 `dynamicEncyclopediaRuleTemplateIds` 从硬编码规则迁移到真实分类体系/模板适配表。
 - 补 API smoke：关系图谱卡、对比辨析卡、可展开事实卡分别被 guidance 推荐并进入 job snapshot。
+
+## 2026-07-04 CAP-M8.7 Variation Assignment as Spec Review Source
+
+### 发现
+
+- 动态百科 job 可以包含多个候选 child template，并通过 `variationTemplateAssignments` 分配给不同 variation。
+- 远端 `牛顿摆` 任务显示，job 级候选模板集合包含 timeline 时，非 timeline variation 也可能被 timeline 审查规则误伤。
+
+### 决策
+
+- job 级 `designTemplatePackIds` 表示候选/可用模板集合，不代表每个 artifact 必须满足全部模板规则。
+- `variationTemplateAssignments` 是单个 variation 的 child template 事实来源，spec review、automation repair prompt 和后续 refine 都应使用该 variation 的实际 assignment。
+- 管理端展示审查失败原因时，需要同时展示 job 候选模板和 variation 实际模板，以便排查规则误伤。
+
+### 后续建议
+
+- 后端服务层实现 variation-scoped spec review context。
+- Runtime Gateway prompt block 已按 variation 注入模板上下文，后端 quality gate 需要与该语义保持一致。
+
+## 2026-07-04 CAP-M8.8 Entry Guidance Plugin Trio and Loop Contract
+
+### 已完成
+
+- 注册并收口词条引导插件三件：
+  - `plug_encyclopedia_entry_guidance`
+  - `sk_encyclopedia_entry_guidance`
+  - `mcp_encyclopedia_democase_readonly`
+- `sk_encyclopedia_entry_guidance.pluginId` 和 `mcp_encyclopedia_democase_readonly.pluginId` 均指向 `plug_encyclopedia_entry_guidance`。
+- `plug_encyclopedia_entry_guidance` 标记为 `mixed` 类型，表示同一个能力插件同时承载 declarative skill 和 MCP binding。
+- democase MCP binding 显式声明 `scopes = ['readonly_context']`，通过 MVP safe policy。
+- 明确 democase MCP binding 只服务生成期 agent；首页词条引导向导的分类查询仍由 application-service 直连 democase 只读服务，不经过 runtime MCP binding。
+- `AutomationLoopProfile` 契约移除 legacy 字段：
+  - 删除 `qualityGate`
+  - 删除 `enablePixelGate`
+  - 固化 `qualityGates: ('static' | 'pixel' | 'spec')[]`
+  - 保留 `repairStrategy`
+- loop profile 迁移：
+  - `loop_fast` -> `['static']`
+  - `loop_standard` -> `['static']`
+  - `loop_deep_repair` -> `['static', 'pixel']`
+  - `loop_encyclopedia_spec_review` -> `['static', 'spec', 'pixel']`
+- loop events 改为输出多门禁字段：
+  - `design.loop_started.payload.qualityGates`
+  - `design.loop_quality_checked.payload.gates`
+- 用户端插件选择器支持 `mixed` 插件，选择时同时切换对应 skill 与 MCP binding。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="capabilities|Automation Loop|api flow"`
+
+### 后续建议
+
+- Runtime Gateway golden 继续验证 `sk_encyclopedia_entry_guidance` 与 `mcp_encyclopedia_democase_readonly` prompt/tool policy 注入稳定。
+- 若后续支持真实 MCP 调用，需要把 `allowRuntimeToolUse` 从 policy-only 灰度到可授权、可审计、可回放链路。
+
+## 2026-07-04 CAP-M8.9 Dynamic Encyclopedia Capability Preset
+
+### 已完成
+
+- 新增标准 `CapabilityPreset` 契约，并通过 `ListCapabilitiesResponse.capabilityPresets` 暴露。
+- 将 `preset_dynamic_encyclopedia_card` 从后端内部常量升级为 API 可查询的能力事实：
+  - `productMode = dynamic_encyclopedia_card`
+  - `domainTemplateId = tpl_dynamic_encyclopedia_entry`
+  - `designTemplatePackIds = ['dtp_dynamic_encyclopedia_card']`
+  - `skillIds = ['sk_encyclopedia_entry_guidance']`
+  - `mcpToolIds = ['mcp_encyclopedia_democase_readonly']`
+  - `loopProfileId = loop_encyclopedia_spec_review`
+- 用户端切换“动态百科卡片”模式时优先读取 API preset，缺失时才使用本地 fallback id。
+- capabilities 单测验证 preset 引用的 domain template、skill、MCP binding、loop profile 都存在。
+
+### 验证
+
+- 已通过：`npx tsc -b packages/contracts apps/api apps/web`
+- 已通过：`npm --workspace @dudesign/api run test -- --test-name-pattern="capabilities|api flow"`
+
+### 后续建议
+
+- 管理端展示 `capabilityPresets`，作为业务能力包治理入口。
+- 后续若新增 `dtp_dynamic_encyclopedia_explore_card`，需要同步更新 preset 版本策略和父包 `packageChildren`。
+
+### 落地状态
+
+- 后端服务层已在 APP-M44 中实现 variation-scoped spec review context。
+- `variationTemplateAssignments` 已作为 spec review 的 child template 事实来源，job 级 `designTemplatePackIds` 仅作为无 assignment 时的兼容回退。
+
+## 2026-07-04 CAP-M8.10 Runtime Gateway Safe Skill Golden
+
+### 已完成
+
+- 补充 Runtime Gateway golden，覆盖动态百科 preset 对应的 safe skill 组合选择：
+  - `sk_encyclopedia_entry_guidance`
+  - `mcp_encyclopedia_democase_readonly`
+- 断言 Babel-O `/v1/agents` payload 中的 `DUDesign plugin context` 稳定包含：
+  - 词条引导 skill 的 rules、prompt guidance、avoid、checklist。
+  - democase MCP binding 的 policy-only 映射说明。
+  - 插件不能覆盖 runtime guardrails、workspace path、model choice、artifact output requirements。
+- 断言 `templateRequirements.toolPolicy` 保持 DUDesign 标准形式：
+  - `allowedMcpToolIds = ['mcp_encyclopedia_democase_readonly']`
+  - `scopes = ['readonly_context']`
+  - `requiresUserAuth = false`
+  - `auditLevel = usage`
+  - `mode = policy_only`
+- 将 CAP-7 `Runtime Gateway golden：safe skill 选择后 prompt block 和 tool policy 稳定` 标记完成。
+
+### 验证
+
+- 已通过：`npx tsc -b packages/contracts packages/runtime-gateway`
+- 已通过：`npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="safe skill|dynamic encyclopedia|capability|tool policy|prompt"`
+
+### 后续建议
+
+- 继续补 E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
+- 后续真实 MCP 调用开启前，保持 democase binding 为 `policy_only`，避免 application-service 直连 guidance 查询和生成期 agent tool policy 混淆。
+
+## 2026-07-05 CAP-M8.11 Safe Skill E2E Snapshot
+
+### 已完成
+
+- 补充用户端 E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot。
+- 首页 capability summary 增加插件 chip，让用户在生成前能看到已选官方插件/skill。
+- Job 结果页增加 job 级 `CapabilitySummary`，不再只在单 variation 页面展示能力快照。
+- `CapabilitySummary` 中的 skill 展示名改为优先使用所属 `CapabilityPlugin.name`，避免用户看到 `sk_*` 内部 ID。
+- E2E 同时断言后端 job snapshot 中：
+  - `plugins.skillIds` 包含 `sk_static_export_safe`。
+  - `plugins.mcpToolIds` 为空。
+  - `pluginSnapshot.skills` 包含 `sk_static_export_safe`。
+  - `pluginSnapshot.toolPolicy.allowedMcpToolIds` 为空。
+- 将 CAP-7 `E2E：选择官方 safe skill -> 创建 job -> 结果页展示 capability snapshot` 标记完成。
+
+### 验证
+
+- 已通过：`npx tsc -b packages/contracts apps/web`
+- 已通过：`npm --workspace @dudesign/web run test:e2e -- --grep "official safe skill"`
+
+### 后续建议
+
+- 继续补 E2E：模板 + 插件 + standard loop 生成，覆盖多能力组合快照。
+- 管理端后续展示 `capabilityPresets` 时，应复用同一套用户可读名称规则，避免泄露内部能力 ID。
+
+## 2026-07-05 CAP-M8.12 Template + Plugin + Standard Loop E2E
+
+### 已完成
+
+- 升级用户端 capability distribution E2E，覆盖模板包 + 官方 safe skill + standard loop 组合生成。
+- 测试链路：
+  - 选择 `tpl_premium_product_page` 场景。
+  - 选择 custom 方向并验证偏好恢复。
+  - 回到 template pack 模式，选择 `dtp_premium_product_launch`。
+  - 选择官方 safe skill：`sk_static_export_safe`。
+  - 选择 `loop_standard`。
+  - 创建 job 并在结果页展示 job 级 capability snapshot。
+  - 打开单 variation 并展示 variation 级 capability snapshot。
+- E2E 同时校验后端 job snapshot：
+  - `designTemplatePacks` 包含 `dtp_premium_product_launch`。
+  - `capabilitySnapshot.template.domainTemplate.id = tpl_premium_product_page`。
+  - 模板包模式下 snapshot 使用模板包默认视觉基线：`aes_trustworthy_saas` / `pal_blue_white_trust`。
+  - `capabilitySnapshot.plugins.skillIds` 包含 `sk_static_export_safe`。
+  - `capabilitySnapshot.plugins.mcpToolIds` 为空。
+  - `capabilitySnapshot.automation.loopProfile.id = loop_standard`。
+- 将 CAP-7 `E2E：模板 + 插件 + standard loop 生成` 标记完成。
+
+### 验证
+
+- 已通过：`npx tsc -b packages/contracts apps/web`
+- 已通过：`npm --workspace @dudesign/web run test:e2e -- --grep "capability distribution options"`
+
+### 后续建议
+
+- CAP-7 剩余主要门禁是 MCP smoke：从 `policy_only` 升级到真实调用后，覆盖授权、审计、结果注入和回放。
+- 在进入真实 MCP 调用前，建议先整理 MCP invocation contract，明确 application-service guidance 查询与 runtime agent tool policy 的边界。
+
+## 2026-07-05 CAP-M8.13 MCP Smoke Prerequisite Contract
+
+### 已完成
+
+- MCP smoke 前置 contract 已落到第 4 层 Runtime Compatibility：
+  - `docs/modules/runtime-compatibility/mcp-invocation-contract.md`
+  - `McpInvocationRequest`
+  - `McpInvocationResult`
+  - `McpInvocationAuditRecord`
+- Runtime Gateway 已补 contract helper 和测试，用于固定：
+  - `policy_only` 输出稳定。
+  - selected MCP tool / tool policy / binding target / scope 必须匹配。
+  - user auth required 时必须拒绝未授权调用。
+  - MCP unavailable 必须转成标准降级 result。
+
+### 当前状态
+
+- CAP-7 的 `MCP smoke：从 policy_only 升级到真实调用后，覆盖授权、审计、结果注入和回放` 仍未完成。
+- 本轮完成的是 smoke 前的 contract 地基，避免后续真实 MCP 接入时突破 capability/plugin 权限边界。
+
+### 后续建议
+
+- 下一步进入 Application Service：实现 MCP 调用前授权校验入口和 audit record 持久化。
+- 再进入真实 MCP smoke：授权、调用、结果注入、审计、回放。

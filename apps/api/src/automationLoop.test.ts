@@ -15,8 +15,7 @@ const standardProfile: AutomationLoopProfile = {
   maxRepairAttempts: 1,
   maxCostCents: 200,
   maxDurationMs: 300000,
-  enablePixelGate: false,
-  qualityGate: 'static',
+  qualityGates: ['static'],
   repairStrategy: 'minimal_refine',
 }
 

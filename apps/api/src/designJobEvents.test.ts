@@ -296,6 +296,67 @@ describe('Design job event persistence and partial failures', () => {
     await harness.close()
     harness = null
   })
+
+  it('reviews dynamic encyclopedia artifacts against the assigned variation template only', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('encyclopedia-summary-with-timeline-candidate'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Variation-scoped spec review',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: '牛顿摆',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 1,
+      capabilityRequirements: {
+        template: {
+          designTemplatePackIds: [
+            'dtp_dynamic_encyclopedia_summary_card',
+            'dtp_dynamic_encyclopedia_timeline_card',
+          ],
+        },
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {
+        designTemplatePackIds: [
+          'dtp_dynamic_encyclopedia_summary_card',
+          'dtp_dynamic_encyclopedia_timeline_card',
+        ],
+        businessContext: {
+          interactionParadigmId: 'ip_entity_summary',
+        },
+      },
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+    await harness.service.flushBackgroundTasks()
+
+    const snapshot = await getJson<DesignJobSnapshotResponse>(harness, `/api/design-jobs/${job.job.id}`)
+    assert.equal(snapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_summary_card')
+    const htmlArtifacts = snapshot.artifacts.filter(artifact => artifact.kind === 'html')
+    assert.equal(htmlArtifacts.length, 1)
+    assert.equal(htmlArtifacts[0]?.quality?.status, 'pass')
+    assert.equal(
+      htmlArtifacts[0]?.quality?.issues.some(issue => /timeline child template|timeline|时间线|里程碑/i.test(issue)),
+      false,
+    )
+
+    const events = await harness.service.store.listDesignEvents(job.job.id)
+    const qualityChecks = events.filter(event => event.type === 'design.loop_quality_checked')
+    assert.deepEqual(qualityChecks.map(event => event.payload.status), ['pass'])
+    assert.equal(events.some(event => event.type === 'design.loop_repair_planned'), false)
+
+    await harness.close()
+    harness = null
+  })
 })
 
 class NoopScreenshotQueue extends InMemoryDesignJobQueue {
@@ -317,7 +378,7 @@ class NoopScreenshotQueue extends InMemoryDesignJobQueue {
 }
 
 class ControlledRuntimeGateway implements RuntimeGateway {
-  constructor(private readonly mode: 'all-complete' | 'partial-failure' | 'late-streaming-after-complete' | 'quality-failure' | 'quality-failure-still-fails' | 'quality-failure-runtime-unavailable') {}
+  constructor(private readonly mode: 'all-complete' | 'partial-failure' | 'late-streaming-after-complete' | 'quality-failure' | 'quality-failure-still-fails' | 'quality-failure-runtime-unavailable' | 'encyclopedia-summary-with-timeline-candidate') {}
 
   async getRuntimeHealth() {
     return {
@@ -373,9 +434,7 @@ class ControlledRuntimeGateway implements RuntimeGateway {
       jobId: input.jobId,
       variationId: 'runtime_variation_1',
       payload: {
-        html: this.mode === 'quality-failure' || this.mode === 'quality-failure-still-fails' || this.mode === 'quality-failure-runtime-unavailable'
-          ? '<!doctype html><html><body></body></html>'
-          : '<!doctype html><html><body><main><h1>Completed variation</h1><p>This completed variation has enough visible content to pass the static quality gate.</p></main></body></html>',
+        html: this.completedHtml(),
         changedPaths: ['index.html'],
         inputTokens: 10,
         outputTokens: 20,
@@ -439,6 +498,40 @@ class ControlledRuntimeGateway implements RuntimeGateway {
 
   async cancelRuntimeJob(_input: CancelRuntimeJobInput) {
     return { cancelled: true }
+  }
+
+  private completedHtml(): string {
+    if (this.mode === 'quality-failure' || this.mode === 'quality-failure-still-fails' || this.mode === 'quality-failure-runtime-unavailable') {
+      return '<!doctype html><html><body></body></html>'
+    }
+    if (this.mode === 'encyclopedia-summary-with-timeline-candidate') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>牛顿摆百科概览</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: Inter, "PingFang SC", system-ui, sans-serif; color: #1E1F24; background: #F8F8F8; }
+      .scroll-container { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; padding: 24px; }
+      .fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    </style>
+  </head>
+  <body>
+    <main class="scroll-container">
+      <h1>牛顿摆</h1>
+      <section aria-label="百科概览">百科概览：牛顿摆是一种演示动量守恒和能量传递的教学装置。</section>
+      <section class="fact-grid" aria-label="关键事实">
+        <article><strong>类型</strong><p>物理演示装置</p></article>
+        <article><strong>核心概念</strong><p>动量守恒、近似弹性碰撞</p></article>
+        <article><strong>使用场景</strong><p>课堂演示、科普展示</p></article>
+        <article><strong>来源提示</strong><p>信息以通用物理知识为基础。</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
+    return '<!doctype html><html><body><main><h1>Completed variation</h1><p>This completed variation has enough visible content to pass the static quality gate.</p></main></body></html>'
   }
 }
 

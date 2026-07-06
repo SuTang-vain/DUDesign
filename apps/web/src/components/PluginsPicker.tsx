@@ -11,6 +11,7 @@ export type PluginsPickerLabels = {
   pluginsHint: string
   pluginTypeSkill: string
   pluginTypeMcp: string
+  pluginTypeMixed?: string
   safetyLevel: string
   safe: string
   reviewRequired: string
@@ -26,7 +27,7 @@ const scopePhrases: Record<PluginPermissionScope, string> = {
   external_network: 'external_network',
 }
 
-type PluginFilter = 'all' | 'mcp_tool' | 'skill'
+type PluginFilter = 'all' | 'mcp_tool' | 'skill' | 'mixed'
 
 export function PluginsPicker(props: {
   plugins: CapabilityPlugin[]
@@ -48,17 +49,19 @@ export function PluginsPicker(props: {
   )
   const visiblePlugins = officialPlugins.filter(plugin => filter === 'all' || plugin.type === filter)
   const filterLabels = c18n.language === 'zh'
-    ? { all: '全部', mcp_tool: 'MCP', skill: 'Skills' }
-    : { all: 'All', mcp_tool: 'MCP', skill: 'Skills' }
+    ? { all: '全部', mcp_tool: 'MCP', skill: 'Skills', mixed: '组合' }
+    : { all: 'All', mcp_tool: 'MCP', skill: 'Skills', mixed: 'Mixed' }
   const filterCounts = useMemo(() => ({
     all: officialPlugins.length,
     mcp_tool: officialPlugins.filter(plugin => plugin.type === 'mcp_tool').length,
     skill: officialPlugins.filter(plugin => plugin.type === 'skill').length,
+    mixed: officialPlugins.filter(plugin => plugin.type === 'mixed').length,
   }), [officialPlugins])
   const filterOptions: Array<{ id: PluginFilter; label: string; count: number }> = [
     { id: 'all', label: filterLabels.all, count: filterCounts.all },
     { id: 'mcp_tool', label: filterLabels.mcp_tool, count: filterCounts.mcp_tool },
     { id: 'skill', label: filterLabels.skill, count: filterCounts.skill },
+    { id: 'mixed', label: filterLabels.mixed, count: filterCounts.mixed },
   ]
 
   return (
@@ -85,20 +88,33 @@ export function PluginsPicker(props: {
       <div className="skill-cards">
         {visiblePlugins.map(plugin => {
           const isSkill = plugin.type === 'skill'
-          const skill = isSkill ? skillByPlugin.get(plugin.id) : undefined
-          const binding = !isSkill ? bindingByPlugin.get(plugin.id) : undefined
-          const selected = isSkill
-            ? (skill ? props.selectedSkillIds.includes(skill.id) : false)
-            : (binding ? props.selectedMcpToolIds.includes(binding.id) : false)
-          const selectableId = isSkill ? skill?.id : binding?.id
-          if (!selectableId) return null
-          const onToggle = () => isSkill ? props.onToggleSkill(selectableId) : props.onToggleMcpTool(selectableId)
+          const isMcp = plugin.type === 'mcp_tool'
+          const skill = isSkill || plugin.type === 'mixed' ? skillByPlugin.get(plugin.id) : undefined
+          const binding = isMcp || plugin.type === 'mixed' ? bindingByPlugin.get(plugin.id) : undefined
+          const selected = plugin.type === 'mixed'
+            ? Boolean(skill && props.selectedSkillIds.includes(skill.id)) && Boolean(binding && props.selectedMcpToolIds.includes(binding.id))
+            : isSkill
+              ? (skill ? props.selectedSkillIds.includes(skill.id) : false)
+              : (binding ? props.selectedMcpToolIds.includes(binding.id) : false)
+          if ((isSkill && !skill) || (isMcp && !binding) || (plugin.type === 'mixed' && !skill && !binding)) return null
+          const onToggle = () => {
+            if (plugin.type === 'mixed') {
+              if (skill) props.onToggleSkill(skill.id)
+              if (binding) props.onToggleMcpTool(binding.id)
+              return
+            }
+            if (isSkill && skill) props.onToggleSkill(skill.id)
+            if (isMcp && binding) props.onToggleMcpTool(binding.id)
+          }
           const safetyChip = plugin.safetyLevel === 'safe' ? 'ok' : plugin.safetyLevel === 'review_required' ? 'warn' : 'err'
           const safetyText = plugin.safetyLevel === 'safe' ? props.labels.safe
             : plugin.safetyLevel === 'review_required' ? props.labels.reviewRequired
             : plugin.safetyLevel
           const scopes = plugin.permissionPolicy.scopes.map(scope => scopePhrases[scope])
-          const ruleLine = isSkill && skill ? (c18n.skillRules(skill.id, skill.rules)[0] ?? '') : ''
+          const ruleLine = skill ? (c18n.skillRules(skill.id, skill.rules)[0] ?? '') : ''
+          const typeLabel = plugin.type === 'mixed'
+            ? props.labels.pluginTypeMixed ?? `${props.labels.pluginTypeSkill} + ${props.labels.pluginTypeMcp}`
+            : isSkill ? props.labels.pluginTypeSkill : props.labels.pluginTypeMcp
           return (
             <button
               key={plugin.id}
@@ -109,7 +125,7 @@ export function PluginsPicker(props: {
             >
               <span className="skill-head">
                 <strong>{plugin.name}</strong>
-                <span className="chip info skill-mini">{isSkill ? props.labels.pluginTypeSkill : props.labels.pluginTypeMcp}</span>
+                <span className="chip info skill-mini">{typeLabel}</span>
                 <span className={`chip ${safetyChip} skill-mini`}>{safetyText}</span>
                 <i className={`skill-check${selected ? ' active' : ''}`} aria-hidden="true">
                   <Icon name="check" size={14} />

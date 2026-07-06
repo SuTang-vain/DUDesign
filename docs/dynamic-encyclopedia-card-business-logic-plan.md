@@ -371,8 +371,7 @@ loop_encyclopedia_spec_review
 | `maxRepairAttempts` | 2 |
 | `maxDurationMs` | 720000 |
 | `maxCostCents` | 500 |
-| `qualityGate` | `spec` 或扩展为 `static+spec` |
-| `enablePixelGate` | true，后续可由 worker 异步执行 |
+| `qualityGates` | `['static', 'spec', 'pixel']`，`pixel` 后续可由 worker 异步执行 |
 | `repairStrategy` | `spec_review_refine` |
 
 ### 7.2 新增百科规范审查器
@@ -388,6 +387,7 @@ loop_encyclopedia_spec_review
 - 内容结构：必备章节与词条分类匹配。
 - 语气规范：中立、百科化，避免营销腔、绝对化宣传。
 - 模板一致性：必须符合选中子模板与交互范式。
+- variation 级审查上下文：当一个 job 同时包含多个子模板时，审查器必须以当前 variation 的 `variationTemplateAssignments` 为事实来源；job 级 `designTemplatePackIds` 只能作为候选模板集合，不得要求每个 artifact 同时满足全部子模板规则。
 - 响应式：指定卡片尺寸下文字不溢出、不遮挡。
 
 审查输出：
@@ -660,7 +660,7 @@ democase 数据在两个时机被消费：词条引导向导在 job 创建前做
 
 ### 12.2 质量门改为数组，弃用 enablePixelGate
 
-当前 `qualityGate: 'static' | 'pixel'`（[contracts/api.ts:240](../../packages/contracts/src/api.ts)）把门禁类型与开关耦合，无法表达“spec + pixel 同时启用”。第 7.1 节同时给 `qualityGate: 'spec'` 与 `enablePixelGate: true` 会产生语义冲突。
+历史 `qualityGate: 'static' | 'pixel'` 把门禁类型与开关耦合，无法表达“spec + pixel 同时启用”。第 7.1 节若同时给 `qualityGate: 'spec'` 与 `enablePixelGate: true` 会产生语义冲突。
 
 **决策**：`qualityGate` 改为数组，删除 `enablePixelGate`。
 
@@ -765,6 +765,7 @@ Phase 2 落地前置条件（需单独设计）：
 
 - 新增 `loop_encyclopedia_spec_review`。
 - 新增 spec review checker。
+- spec review checker 使用当前 variation 实际分配的 child template 和 interaction paradigm，避免 job 级候选模板导致 timeline/compare/relation 等规则误伤其他变体。
 - 生成完成后跑审查。
 - 自动模式下最多修复 N 次。
 - 半自动模式下等待用户确认。
