@@ -1537,3 +1537,335 @@
 
 - 下一步进入 Application Service：实现 MCP 调用前授权校验入口和 audit record 持久化。
 - 再进入真实 MCP smoke：授权、调用、结果注入、审计、回放。
+
+## 2026-07-06 CAP-9 External Capability Expansion Planning
+
+### 背景
+
+- 新增规划需求：
+  - 网络信息搜索 MCP，参考 `Agent-Reach`，用于 skill 输出与审核。
+  - 生成图片 MCP，优先考虑火山方舟 `doubao-seedream-5-0-260128` 作为 provider。
+  - 双端差异化生产策略 skill，需进入模板选择环节。
+  - 模板融合/迭代更新机制，并与 automation loop 协同。
+  - 数据输入获取分析 skill。
+  - 用户开发模板贡献机制。
+
+### 已更新
+
+- 在 `README.md` 增加“外部能力扩展规划”，明确 CAP-9 不新增第五层架构，而是分摊到 Templates、Plugins、Automation Loop 和 CAP-6 管理端治理。
+- 在 `plugins.md` 增加 CAP-9 外部能力细化：
+  - `ResearchContextArtifact`。
+  - `ImageGenerationRequest`。
+  - `sk_dual_surface_strategy`。
+  - `sk_data_intake_analysis`。
+  - 模板融合/迭代流程。
+  - 用户模板贡献生命周期。
+- 在 `TODO.md` 增加 Phase CAP-9：
+  - CAP-9.1 网络信息搜索 MCP。
+  - CAP-9.2 生成图片 MCP。
+  - CAP-9.3 双端差异化生产策略 skill。
+  - CAP-9.4 数据输入获取分析 skill。
+  - CAP-9.5 模板融合与迭代更新机制。
+  - CAP-9.6 用户开发模板贡献机制。
+
+### 治理决策
+
+- 外部 MCP 结果不能直接成为事实来源，必须先形成带 source、confidence、freshness、reviewStatus 的 artifact。
+- 图片生成不能由 skill 内嵌 curl 或 API key；provider 调用必须由后端服务执行，结果写入 artifact store。
+- 双端策略属于 Design Skill，不属于视觉模板；它指导 PC / WISE / mobile 的差异化生成方法。
+- 数据输入分析属于前置 brief 能力，推荐模板/skill 时必须解释原因，不能静默覆盖用户显式选择。
+- 模板融合和用户贡献必须生成新 version，不覆盖历史 job snapshot。
+
+### 后续建议
+
+- 第一优先级：实现 CAP-9.3 `sk_dual_surface_strategy`，因为它能直接增强动态百科和固定尺寸业务模板。
+- 第二优先级：实现 CAP-9.4 `sk_data_intake_analysis`，为 Agent-Reach 和 democase 输入统一结构化 brief。
+- 第三优先级：接 CAP-9.1 Agent-Reach research MCP，并补授权、审核、结果注入、审计和回放 smoke。
+- 第四优先级：接 CAP-9.2 图片生成 MCP，先走 artifact-backed mock，再接真实 provider。
+
+## 2026-07-06 CAP-9.3 Dual-surface Strategy Skill
+
+### 已完成
+
+- 新增官方插件 `plug_dual_surface_strategy`：
+  - `type = skill`
+  - `category = responsive`
+  - `safetyLevel = safe`
+  - 权限保持 `readonly_context` + `validation_only`，不允许 runtime tool use。
+- 新增官方 skill `sk_dual_surface_strategy`：
+  - 明确 PC / WISE / mobile / embedded iframe 是不同产品端，不是简单 responsive 缩放。
+  - 固定尺寸业务模板优先满足标准 viewport，再兼容次级尺寸。
+  - 移动和 iframe 场景要求显式滚动容器、稳定控件和 touch-safe interaction。
+  - 负向约束禁止全局 `touchmove` 阻断、全局 `touch-action:none`、视频、下载和跳转作为核心移动交互。
+- 动态百科 preset 默认选择：
+  - `sk_encyclopedia_entry_guidance`
+  - `sk_dual_surface_strategy`
+  - `mcp_encyclopedia_democase_readonly`
+  - `loop_encyclopedia_spec_review`
+- 用户端 dynamic encyclopedia fallback skillIds 同步为词条引导 + 双端策略。
+- 补充中文能力文案，插件选择器和 capability summary 可展示用户可读名称。
+- Runtime Gateway golden 覆盖 dual-surface prompt block，确保进入 BabeL-O 的 prompt 内容稳定且不覆盖 runtime guardrails。
+
+### 验证
+
+- 已通过：`npx tsc -b packages/contracts apps/api packages/runtime-gateway apps/web`
+- 已通过：`npm --workspace @dudesign/api run test -- --test-name-pattern="capability plugin registry|api flow"`
+- 已通过：`npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="dual-surface|dynamic encyclopedia|capability|tool policy|prompt"`
+
+### 后续建议
+
+- 下一步进入 CAP-9.4：实现 `sk_data_intake_analysis`，把 prompt、URL、粘贴文本、JSON/table、democase 和后续 Agent-Reach research artifact 统一成结构化 brief。
+- 然后再做 CAP-9.1 Agent-Reach research MCP；这样检索结果有稳定的 brief 容器，不会直接污染 runtime prompt。
+
+## 2026-07-06 CAP-9.4 Data Intake Analysis Skill Baseline
+
+### 已完成
+
+- 新增 `DataIntakeAnalysis` contract：
+  - `inputSources`
+  - `topicSummary`
+  - `entities`
+  - `fields`
+  - `missingFields`
+  - `recommendedScenarioTemplates`
+  - `recommendedDesignTemplatePacks`
+  - `recommendedSkills`
+  - `riskFlags`
+  - `reviewStatus`
+- 新增官方插件 `plug_data_intake_analysis`：
+  - `type = skill`
+  - `category = research`
+  - 权限保持 `readonly_context` + `validation_only`
+  - 不允许 runtime tool use
+- 新增官方 skill `sk_data_intake_analysis`：
+  - 要求把松散输入整理为结构化 brief。
+  - 要求保留 prompt、URL、粘贴文本、表格、JSON、上传资产、democase、research artifact、existing HTML 和 memory 的来源边界。
+  - 推荐模板/skill 时必须说明 reason 和 confidence。
+  - memory、democase、research artifact 只能作为 context hints，不作为未经确认的事实。
+- 动态百科 preset 默认加入 `sk_data_intake_analysis`，形成：
+  - `sk_encyclopedia_entry_guidance`
+  - `sk_dual_surface_strategy`
+  - `sk_data_intake_analysis`
+  - `mcp_encyclopedia_democase_readonly`
+  - `loop_encyclopedia_spec_review`
+- 用户端中文能力文案新增“数据输入分析”。
+- Runtime Gateway golden 覆盖 data-intake prompt block，确保该 skill 进入 BabeL-O prompt 且不能覆盖 runtime guardrails。
+
+### 当前边界
+
+- 已完成 contract + official skill + snapshot/golden baseline。
+- 已实现 `POST /api/capabilities/data-intake/analyze`，可生成 deterministic `DataIntakeAnalysis`。
+- 分析结果已写入 artifact store，作为 `data_intake_analysis` preflight artifact 返回。
+- 已实现创建 job 时引用 data-intake preflight artifact，并把 artifact id、storageKey、contentHash、sizeBytes、schemaVersion、reviewStatus 固化到 job snapshot。
+- Agent-Reach research MCP 尚未接入；后续 research result 应先进入 `ResearchContextArtifact`，再被 data-intake 分析吸收。
+
+### 后续建议
+
+- 下一步推进 CAP-9.1 Agent-Reach research MCP，让搜索结果经过 `ResearchContextArtifact -> DataIntakeAnalysis -> Runtime prompt` 的链路。
+
+## 2026-07-06 CAP-9.1 Agent-Reach Research MCP Contract Baseline
+
+### 已完成
+
+- 新增 `ResearchContextArtifact` 合约：
+  - `query`。
+  - `sources`。
+  - `summary`。
+  - `citations`。
+  - `confidence`。
+  - `freshness`。
+  - `riskFlags`。
+  - `rawPayloadHash`。
+  - `reviewStatus`。
+- 注册官方网络检索能力族：
+  - `plug_research_context`。
+  - `sk_research_brief_builder`。
+  - `mcp_agent_reach_search`。
+  - `mcp_agent_reach_page_read`。
+  - `mcp_agent_reach_social_scan`。
+- 明确当前 MVP 安全策略：
+  - Agent-Reach 能力先走 `readonly_context` 和 `auditLevel=full`。
+  - 不直接开放 `external_network` 给 Runtime Gateway。
+  - 真实网络访问后续通过管理端灰度和环境配置开启。
+- `MockMcpExecutor` 增加 Agent-Reach mock：
+  - 搜索、页面读取、社媒扫描统一归一化为 `ResearchContextArtifact`。
+  - MCP result 只暴露 reviewed summary、references 和 research context。
+  - 不把原始外部 payload 注入 runtime prompt。
+- 用户端 skill 本地化增加“网络检索摘要”，插件面板可展示中文名称、规则、负向约束和 checklist。
+
+### 验证
+
+- `ResearchContextArtifact` contract 单测。
+- capability registry 单测：
+  - 官方插件、skill、MCP binding 可列出。
+  - Agent-Reach binding 进入 full audit readonly tool policy。
+- MCP executor 单测：
+  - mock Agent-Reach search 返回 reviewed research context。
+
+### 决策
+
+- 本阶段先完成离线契约、registry、mock 和审计策略，不直接依赖真实 Agent-Reach 进程或外网搜索结果。
+- 后续真实联调必须保持 `Agent-Reach -> ResearchContextArtifact -> DataIntakeAnalysis -> Runtime prompt` 链路，不允许 Runtime Gateway 直接消费 Agent-Reach 原始结果。
+
+### 后续关注
+
+- 将 MCP 调用结果写入 artifact store 或 capability artifact 表，并把 artifact reference 写入 job snapshot。
+- 增加网络搜索 MCP API smoke：授权、调用、审核、结果注入、审计和回放。
+- 接入真实 Agent-Reach staging route 后补 golden replay，验证事件 drift 不破坏 DUDesign 标准 research context。
+
+## 2026-07-06 CAP-9.1 Research Context Artifact Snapshot Flow
+
+### 已完成
+
+- 扩展 contracts：
+  - 新增 `ResearchContextArtifactReference`。
+  - `CreateDesignJobRequest.templateRequirements` 支持 `researchContextArtifactIds`。
+  - `CreateDesignJobRequest.templateRequirements` 支持 `researchContexts` snapshot。
+- Application Service 执行 MCP 调用后自动识别 `result.data.researchContext`：
+  - 写入 artifact store：`capabilities/research/context.json`。
+  - artifact metadata 记录 `kind=research_context`、`invocationId`、`mcpToolId`、`schemaVersion`、`reviewStatus`、`query`。
+  - MCP result 回填 `data.researchContextArtifact`。
+- 创建 design job 时支持固定 research context：
+  - 从 `researchContextArtifactIds` 或 `researchContexts[].artifactId` 读取 artifact store。
+  - 校验 artifact kind 与 JSON schema。
+  - 将轻量 reference 写入 job `templateRequirements.researchContexts`。
+  - 将 artifact id 列表写入 `templateRequirements.researchContextArtifactIds`。
+- API flow smoke 增加 mock Agent-Reach 链路：
+  - 创建带 `sk_research_brief_builder` 和 `mcp_agent_reach_search` 的 job。
+  - 执行 MCP search。
+  - 验证 `ResearchContextArtifact` 被写入 artifact store。
+  - 使用该 artifact 创建后续 job。
+  - 断言后续 job snapshot 固定 artifact id、storage key、content hash、schema version、review status、query 和 source count。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api apps/web`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|capability plugin registry|MockMcpExecutor|HttpMcpExecutor"`
+
+### 决策
+
+- Research context 先复用 artifact store，不新增 PostgreSQL capability artifact 表。
+- Job snapshot 只保存轻量 reference，不把完整 research context JSON 展开到 job record，降低 snapshot 膨胀和隐私扩散风险。
+- 当前 smoke 使用 mock Agent-Reach；真实 Agent-Reach staging smoke 仍需单独接入，避免本地测试依赖外网和账号状态。
+
+### 后续关注
+
+- 接入真实 Agent-Reach HTTP/CLI route，输出仍必须归一化为 `ResearchContextArtifact`。
+- Runtime Gateway prompt 编译阶段需要将 `researchContexts` 与 `dataIntake` 组合成受控上下文，不允许直接传原始 MCP payload。
+- 管理端后续展示 research artifact 的来源、reviewStatus、query、sourceCount 和 replay key。
+
+## 2026-07-06 CAP-9.1 Agent-Reach Staging Smoke Scaffold
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/agent-reach-mcp-adapter.py`：
+  - 暴露 DUDesign 标准 MCP HTTP endpoint：`POST /v1/mcp/invocations`。
+  - 当前支持 `agent-reach.search`。
+  - 默认通过 `mcporter call 'exa.web_search_exa(...)'` 调 Agent-Reach web search。
+  - 可通过 `AGENT_REACH_SEARCH_COMMAND` 替换搜索命令，便于不同服务器安装方式。
+  - 将真实搜索 payload 归一化为 `ResearchContextArtifact`，不把原始 payload 透传给 DUDesign runtime。
+  - 外部调用失败时返回标准 MCP `unavailable` result。
+- 新增 `deploy/staging/scripts/smoke-agent-reach-remote.sh`：
+  - 远端启动 Agent-Reach MCP adapter。
+  - 将 staging API 的 `DUDESIGN_MCP_EXECUTOR` 临时切换为 `http`。
+  - 创建带 `sk_research_brief_builder` 和 `mcp_agent_reach_search` 的 job。
+  - 执行 Agent-Reach search MCP invocation。
+  - 验证 DUDesign 写入 `researchContextArtifact`。
+  - 创建后续 pinned job，验证 `researchContextArtifactIds` 和 `researchContexts` 写入 job snapshot。
+  - 退出时恢复 staging `.env` 并重启 API。
+- `deploy/staging/staging.env.example` 增加 Agent-Reach staging smoke env：
+  - `DUDESIGN_STAGING_AGENT_REACH_MCP_PORT`。
+  - `DUDESIGN_STAGING_AGENT_REACH_QUERY`。
+
+### 本地检查
+
+- 本机执行 `agent-reach doctor --json` 返回 `command not found`，说明当前本机尚未安装 Agent-Reach CLI；因此本轮只做脚手架和静态检查，不声称真实搜索已跑通。
+
+### 决策
+
+- DUDesign API 不直接 shell 调 Agent-Reach，不直接绑定 Agent-Reach CLI 或 `mcporter` 输出格式。
+- 真实检索能力通过标准 MCP HTTP adapter 隔离；API 只看 DUDesign MCP result envelope 和 `ResearchContextArtifact`。
+- Staging smoke 仍保持 opt-in，不让默认部署依赖外部搜索服务、账号或网络状态。
+
+### 后续关注
+
+- 在 staging 主机安装/配置 Agent-Reach 或 `mcporter` 后运行：
+  - `DUDESIGN_STAGING_AGENT_REACH_QUERY="..." deploy/staging/scripts/smoke-agent-reach-remote.sh`
+- 若实际 Agent-Reach payload 结构与预期差异较大，更新 adapter 的 `collect_sources()`，但不改变 DUDesign API contract。
+
+## 2026-07-06 CAP-9.1 Agent-Reach Staging Preflight
+
+### 已完成
+
+- 新增 `deploy/staging/scripts/preflight-agent-reach-remote.sh`：
+  - 检查远端 SSH 可达。
+  - 检查 `python3`。
+  - 检查 `docker`。
+  - 检查 DUDesign current 部署目录。
+  - 检查已部署的 `agent-reach-mcp-adapter.py`。
+  - 检查已部署的 `smoke-agent-reach-remote.sh`。
+  - 检查 `mcporter` 或 `AGENT_REACH_SEARCH_COMMAND`。
+  - 可选运行 `agent-reach doctor --json`。
+- 给 Agent-Reach staging 脚本增加执行权限：
+  - `agent-reach-mcp-adapter.py`。
+  - `smoke-agent-reach-remote.sh`。
+  - `preflight-agent-reach-remote.sh`。
+
+### 当前远端检查结果
+
+- `ssh tyy` 可达。
+- 远端存在：
+  - `/usr/bin/python3`
+  - `/usr/bin/docker`
+  - `/home/ubuntu/deployments/dudesign/current`
+- 远端当前缺少：
+  - `deploy/staging/scripts/agent-reach-mcp-adapter.py`
+  - `deploy/staging/scripts/smoke-agent-reach-remote.sh`
+- 因此真实 smoke 尚未运行；需要先提交并部署包含这两个脚本的新版本。
+
+### 本地检查
+
+- `bash -n deploy/staging/scripts/preflight-agent-reach-remote.sh deploy/staging/scripts/smoke-agent-reach-remote.sh`
+- `python3 -m py_compile deploy/staging/scripts/agent-reach-mcp-adapter.py`
+
+### 后续顺序
+
+1. 提交并部署当前 DUDesign 改动到 staging。
+2. 在 staging 主机安装 `mcporter` / Agent-Reach，或提供 `AGENT_REACH_SEARCH_COMMAND`。
+3. 运行 `deploy/staging/scripts/preflight-agent-reach-remote.sh`，直到输出 `agent-reach-preflight:ready`。
+4. 运行 `deploy/staging/scripts/smoke-agent-reach-remote.sh`。
+
+### 本轮补充
+
+- 新增 contracts：
+  - `AnalyzeDataIntakeRequest`
+  - `AnalyzeDataIntakeResponse`
+- 新增 API：
+  - `POST /api/capabilities/data-intake/analyze`
+- deterministic analyzer 当前支持：
+  - prompt / URL / pasted text / table / JSON / uploaded asset ids / democase ids / research artifact ids / existing HTML artifact id / memory note ids。
+  - topic summary、entity、field、missing fields、recommendations、risk flags、review status。
+- API smoke 覆盖：
+  - workspace 权限路径。
+  - 动态百科相关输入推荐 `tpl_dynamic_encyclopedia_entry`。
+  - 时间线信息推荐 `dtp_dynamic_encyclopedia_timeline_card`。
+  - external source 风险标记。
+  - artifact store 可读回固化 JSON。
+
+### 2026-07-06 补充收口
+
+- `CreateDesignJobRequest.templateRequirements` 新增：
+  - `dataIntakeArtifactId`
+  - `dataIntake`
+- 创建 job 时会校验 `dataIntakeArtifactId` 指向当前 workspace 下的 `data_intake_analysis` artifact。
+- job snapshot 中只固化轻量引用，不复制完整 analysis，避免 job 记录膨胀：
+  - `artifactId`
+  - `storageKey`
+  - `contentHash`
+  - `sizeBytes`
+  - `schemaVersion`
+  - `reviewStatus`
+  - `createdAt`
+- API smoke 已覆盖：
+  - 创建 job 引用 data-intake artifact。
+  - 存储后的 job `templateRequirements.dataIntakeArtifactId` 与 `templateRequirements.dataIntake` 不漂移。

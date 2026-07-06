@@ -90,6 +90,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'POST' && url.pathname === '/api/capabilities/data-intake/analyze') {
+    sendJson(res, 200, await service.analyzeDataIntake(ctx, await readJson(req)))
+    return
+  }
+
   if (method === 'POST' && url.pathname === '/api/encyclopedia/entry-guidance') {
     sendJson(res, 200, await service.createEncyclopediaEntryGuidance(ctx, await readJson(req)))
     return

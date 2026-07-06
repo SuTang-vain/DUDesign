@@ -1,6 +1,8 @@
 import type {
   CreateDesignJobRequest,
   CreateDesignJobResponse,
+  AnalyzeDataIntakeRequest,
+  AnalyzeDataIntakeResponse,
   ConfirmEncyclopediaEntryGuidanceRequest,
   EncyclopediaEntryGuidanceRequest,
   EncyclopediaEntryGuidanceResponse,
@@ -163,6 +165,10 @@ export async function resumeSession(sessionId: string): Promise<ResumeSessionSna
 
 export async function createDesignJob(input: CreateDesignJobRequest): Promise<CreateDesignJobResponse> {
   return postJson('/api/design-jobs', input)
+}
+
+export async function analyzeDataIntake(input: AnalyzeDataIntakeRequest): Promise<AnalyzeDataIntakeResponse> {
+  return postJson('/api/capabilities/data-intake/analyze', input)
 }
 
 export async function createEncyclopediaEntryGuidance(input: EncyclopediaEntryGuidanceRequest): Promise<EncyclopediaEntryGuidanceResponse> {

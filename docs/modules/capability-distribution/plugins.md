@@ -168,3 +168,167 @@ Skill prompt block 可以影响 agent 的工作方法，但不能覆盖：
 - MCP 结果进入 prompt 前需要标注来源。
 - 插件不能跨用户读取私有资产。
 - 管理端必须能禁用风险插件。
+
+## 8. CAP-9 外部能力规划
+
+CAP-9 目标是把外部检索、素材生成和领域数据分析纳入受控能力分发，而不是让 runtime 或模板 skill 直接拼接外部 API 调用。
+
+### 8.1 网络信息搜索 MCP
+
+推荐能力命名：
+
+- `plug_research_context`
+- `sk_research_brief_builder`
+- `mcp_agent_reach_search`
+- `mcp_agent_reach_page_read`
+- `mcp_agent_reach_social_scan`
+
+优先参考 `Agent-Reach` 作为网络检索路由能力，覆盖网页、GitHub、社媒、视频和社区资料读取。DUDesign 不直接把 Agent-Reach 原始结果透传给 BabeL-O，而是先在业务服务层生成 `ResearchContextArtifact`。
+
+```ts
+type ResearchContextArtifact = {
+  id: string
+  query: string
+  sources: Array<{
+    url: string
+    title?: string
+    platform?: string
+    retrievedAt: string
+    licenseHint?: string
+  }>
+  summary: string
+  citations: Array<{ sourceUrl: string; quote?: string; note: string }>
+  confidence: 'low' | 'medium' | 'high'
+  freshness: 'unknown' | 'stale' | 'recent'
+  riskFlags: string[]
+  rawPayloadHash: string
+  reviewStatus: 'auto_reviewed' | 'human_review_required' | 'rejected'
+}
+```
+
+治理要求：
+
+- 搜索结果必须带来源和获取时间。
+- 输出给 Runtime Gateway 的是审核后的摘要与引用，不是无限制原文。
+- 社媒/社区内容需要标注可信度和主观性。
+- 进入 job snapshot 时记录 artifact id、query、source hash 和 review status。
+
+### 8.2 生成图片 MCP
+
+推荐能力命名：
+
+- `plug_image_generation`
+- `sk_visual_asset_brief`
+- `mcp_image_generation_ark_seedream`
+
+图片生成 provider 可先支持火山方舟 `doubao-seedream-5-0-260128`，但 provider 调用必须由 DUDesign 后端服务执行，不允许 skill 或 prompt 内嵌 curl、API key 或 provider 私有参数。
+
+```ts
+type ImageGenerationRequest = {
+  prompt: string
+  negativePrompt?: string
+  model: string
+  size: '1K' | '2K' | '4K' | string
+  responseFormat: 'url' | 'b64_json'
+  watermark: boolean
+  usageContext: 'hero' | 'background' | 'card_illustration' | 'icon_asset' | 'reference_only'
+}
+```
+
+治理要求：
+
+- `ARK_API_KEY` 只存在于服务端 secret，不进入 job snapshot 和 runtime prompt。
+- 图片结果必须写入 artifact store，后续预览和导出使用 artifact id。
+- 记录模型、prompt hash、size、watermark、cost 和内容安全结果。
+- 若 provider 不可用，应返回标准降级事件，允许用户继续无图生成或替换素材。
+
+### 8.3 双端差异化生产策略 Skill
+
+推荐能力命名：
+
+- `sk_dual_surface_strategy`
+
+该 skill 用于把同一个用户需求拆成 PC / WISE / mobile 等端的差异化生成策略，尤其适合“动态百科词条卡片”这类固定尺寸和移动端 iframe 兼容要求强的业务模板。
+
+输出建议：
+
+- 每个端的 viewport、比例、关键交互和禁止项。
+- PC 与 WISE 的信息密度差异。
+- 移动端 touch/scroll/iframe 兼容要求。
+- 每个 variation 的 template assignment 说明。
+
+该 skill 应在模板选择环节作为推荐能力出现，并写入 capability snapshot。
+
+### 8.4 数据输入获取分析 Skill
+
+推荐能力命名：
+
+- `sk_data_intake_analysis`
+
+该 skill 用于把用户 prompt、URL、粘贴文本、表格、JSON、上传文件、democase 和搜索结果整理为结构化 brief。
+
+```ts
+type DataIntakeAnalysis = {
+  inputSources: string[]
+  topicSummary: string
+  entities: Array<{ name: string; type: string; confidence: number }>
+  fields: Array<{ name: string; value?: string; missing?: boolean }>
+  recommendedScenarioTemplateIds: string[]
+  recommendedDesignTemplatePackIds: string[]
+  recommendedSkillIds: string[]
+  riskFlags: string[]
+}
+```
+
+治理要求：
+
+- 原始输入与分析结果分离存储。
+- 私有文件和用户 memory 不能跨用户/workspace 共享。
+- 推荐模板必须能解释原因，不能静默覆盖用户选择。
+
+### 8.5 模板融合与迭代更新机制
+
+模板融合不是一个普通 plugin，而是 Templates 与 Automation Loop 的组合能力。
+
+推荐流程：
+
+```text
+Source Templates + Variation Artifact + User Feedback
+        ↓
+Template Merge Plan
+        ↓
+Candidate DesignTemplatePack Version
+        ↓
+Lint + Diff + Preview Smoke
+        ↓
+Human/Admin Review
+        ↓
+Publish / Private Save / Reject
+```
+
+治理要求：
+
+- 每次融合生成新 version，不覆盖历史版本。
+- job snapshot 继续指向当时版本，resume 不漂移。
+- 生成候选版本前必须保留来源模板和用户授权。
+- 官方模板更新必须经过 CAP-6 管理端审核。
+
+### 8.6 用户开发模板贡献机制
+
+用户模板生命周期建议：
+
+```text
+private template
+  -> workspace shared template
+  -> contribution candidate
+  -> reviewed community template
+  -> official template
+```
+
+首版建议只实现 private -> contribution candidate，不直接开放社区市场。
+
+治理要求：
+
+- 用户提交时必须声明来源、许可、是否包含品牌 trade dress。
+- 管理端可查看 lint、diff、preview smoke 和历史 usage。
+- 被禁用模板不能再创建新 job，但旧 job/session 可以继续 resume snapshot。

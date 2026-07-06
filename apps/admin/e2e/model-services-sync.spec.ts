@@ -86,8 +86,44 @@ async function mockAdminApi(
       return json(route, { auditLogs: [] })
     }
 
+    if (url.pathname === '/api/admin/mcp/invocations') {
+      return json(route, {
+        invocations: [],
+        filters: {
+          jobId: url.searchParams.get('jobId'),
+          variationId: url.searchParams.get('variationId'),
+          mcpToolId: url.searchParams.get('mcpToolId'),
+          status: url.searchParams.get('status'),
+          limit: Number(url.searchParams.get('limit') ?? 50),
+        },
+      })
+    }
+
     if (url.pathname === '/api/admin/jobs') {
       return json(route, { jobs: [] })
+    }
+
+    if (url.pathname === '/api/admin/capabilities/templates') {
+      return json(route, {
+        templates: [],
+        totals: {
+          total: 0,
+          official: 0,
+          privateOrWorkspace: 0,
+          businessTemplatePackages: 0,
+          passed: 0,
+          warning: 0,
+          failed: 0,
+        },
+        registryAssets: [],
+        registryTotals: {},
+        governance: {
+          canEditRegistry: false,
+          canPublish: false,
+          writeMode: 'planned',
+          message: 'No template governance fixtures.',
+        },
+      })
     }
 
     if (url.pathname === '/api/admin/artifacts') {

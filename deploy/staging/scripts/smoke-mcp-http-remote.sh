@@ -4,8 +4,15 @@ set -euo pipefail
 remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
 base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
 mcp_port="${DUDESIGN_STAGING_MCP_SMOKE_PORT:-4517}"
+unavailable_port="${DUDESIGN_STAGING_MCP_UNAVAILABLE_SMOKE_PORT:-4518}"
+real_smoke="${DUDESIGN_STAGING_MCP_REAL_SMOKE:-0}"
+real_base_url="${DUDESIGN_STAGING_MCP_REAL_BASE_URL:-}"
+real_endpoint_path="${DUDESIGN_STAGING_MCP_REAL_ENDPOINT_PATH:-/v1/mcp/invocations}"
+real_api_key="${DUDESIGN_STAGING_MCP_REAL_API_KEY:-}"
+real_auth_header="${DUDESIGN_STAGING_MCP_REAL_AUTH_HEADER:-}"
+real_timeout_ms="${DUDESIGN_STAGING_MCP_REAL_TIMEOUT_MS:-30000}"
 
-ssh "$remote" "BASE_DIR='$base_dir' MCP_PORT='$mcp_port' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR='$base_dir' MCP_PORT='$mcp_port' MCP_UNAVAILABLE_PORT='$unavailable_port' MCP_REAL_SMOKE='$real_smoke' MCP_REAL_BASE_URL='$real_base_url' MCP_REAL_ENDPOINT_PATH='$real_endpoint_path' MCP_REAL_API_KEY='$real_api_key' MCP_REAL_AUTH_HEADER='$real_auth_header' MCP_REAL_TIMEOUT_MS='$real_timeout_ms' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
@@ -35,7 +42,81 @@ trap cleanup EXIT
 
 cp deploy/staging/.env /tmp/dudesign-mcp-smoke.env.backup
 
-cat > /tmp/dudesign-mcp-smoke-server.py <<'PY'
+env_value() {
+  local key="$1"
+  local value
+  value="$(grep -E "^${key}=" deploy/staging/.env | tail -n 1 | cut -d= -f2- || true)"
+  printf '%s' "$value"
+}
+
+write_mcp_env() {
+  local base_url="$1"
+  local endpoint_path="$2"
+  local api_key="$3"
+  local auth_header="$4"
+  local timeout_ms="$5"
+
+  MCP_BASE_URL="$base_url" \
+  MCP_ENDPOINT_PATH="$endpoint_path" \
+  MCP_API_KEY="$api_key" \
+  MCP_AUTH_HEADER="$auth_header" \
+  MCP_TIMEOUT_MS="$timeout_ms" \
+  python3 - <<'PY'
+from pathlib import Path
+import os
+
+path = Path("deploy/staging/.env")
+lines = path.read_text().splitlines()
+updates = {
+    "DUDESIGN_MCP_EXECUTOR": "http",
+    "DUDESIGN_MCP_BASE_URL": os.environ["MCP_BASE_URL"],
+    "DUDESIGN_MCP_ENDPOINT_PATH": os.environ["MCP_ENDPOINT_PATH"],
+    "DUDESIGN_MCP_API_KEY": os.environ["MCP_API_KEY"],
+    "DUDESIGN_MCP_AUTH_HEADER": os.environ["MCP_AUTH_HEADER"],
+    "DUDESIGN_MCP_TIMEOUT_MS": os.environ["MCP_TIMEOUT_MS"],
+}
+seen = set()
+out = []
+for line in lines:
+    key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else None
+    if key in updates:
+        out.append(f"{key}={updates[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+path.write_text("\n".join(out) + "\n")
+PY
+}
+
+restart_api() {
+  docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d api >/dev/null
+  for attempt in 1 2 3 4 5; do
+    if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap; then
+      return 0
+    fi
+    sleep "$attempt"
+  done
+  curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap
+}
+
+if [ "$MCP_REAL_SMOKE" = "1" ]; then
+  mcp_base_url="${MCP_REAL_BASE_URL:-$(env_value DUDESIGN_MCP_BASE_URL)}"
+  mcp_endpoint_path="${MCP_REAL_ENDPOINT_PATH:-$(env_value DUDESIGN_MCP_ENDPOINT_PATH)}"
+  mcp_api_key="${MCP_REAL_API_KEY:-$(env_value DUDESIGN_MCP_API_KEY)}"
+  mcp_auth_header="${MCP_REAL_AUTH_HEADER:-$(env_value DUDESIGN_MCP_AUTH_HEADER)}"
+  mcp_timeout_ms="${MCP_REAL_TIMEOUT_MS:-$(env_value DUDESIGN_MCP_TIMEOUT_MS)}"
+  mcp_endpoint_path="${mcp_endpoint_path:-/v1/mcp/invocations}"
+  mcp_timeout_ms="${mcp_timeout_ms:-30000}"
+  if [ -z "$mcp_base_url" ]; then
+    echo 'mcp-http-smoke:DUDESIGN_STAGING_MCP_REAL_SMOKE=1 requires DUDESIGN_STAGING_MCP_REAL_BASE_URL or DUDESIGN_MCP_BASE_URL in staging .env' >&2
+    exit 1
+  fi
+  echo "mcp-http-smoke:real-server base=$mcp_base_url endpoint=$mcp_endpoint_path"
+else
+  cat > /tmp/dudesign-mcp-smoke-server.py <<'PY'
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -73,47 +154,23 @@ port = int(os.environ["MCP_PORT"])
 HTTPServer(("127.0.0.1", port), Handler).serve_forever()
 PY
 
-MCP_PORT="$MCP_PORT" python3 /tmp/dudesign-mcp-smoke-server.py &
-MCP_SERVER_PID=$!
-sleep 1
-curl -fsS -o /tmp/dudesign-mcp-smoke-probe.json \
-  -H 'content-type: application/json' \
-  --data '{"request":{"invocationId":"probe","mcpToolId":"mcp_accessibility_validate","serverName":"quality-tools","toolName":"validateAccessibility","scopes":["validation_only"],"input":{}}}' \
-  "http://127.0.0.1:$MCP_PORT/v1/mcp/invocations"
+  MCP_PORT="$MCP_PORT" python3 /tmp/dudesign-mcp-smoke-server.py &
+  MCP_SERVER_PID=$!
+  sleep 1
+  curl -fsS -o /tmp/dudesign-mcp-smoke-probe.json \
+    -H 'content-type: application/json' \
+    --data '{"request":{"invocationId":"probe","mcpToolId":"mcp_accessibility_validate","serverName":"quality-tools","toolName":"validateAccessibility","scopes":["validation_only"],"input":{}}}' \
+    "http://127.0.0.1:$MCP_PORT/v1/mcp/invocations"
+  mcp_base_url="http://host.docker.internal:$MCP_PORT"
+  mcp_endpoint_path="/v1/mcp/invocations"
+  mcp_api_key=""
+  mcp_auth_header=""
+  mcp_timeout_ms="10000"
+  echo "mcp-http-smoke:mock-server port=$MCP_PORT"
+fi
 
-python3 - <<PY
-from pathlib import Path
-path = Path("deploy/staging/.env")
-lines = path.read_text().splitlines()
-updates = {
-    "DUDESIGN_MCP_EXECUTOR": "http",
-    "DUDESIGN_MCP_BASE_URL": f"http://host.docker.internal:$MCP_PORT",
-    "DUDESIGN_MCP_ENDPOINT_PATH": "/v1/mcp/invocations",
-    "DUDESIGN_MCP_TIMEOUT_MS": "10000",
-}
-seen = set()
-out = []
-for line in lines:
-    key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else None
-    if key in updates:
-        out.append(f"{key}={updates[key]}")
-        seen.add(key)
-    else:
-        out.append(line)
-for key, value in updates.items():
-    if key not in seen:
-        out.append(f"{key}={value}")
-path.write_text("\n".join(out) + "\n")
-PY
-
-docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d api
-
-for attempt in 1 2 3 4 5; do
-  if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap; then
-    break
-  fi
-  sleep "$attempt"
-done
+write_mcp_env "$mcp_base_url" "$mcp_endpoint_path" "$mcp_api_key" "$mcp_auth_header" "$mcp_timeout_ms"
+restart_api
 
 workspace_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["workspace"]["id"])' /tmp/dudesign-mcp-bootstrap.json)"
 
@@ -187,8 +244,13 @@ import json
 import sys
 from urllib.parse import quote
 data = json.load(open(sys.argv[1]))
-if data.get("result", {}).get("summary") != "Staging MCP HTTP smoke executed.":
-    raise SystemExit(f"unexpected MCP execute result: {data}")
+if data.get("status") != "authorized":
+    raise SystemExit(f"expected authorized MCP invocation: {data}")
+result = data.get("result", {})
+if result.get("status") != "ok":
+    raise SystemExit(f"expected ok MCP execute result: {data}")
+if not result.get("summary"):
+    raise SystemExit(f"missing MCP execute summary: {data}")
 context = data.get("toolContext") or {}
 if "Source: quality-tools.validateAccessibility" not in context.get("contextText", ""):
     raise SystemExit(f"missing source in toolContext: {context}")
@@ -202,11 +264,64 @@ python3 - /tmp/dudesign-mcp-replay.json <<'PY'
 import json
 import sys
 data = json.load(open(sys.argv[1]))
-if data.get("result", {}).get("summary") != "Staging MCP HTTP smoke executed.":
+if data.get("result", {}).get("status") != "ok":
     raise SystemExit(f"unexpected MCP replay result: {data}")
 if "Source: quality-tools.validateAccessibility" not in (data.get("toolContext") or {}).get("contextText", ""):
     raise SystemExit(f"unexpected MCP replay toolContext: {data.get('toolContext')}")
 PY
 
-echo 'mcp-http-smoke:completed'
+job_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["job"]["id"])' /tmp/dudesign-mcp-job.json)"
+curl -fsS -o /tmp/dudesign-mcp-admin-audit-ok.json \
+  -H 'x-dudesign-admin-role: support' \
+  "http://127.0.0.1/api/admin/mcp/invocations?jobId=$job_id&status=ok"
+
+python3 - /tmp/dudesign-mcp-admin-audit-ok.json /tmp/dudesign-mcp-execute.json <<'PY'
+import json
+import sys
+audit = json.load(open(sys.argv[1]))
+execute = json.load(open(sys.argv[2]))
+invocation_id = execute["invocationId"]
+records = audit.get("invocations", [])
+if not any(record.get("invocationId") == invocation_id and record.get("replayKey") == execute["invocationAuditRecord"]["replayKey"] for record in records):
+    raise SystemExit(f"missing admin MCP audit record for {invocation_id}: {audit}")
+PY
+
+write_mcp_env "http://host.docker.internal:$MCP_UNAVAILABLE_PORT" "/v1/mcp/invocations" "" "" "1200"
+restart_api
+
+curl -fsS -o /tmp/dudesign-mcp-unavailable.json \
+  -H 'content-type: application/json' \
+  --data-binary @/tmp/dudesign-mcp-invoke-payload.json \
+  http://127.0.0.1/api/mcp/invocations/execute
+
+python3 - /tmp/dudesign-mcp-unavailable.json <<'PY'
+import json
+import sys
+data = json.load(open(sys.argv[1]))
+result = data.get("result", {})
+if result.get("status") != "unavailable":
+    raise SystemExit(f"expected MCP unavailable degradation: {data}")
+if (result.get("error") or {}).get("code") != "MCP_UNAVAILABLE":
+    raise SystemExit(f"expected MCP_UNAVAILABLE code: {data}")
+PY
+
+curl -fsS -o /tmp/dudesign-mcp-admin-audit-unavailable.json \
+  -H 'x-dudesign-admin-role: support' \
+  "http://127.0.0.1/api/admin/mcp/invocations?jobId=$job_id&status=unavailable"
+
+python3 - /tmp/dudesign-mcp-admin-audit-unavailable.json /tmp/dudesign-mcp-unavailable.json <<'PY'
+import json
+import sys
+audit = json.load(open(sys.argv[1]))
+unavailable = json.load(open(sys.argv[2]))
+invocation_id = unavailable["invocationId"]
+if not any(record.get("invocationId") == invocation_id and record.get("status") == "unavailable" for record in audit.get("invocations", [])):
+    raise SystemExit(f"missing unavailable admin audit record for {invocation_id}: {audit}")
+PY
+
+if [ "$MCP_REAL_SMOKE" = "1" ]; then
+  echo 'mcp-http-smoke:real-completed'
+else
+  echo 'mcp-http-smoke:mock-completed'
+fi
 REMOTE

@@ -115,7 +115,7 @@
 - [x] 实现 MCP 结果注入规范：标注来源、摘要、引用 id，避免把外部结果当作事实直接写入 memory。
 - [x] 实现 MCP 调用审计和 replay payload，支持问题排查与合规回放。
 - [x] 增加 MCP unavailable 降级事件，用户端显示为能力不可用而不是 runtime 崩溃。
-- [~] 增加真实 MCP smoke：授权、调用、结果注入、审计、回放。当前已覆盖 mock executor 的授权、调用、结果注入、审计和 replay execution；真实外部 MCP server 待接入。
+- [x] 增加真实 MCP opt-in smoke：授权、调用、结果注入、审计、回放、unavailable 降级。默认仍使用 mock MCP server，设置 `DUDESIGN_STAGING_MCP_REAL_SMOKE=1` 时验证真实外部 MCP server。
 
 验收：
 

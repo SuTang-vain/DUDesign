@@ -103,6 +103,137 @@ export type InteractionParadigm = {
   compatibleTemplatePackIds: ID[]
 }
 
+export type ResearchContextPlatform =
+  | 'web'
+  | 'github'
+  | 'social'
+  | 'video'
+  | 'community'
+  | 'unknown'
+
+export type ResearchContextSource = {
+  url: string
+  title?: string | null
+  platform?: ResearchContextPlatform
+  retrievedAt: string
+  licenseHint?: string | null
+}
+
+export type ResearchContextCitation = {
+  sourceUrl: string
+  quote?: string
+  note: string
+}
+
+export type ResearchContextArtifact = {
+  schemaVersion: string
+  query: string
+  sources: ResearchContextSource[]
+  summary: string
+  citations: ResearchContextCitation[]
+  confidence: 'low' | 'medium' | 'high'
+  freshness: 'unknown' | 'stale' | 'recent'
+  riskFlags: string[]
+  rawPayloadHash: string
+  reviewStatus: 'auto_reviewed' | 'human_review_required' | 'rejected'
+}
+
+export type ResearchContextArtifactReference = {
+  artifactId: ID
+  storageKey: string
+  contentHash: string
+  sizeBytes: number
+  schemaVersion: string
+  reviewStatus: ResearchContextArtifact['reviewStatus']
+  query: string
+  sourceCount: number
+  createdAt?: string
+}
+
+export type DataIntakeInputSource =
+  | 'prompt'
+  | 'url'
+  | 'pasted_text'
+  | 'table'
+  | 'json'
+  | 'uploaded_asset'
+  | 'democase'
+  | 'research_artifact'
+  | 'existing_html'
+  | 'memory'
+
+export type DataIntakeField = {
+  name: string
+  value?: string | null
+  missing?: boolean
+  confidence?: number
+  source?: DataIntakeInputSource
+}
+
+export type DataIntakeEntity = {
+  name: string
+  type: string
+  confidence: number
+  source?: DataIntakeInputSource
+}
+
+export type DataIntakeRecommendation = {
+  id: ID
+  reason: string
+  confidence: number
+}
+
+export type DataIntakeAnalysis = {
+  schemaVersion: string
+  inputSources: DataIntakeInputSource[]
+  topicSummary: string
+  entities: DataIntakeEntity[]
+  fields: DataIntakeField[]
+  missingFields: string[]
+  recommendedScenarioTemplates: DataIntakeRecommendation[]
+  recommendedDesignTemplatePacks: DataIntakeRecommendation[]
+  recommendedSkills: DataIntakeRecommendation[]
+  riskFlags: string[]
+  reviewStatus: 'auto_reviewed' | 'human_review_required' | 'rejected'
+}
+
+export type AnalyzeDataIntakeRequest = {
+  workspaceId: ID
+  prompt?: string | null
+  url?: string | null
+  pastedText?: string | null
+  tableText?: string | null
+  jsonText?: string | null
+  uploadedAssetIds?: ID[]
+  democaseIds?: ID[]
+  researchArtifactIds?: ID[]
+  existingHtmlArtifactId?: ID | null
+  memoryNoteIds?: ID[]
+}
+
+export type AnalyzeDataIntakeResponse = {
+  analysis: DataIntakeAnalysis
+  artifact: {
+    id: ID
+    workspaceId: ID
+    kind: 'data_intake_analysis'
+    storageKey: string
+    contentHash: string
+    sizeBytes: number
+    createdAt: string
+  }
+}
+
+export type DataIntakeArtifactReference = {
+  artifactId: ID
+  storageKey: string
+  contentHash: string
+  sizeBytes: number
+  schemaVersion: string
+  reviewStatus: DataIntakeAnalysis['reviewStatus']
+  createdAt?: string
+}
+
 export type DesignTemplatePackSource = 'official' | 'user' | 'workspace' | 'imported'
 
 export type DesignTemplatePackFormat = 'dudesign-template-v1' | 'design-md'
@@ -723,6 +854,10 @@ export type CreateDesignJobRequest = {
     designTemplatePackIds?: ID[]
     designTemplatePacks?: DesignTemplatePack[]
     interactionParadigm?: InteractionParadigm
+    dataIntakeArtifactId?: ID | null
+    dataIntake?: DataIntakeArtifactReference
+    researchContextArtifactIds?: ID[]
+    researchContexts?: ResearchContextArtifactReference[]
     businessContext?: {
       guidanceId?: ID
       entryTitle?: string

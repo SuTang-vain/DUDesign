@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { CapabilitySnapshot, DesignTemplatePack, InteractionParadigm } from '@dudesign/contracts'
+import type { CapabilitySnapshot, DesignTemplatePack, InteractionParadigm, PluginPermissionScope } from '@dudesign/contracts'
 
 import { BabelORuntimeClient, DUDESIGN_RUNTIME_CONTRACT_VERSION, RuntimeGatewayError } from './babelOClient.js'
 
@@ -924,6 +924,120 @@ describe('BabelORuntimeClient', () => {
     ].join('\n'))
   })
 
+  it('golden replays dual-surface strategy skill prompt block', async () => {
+    let agentBody: Record<string, unknown> = {}
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        agentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return jsonResponse({
+          streamId: 'stream_dual_surface_strategy',
+          agentJobId: 'agent_job_dual_surface_strategy',
+          runtimeChildSessionId: 'rt_child_dual_surface_strategy',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '词条：动态百科卡片',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
+          includeEntryGuidanceSkill: false,
+          includeDualSurfaceSkill: true,
+          includeDemocaseTool: false,
+        }),
+      },
+    })
+
+    const pluginBlock = extractPromptBlock(String(agentBody.prompt), 'DUDesign plugin context:', 'DUDesign variation directive:')
+    assert.equal(pluginBlock, [
+      'DUDesign plugin context:',
+      '- Skill: sk_dual_surface_strategy',
+      '  Rules: Treat PC, WISE, mobile, and embedded iframe targets as separate product surfaces with different density, hierarchy, and interaction needs. For fixed-size business templates, preserve the exact required viewport first, then adapt secondary compatible sizes with graceful degradation. For each variation, state which surface constraints drive layout, information density, and interaction choices. Prefer explicit scroll containers, stable controls, and touch-safe interactions on mobile or iframe surfaces.',
+      '  Prompt guidance: Build dual-surface output deliberately: PC can use richer composition and denser context, while WISE/mobile should prioritize compact facts, clear touch targets, explicit scroll containers, and iframe compatibility. When a template provides PC/WISE dimensions, satisfy the standard size exactly before optimizing compatible sizes.',
+      '  Avoid: Do not treat mobile as a simple shrunken desktop layout. Do not rely on body default scrolling for embedded mobile cards. Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core mobile interactions.',
+      '  Checklist: PC and WISE/mobile have clear hierarchy differences instead of only scaled CSS. Fixed viewport templates fit their required dimensions without clipping primary content. Mobile or iframe surfaces use explicit scroll containers and touch-safe controls. Variation-specific template assignments remain visible in the generation rationale.',
+      '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+    ].join('\n'))
+
+    const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
+    assert.deepEqual(templateRequirements.toolPolicy, {
+      allowedMcpToolIds: [],
+      scopes: ['readonly_context', 'validation_only'],
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+      mode: 'policy_only',
+    })
+  })
+
+  it('golden replays data intake analysis skill prompt block', async () => {
+    let agentBody: Record<string, unknown> = {}
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        agentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return jsonResponse({
+          streamId: 'stream_data_intake_analysis',
+          agentJobId: 'agent_job_data_intake_analysis',
+          runtimeChildSessionId: 'rt_child_data_intake_analysis',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '资料：一段混合了链接、表格和百科摘要的输入',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
+          includeEntryGuidanceSkill: false,
+          includeDataIntakeSkill: true,
+          includeDemocaseTool: false,
+        }),
+      },
+    })
+
+    const pluginBlock = extractPromptBlock(String(agentBody.prompt), 'DUDesign plugin context:', 'DUDesign variation directive:')
+    assert.equal(pluginBlock, [
+      'DUDesign plugin context:',
+      '- Skill: sk_data_intake_analysis',
+      '  Rules: Before generation, convert loose user inputs into a structured brief with topic summary, entities, fields, missing fields, recommendations, and risk flags. Preserve input source boundaries: prompt, URL, pasted text, table, JSON, uploaded asset, democase, research artifact, existing HTML, and memory must stay distinguishable. Explain every recommended scenario template, design template pack, and skill with a reason and confidence. Treat memory, democase, and research artifacts as context hints, not unquestioned facts.',
+      '  Prompt guidance: If input is incomplete or mixed, first produce an internal structured brief: what is known, what is missing, what is risky, and which capability choices are justified. Use recommendations to guide the design plan, but do not silently override the user-selected template, skill, or advanced constraints.',
+      '  Avoid: Do not invent facts, dates, metrics, claims, or source-backed details that are not present in the supplied inputs. Do not merge private user memory with public research context without keeping the source boundary explicit. Do not treat a URL, democase example, or research artifact as permission to copy trade dress or copyrighted content.',
+      '  Checklist: The generation plan names the primary topic, core entities, required fields, and missing information. Template and skill recommendations include reasons and confidence. Risk flags are surfaced before using uncertain or externally sourced content. User-selected capability choices remain authoritative unless the user confirms changes.',
+      '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+    ].join('\n'))
+
+    const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
+    assert.deepEqual(templateRequirements.toolPolicy, {
+      allowedMcpToolIds: [],
+      scopes: ['readonly_context', 'validation_only'],
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+      mode: 'policy_only',
+    })
+  })
+
   it('golden replays dynamic encyclopedia democase MCP policy', async () => {
     let agentBody: Record<string, unknown> = {}
     const client = new BabelORuntimeClient({
@@ -1006,6 +1120,8 @@ describe('BabelORuntimeClient', () => {
       templateRequirements: {
         capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
           includeEntryGuidanceSkill: true,
+          includeDualSurfaceSkill: true,
+          includeDataIntakeSkill: true,
           includeDemocaseTool: true,
         }),
       },
@@ -1019,6 +1135,16 @@ describe('BabelORuntimeClient', () => {
       '  Prompt guidance: For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm. Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
       '  Avoid: Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress. Do not turn democase examples into facts about the current entry. Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
       '  Checklist: The card fits the required dynamic encyclopedia viewport constraints. The structure matches the selected subtemplate and entry category. Long content is contained in explicit scroll containers. Claims remain neutral and traceable to the provided entry context.',
+      '- Skill: sk_dual_surface_strategy',
+      '  Rules: Treat PC, WISE, mobile, and embedded iframe targets as separate product surfaces with different density, hierarchy, and interaction needs. For fixed-size business templates, preserve the exact required viewport first, then adapt secondary compatible sizes with graceful degradation. For each variation, state which surface constraints drive layout, information density, and interaction choices. Prefer explicit scroll containers, stable controls, and touch-safe interactions on mobile or iframe surfaces.',
+      '  Prompt guidance: Build dual-surface output deliberately: PC can use richer composition and denser context, while WISE/mobile should prioritize compact facts, clear touch targets, explicit scroll containers, and iframe compatibility. When a template provides PC/WISE dimensions, satisfy the standard size exactly before optimizing compatible sizes.',
+      '  Avoid: Do not treat mobile as a simple shrunken desktop layout. Do not rely on body default scrolling for embedded mobile cards. Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core mobile interactions.',
+      '  Checklist: PC and WISE/mobile have clear hierarchy differences instead of only scaled CSS. Fixed viewport templates fit their required dimensions without clipping primary content. Mobile or iframe surfaces use explicit scroll containers and touch-safe controls. Variation-specific template assignments remain visible in the generation rationale.',
+      '- Skill: sk_data_intake_analysis',
+      '  Rules: Before generation, convert loose user inputs into a structured brief with topic summary, entities, fields, missing fields, recommendations, and risk flags. Preserve input source boundaries: prompt, URL, pasted text, table, JSON, uploaded asset, democase, research artifact, existing HTML, and memory must stay distinguishable. Explain every recommended scenario template, design template pack, and skill with a reason and confidence. Treat memory, democase, and research artifacts as context hints, not unquestioned facts.',
+      '  Prompt guidance: If input is incomplete or mixed, first produce an internal structured brief: what is known, what is missing, what is risky, and which capability choices are justified. Use recommendations to guide the design plan, but do not silently override the user-selected template, skill, or advanced constraints.',
+      '  Avoid: Do not invent facts, dates, metrics, claims, or source-backed details that are not present in the supplied inputs. Do not merge private user memory with public research context without keeping the source boundary explicit. Do not treat a URL, democase example, or research artifact as permission to copy trade dress or copyrighted content.',
+      '  Checklist: The generation plan names the primary topic, core entities, required fields, and missing information. Template and skill recommendations include reasons and confidence. Risk flags are surfaced before using uncertain or externally sourced content. User-selected capability choices remain authoritative unless the user confirms changes.',
       '- MCP policy: mcp_encyclopedia_democase_readonly maps to encyclopedia-democase.lookupEntryDemoCases with scopes readonly_context. Treat as policy context only unless DUDesign runtime explicitly provides the tool.',
       '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
     ].join('\n'))
@@ -1026,7 +1152,7 @@ describe('BabelORuntimeClient', () => {
     const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
     assert.deepEqual(templateRequirements.toolPolicy, {
       allowedMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
-      scopes: ['readonly_context'],
+      scopes: ['readonly_context', 'validation_only'],
       requiresUserAuth: false,
       auditLevel: 'usage',
       mode: 'policy_only',
@@ -1188,8 +1314,15 @@ function extractPromptBlock(prompt: string, startMarker: string, endMarker: stri
 
 function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
   includeEntryGuidanceSkill: boolean
+  includeDualSurfaceSkill?: boolean
+  includeDataIntakeSkill?: boolean
   includeDemocaseTool: boolean
 }): CapabilitySnapshot {
+  const includesAnySkill = options.includeEntryGuidanceSkill || options.includeDualSurfaceSkill || options.includeDataIntakeSkill
+  const toolPolicyScopes: PluginPermissionScope[] = options.includeDemocaseTool || includesAnySkill
+    ? ['readonly_context', ...(options.includeDualSurfaceSkill || options.includeDataIntakeSkill ? ['validation_only' as const] : [])]
+    : []
+
   return {
     schemaVersion: '2026-07-01.dudesign-capabilities.v2',
     template: {
@@ -1239,38 +1372,98 @@ function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
       brandStyleReference: null,
     },
     plugins: {
-      skillIds: options.includeEntryGuidanceSkill ? ['sk_encyclopedia_entry_guidance'] : [],
+      skillIds: [
+        ...(options.includeEntryGuidanceSkill ? ['sk_encyclopedia_entry_guidance'] : []),
+        ...(options.includeDualSurfaceSkill ? ['sk_dual_surface_strategy'] : []),
+        ...(options.includeDataIntakeSkill ? ['sk_data_intake_analysis'] : []),
+      ],
       mcpToolIds: options.includeDemocaseTool ? ['mcp_encyclopedia_democase_readonly'] : [],
       pluginSnapshot: {
         plugins: [],
-        skills: options.includeEntryGuidanceSkill ? [{
-          id: 'sk_encyclopedia_entry_guidance',
-          pluginId: 'plug_encyclopedia_entry_guidance',
-          schemaVersion: '2026-07-03.dudesign-skill.v1',
-          rules: [
-            'Treat the user input as an encyclopedia entry title, entry content, or both.',
-            'Classify the entry into the closest encyclopedia category before choosing a card structure.',
-            'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
-            'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
-            'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
-          ],
-          promptBlocks: [
-            'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
-            'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
-          ],
-          negativeRules: [
-            'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
-            'Do not turn democase examples into facts about the current entry.',
-            'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
-          ],
-          qualityChecklist: [
-            'The card fits the required dynamic encyclopedia viewport constraints.',
-            'The structure matches the selected subtemplate and entry category.',
-            'Long content is contained in explicit scroll containers.',
-            'Claims remain neutral and traceable to the provided entry context.',
-          ],
-          allowedTemplateCategories: ['encyclopedia'],
-        }] : [],
+        skills: [
+          ...(options.includeEntryGuidanceSkill ? [{
+            id: 'sk_encyclopedia_entry_guidance',
+            pluginId: 'plug_encyclopedia_entry_guidance',
+            schemaVersion: '2026-07-03.dudesign-skill.v1',
+            rules: [
+              'Treat the user input as an encyclopedia entry title, entry content, or both.',
+              'Classify the entry into the closest encyclopedia category before choosing a card structure.',
+              'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
+              'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
+              'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+            ],
+            promptBlocks: [
+              'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
+              'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+            ],
+            negativeRules: [
+              'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
+              'Do not turn democase examples into facts about the current entry.',
+              'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+            ],
+            qualityChecklist: [
+              'The card fits the required dynamic encyclopedia viewport constraints.',
+              'The structure matches the selected subtemplate and entry category.',
+              'Long content is contained in explicit scroll containers.',
+              'Claims remain neutral and traceable to the provided entry context.',
+            ],
+            allowedTemplateCategories: ['encyclopedia'],
+          }] : []),
+          ...(options.includeDualSurfaceSkill ? [{
+            id: 'sk_dual_surface_strategy',
+            pluginId: 'plug_dual_surface_strategy',
+            schemaVersion: '2026-07-06.dudesign-skill.v1',
+            rules: [
+              'Treat PC, WISE, mobile, and embedded iframe targets as separate product surfaces with different density, hierarchy, and interaction needs.',
+              'For fixed-size business templates, preserve the exact required viewport first, then adapt secondary compatible sizes with graceful degradation.',
+              'For each variation, state which surface constraints drive layout, information density, and interaction choices.',
+              'Prefer explicit scroll containers, stable controls, and touch-safe interactions on mobile or iframe surfaces.',
+            ],
+            promptBlocks: [
+              'Build dual-surface output deliberately: PC can use richer composition and denser context, while WISE/mobile should prioritize compact facts, clear touch targets, explicit scroll containers, and iframe compatibility.',
+              'When a template provides PC/WISE dimensions, satisfy the standard size exactly before optimizing compatible sizes.',
+            ],
+            negativeRules: [
+              'Do not treat mobile as a simple shrunken desktop layout.',
+              'Do not rely on body default scrolling for embedded mobile cards.',
+              'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core mobile interactions.',
+            ],
+            qualityChecklist: [
+              'PC and WISE/mobile have clear hierarchy differences instead of only scaled CSS.',
+              'Fixed viewport templates fit their required dimensions without clipping primary content.',
+              'Mobile or iframe surfaces use explicit scroll containers and touch-safe controls.',
+              'Variation-specific template assignments remain visible in the generation rationale.',
+            ],
+            allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+          }] : []),
+          ...(options.includeDataIntakeSkill ? [{
+            id: 'sk_data_intake_analysis',
+            pluginId: 'plug_data_intake_analysis',
+            schemaVersion: '2026-07-06.dudesign-skill.v1',
+            rules: [
+              'Before generation, convert loose user inputs into a structured brief with topic summary, entities, fields, missing fields, recommendations, and risk flags.',
+              'Preserve input source boundaries: prompt, URL, pasted text, table, JSON, uploaded asset, democase, research artifact, existing HTML, and memory must stay distinguishable.',
+              'Explain every recommended scenario template, design template pack, and skill with a reason and confidence.',
+              'Treat memory, democase, and research artifacts as context hints, not unquestioned facts.',
+            ],
+            promptBlocks: [
+              'If input is incomplete or mixed, first produce an internal structured brief: what is known, what is missing, what is risky, and which capability choices are justified.',
+              'Use recommendations to guide the design plan, but do not silently override the user-selected template, skill, or advanced constraints.',
+            ],
+            negativeRules: [
+              'Do not invent facts, dates, metrics, claims, or source-backed details that are not present in the supplied inputs.',
+              'Do not merge private user memory with public research context without keeping the source boundary explicit.',
+              'Do not treat a URL, democase example, or research artifact as permission to copy trade dress or copyrighted content.',
+            ],
+            qualityChecklist: [
+              'The generation plan names the primary topic, core entities, required fields, and missing information.',
+              'Template and skill recommendations include reasons and confidence.',
+              'Risk flags are surfaced before using uncertain or externally sourced content.',
+              'User-selected capability choices remain authoritative unless the user confirms changes.',
+            ],
+            allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+          }] : []),
+        ],
         mcpToolBindings: options.includeDemocaseTool ? [{
           id: 'mcp_encyclopedia_democase_readonly',
           pluginId: 'plug_encyclopedia_entry_guidance',
@@ -1282,9 +1475,9 @@ function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
         }] : [],
         toolPolicy: {
           allowedMcpToolIds: options.includeDemocaseTool ? ['mcp_encyclopedia_democase_readonly'] : [],
-          scopes: options.includeDemocaseTool ? ['readonly_context'] : [],
+          scopes: toolPolicyScopes,
           requiresUserAuth: false,
-          auditLevel: options.includeDemocaseTool ? 'usage' : 'none',
+          auditLevel: options.includeDemocaseTool || includesAnySkill ? 'usage' : 'none',
         },
       },
     },

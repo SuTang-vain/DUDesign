@@ -135,7 +135,7 @@
 - [x] Model Services support 只读权限浏览器 smoke test。
 - [x] Runtime Health contract mismatch/degraded 浏览器 smoke test。
 - [x] MCP invocation audit API smoke test。
-- [ ] MCP invocation audit 管理端浏览器 smoke test。
+- [x] MCP invocation audit 管理端浏览器 smoke test。
 - [ ] Capability Governance 页面 smoke test。
 - [ ] 官方模板 lint/diff/preview smoke test。
 - [ ] 插件禁用后用户端创建 job 被拒绝的 Admin + API 联动测试。

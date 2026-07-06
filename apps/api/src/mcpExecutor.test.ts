@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { afterEach, describe, it } from 'node:test'
 import type { AddressInfo } from 'node:net'
-import { HttpMcpExecutor } from './mcpExecutor.js'
-import type { McpInvocationRequest } from '@dudesign/contracts'
+import { HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
+import type { McpInvocationRequest, ResearchContextArtifact } from '@dudesign/contracts'
 
 describe('HttpMcpExecutor', () => {
   let server: http.Server | null = null
@@ -98,6 +98,33 @@ describe('HttpMcpExecutor', () => {
     const address = server.address() as AddressInfo
     return `http://127.0.0.1:${address.port}`
   }
+})
+
+describe('MockMcpExecutor', () => {
+  it('normalizes Agent-Reach search into a reviewed research context artifact', async () => {
+    const executor = new MockMcpExecutor()
+
+    const result = await executor.execute({
+      ...request,
+      invocationId: 'mcpinv_research_test',
+      mcpToolId: 'mcp_agent_reach_search',
+      serverName: 'agent-reach',
+      toolName: 'search',
+      scopes: ['readonly_context'],
+      input: { query: 'dynamic encyclopedia card interaction patterns' },
+      reason: 'Gather reviewed context for a design brief.',
+    })
+
+    const researchContext = result.data?.researchContext as ResearchContextArtifact | undefined
+    assert.equal(result.status, 'ok')
+    assert.equal(result.source.serverName, 'agent-reach')
+    assert.equal(result.references.length, 1)
+    assert.equal(researchContext?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
+    assert.equal(researchContext?.query, 'dynamic encyclopedia card interaction patterns')
+    assert.equal(researchContext?.reviewStatus, 'auto_reviewed')
+    assert.equal(researchContext?.sources[0]?.retrievedAt, result.completedAt)
+    assert.match(researchContext?.rawPayloadHash ?? '', /^[a-f0-9]{64}$/)
+  })
 })
 
 const request: McpInvocationRequest = {

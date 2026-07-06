@@ -1996,3 +1996,34 @@
 
 - `npm run typecheck`
 - `npm --workspace @dudesign/api run test -- --test-name-pattern="MCP|mcp|design job event"`
+
+## 2026-07-06 RTC-M44 Real MCP Opt-In Staging Smoke
+
+### 已完成
+
+- `deploy/staging/scripts/smoke-mcp-http-remote.sh` 增加真实 MCP server opt-in 分支：
+  - 默认仍启动临时 mock MCP HTTP server。
+  - 设置 `DUDESIGN_STAGING_MCP_REAL_SMOKE=1` 后读取真实 MCP server 配置。
+  - 支持通过 `DUDESIGN_STAGING_MCP_REAL_BASE_URL`、`DUDESIGN_STAGING_MCP_REAL_ENDPOINT_PATH`、`DUDESIGN_STAGING_MCP_REAL_API_KEY`、`DUDESIGN_STAGING_MCP_REAL_AUTH_HEADER`、`DUDESIGN_STAGING_MCP_REAL_TIMEOUT_MS` 覆盖 staging `.env`。
+- MCP staging smoke 现在验证：
+  - capability policy 授权。
+  - HTTP MCP 调用返回标准 DUDesign result。
+  - result 注入 `toolContext`。
+  - replay API 返回同一结果。
+  - admin MCP invocation audit 可按 job/status 查询到 replay key。
+  - 临时切换到不可达 MCP endpoint 后，execute 返回标准 `MCP_UNAVAILABLE`，并可在 admin audit 中查询。
+- `deploy/staging/staging.env.example` 增加真实 MCP smoke opt-in env。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-mcp-http-remote.sh`
+- `bash -n deploy/staging/scripts/smoke-remote.sh`
+
+### 决策
+
+- 真实 MCP smoke 必须 opt-in，避免默认 staging smoke 依赖外部私有服务或真实 democase 数据库。
+- unavailable 降级验证在同一脚本内通过临时不可达 endpoint 完成，确保真实服务不可用时不会表现为 runtime 崩溃。
+
+### 下一步
+
+- 接入真实 democase MCP server 后，用 `DUDESIGN_STAGING_MCP_REAL_SMOKE=1` 跑一次远端验证，并记录 provider 侧 result schema 差异。

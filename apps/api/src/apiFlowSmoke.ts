@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import type { AddressInfo } from 'node:net'
 import type {
   CreateAnnotationBatchResponse,
+  AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationResponse,
   AdminMcpInvocationAuditResponse,
   CreateDesignJobResponse,
@@ -299,6 +300,27 @@ Reusable smoke test template.
   })
   assert.ok(createdSession.session.id.startsWith('ses_'))
 
+  const dataIntake = await postJson<AnalyzeDataIntakeResponse>('/api/capabilities/data-intake/analyze', {
+    workspaceId: bootstrap.workspace.id,
+    prompt: '词条：百度百科，需要动态百科卡片，突出企业身份、关键事实、发展历程和 WISE iframe 兼容。',
+    url: 'https://example.test/baidu-baike-context',
+    tableText: 'name|foundedAt|category\n百度百科|2006|知识平台',
+    democaseIds: ['demo_baidu_baike_company'],
+  })
+  assert.equal(dataIntake.artifact.kind, 'data_intake_analysis')
+  assert.equal(dataIntake.artifact.workspaceId, bootstrap.workspace.id)
+  assert.match(dataIntake.artifact.contentHash, /^sha256:/)
+  assert.deepEqual(dataIntake.analysis.inputSources, ['prompt', 'url', 'table', 'democase'])
+  assert.equal(dataIntake.analysis.recommendedScenarioTemplates[0]?.id, 'tpl_dynamic_encyclopedia_entry')
+  assert.equal(dataIntake.analysis.recommendedDesignTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
+  assert.ok(dataIntake.analysis.recommendedSkills.some(item => item.id === 'sk_data_intake_analysis'))
+  assert.ok(dataIntake.analysis.riskFlags.includes('external-source-unreviewed'))
+  assert.equal(dataIntake.analysis.reviewStatus, 'human_review_required')
+  const storedDataIntake = await harness.service.artifacts.get(dataIntake.artifact.storageKey)
+  const storedDataIntakeJson = JSON.parse(new TextDecoder().decode(storedDataIntake.body)) as AnalyzeDataIntakeResponse & { artifactId: string }
+  assert.equal(storedDataIntakeJson.analysis.schemaVersion, '2026-07-06.dudesign-data-intake.v1')
+  assert.equal(storedDataIntakeJson.artifactId, dataIntake.artifact.id)
+
   const entryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
     workspaceId: bootstrap.workspace.id,
     entry: '百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司',
@@ -309,7 +331,7 @@ Reusable smoke test template.
   assert.equal(entryGuidance.productMode, 'dynamic_encyclopedia_card')
   assert.equal(entryGuidance.classification.secondaryCategory, '企业')
   assert.equal(entryGuidance.democaseReferences[0]?.caseId, 'demo_baidu_baike_company')
-  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance'])
+  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
   assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
   assert.equal(entryGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_encyclopedia_spec_review')
   assert.equal(entryGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
@@ -403,7 +425,7 @@ Reusable smoke test template.
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_dynamic_encyclopedia_entry')
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_encyclopedia_spec_review')
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.maxRepairAttempts, 1)
-  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance'])
+  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
   assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
   assert.equal(guidedSnapshot.job.designTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
   assert.equal(guidedSnapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_timeline_card')
@@ -451,6 +473,7 @@ Reusable smoke test template.
     templateRequirements: {
       styles: ['minimal', 'editorial'],
       deviceTargets: ['desktop', 'mobile'],
+      dataIntakeArtifactId: dataIntake.artifact.id,
       advancedConstraints: {
         colorPaletteId: 'pal_blue_white_trust',
         styleNotes: ['minimal', 'editorial'],
@@ -491,6 +514,103 @@ Reusable smoke test template.
   assert.equal(capabilitySnapshot?.automation?.maxRepairAttempts, 1)
   assert.equal(capabilitySnapshot?.automation?.maxCostCents, 200)
   assert.equal(capabilitySnapshot?.automation?.maxDurationMs, 300000)
+  const dataIntakeSnapshot = storedCreatedJob?.templateRequirements.dataIntake as {
+    artifactId?: string
+    storageKey?: string
+    contentHash?: string
+    schemaVersion?: string
+    reviewStatus?: string
+  } | undefined
+  assert.equal(storedCreatedJob?.templateRequirements.dataIntakeArtifactId, dataIntake.artifact.id)
+  assert.equal(dataIntakeSnapshot?.artifactId, dataIntake.artifact.id)
+  assert.equal(dataIntakeSnapshot?.storageKey, dataIntake.artifact.storageKey)
+  assert.equal(dataIntakeSnapshot?.contentHash, dataIntake.artifact.contentHash)
+  assert.equal(dataIntakeSnapshot?.schemaVersion, '2026-07-06.dudesign-data-intake.v1')
+  assert.equal(dataIntakeSnapshot?.reviewStatus, 'human_review_required')
+  const researchPolicyJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+    sessionId: createdSession.session.id,
+    prompt: sensitivePrompt,
+    sourceMode: 'new_html',
+    productMode: 'dynamic_encyclopedia_card',
+    variationCount: 1,
+    capabilityRequirements: {
+      template: {
+        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
+      },
+      plugins: {
+        skillIds: ['sk_research_brief_builder'],
+        mcpToolIds: ['mcp_agent_reach_search'],
+      },
+    },
+  })
+  const researchPolicySnapshot = await waitForJob(researchPolicyJob.job.id)
+  const executedResearchMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
+    userId: 'usr_dev',
+    workspaceId: 'ws_dev',
+    sessionId: createdSession.session.id,
+    jobId: researchPolicyJob.job.id,
+    variationId: researchPolicySnapshot.variations[0]!.id,
+    runtimeSessionId: null,
+    mcpToolId: 'mcp_agent_reach_search',
+    serverName: 'agent-reach',
+    toolName: 'search',
+    scopes: ['readonly_context'],
+    input: { query: 'dynamic encyclopedia card iframe interaction references' },
+    reason: 'Create a reviewed research context artifact for a follow-up job.',
+  })
+  assert.equal(executedResearchMcpInvocation.result.status, 'ok')
+  const researchContextArtifact = executedResearchMcpInvocation.result.data?.researchContextArtifact as {
+    artifactId?: string
+    storageKey?: string
+    contentHash?: string
+    schemaVersion?: string
+    reviewStatus?: string
+    query?: string
+    sourceCount?: number
+  } | undefined
+  assert.ok(researchContextArtifact?.artifactId)
+  assert.equal(researchContextArtifact?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
+  assert.equal(researchContextArtifact?.reviewStatus, 'auto_reviewed')
+  assert.equal(researchContextArtifact?.sourceCount, 1)
+  const storedResearchContext = await harness.service.artifacts.get(researchContextArtifact.storageKey!)
+  assert.equal(storedResearchContext.metadata.kind, 'research_context')
+  const researchPinnedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+    sessionId: createdSession.session.id,
+    prompt: sensitivePrompt,
+    sourceMode: 'new_html',
+    productMode: 'dynamic_encyclopedia_card',
+    variationCount: 1,
+    capabilityRequirements: {
+      template: {
+        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
+      },
+      plugins: {
+        skillIds: ['sk_research_brief_builder', 'sk_data_intake_analysis'],
+        mcpToolIds: ['mcp_agent_reach_search'],
+      },
+    },
+    templateRequirements: {
+      researchContextArtifactIds: [researchContextArtifact.artifactId!],
+    },
+  })
+  await waitForJob(researchPinnedJob.job.id)
+  const storedResearchPinnedJob = await harness.service.store.getJobById(researchPinnedJob.job.id)
+  const researchSnapshot = storedResearchPinnedJob?.templateRequirements.researchContexts as Array<{
+    artifactId?: string
+    storageKey?: string
+    contentHash?: string
+    schemaVersion?: string
+    reviewStatus?: string
+    query?: string
+    sourceCount?: number
+  }> | undefined
+  assert.deepEqual(storedResearchPinnedJob?.templateRequirements.researchContextArtifactIds, [researchContextArtifact.artifactId])
+  assert.equal(researchSnapshot?.[0]?.artifactId, researchContextArtifact.artifactId)
+  assert.equal(researchSnapshot?.[0]?.storageKey, researchContextArtifact.storageKey)
+  assert.equal(researchSnapshot?.[0]?.contentHash, researchContextArtifact.contentHash)
+  assert.equal(researchSnapshot?.[0]?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
+  assert.equal(researchSnapshot?.[0]?.reviewStatus, 'auto_reviewed')
+  assert.equal(researchSnapshot?.[0]?.query, 'dynamic encyclopedia card iframe interaction references')
   const advancedConstraints = storedCreatedJob?.templateRequirements.advancedConstraints as {
     brandStyleReferenceId?: string | null
     negativeRequirements?: string[]

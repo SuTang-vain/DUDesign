@@ -2,9 +2,16 @@ import { createDesignEvent } from '@dudesign/contracts'
 import type {
   AdvancedTemplateConstraints,
   AdminMcpInvocationAuditResponse,
+  AnalyzeDataIntakeRequest,
+  AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationRequest,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
+  DataIntakeAnalysis,
+  DataIntakeArtifactReference,
+  DataIntakeField,
+  DataIntakeInputSource,
+  DataIntakeRecommendation,
   EncyclopediaEntryGuidanceResponse,
   ExecuteMcpInvocationResponse,
   CreateSourceArtifactRequest,
@@ -15,6 +22,8 @@ import type {
   ImportDesignTemplatePackRequest,
   RefineVariationRequest,
   ReplayMcpInvocationResponse,
+  ResearchContextArtifact,
+  ResearchContextArtifactReference,
   ReviewVariationActionRequest,
   SaveVariationTemplateRequest,
   ShareVariationRequest,
@@ -604,6 +613,49 @@ export class ApplicationService {
     }
   }
 
+  async analyzeDataIntake(ctx: RequestContext, input: AnalyzeDataIntakeRequest): Promise<AnalyzeDataIntakeResponse> {
+    const workspaceId = stringValue(input.workspaceId)
+    if (!workspaceId) throw createHttpError(400, 'WORKSPACE_ID_REQUIRED', 'workspaceId is required.')
+    const workspace = await this.store.getWorkspaceById(workspaceId)
+    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
+    await this.requireWorkspaceAccess(workspace.id, ctx.userId, 'editor')
+
+    const analysis = buildDataIntakeAnalysis(input)
+    const artifactId = createId('dia')
+    const createdAt = new Date().toISOString()
+    const stored = await this.artifacts.put({
+      workspaceId: workspace.id,
+      artifactId,
+      relativePath: 'capabilities/data-intake/analysis.json',
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify({
+        artifactId,
+        workspaceId: workspace.id,
+        createdAt,
+        analysis,
+      }, null, 2),
+      metadata: {
+        kind: 'data_intake_analysis',
+        userId: ctx.userId,
+        schemaVersion: analysis.schemaVersion,
+        reviewStatus: analysis.reviewStatus,
+      },
+    })
+
+    return {
+      analysis,
+      artifact: {
+        id: artifactId,
+        workspaceId: workspace.id,
+        kind: 'data_intake_analysis',
+        storageKey: stored.storageKey,
+        contentHash: stored.contentHash,
+        sizeBytes: stored.sizeBytes,
+        createdAt,
+      },
+    }
+  }
+
   async listSessions(ctx: RequestContext) {
     const sessions = await this.store.listSessions()
     const visibleSessions = []
@@ -669,6 +721,11 @@ export class ApplicationService {
     const capabilitySnapshot = resolveCapabilitySnapshot(input.capabilityRequirements)
     const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, input)
     const variationTemplateAssignments = assignDesignTemplatePacks(input.variationCount, designTemplatePacks)
+    const dataIntake = await this.resolveDataIntakeArtifactReference(workspace.id, input.templateRequirements?.dataIntakeArtifactId ?? input.templateRequirements?.dataIntake?.artifactId ?? null)
+    const researchContexts = await this.resolveResearchContextArtifactReferences(workspace.id, [
+      ...(input.templateRequirements?.researchContextArtifactIds ?? []),
+      ...(input.templateRequirements?.researchContexts ?? []).map(reference => reference.artifactId),
+    ])
     await this.store.appendMessage({
       sessionId: session.id,
       role: 'user',
@@ -685,6 +742,8 @@ export class ApplicationService {
           id: template.id,
           version: template.version,
         })),
+        dataIntake,
+        researchContexts,
         variationTemplateAssignments: variationTemplateAssignments.map(assignment => ({
           variationIndex: assignment.variationIndex,
           designTemplatePackId: assignment.designTemplatePackId,
@@ -708,6 +767,13 @@ export class ApplicationService {
         })),
         designTemplatePacks,
         variationTemplateAssignments,
+        ...(dataIntake ? { dataIntakeArtifactId: dataIntake.artifactId, dataIntake } : {}),
+        ...(researchContexts.length > 0
+          ? {
+              researchContextArtifactIds: researchContexts.map(reference => reference.artifactId),
+              researchContexts,
+            }
+          : {}),
         modelServiceId: selectedModel.id,
         modelId: selectedModel.modelId,
         modelProvider: selectedModel.provider,
@@ -861,7 +927,8 @@ export class ApplicationService {
       }
     }
 
-    const result = await this.mcpExecutor.execute(authorizationResponse.request)
+    const rawResult = await this.mcpExecutor.execute(authorizationResponse.request)
+    const result = await this.persistMcpResearchContextArtifact(authorizationResponse.request, rawResult)
     const invocationAuditRecord = await this.store.saveMcpInvocationAuditRecord({
       ...authorizationResponse.invocationAuditRecord,
       result,
@@ -3871,6 +3938,133 @@ export class ApplicationService {
   private async findExistingExportArtifact(variationId: string, sourceArtifactId: string): Promise<Artifact | null> {
     return this.store.getExportArtifactForSource(variationId, sourceArtifactId)
   }
+
+  private async resolveDataIntakeArtifactReference(workspaceId: string, artifactId: string | null | undefined): Promise<DataIntakeArtifactReference | undefined> {
+    if (!artifactId) return undefined
+    const relativePath = 'capabilities/data-intake/analysis.json'
+    const storageKey = `${workspaceId}/artifacts/${artifactId}/${relativePath}`
+    const stored = await this.artifacts.get(storageKey).catch(() => null)
+    if (!stored) throw createHttpError(404, 'DATA_INTAKE_ARTIFACT_NOT_FOUND', `Data intake artifact not found: ${artifactId}`)
+    if (stored.metadata.kind !== 'data_intake_analysis') {
+      throw createHttpError(400, 'DATA_INTAKE_ARTIFACT_INVALID', `Artifact is not a data intake analysis: ${artifactId}`)
+    }
+    let parsed: { analysis?: DataIntakeAnalysis; createdAt?: string } = {}
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(stored.body)) as { analysis?: DataIntakeAnalysis; createdAt?: string }
+    } catch {
+      throw createHttpError(400, 'DATA_INTAKE_ARTIFACT_INVALID_JSON', `Data intake artifact is not valid JSON: ${artifactId}`)
+    }
+    const schemaVersion = typeof parsed.analysis?.schemaVersion === 'string'
+      ? parsed.analysis.schemaVersion
+      : stored.metadata.schemaVersion ?? 'unknown'
+    const reviewStatus = parsed.analysis?.reviewStatus === 'auto_reviewed' || parsed.analysis?.reviewStatus === 'human_review_required' || parsed.analysis?.reviewStatus === 'rejected'
+      ? parsed.analysis.reviewStatus
+      : stored.metadata.reviewStatus === 'auto_reviewed' || stored.metadata.reviewStatus === 'human_review_required' || stored.metadata.reviewStatus === 'rejected'
+        ? stored.metadata.reviewStatus
+        : 'human_review_required'
+    return {
+      artifactId,
+      storageKey,
+      contentHash: stored.metadata.contentHash ?? `sha256:${createHash('sha256').update(stored.body).digest('hex')}`,
+      sizeBytes: stored.sizeBytes,
+      schemaVersion,
+      reviewStatus,
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : undefined,
+    }
+  }
+
+  private async resolveResearchContextArtifactReferences(workspaceId: string, artifactIds: string[]): Promise<ResearchContextArtifactReference[]> {
+    const uniqueArtifactIds = [...new Set(artifactIds.filter(Boolean))]
+    const references: ResearchContextArtifactReference[] = []
+    for (const artifactId of uniqueArtifactIds) {
+      references.push(await this.resolveResearchContextArtifactReference(workspaceId, artifactId))
+    }
+    return references
+  }
+
+  private async resolveResearchContextArtifactReference(workspaceId: string, artifactId: string): Promise<ResearchContextArtifactReference> {
+    const relativePath = 'capabilities/research/context.json'
+    const storageKey = `${workspaceId}/artifacts/${artifactId}/${relativePath}`
+    const stored = await this.artifacts.get(storageKey).catch(() => null)
+    if (!stored) throw createHttpError(404, 'RESEARCH_CONTEXT_ARTIFACT_NOT_FOUND', `Research context artifact not found: ${artifactId}`)
+    if (stored.metadata.kind !== 'research_context') {
+      throw createHttpError(400, 'RESEARCH_CONTEXT_ARTIFACT_INVALID', `Artifact is not a research context: ${artifactId}`)
+    }
+    let parsed: { researchContext?: ResearchContextArtifact; createdAt?: string } = {}
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(stored.body)) as { researchContext?: ResearchContextArtifact; createdAt?: string }
+    } catch {
+      throw createHttpError(400, 'RESEARCH_CONTEXT_ARTIFACT_INVALID_JSON', `Research context artifact is not valid JSON: ${artifactId}`)
+    }
+    if (!isResearchContextArtifact(parsed.researchContext)) {
+      throw createHttpError(400, 'RESEARCH_CONTEXT_ARTIFACT_INVALID_SCHEMA', `Research context artifact has an invalid schema: ${artifactId}`)
+    }
+    return {
+      artifactId,
+      storageKey,
+      contentHash: stored.metadata.contentHash ?? `sha256:${createHash('sha256').update(stored.body).digest('hex')}`,
+      sizeBytes: stored.sizeBytes,
+      schemaVersion: parsed.researchContext.schemaVersion,
+      reviewStatus: parsed.researchContext.reviewStatus,
+      query: parsed.researchContext.query,
+      sourceCount: parsed.researchContext.sources.length,
+      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : undefined,
+    }
+  }
+
+  private async persistMcpResearchContextArtifact(
+    request: McpInvocationRequest,
+    result: McpInvocationResult,
+  ): Promise<McpInvocationResult> {
+    if (result.status !== 'ok') return result
+    const researchContext = isResearchContextArtifact(result.data?.researchContext)
+      ? result.data.researchContext
+      : undefined
+    if (!researchContext) return result
+
+    const artifactId = createId('rctx')
+    const createdAt = result.completedAt
+    const body = JSON.stringify({
+      kind: 'research_context',
+      invocationId: request.invocationId,
+      mcpToolId: request.mcpToolId,
+      researchContext,
+      createdAt,
+    }, null, 2)
+    const stored = await this.artifacts.put({
+      workspaceId: request.workspaceId,
+      artifactId,
+      relativePath: 'capabilities/research/context.json',
+      contentType: 'application/json',
+      body,
+      metadata: {
+        kind: 'research_context',
+        invocationId: request.invocationId,
+        mcpToolId: request.mcpToolId,
+        schemaVersion: researchContext.schemaVersion,
+        reviewStatus: researchContext.reviewStatus,
+        query: researchContext.query,
+      },
+    })
+    const reference: ResearchContextArtifactReference = {
+      artifactId,
+      storageKey: stored.storageKey,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      schemaVersion: researchContext.schemaVersion,
+      reviewStatus: researchContext.reviewStatus,
+      query: researchContext.query,
+      sourceCount: researchContext.sources.length,
+      createdAt,
+    }
+    return {
+      ...result,
+      data: {
+        ...(result.data ?? {}),
+        researchContextArtifact: reference,
+      },
+    }
+  }
 }
 
 function renderMockVariationHtml(variation: DesignVariation | null, artifact: Artifact | null): string {
@@ -3942,6 +4136,14 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
       ? value.designTemplatePacks.filter(isDesignTemplatePack)
       : undefined,
     interactionParadigm: isInteractionParadigm(value.interactionParadigm) ? value.interactionParadigm : undefined,
+    dataIntakeArtifactId: typeof value.dataIntakeArtifactId === 'string' ? value.dataIntakeArtifactId : undefined,
+    dataIntake: isDataIntakeArtifactReference(value.dataIntake) ? value.dataIntake : undefined,
+    researchContextArtifactIds: Array.isArray(value.researchContextArtifactIds)
+      ? value.researchContextArtifactIds.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    researchContexts: Array.isArray(value.researchContexts)
+      ? value.researchContexts.filter(isResearchContextArtifactReference)
+      : undefined,
     businessContext: isDynamicEncyclopediaBusinessContext(value.businessContext) ? value.businessContext : undefined,
     variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
       ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
@@ -4026,6 +4228,70 @@ function isDynamicEncyclopediaBusinessContext(value: unknown): value is NonNulla
     && (!('interactionParadigmId' in record) || typeof record.interactionParadigmId === 'string')
     && (!('recommendedTemplateIds' in record) || (Array.isArray(record.recommendedTemplateIds) && record.recommendedTemplateIds.every(item => typeof item === 'string')))
     && (!('automationMode' in record) || record.automationMode === 'off' || record.automationMode === 'semi_auto' || record.automationMode === 'auto')
+}
+
+function isDataIntakeArtifactReference(value: unknown): value is DataIntakeArtifactReference {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.artifactId === 'string'
+    && typeof record.storageKey === 'string'
+    && typeof record.contentHash === 'string'
+    && typeof record.sizeBytes === 'number'
+    && typeof record.schemaVersion === 'string'
+    && (record.reviewStatus === 'auto_reviewed' || record.reviewStatus === 'human_review_required' || record.reviewStatus === 'rejected')
+}
+
+function isResearchContextArtifactReference(value: unknown): value is ResearchContextArtifactReference {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.artifactId === 'string'
+    && typeof record.storageKey === 'string'
+    && typeof record.contentHash === 'string'
+    && typeof record.sizeBytes === 'number'
+    && typeof record.schemaVersion === 'string'
+    && typeof record.query === 'string'
+    && typeof record.sourceCount === 'number'
+    && (record.reviewStatus === 'auto_reviewed' || record.reviewStatus === 'human_review_required' || record.reviewStatus === 'rejected')
+}
+
+function isResearchContextArtifact(value: unknown): value is ResearchContextArtifact {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.schemaVersion === 'string'
+    && typeof record.query === 'string'
+    && Array.isArray(record.sources)
+    && record.sources.every(isResearchContextSource)
+    && typeof record.summary === 'string'
+    && Array.isArray(record.citations)
+    && record.citations.every(isResearchContextCitation)
+    && (record.confidence === 'low' || record.confidence === 'medium' || record.confidence === 'high')
+    && (record.freshness === 'unknown' || record.freshness === 'stale' || record.freshness === 'recent')
+    && Array.isArray(record.riskFlags)
+    && record.riskFlags.every(item => typeof item === 'string')
+    && typeof record.rawPayloadHash === 'string'
+    && (record.reviewStatus === 'auto_reviewed' || record.reviewStatus === 'human_review_required' || record.reviewStatus === 'rejected')
+}
+
+function isResearchContextSource(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.url === 'string'
+    && typeof record.retrievedAt === 'string'
+    && (record.platform === undefined
+      || record.platform === 'web'
+      || record.platform === 'github'
+      || record.platform === 'social'
+      || record.platform === 'video'
+      || record.platform === 'community'
+      || record.platform === 'unknown')
+}
+
+function isResearchContextCitation(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.sourceUrl === 'string'
+    && typeof record.note === 'string'
+    && (record.quote === undefined || typeof record.quote === 'string')
 }
 
 function isDesignTemplatePack(value: unknown): value is DesignTemplatePack {
@@ -4561,6 +4827,200 @@ function interactionParadigmIdForTemplatePack(templatePackId: string): string | 
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function buildDataIntakeAnalysis(input: AnalyzeDataIntakeRequest): DataIntakeAnalysis {
+  const sources = dataIntakeSources(input)
+  const text = [
+    input.prompt,
+    input.url,
+    input.pastedText,
+    input.tableText,
+    input.jsonText,
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join('\n')
+  const normalizedText = text.replace(/\s+/g, ' ').trim()
+  const fields = dataIntakeFields(input, normalizedText)
+  const entities = dataIntakeEntities(input, normalizedText)
+  const missingFields = dataIntakeMissingFields(fields, normalizedText)
+  const riskFlags = dataIntakeRiskFlags(input, normalizedText, missingFields)
+  const recommendedScenarioTemplates = dataIntakeScenarioRecommendations(normalizedText)
+  const recommendedDesignTemplatePacks = dataIntakeTemplatePackRecommendations(normalizedText, recommendedScenarioTemplates)
+  const recommendedSkills = dataIntakeSkillRecommendations(input, normalizedText)
+  const reviewStatus: DataIntakeAnalysis['reviewStatus'] = riskFlags.some(flag =>
+    flag === 'external-source-unreviewed'
+    || flag === 'private-memory-context'
+    || flag === 'missing-core-fields',
+  )
+    ? 'human_review_required'
+    : 'auto_reviewed'
+
+  return {
+    schemaVersion: '2026-07-06.dudesign-data-intake.v1',
+    inputSources: sources,
+    topicSummary: dataIntakeTopicSummary(normalizedText, sources),
+    entities,
+    fields,
+    missingFields,
+    recommendedScenarioTemplates,
+    recommendedDesignTemplatePacks,
+    recommendedSkills,
+    riskFlags,
+    reviewStatus,
+  }
+}
+
+function dataIntakeSources(input: AnalyzeDataIntakeRequest): DataIntakeInputSource[] {
+  const sources: DataIntakeInputSource[] = []
+  if (stringValue(input.prompt)) sources.push('prompt')
+  if (stringValue(input.url)) sources.push('url')
+  if (stringValue(input.pastedText)) sources.push('pasted_text')
+  if (stringValue(input.tableText)) sources.push('table')
+  if (stringValue(input.jsonText)) sources.push('json')
+  if (input.uploadedAssetIds?.length) sources.push('uploaded_asset')
+  if (input.democaseIds?.length) sources.push('democase')
+  if (input.researchArtifactIds?.length) sources.push('research_artifact')
+  if (stringValue(input.existingHtmlArtifactId)) sources.push('existing_html')
+  if (input.memoryNoteIds?.length) sources.push('memory')
+  return [...new Set(sources)]
+}
+
+function dataIntakeTopicSummary(text: string, sources: DataIntakeInputSource[]): string {
+  if (!text) return sources.length ? `Structured brief from ${sources.join(', ')} inputs.` : 'No substantive input was provided.'
+  const sentence = text.split(/(?<=[.!?。！？])\s+/)[0] ?? text
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}...` : sentence
+}
+
+function dataIntakeFields(input: AnalyzeDataIntakeRequest, text: string): DataIntakeField[] {
+  const fields: DataIntakeField[] = []
+  const url = stringValue(input.url) ?? text.match(/https?:\/\/[^\s)]+/i)?.[0] ?? null
+  if (url) fields.push({ name: 'url', value: url, confidence: 0.94, source: stringValue(input.url) ? 'url' : 'pasted_text' })
+  const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null
+  if (email) fields.push({ name: 'contactEmail', value: email, confidence: 0.92, source: 'prompt' })
+  const jsonKeys = extractJsonKeys(input.jsonText)
+  for (const key of jsonKeys.slice(0, 8)) fields.push({ name: key, confidence: 0.76, source: 'json' })
+  const tableHeaders = extractTableHeaders(input.tableText)
+  for (const header of tableHeaders.slice(0, 8)) fields.push({ name: header, confidence: 0.72, source: 'table' })
+  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
+    fields.push({ name: 'entryTitle', value: inferEntryTitle(text), confidence: 0.7, source: 'prompt' })
+    fields.push({ name: 'entryCategory', missing: !/(企业|人物|作品|产品|学校|游戏|概念|术语)/.test(text), confidence: 0.55, source: 'prompt' })
+  }
+  return dedupeDataIntakeFields(fields)
+}
+
+function dataIntakeEntities(input: AnalyzeDataIntakeRequest, text: string): DataIntakeAnalysis['entities'] {
+  const entities: DataIntakeAnalysis['entities'] = []
+  const title = inferEntryTitle(text)
+  if (title) {
+    entities.push({
+      name: title,
+      type: /企业|公司|company|corp|inc/i.test(text) ? 'company' : /人物|artist|founder|ceo/i.test(text) ? 'person' : 'topic',
+      confidence: 0.72,
+      source: input.prompt ? 'prompt' : input.pastedText ? 'pasted_text' : 'url',
+    })
+  }
+  for (const id of input.democaseIds?.slice(0, 5) ?? []) {
+    entities.push({ name: id, type: 'democase', confidence: 0.6, source: 'democase' })
+  }
+  return entities
+}
+
+function dataIntakeMissingFields(fields: DataIntakeField[], text: string): string[] {
+  const missing = new Set<string>()
+  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
+    if (!fields.some(field => field.name === 'entryTitle' && field.value)) missing.add('entryTitle')
+    if (!fields.some(field => field.name === 'entryCategory' && !field.missing)) missing.add('entryCategory')
+    if (!/(事实|摘要|时间|关系|对比|指标|定义|背景)/.test(text)) missing.add('sourceAwareFacts')
+  }
+  if (!text) missing.add('promptOrSourceContent')
+  return [...missing]
+}
+
+function dataIntakeRiskFlags(input: AnalyzeDataIntakeRequest, text: string, missingFields: string[]): string[] {
+  const flags = new Set<string>()
+  if (stringValue(input.url) || input.researchArtifactIds?.length) flags.add('external-source-unreviewed')
+  if (input.memoryNoteIds?.length) flags.add('private-memory-context')
+  if (missingFields.length) flags.add('missing-core-fields')
+  if (/api[_-]?key|password|token|secret|sk-[a-z0-9-]+/i.test(text)) flags.add('sensitive-secret-like-input')
+  if (/Apple|Google|Microsoft|百度|抖音|Tesla|Nike|Coca-Cola/i.test(text)) flags.add('brand-reference-review-required')
+  return [...flags]
+}
+
+function dataIntakeScenarioRecommendations(text: string): DataIntakeRecommendation[] {
+  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
+    return [{ id: 'tpl_dynamic_encyclopedia_entry', reason: 'The input describes an encyclopedia entry or dynamic knowledge card.', confidence: 0.88 }]
+  }
+  if (/invoice|fintech|金融|支付|账单|财务/i.test(text)) {
+    return [{ id: 'tpl_fintech_trust', reason: 'The input mentions finance, payments, invoices, or trust-heavy transaction flows.', confidence: 0.74 }]
+  }
+  if (/portfolio|作品集|artist|studio|摄影|设计师/i.test(text)) {
+    return [{ id: 'tpl_creative_studio', reason: 'The input is oriented around creative work or portfolio presentation.', confidence: 0.72 }]
+  }
+  return [{ id: 'tpl_premium_product_page', reason: 'The input is broad; a premium product narrative is a conservative starting point.', confidence: 0.48 }]
+}
+
+function dataIntakeTemplatePackRecommendations(text: string, scenarios: DataIntakeRecommendation[]): DataIntakeRecommendation[] {
+  if (scenarios.some(item => item.id === 'tpl_dynamic_encyclopedia_entry')) {
+    if (/时间|历程|发展|timeline|history/i.test(text)) {
+      return [{ id: 'dtp_dynamic_encyclopedia_timeline_card', reason: 'The input suggests ordered milestones or history.', confidence: 0.8 }]
+    }
+    if (/关系|关联|人物|组织|network|relation/i.test(text)) {
+      return [{ id: 'dtp_dynamic_encyclopedia_relation_card', reason: 'The input suggests related entities or relationship mapping.', confidence: 0.76 }]
+    }
+    if (/对比|区别|compare|versus|vs/i.test(text)) {
+      return [{ id: 'dtp_dynamic_encyclopedia_compare_card', reason: 'The input asks for differences or comparison.', confidence: 0.78 }]
+    }
+    return [{ id: 'dtp_dynamic_encyclopedia_summary_card', reason: 'The input is best served by a compact source-aware summary first.', confidence: 0.82 }]
+  }
+  return [{ id: 'dtp_premium_product_launch', reason: 'The input can start from a polished official product template pack.', confidence: 0.46 }]
+}
+
+function dataIntakeSkillRecommendations(input: AnalyzeDataIntakeRequest, text: string): DataIntakeRecommendation[] {
+  const recommendations: DataIntakeRecommendation[] = [{
+    id: 'sk_data_intake_analysis',
+    reason: 'The request contains loose or mixed inputs that should be converted into a structured brief.',
+    confidence: 0.9,
+  }]
+  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text) || input.democaseIds?.length) {
+    recommendations.push({ id: 'sk_encyclopedia_entry_guidance', reason: 'The input maps to encyclopedia entry classification and child-template guidance.', confidence: 0.84 })
+    recommendations.push({ id: 'sk_dual_surface_strategy', reason: 'Dynamic encyclopedia output has PC/WISE and iframe constraints.', confidence: 0.82 })
+  }
+  return recommendations
+}
+
+function inferEntryTitle(text: string): string | null {
+  const cleaned = text.replace(/\s+/g, ' ').trim()
+  const explicit = cleaned.match(/(?:词条|entry|title|主题)[:：]\s*([^,，。；;]+)/i)?.[1]?.trim()
+  if (explicit) return explicit.slice(0, 80)
+  const beforeColon = cleaned.match(/^([^:：。.!?]{2,40})[:：]/)?.[1]?.trim()
+  if (beforeColon) return beforeColon
+  return cleaned ? cleaned.slice(0, 40) : null
+}
+
+function extractJsonKeys(jsonText: string | null | undefined): string[] {
+  if (!jsonText || typeof jsonText !== 'string') return []
+  try {
+    const parsed = JSON.parse(jsonText) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+    return Object.keys(parsed as Record<string, unknown>).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+function extractTableHeaders(tableText: string | null | undefined): string[] {
+  if (!tableText || typeof tableText !== 'string') return []
+  const firstLine = tableText.trim().split(/\r?\n/)[0] ?? ''
+  return firstLine.split(/\t|,|\|/).map(item => item.trim()).filter(Boolean)
+}
+
+function dedupeDataIntakeFields(fields: DataIntakeField[]): DataIntakeField[] {
+  const seen = new Set<string>()
+  return fields.filter(field => {
+    const key = field.name.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function designJobQueueIdempotencyKey(jobId: string): string {

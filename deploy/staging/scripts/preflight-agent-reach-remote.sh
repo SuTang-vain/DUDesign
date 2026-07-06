@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
+base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
+
+ssh "$remote" "BASE_DIR='$base_dir' bash -s" <<'REMOTE'
+set -euo pipefail
+
+current="$BASE_DIR/dudesign/current"
+echo "agent-reach-preflight:remote-ok"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "agent-reach-preflight:missing python3" >&2
+  exit 1
+fi
+echo "agent-reach-preflight:python3 $(command -v python3)"
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "agent-reach-preflight:missing docker" >&2
+  exit 1
+fi
+echo "agent-reach-preflight:docker $(command -v docker)"
+
+if [ ! -d "$current" ]; then
+  echo "agent-reach-preflight:missing $current" >&2
+  exit 1
+fi
+echo "agent-reach-preflight:dudesign-current-ok"
+
+if [ ! -f "$current/deploy/staging/scripts/agent-reach-mcp-adapter.py" ]; then
+  echo "agent-reach-preflight:missing deployed agent-reach-mcp-adapter.py" >&2
+  exit 2
+fi
+echo "agent-reach-preflight:adapter-present"
+
+if [ ! -f "$current/deploy/staging/scripts/smoke-agent-reach-remote.sh" ]; then
+  echo "agent-reach-preflight:missing deployed smoke-agent-reach-remote.sh" >&2
+  exit 2
+fi
+echo "agent-reach-preflight:smoke-present"
+
+if command -v mcporter >/dev/null 2>&1; then
+  echo "agent-reach-preflight:mcporter $(command -v mcporter)"
+elif [ -n "${AGENT_REACH_SEARCH_COMMAND:-}" ]; then
+  echo "agent-reach-preflight:custom-search-command"
+else
+  echo "agent-reach-preflight:missing mcporter or AGENT_REACH_SEARCH_COMMAND" >&2
+  exit 3
+fi
+
+if command -v agent-reach >/dev/null 2>&1; then
+  agent-reach doctor --json >/tmp/dudesign-agent-reach-doctor.json || true
+  echo "agent-reach-preflight:agent-reach $(command -v agent-reach)"
+else
+  echo "agent-reach-preflight:agent-reach-cli-not-installed"
+fi
+
+echo "agent-reach-preflight:ready"
+REMOTE

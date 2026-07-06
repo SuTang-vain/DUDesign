@@ -685,3 +685,31 @@
 
 - 补 MCP invocation audit 管理端浏览器 smoke。
 - 增加 democase MCP 健康、调用量、失败率汇总面板。
+
+## 2026-07-06 ADM-M18 MCP Invocation Audit Browser Smoke
+
+### 已完成
+
+- 新增 `apps/admin/e2e/mcp-invocation-audit.spec.ts`。
+- 浏览器 smoke 覆盖：
+  - `Audit & MCP` 页签展示 MCP invocation audit。
+  - 按 job、variation、MCP tool、status 筛选。
+  - 长 replay key 不影响页面可读性。
+  - unavailable/error code 和 error message 展示。
+  - support 角色可以查看 MCP invocation audit，但不能查看普通 audit log。
+- 为 MCP audit 面板和行增加稳定 `data-testid`。
+- 为既有 Runtime Health / Model Services e2e mock 补齐 MCP audit 与 template governance 接口，避免初始化并发请求误报。
+
+### 验证
+
+- `npm --workspace @dudesign/admin run test:e2e -- mcp-invocation-audit.spec.ts`
+- `npm --workspace @dudesign/admin run test:e2e`
+- `npm --workspace @dudesign/admin run build`
+
+### 决策
+
+- MCP invocation audit 是 support 可读的排障视图；普通 audit log 仍保持 support 受限。
+
+### 下一步
+
+- 增加 democase MCP 健康状态、调用量、失败率和最近错误分布面板。

@@ -173,7 +173,28 @@ Runtime Gateway 编译成：
 
 Design Template Pack 或 `DESIGN.md` 进入 Runtime Gateway 前必须先被业务层解析、校验、授权和快照化。Runtime Gateway 只接收标准化后的 `designContext`、`styleDirectives`、`constraints` 和 `skillContext`，不直接读取用户上传的任意 markdown 文件。
 
-## 8. 安全约束
+## 8. 外部能力扩展规划
+
+CAP-9 阶段会把能力分发从“模板 + 声明式 skill + policy-only MCP”推进到可审计的外部能力协作。该阶段仍不新增第五层架构，而是把外部能力分摊到现有三类子模块中：
+
+| 能力 | 所属子模块 | 主要职责 | 关键治理点 |
+| --- | --- | --- | --- |
+| 网络信息搜索 MCP | Plugins | 通过 Agent-Reach 等检索工具获取网页、社媒、仓库和资料上下文 | 来源标注、审核、结果摘要、用户授权、回放 |
+| 生成图片 MCP | Plugins | 通过受控图片生成 provider 生成插图、背景、素材 | API key 隔离、版权/水印策略、成本、artifact 持久化 |
+| 双端差异化生产策略 skill | Plugins | 指导同一需求在 PC / WISE 等端上的内容、交互和布局差异 | 与模板选择绑定，写入 job snapshot |
+| 数据输入获取分析 skill | Plugins | 对用户输入、URL、表格、JSON、democase 和上传资产做结构化分析 | 输入来源、隐私、缺失字段、推荐模板解释 |
+| 模板融合/迭代更新机制 | Templates + Automation Loop | 把用户模板、官方模板、生成结果和修复建议合成为候选新版本 | diff、lint、preview smoke、人工审核、版本不漂移 |
+| 用户开发模板贡献机制 | Templates + 管理端治理 | 支持用户把私有模板提交为 workspace/community/official 候选 | 权限、许可、审核、禁用、审计 |
+
+外部能力的共同原则：
+
+- 外部 MCP 结果不能直接变成事实来源；必须生成 `source`、`confidence`、`freshness` 和 `reviewStatus`。
+- 外部素材必须先进入 artifact store，再通过 artifact id 注入任务，不把 provider 临时 URL 当长期依赖。
+- Skill 只能描述方法、约束和检查清单，不承载 API key、curl 命令或可执行脚本。
+- 自动化 loop 可以触发“检索-生成-验证-修复”流程，但每一步都必须有 stop condition、usage event 和审计记录。
+- 所有外部能力选择必须进入 job snapshot，保证 resume/share/export 不随 registry 更新漂移。
+
+## 9. 安全约束
 
 - 用户 skill 不允许包含任意可执行代码。
 - MCP 插件默认最小权限，默认只读。
@@ -184,7 +205,7 @@ Design Template Pack 或 `DESIGN.md` 进入 Runtime Gateway 前必须先被业�
 - `DESIGN.md` 导入结果必须做 lint、引用解析、颜色/对比度检查和危险指令过滤。
 - 用户自定义模板只影响该用户或授权 workspace，不进入全局 registry。
 
-## 9. 验收目标
+## 10. 验收目标
 
 MVP 结束时应满足：
 

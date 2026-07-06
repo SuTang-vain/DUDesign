@@ -1,4 +1,5 @@
-import type { McpInvocationRequest, McpInvocationResult } from '@dudesign/contracts'
+import { createHash } from 'node:crypto'
+import type { McpInvocationRequest, McpInvocationResult, ResearchContextArtifact, ResearchContextPlatform } from '@dudesign/contracts'
 import { mcpUnavailableResult } from '@dudesign/runtime-gateway'
 import { lookupEncyclopediaDemocases } from './encyclopediaDemocase.js'
 
@@ -49,6 +50,26 @@ export class MockMcpExecutor implements McpExecutor {
         data: {
           validationStatus: 'accepted',
           checkedRules: ['semantic_structure', 'contrast_placeholder', 'keyboard_flow_placeholder'],
+        },
+        completedAt,
+      }
+    }
+    if (request.serverName === 'agent-reach' && ['search', 'readPage', 'scanSocial'].includes(request.toolName)) {
+      const researchContext = mockResearchContextArtifact(request, completedAt)
+      return {
+        invocationId: request.invocationId,
+        status: 'ok',
+        mcpToolId: request.mcpToolId,
+        source: invocationSource(request),
+        summary: researchContext.summary,
+        references: researchContext.sources.map((source, index) => ({
+          id: `src_${index + 1}`,
+          title: source.title ?? source.url,
+          url: source.url,
+        })),
+        data: {
+          researchContext,
+          note: 'Mock Agent-Reach output is normalized before runtime prompt injection. Use as sourced design context only.',
         },
         completedAt,
       }
@@ -129,6 +150,60 @@ function optionalString(value: unknown): string | null {
 function optionalPositiveInteger(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function mockResearchContextArtifact(request: McpInvocationRequest, completedAt: string): ResearchContextArtifact {
+  const query = optionalString(request.input.query)
+    ?? optionalString(request.input.url)
+    ?? optionalString(request.input.topic)
+    ?? 'DUDesign research context'
+  const platform = researchPlatformForTool(request.toolName)
+  const sourceUrl = optionalString(request.input.url) ?? `https://research.local/${encodeURIComponent(query)}`
+  const title = optionalString(request.input.title) ?? `Reviewed context for ${query}`
+  const freshness = request.toolName === 'readPage' ? 'recent' : 'unknown'
+  const summary = request.toolName === 'scanSocial'
+    ? `Reviewed social/community signals for "${query}" with subjective claims marked as design context only.`
+    : request.toolName === 'readPage'
+      ? `Reviewed page context for "${query}" with source metadata preserved.`
+      : `Reviewed search context for "${query}" with citations and risk flags prepared for data intake.`
+  const rawPayload = JSON.stringify({
+    toolName: request.toolName,
+    query,
+    sourceUrl,
+    input: request.input,
+  })
+
+  return {
+    schemaVersion: '2026-07-06.dudesign-research-context.v1',
+    query,
+    sources: [
+      {
+        url: sourceUrl,
+        title,
+        platform,
+        retrievedAt: completedAt,
+        licenseHint: 'unknown',
+      },
+    ],
+    summary,
+    citations: [
+      {
+        sourceUrl,
+        note: 'Mock citation produced for contract testing; replace with reviewed Agent-Reach citations in staging.',
+      },
+    ],
+    confidence: request.toolName === 'scanSocial' ? 'low' : 'medium',
+    freshness,
+    riskFlags: request.toolName === 'scanSocial' ? ['subjective-source'] : ['mock-source-review-required'],
+    rawPayloadHash: createHash('sha256').update(rawPayload).digest('hex'),
+    reviewStatus: 'auto_reviewed',
+  }
+}
+
+function researchPlatformForTool(toolName: string): ResearchContextPlatform {
+  if (toolName === 'readPage') return 'web'
+  if (toolName === 'scanSocial') return 'social'
+  return 'unknown'
 }
 
 function normalizeMcpExecutorResponse(payload: unknown): McpInvocationResult | null {

@@ -232,3 +232,94 @@
 - “词条引导”被拆为 MCP、skill、业务向导，而不是塞进单一插件。
 - 父模板包、子模板、交互范式有明确边界和版本化路径。
 - `AutomationLoopProfile` 契约改造不破坏现有 `loop_fast`/`standard`/`deep_repair` 行为。
+
+## Phase CAP-9：外部能力扩展与用户贡献
+
+> 目标：把网络检索、图片生成、双端策略、数据输入分析、模板融合和用户贡献纳入能力分发系统，并保持权限、审计、artifact、snapshot 与 runtime 解耦。
+
+### CAP-9.1 网络信息搜索 MCP
+
+- [x] 定义 `ResearchContextArtifact`，包含 query、sources、summary、citations、confidence、freshness、riskFlags、rawPayloadHash、reviewStatus。
+- [x] 注册网络检索插件族：
+  - [x] `plug_research_context`。
+  - [x] `sk_research_brief_builder`。
+  - [x] `mcp_agent_reach_search`。
+  - [x] `mcp_agent_reach_page_read`。
+  - [x] `mcp_agent_reach_social_scan`。
+- [x] 参考 `Agent-Reach` 作为搜索/读取能力路由，但 DUDesign 只消费审核后的摘要与引用，不直接把原始 payload 注入 runtime。
+- [x] 增加 mock Agent-Reach executor，将 search/page/social 结果归一化为 `ResearchContextArtifact`。
+- [x] MCP 调用结果进入 artifact store 或 capability artifact 表，并写入 job snapshot。
+- [x] 增加来源审核规则：来源 URL、获取时间、平台类型、可信度、引用摘要、风险标记。
+- [x] 增加 mock 网络搜索 MCP smoke：授权、调用、审核、artifact 写入、job snapshot 注入、审计和回放。
+- [x] 增加真实 Agent-Reach staging smoke 脚手架：标准 MCP HTTP adapter、远端 smoke 脚本、env example。
+- [x] 增加真实 Agent-Reach staging preflight：检查远端脚本部署、Python、Docker、mcporter / `AGENT_REACH_SEARCH_COMMAND`。
+- [ ] 在安装 `mcporter` / Agent-Reach 的 staging 主机上运行真实 Agent-Reach smoke，并记录 provider result schema 差异。
+
+验收：
+
+- 用户可以启用“网络信息搜索”辅助生成，Runtime Gateway 只收到审核后的 research context，旧 job resume 不受后续搜索结果变化影响。
+
+### CAP-9.2 生成图片 MCP
+
+- [ ] 定义 `ImageGenerationRequest` / `ImageGenerationArtifact` 契约，覆盖 prompt、model、size、watermark、usageContext、contentSafety、cost、artifactId。
+- [ ] 注册图片生成插件族：
+  - [ ] `plug_image_generation`。
+  - [ ] `sk_visual_asset_brief`。
+  - [ ] `mcp_image_generation_ark_seedream`。
+- [ ] 支持服务端调用火山方舟图片生成 provider；API key 只存在服务端 secret，不进入 skill、prompt、job snapshot。
+- [ ] 图片结果写入 artifact store，预览/导出/分享只读取 artifact id。
+- [ ] 增加 provider unavailable 降级事件：允许用户继续无图生成、换 provider 或稍后重试。
+- [ ] 增加图片生成 smoke：成功生成、artifact 固化、内容安全失败、provider 不可用、成本记录。
+
+验收：
+
+- 模板/skill 可以请求“需要一张 hero/背景/卡片插图”，但真正图片生成由受控 MCP/provider 和 artifact store 承接。
+
+### CAP-9.3 双端差异化生产策略 Skill
+
+- [x] 注册 `sk_dual_surface_strategy`。
+- [x] 在模板选择/Capability Preset 中支持推荐该 skill，尤其面向动态百科、固定尺寸卡片、iframe 嵌入页。
+- [x] Skill 输出 PC / WISE / mobile 的 viewport、比例、信息密度、交互差异和禁止项。
+- [x] 与 `variationTemplateAssignments` 结合，确保每个 variation 的端侧策略和 child template 绑定进入 snapshot。
+- [x] Runtime Gateway golden 覆盖 dual-surface prompt block，不允许覆盖 workspace、tool policy 和 artifact guardrails。
+
+验收：
+
+- 同一需求可以按 PC 与 WISE 的差异化策略生成，而不是只做普通 responsive 缩放。
+
+### CAP-9.4 数据输入获取分析 Skill
+
+- [x] 注册 `sk_data_intake_analysis`。
+- [x] 定义 `DataIntakeAnalysis` 契约：inputSources、topicSummary、entities、fields、missingFields、recommended templates/skills、riskFlags。
+- [x] 支持 prompt、URL、粘贴文本、表格/JSON、上传资产、democase 和 research artifact 的统一分析入口。
+- [x] 推荐模板/skill 时必须返回解释原因，不能静默覆盖用户显式选择。
+- [x] 输入分析结果写入 preflight artifact。
+- [x] 创建 job 时可引用 data-intake preflight artifact，并写入 job snapshot，保证 resume 不漂移。
+
+验收：
+
+- 用户给出松散资料时，系统能先形成结构化 brief，再进入模板/skill/loop 分发。
+
+### CAP-9.5 模板融合与迭代更新机制
+
+- [ ] 定义 `TemplateMergePlan`，记录来源模板、variation artifact、用户反馈、融合策略和候选变更。
+- [ ] 支持从多个 Design Template Pack、用户私有模板和生成结果中生成 candidate version。
+- [ ] Candidate version 必须经过 lint、diff、preview smoke 和权限检查。
+- [ ] 官方模板更新必须进入 CAP-6 管理端审核；用户私有模板更新生成新 version，不覆盖历史 job snapshot。
+- [ ] Automation Loop 支持“基于质量报告生成模板更新建议”，但不自动发布官方模板。
+
+验收：
+
+- 模板可以被持续迭代，但每次迭代都有来源、diff、审核和版本化记录。
+
+### CAP-9.6 用户开发模板贡献机制
+
+- [ ] 定义用户模板贡献生命周期：private -> workspace shared -> contribution candidate -> reviewed community -> official。
+- [ ] 首版只开放 private -> contribution candidate。
+- [ ] 贡献提交必须包含 source/license 声明、是否包含品牌 trade dress、预览 artifact 和 lint 结果。
+- [ ] 管理端展示贡献候选的 diff、preview smoke、usage、风险标记和审核动作。
+- [ ] 被禁用模板不能创建新 job；旧 job/session 继续使用 snapshot resume。
+
+验收：
+
+- 用户可以把自定义模板提交给平台审核，但不会绕过官方模板治理和版权/安全门禁。

@@ -252,7 +252,7 @@ export default function HomePage(): React.JSX.Element {
       setVisualMode('pack')
       setSelectedTemplatePackIds(preset?.designTemplatePackIds ?? ['dtp_dynamic_encyclopedia_card'])
       setAutoDistributePacks(true)
-      setSelectedSkillIds(preset?.skillIds ?? ['sk_encyclopedia_entry_guidance'])
+      setSelectedSkillIds(preset?.skillIds ?? ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
       setSelectedMcpToolIds(preset?.mcpToolIds ?? ['mcp_encyclopedia_democase_readonly'])
       setLoopProfileId(preset?.loopProfileId ?? 'loop_encyclopedia_spec_review')
       return

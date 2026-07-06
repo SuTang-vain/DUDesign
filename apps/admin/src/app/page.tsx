@@ -1047,7 +1047,7 @@ export default function AdminHomePage(): React.JSX.Element {
           ) : null}
 
           {activeSection === 'audit' ? (
-          <section className="panel wide-panel">
+          <section className="panel wide-panel" data-testid="mcp-invocation-audit-panel">
             <div className="panel-header">
               <div>
                 <h2>MCP Invocation Audit</h2>
@@ -1099,7 +1099,7 @@ export default function AdminHomePage(): React.JSX.Element {
             {mcpInvocations.length === 0 ? (
               <p className="muted">No MCP invocation records match the current filter.</p>
             ) : (
-              <div className="mcp-audit-table">
+              <div className="mcp-audit-table" data-testid="mcp-invocation-audit-table">
                 <div className="mcp-audit-head">
                   <span>Invocation</span>
                   <span>Status</span>
@@ -1108,7 +1108,7 @@ export default function AdminHomePage(): React.JSX.Element {
                   <span>Replay</span>
                 </div>
                 {mcpInvocations.map(invocation => (
-                  <article className="mcp-audit-row" key={invocation.invocationId}>
+                  <article className="mcp-audit-row" data-testid="mcp-invocation-audit-row" key={invocation.invocationId}>
                     <div>
                       <strong>{invocation.invocationId}</strong>
                       <p>{invocation.summary ?? 'No summary.'}</p>
