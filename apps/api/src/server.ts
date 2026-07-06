@@ -212,6 +212,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (method === 'GET' && url.pathname === '/api/admin/mcp/summary') {
     sendJson(res, 200, await service.getAdminMcpInvocationSummary(ctx, {
       mcpToolId: url.searchParams.get('mcpToolId'),
+      createdFrom: url.searchParams.get('createdFrom'),
+      createdTo: url.searchParams.get('createdTo'),
       limit: parseOptionalInteger(url.searchParams.get('limit')),
     }))
     return

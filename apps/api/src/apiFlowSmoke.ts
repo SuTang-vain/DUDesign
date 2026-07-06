@@ -726,10 +726,12 @@ Reusable smoke test template.
     && invocation.errorCode === 'MCP_SCOPE_DENIED'
   ))
   const adminMcpSummary = await getJson<AdminMcpInvocationSummaryResponse>(
-    '/api/admin/mcp/summary?mcpToolId=mcp_accessibility_validate',
+    `/api/admin/mcp/summary?mcpToolId=mcp_accessibility_validate&createdFrom=${encodeURIComponent('2000-01-01T00:00:00.000Z')}&createdTo=${encodeURIComponent('2999-01-01T00:00:00.000Z')}`,
     { headers: { 'x-dudesign-admin-role': 'support' } },
   )
   assert.equal(adminMcpSummary.filters.mcpToolId, 'mcp_accessibility_validate')
+  assert.equal(adminMcpSummary.filters.createdFrom, '2000-01-01T00:00:00.000Z')
+  assert.equal(adminMcpSummary.filters.createdTo, '2999-01-01T00:00:00.000Z')
   assert.equal(adminMcpSummary.totals.totalCount, 3)
   assert.equal(adminMcpSummary.totals.okCount, 2)
   assert.equal(adminMcpSummary.totals.deniedCount, 1)
