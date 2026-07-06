@@ -65,9 +65,16 @@ else
   exit 3
 fi
 
+agent_reach_cli=''
 if command -v agent-reach >/dev/null 2>&1; then
-  agent-reach doctor --json >/tmp/dudesign-agent-reach-doctor.json || true
-  echo "agent-reach-preflight:agent-reach $(command -v agent-reach)"
+  agent_reach_cli="$(command -v agent-reach)"
+elif [ -x "$HOME/.agent-reach-venv/bin/agent-reach" ]; then
+  agent_reach_cli="$HOME/.agent-reach-venv/bin/agent-reach"
+fi
+
+if [ -n "$agent_reach_cli" ]; then
+  "$agent_reach_cli" doctor --json >/tmp/dudesign-agent-reach-doctor.json || true
+  echo "agent-reach-preflight:agent-reach $agent_reach_cli"
 else
   echo "agent-reach-preflight:agent-reach-cli-not-installed"
 fi
