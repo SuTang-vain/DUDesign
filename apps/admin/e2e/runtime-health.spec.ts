@@ -61,6 +61,10 @@ async function mockAdminApi(page: Page, runtimePayload: unknown): Promise<void> 
       })
     }
 
+    if (url.pathname === '/api/admin/mcp/summary') {
+      return json(route, emptyMcpSummary())
+    }
+
     if (url.pathname === '/api/admin/models') {
       return json(route, { models: [] })
     }
@@ -163,6 +167,36 @@ function runtimeHealth(
         'variation.completed': 'design.variation_completed',
         'variation.failed': 'design.variation_failed',
       },
+    },
+  }
+}
+
+function emptyMcpSummary() {
+  return {
+    totals: {
+      totalCount: 0,
+      okCount: 0,
+      deniedCount: 0,
+      unavailableCount: 0,
+      errorCount: 0,
+      successRate: 0,
+      unavailableRate: 0,
+    },
+    tools: [],
+    democase: {
+      mcpToolId: 'mcp_encyclopedia_democase_readonly',
+      totalCount: 0,
+      okCount: 0,
+      unavailableCount: 0,
+      errorCount: 0,
+      healthStatus: 'no_data',
+      lastInvokedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    },
+    filters: {
+      mcpToolId: null,
+      limit: 1000,
     },
   }
 }

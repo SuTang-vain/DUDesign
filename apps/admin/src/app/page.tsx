@@ -8,6 +8,7 @@ import {
   getAdminArtifacts,
   getAdminJobs,
   getAdminMcpInvocations,
+  getAdminMcpSummary,
   getAdminModels,
   getAuditLogs,
   getCostSummary,
@@ -27,6 +28,7 @@ import {
   type AdminArtifact,
   type AdminJob,
   type AdminMcpInvocationAuditEntry,
+  type AdminMcpInvocationSummaryResponse,
   type AdminModel,
   type AdminRole,
   type AdminMemoryGovernanceResponse,
@@ -58,6 +60,7 @@ export default function AdminHomePage(): React.JSX.Element {
   const [runtime, setRuntime] = useState<RuntimeHealthResponse | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [mcpInvocations, setMcpInvocations] = useState<AdminMcpInvocationAuditEntry[]>([])
+  const [mcpSummary, setMcpSummary] = useState<AdminMcpInvocationSummaryResponse | null>(null)
   const [jobs, setJobs] = useState<AdminJob[]>([])
   const [artifacts, setArtifacts] = useState<AdminArtifact[]>([])
   const [models, setModels] = useState<AdminModel[]>([])
@@ -108,6 +111,11 @@ export default function AdminHomePage(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, mcpJobFilter, mcpVariationFilter, mcpToolFilter, mcpStatusFilter])
 
+  useEffect(() => {
+    void refreshMcpSummary()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role])
+
   async function refresh(): Promise<void> {
     setLoading(true)
     setError(null)
@@ -118,7 +126,7 @@ export default function AdminHomePage(): React.JSX.Element {
       ])
       setRuntime(health)
       setAuditLogs(audits.auditLogs)
-      await Promise.all([refreshJobs(), refreshArtifacts(), refreshMcpInvocations(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess(), refreshTemplateGovernance()])
+      await Promise.all([refreshJobs(), refreshArtifacts(), refreshMcpInvocations(), refreshMcpSummary(), refreshSupport(), refreshMemory(), refreshModels(), refreshModelAccess(), refreshTemplateGovernance()])
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -168,6 +176,15 @@ export default function AdminHomePage(): React.JSX.Element {
         limit: 50,
       })
       setMcpInvocations(data.invocations)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function refreshMcpSummary(): Promise<void> {
+    try {
+      const data = await getAdminMcpSummary(role, { limit: 1000 })
+      setMcpSummary(data)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -1047,6 +1064,76 @@ export default function AdminHomePage(): React.JSX.Element {
           ) : null}
 
           {activeSection === 'audit' ? (
+          <section className="panel wide-panel" data-testid="mcp-health-panel">
+            <div className="panel-header">
+              <div>
+                <h2>MCP Health</h2>
+                <p className="muted">Democase service health, tool success rate, and recent invocation quality.</p>
+              </div>
+              <button className="secondary-button" onClick={() => void refreshMcpSummary()} disabled={loading}>
+                Refresh health
+              </button>
+            </div>
+            <div className="metric-grid mcp-health-metrics">
+              <div className="metric">
+                <span>Democase</span>
+                <strong className={`severity ${mcpHealthSeverity(mcpSummary?.democase.healthStatus ?? 'no_data')}`}>
+                  {mcpSummary?.democase.healthStatus ?? 'no_data'}
+                </strong>
+              </div>
+              <div className="metric">
+                <span>MCP calls</span>
+                <strong>{mcpSummary?.totals.totalCount ?? 0}</strong>
+              </div>
+              <div className="metric">
+                <span>Success rate</span>
+                <strong>{formatRate(mcpSummary?.totals.successRate ?? 0)}</strong>
+              </div>
+              <div className="metric">
+                <span>Unavailable</span>
+                <strong>{mcpSummary?.totals.unavailableCount ?? 0}</strong>
+              </div>
+            </div>
+            {mcpSummary?.democase.lastErrorMessage ? (
+              <p className="error compact-error">
+                {mcpSummary.democase.lastErrorCode ?? 'MCP_ERROR'}: {mcpSummary.democase.lastErrorMessage}
+              </p>
+            ) : (
+              <p className="muted">
+                Last democase call: {mcpSummary?.democase.lastInvokedAt ? formatTime(mcpSummary.democase.lastInvokedAt) : 'No democase MCP calls yet.'}
+              </p>
+            )}
+            {!mcpSummary || mcpSummary.tools.length === 0 ? (
+              <p className="muted">No MCP tool activity has been recorded yet.</p>
+            ) : (
+              <div className="mcp-tool-health-list" data-testid="mcp-tool-health-list">
+                {mcpSummary.tools.map(tool => (
+                  <article className="mcp-tool-health-row" data-testid="mcp-tool-health-row" key={tool.mcpToolId}>
+                    <div>
+                      <strong>{tool.mcpToolId}</strong>
+                      <p>{tool.serverName}.{tool.toolName}</p>
+                      {tool.lastErrorMessage ? <small>{tool.lastErrorCode ?? 'MCP_ERROR'}: {tool.lastErrorMessage}</small> : null}
+                    </div>
+                    <span className={`status-pill ${tool.lastStatus ? mcpStatusClass(tool.lastStatus) : ''}`}>
+                      {tool.lastStatus ?? 'no_data'}
+                    </span>
+                    <div className="compact-metrics">
+                      <span>{tool.totalCount} calls</span>
+                      <span>{formatRate(tool.successRate)} success</span>
+                      <span>{formatRate(tool.unavailableRate)} unavailable</span>
+                    </div>
+                    <div className="compact-metrics replay-key">
+                      <span>{tool.lastInvokedAt ? formatTime(tool.lastInvokedAt) : 'never'}</span>
+                      <span>{tool.lastReplayKey ?? 'no replay key'}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+          ) : null}
+
+          {activeSection === 'audit' ? (
           <section className="panel wide-panel" data-testid="mcp-invocation-audit-panel">
             <div className="panel-header">
               <div>
@@ -1180,6 +1267,11 @@ function formatBytes(value: number): string {
   return `${(value / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatRate(value: number): string {
+  if (!Number.isFinite(value)) return '0%'
+  return `${Math.round(value * 100)}%`
+}
+
 function dateTimeFilterToIso(value: string): string | undefined {
   if (!value) return undefined
   const date = new Date(value)
@@ -1201,6 +1293,12 @@ function mcpStatusClass(status: AdminMcpInvocationAuditEntry['status']): string 
   if (status === 'ok') return 'compatible'
   if (status === 'denied' || status === 'unavailable') return 'degraded'
   return 'unavailable'
+}
+
+function mcpHealthSeverity(status: AdminMcpInvocationSummaryResponse['democase']['healthStatus']): string {
+  if (status === 'healthy') return 'ok'
+  if (status === 'degraded' || status === 'no_data') return 'warning'
+  return 'blocked'
 }
 
 function templateLintClass(status: AdminTemplateGovernanceResponse['templates'][number]['lintStatus']): string {

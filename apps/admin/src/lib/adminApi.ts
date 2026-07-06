@@ -158,6 +158,52 @@ export type AdminMcpInvocationAuditResponse = {
   }
 }
 
+export type AdminMcpToolHealthSummary = {
+  mcpToolId: string
+  serverName: string
+  toolName: string
+  totalCount: number
+  okCount: number
+  deniedCount: number
+  unavailableCount: number
+  errorCount: number
+  successRate: number
+  unavailableRate: number
+  lastStatus: AdminMcpInvocationAuditEntry['status'] | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  lastInvokedAt: string | null
+  lastReplayKey: string | null
+}
+
+export type AdminMcpInvocationSummaryResponse = {
+  totals: {
+    totalCount: number
+    okCount: number
+    deniedCount: number
+    unavailableCount: number
+    errorCount: number
+    successRate: number
+    unavailableRate: number
+  }
+  tools: AdminMcpToolHealthSummary[]
+  democase: {
+    mcpToolId: string
+    totalCount: number
+    okCount: number
+    unavailableCount: number
+    errorCount: number
+    healthStatus: 'healthy' | 'degraded' | 'unavailable' | 'no_data'
+    lastInvokedAt: string | null
+    lastErrorCode: string | null
+    lastErrorMessage: string | null
+  }
+  filters: {
+    mcpToolId: string | null
+    limit: number
+  }
+}
+
 export type AdminJob = {
   id: string
   userId: string
@@ -506,6 +552,16 @@ export async function getAdminMcpInvocations(role: AdminRole, filter: {
   if (filter.status) params.set('status', filter.status)
   if (filter.limit) params.set('limit', String(filter.limit))
   return getJson(`/api/admin/mcp/invocations${params.size ? `?${params.toString()}` : ''}`, role)
+}
+
+export async function getAdminMcpSummary(role: AdminRole, filter: {
+  mcpToolId?: string
+  limit?: number
+} = {}): Promise<AdminMcpInvocationSummaryResponse> {
+  const params = new URLSearchParams()
+  if (filter.mcpToolId) params.set('mcpToolId', filter.mcpToolId)
+  if (filter.limit) params.set('limit', String(filter.limit))
+  return getJson(`/api/admin/mcp/summary${params.size ? `?${params.toString()}` : ''}`, role)
 }
 
 export async function getAdminJobs(role: AdminRole, filter: {

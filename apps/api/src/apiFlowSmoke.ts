@@ -5,6 +5,7 @@ import type {
   AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationResponse,
   AdminMcpInvocationAuditResponse,
+  AdminMcpInvocationSummaryResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
   CreateSourceArtifactResponse,
@@ -723,6 +724,20 @@ Reusable smoke test template.
   assert.ok(deniedAdminMcpInvocations.invocations.some(invocation =>
     invocation.invocationId === deniedMcpInvocation.invocationId
     && invocation.errorCode === 'MCP_SCOPE_DENIED'
+  ))
+  const adminMcpSummary = await getJson<AdminMcpInvocationSummaryResponse>(
+    '/api/admin/mcp/summary?mcpToolId=mcp_accessibility_validate',
+    { headers: { 'x-dudesign-admin-role': 'support' } },
+  )
+  assert.equal(adminMcpSummary.filters.mcpToolId, 'mcp_accessibility_validate')
+  assert.equal(adminMcpSummary.totals.totalCount, 3)
+  assert.equal(adminMcpSummary.totals.okCount, 2)
+  assert.equal(adminMcpSummary.totals.deniedCount, 1)
+  assert.ok(adminMcpSummary.tools.some(tool =>
+    tool.mcpToolId === 'mcp_accessibility_validate'
+    && tool.okCount === 2
+    && tool.deniedCount === 1
+    && tool.lastReplayKey
   ))
   assert.equal(jobSnapshot.job.designTemplatePacks.length, 3)
   assert.deepEqual(

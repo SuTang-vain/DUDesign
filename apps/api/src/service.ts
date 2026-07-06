@@ -2,6 +2,8 @@ import { createDesignEvent } from '@dudesign/contracts'
 import type {
   AdvancedTemplateConstraints,
   AdminMcpInvocationAuditResponse,
+  AdminMcpInvocationSummaryResponse,
+  AdminMcpToolHealthSummary,
   AnalyzeDataIntakeRequest,
   AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationRequest,
@@ -1840,6 +1842,28 @@ export class ApplicationService {
         variationId: cleanFilterValue(filter.variationId) ?? null,
         mcpToolId: cleanFilterValue(filter.mcpToolId) ?? null,
         status,
+        limit,
+      },
+    }
+  }
+
+  async getAdminMcpInvocationSummary(ctx: RequestContext, filter: {
+    mcpToolId?: string | null
+    limit?: number | null
+  } = {}): Promise<AdminMcpInvocationSummaryResponse> {
+    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    const limit = clampInteger(filter.limit ?? 1000, 1, 1000)
+    const mcpToolId = cleanFilterValue(filter.mcpToolId)
+    const records = await this.store.listMcpInvocationAuditRecords({
+      mcpToolId,
+      limit,
+    })
+    return {
+      totals: mcpInvocationTotals(records),
+      tools: mcpToolHealthSummaries(records),
+      democase: democaseMcpHealthSummary(records),
+      filters: {
+        mcpToolId: mcpToolId ?? null,
         limit,
       },
     }
@@ -4456,6 +4480,100 @@ function adminMcpInvocationAuditEntry(record: McpInvocationAuditRecord): AdminMc
     requestedAt: record.request.requestedAt,
     completedAt: record.completedAt,
   }
+}
+
+function mcpInvocationTotals(records: McpInvocationAuditRecord[]): AdminMcpInvocationSummaryResponse['totals'] {
+  const counts = mcpStatusCounts(records)
+  return {
+    ...counts,
+    successRate: ratio(counts.okCount, counts.totalCount),
+    unavailableRate: ratio(counts.unavailableCount, counts.totalCount),
+  }
+}
+
+function mcpToolHealthSummaries(records: McpInvocationAuditRecord[]): AdminMcpToolHealthSummary[] {
+  const groups = new Map<string, McpInvocationAuditRecord[]>()
+  for (const record of records) {
+    const existing = groups.get(record.request.mcpToolId) ?? []
+    existing.push(record)
+    groups.set(record.request.mcpToolId, existing)
+  }
+  return [...groups.entries()]
+    .map(([mcpToolId, toolRecords]) => {
+      const sorted = [...toolRecords].sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+      const latest = sorted[0] ?? null
+      const counts = mcpStatusCounts(sorted)
+      return {
+        mcpToolId,
+        serverName: latest?.request.serverName ?? '',
+        toolName: latest?.request.toolName ?? '',
+        ...counts,
+        successRate: ratio(counts.okCount, counts.totalCount),
+        unavailableRate: ratio(counts.unavailableCount, counts.totalCount),
+        lastStatus: latest?.result.status ?? null,
+        lastErrorCode: latest?.result.error?.code ?? null,
+        lastErrorMessage: adminAuditPreview(latest?.result.error?.message ?? null, 180),
+        lastInvokedAt: latest?.completedAt ?? null,
+        lastReplayKey: latest?.replayKey ?? null,
+      }
+    })
+    .sort((a, b) => (b.lastInvokedAt ?? '').localeCompare(a.lastInvokedAt ?? ''))
+}
+
+function democaseMcpHealthSummary(records: McpInvocationAuditRecord[]): AdminMcpInvocationSummaryResponse['democase'] {
+  const democaseRecords = records.filter(record => record.request.mcpToolId === 'mcp_encyclopedia_democase_readonly')
+  const sorted = [...democaseRecords].sort((a, b) => b.completedAt.localeCompare(a.completedAt))
+  const latest = sorted[0] ?? null
+  const counts = mcpStatusCounts(sorted)
+  return {
+    mcpToolId: 'mcp_encyclopedia_democase_readonly',
+    totalCount: counts.totalCount,
+    okCount: counts.okCount,
+    unavailableCount: counts.unavailableCount,
+    errorCount: counts.errorCount,
+    healthStatus: democaseHealthStatus(counts, latest),
+    lastInvokedAt: latest?.completedAt ?? null,
+    lastErrorCode: latest?.result.error?.code ?? null,
+    lastErrorMessage: adminAuditPreview(latest?.result.error?.message ?? null, 180),
+  }
+}
+
+function mcpStatusCounts(records: McpInvocationAuditRecord[]): {
+  totalCount: number
+  okCount: number
+  deniedCount: number
+  unavailableCount: number
+  errorCount: number
+} {
+  return records.reduce((counts, record) => {
+    counts.totalCount += 1
+    if (record.result.status === 'ok') counts.okCount += 1
+    else if (record.result.status === 'denied') counts.deniedCount += 1
+    else if (record.result.status === 'unavailable') counts.unavailableCount += 1
+    else counts.errorCount += 1
+    return counts
+  }, {
+    totalCount: 0,
+    okCount: 0,
+    deniedCount: 0,
+    unavailableCount: 0,
+    errorCount: 0,
+  })
+}
+
+function democaseHealthStatus(
+  counts: ReturnType<typeof mcpStatusCounts>,
+  latest: McpInvocationAuditRecord | null,
+): AdminMcpInvocationSummaryResponse['democase']['healthStatus'] {
+  if (!latest || counts.totalCount === 0) return 'no_data'
+  if (latest.result.status === 'unavailable' || latest.result.status === 'error') return 'unavailable'
+  if (counts.unavailableCount > 0 || counts.errorCount > 0 || counts.deniedCount > 0) return 'degraded'
+  return 'healthy'
+}
+
+function ratio(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0
+  return Math.round((numerator / denominator) * 1000) / 1000
 }
 
 function cleanFilterValue(value: string | null | undefined): string | undefined {

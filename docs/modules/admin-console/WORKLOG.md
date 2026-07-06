@@ -713,3 +713,38 @@
 ### 下一步
 
 - 增加 democase MCP 健康状态、调用量、失败率和最近错误分布面板。
+
+## 2026-07-06 ADM-M19 MCP Health Summary Panel
+
+### 已完成
+
+- Admin API 新增 MCP invocation summary 读取能力：
+  - `GET /api/admin/mcp/summary`
+  - support/operator/developer 可读。
+  - 支持按 `mcpToolId` 和 `limit` 聚合最近调用。
+- 管理端 `Audit & MCP` 增加 `MCP Health` 面板：
+  - democase MCP health status。
+  - MCP total calls。
+  - success rate。
+  - unavailable count。
+  - 最近 democase error code/message。
+  - 各 MCP tool 调用量、成功率、unavailable rate、最近状态和 replay key。
+- 浏览器 smoke 覆盖：
+  - democase degraded 状态展示。
+  - success rate 展示。
+  - tool health row 展示 `mcp_encyclopedia_democase_readonly`。
+  - 最近 `MCP_UNAVAILABLE` 错误展示。
+
+### 验证
+
+- 待本轮统一执行 typecheck、API smoke、Admin e2e 和 Admin build。
+
+### 决策
+
+- MCP summary 首版直接基于 `mcp_invocation_audit_records` 聚合，暂不新增独立 metrics 表，降低 schema 变更成本。
+- democase 向导直连查询仍不计入 MCP invocation audit；这里只统计生成期 agent 的 MCP 调用。
+
+### 下一步
+
+- 增加按时间范围的 MCP summary 查询。
+- 将 summary 进一步扩展到 capability usage events，覆盖模板/skill 使用量、成本和 drift。

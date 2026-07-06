@@ -11,6 +11,11 @@ test('MCP invocation audit supports filters and long replay keys', async ({ page
   await page.getByTestId('admin-role-select').selectOption('support')
   await page.getByRole('button', { name: 'Audit & MCP' }).click()
 
+  await expect(page.getByTestId('mcp-health-panel')).toContainText('degraded')
+  await expect(page.getByTestId('mcp-health-panel')).toContainText('67%')
+  const democaseHealthRow = page.getByTestId('mcp-tool-health-row').filter({ hasText: 'mcp_encyclopedia_democase_readonly' })
+  await expect(democaseHealthRow).toContainText('mcp_encyclopedia_democase_readonly')
+  await expect(democaseHealthRow).toContainText('MCP_UNAVAILABLE')
   await expect(page.getByTestId('mcp-invocation-audit-panel')).toBeVisible()
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('mcpinv_ok_long')
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText(longReplayKey)
@@ -65,6 +70,10 @@ async function mockAdminApi(page: Page, requests: string[] = []): Promise<void> 
           limit: Number(url.searchParams.get('limit') ?? 50),
         },
       })
+    }
+
+    if (url.pathname === '/api/admin/mcp/summary') {
+      return json(route, mcpSummary())
     }
 
     if (url.pathname === '/api/admin/audit-logs') {
@@ -169,6 +178,71 @@ function unavailableInvocation() {
     errorCode: 'MCP_UNAVAILABLE',
     errorMessage: 'Real democase server is temporarily unavailable.',
     referenceCount: 0,
+  }
+}
+
+function mcpSummary() {
+  return {
+    totals: {
+      totalCount: 3,
+      okCount: 2,
+      deniedCount: 0,
+      unavailableCount: 1,
+      errorCount: 0,
+      successRate: 0.667,
+      unavailableRate: 0.333,
+    },
+    tools: [
+      {
+        mcpToolId: 'mcp_encyclopedia_democase_readonly',
+        serverName: 'encyclopedia-democase',
+        toolName: 'readDemocase',
+        totalCount: 1,
+        okCount: 0,
+        deniedCount: 0,
+        unavailableCount: 1,
+        errorCount: 0,
+        successRate: 0,
+        unavailableRate: 1,
+        lastStatus: 'unavailable',
+        lastErrorCode: 'MCP_UNAVAILABLE',
+        lastErrorMessage: 'Real democase server is temporarily unavailable.',
+        lastInvokedAt: checkedAt,
+        lastReplayKey: 'mcp-replay:mcpinv_unavailable_filtered',
+      },
+      {
+        mcpToolId: 'mcp_accessibility_validate',
+        serverName: 'quality-tools',
+        toolName: 'validateAccessibility',
+        totalCount: 2,
+        okCount: 2,
+        deniedCount: 0,
+        unavailableCount: 0,
+        errorCount: 0,
+        successRate: 1,
+        unavailableRate: 0,
+        lastStatus: 'ok',
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        lastInvokedAt: checkedAt,
+        lastReplayKey: longReplayKey,
+      },
+    ],
+    democase: {
+      mcpToolId: 'mcp_encyclopedia_democase_readonly',
+      totalCount: 1,
+      okCount: 0,
+      unavailableCount: 1,
+      errorCount: 0,
+      healthStatus: 'degraded',
+      lastInvokedAt: checkedAt,
+      lastErrorCode: 'MCP_UNAVAILABLE',
+      lastErrorMessage: 'Real democase server is temporarily unavailable.',
+    },
+    filters: {
+      mcpToolId: null,
+      limit: 1000,
+    },
   }
 }
 

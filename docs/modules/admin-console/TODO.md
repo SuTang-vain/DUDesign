@@ -100,12 +100,12 @@
 - [ ] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
 - [ ] 支持禁用风险 skill 或插件，并写入 audit log。
 - [ ] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
-- [ ] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。
+- [~] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。MCP 调用量、成功率、失败原因已完成首版；模板/skill/成本/drift 聚合待补。
 - [ ] 支持 capability usage events 查询。
 - [ ] 管理动态百科父模板包、子模板和交互范式（12.5：首批子模板为 summary/timeline/relation/compare/expandable，explore 为下一批）。
 - [ ] 管理百科 L1/L2/L3 分类到子模板/交互范式的映射（12.6：以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源）。
 - [x] 展示 MCP invocation 审计摘要，支持按 job、variation、tool、status 查询 replay key。
-- [ ] 展示 democase MCP 健康状态、调用量、失败率和审计摘要（12.1：MCP 只服务生成期 agent；向导直连查询不计入 MCP 审计）。
+- [x] 展示 democase MCP 健康状态、调用量、失败率和审计摘要（12.1：MCP 只服务生成期 agent；向导直连查询不计入 MCP 审计）。
 - [ ] 展示动态百科词条引导命中率、低置信度比例和人工确认比例。
 - [ ] 展示百科规范审查通过率、常见失败原因和自动修复成功率（12.2：按 `qualityGates` 维度展示；12.3：`llm_review` 规则标 Phase 2，MVP 不展示）。
 - [ ] 百科规范审查失败原因需要展示 review context：

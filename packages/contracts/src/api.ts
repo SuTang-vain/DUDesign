@@ -499,6 +499,52 @@ export type AdminMcpInvocationAuditResponse = {
   }
 }
 
+export type AdminMcpToolHealthSummary = {
+  mcpToolId: ID
+  serverName: string
+  toolName: string
+  totalCount: number
+  okCount: number
+  deniedCount: number
+  unavailableCount: number
+  errorCount: number
+  successRate: number
+  unavailableRate: number
+  lastStatus: McpInvocationResult['status'] | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  lastInvokedAt: string | null
+  lastReplayKey: string | null
+}
+
+export type AdminMcpInvocationSummaryResponse = {
+  totals: {
+    totalCount: number
+    okCount: number
+    deniedCount: number
+    unavailableCount: number
+    errorCount: number
+    successRate: number
+    unavailableRate: number
+  }
+  tools: AdminMcpToolHealthSummary[]
+  democase: {
+    mcpToolId: ID
+    totalCount: number
+    okCount: number
+    unavailableCount: number
+    errorCount: number
+    healthStatus: 'healthy' | 'degraded' | 'unavailable' | 'no_data'
+    lastInvokedAt: string | null
+    lastErrorCode: string | null
+    lastErrorMessage: string | null
+  }
+  filters: {
+    mcpToolId: ID | null
+    limit: number
+  }
+}
+
 export type AdvancedTemplateConstraints = {
   colorPaletteId?: ID | null
   styleNotes?: string[]

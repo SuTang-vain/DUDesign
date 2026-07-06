@@ -209,6 +209,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/admin/mcp/summary') {
+    sendJson(res, 200, await service.getAdminMcpInvocationSummary(ctx, {
+      mcpToolId: url.searchParams.get('mcpToolId'),
+      limit: parseOptionalInteger(url.searchParams.get('limit')),
+    }))
+    return
+  }
+
   if (method === 'GET' && url.pathname === '/api/admin/jobs') {
     sendJson(res, 200, await service.listAdminJobs(ctx, {
       status: url.searchParams.get('status'),
