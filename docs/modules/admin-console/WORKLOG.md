@@ -721,7 +721,7 @@
 - Admin API 新增 MCP invocation summary 读取能力：
   - `GET /api/admin/mcp/summary`
   - support/operator/developer 可读。
-  - 支持按 `mcpToolId` 和 `limit` 聚合最近调用。
+  - 支持按 `mcpToolId`、`createdFrom`、`createdTo` 和 `limit` 聚合最近调用。
 - 管理端 `Audit & MCP` 增加 `MCP Health` 面板：
   - democase MCP health status。
   - MCP total calls。
@@ -737,7 +737,11 @@
 
 ### 验证
 
-- 待本轮统一执行 typecheck、API smoke、Admin e2e 和 Admin build。
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|mcp"`
+- `npm --workspace @dudesign/admin run test:e2e -- e2e/mcp-invocation-audit.spec.ts`
+- `npm --workspace @dudesign/admin run test:e2e -- e2e/model-services-sync.spec.ts e2e/runtime-health.spec.ts`
 
 ### 决策
 
@@ -746,5 +750,4 @@
 
 ### 下一步
 
-- 增加按时间范围的 MCP summary 查询。
 - 将 summary 进一步扩展到 capability usage events，覆盖模板/skill 使用量、成本和 drift。
