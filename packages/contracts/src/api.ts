@@ -197,7 +197,7 @@ export type PluginPermissionPolicy = {
 
 export type CapabilityPlugin = {
   id: ID
-  type: 'skill' | 'mcp_tool'
+  type: 'skill' | 'mcp_tool' | 'mixed'
   visibility: 'official' | 'private' | 'workspace' | 'team'
   name: string
   description: string
@@ -240,6 +240,100 @@ export type CapabilityPluginSnapshot = {
   }
 }
 
+export type McpInvocationMode = 'policy_only' | 'authorized_invocation' | 'replay'
+
+export type McpInvocationRequest = {
+  invocationId: ID
+  mode: Extract<McpInvocationMode, 'authorized_invocation' | 'replay'>
+  userId: ID
+  workspaceId: ID
+  sessionId: ID
+  jobId: ID
+  variationId?: ID
+  runtimeSessionId?: string | null
+  mcpToolId: ID
+  serverName: string
+  toolName: string
+  scopes: PluginPermissionScope[]
+  input: Record<string, unknown>
+  reason: string
+  requestedAt: string
+}
+
+export type McpInvocationResult = {
+  invocationId: ID
+  status: 'ok' | 'denied' | 'unavailable' | 'error'
+  mcpToolId: ID
+  source: {
+    serverName: string
+    toolName: string
+    scopes: PluginPermissionScope[]
+  }
+  summary: string
+  references: Array<{ id: ID; title?: string; url?: string }>
+  data?: Record<string, unknown>
+  error?: {
+    code: string
+    message: string
+    retryable: boolean
+  }
+  completedAt: string
+}
+
+export type McpInvocationAuditRecord = {
+  invocationId: ID
+  request: McpInvocationRequest
+  result: McpInvocationResult
+  policySnapshotHash: string
+  runtimeContractVersion: string
+  replayKey: string
+  createdAt: string
+  completedAt: string
+}
+
+export type McpToolPromptContext = {
+  invocationId: ID
+  mcpToolId: ID
+  status: McpInvocationResult['status']
+  source: McpInvocationResult['source']
+  summary: string
+  references: McpInvocationResult['references']
+  contextText: string
+}
+
+export type AuthorizeMcpInvocationRequest = Omit<McpInvocationRequest, 'invocationId' | 'mode' | 'requestedAt'> & {
+  invocationId?: ID
+  mode?: Extract<McpInvocationMode, 'authorized_invocation' | 'replay'>
+  requestedAt?: string
+}
+
+export type AuthorizeMcpInvocationResponse = {
+  invocationId: ID
+  status: 'authorized' | 'denied'
+  code?: string
+  message?: string
+  request: McpInvocationRequest
+  invocationAuditRecord: McpInvocationAuditRecord
+  audit: unknown
+}
+
+export type ExecuteMcpInvocationRequest = AuthorizeMcpInvocationRequest
+
+export type ExecuteMcpInvocationResponse = AuthorizeMcpInvocationResponse & {
+  result: McpInvocationResult
+  toolContext: McpToolPromptContext | null
+}
+
+export type ReplayMcpInvocationResponse = {
+  invocationId: ID
+  replayKey: string
+  request: McpInvocationRequest
+  result: McpInvocationResult
+  invocationAuditRecord: McpInvocationAuditRecord
+  toolContext: McpToolPromptContext | null
+  audit: unknown
+}
+
 export type AdvancedTemplateConstraints = {
   colorPaletteId?: ID | null
   styleNotes?: string[]
@@ -248,6 +342,8 @@ export type AdvancedTemplateConstraints = {
   negativeRequirements?: string[]
 }
 
+export type AutomationQualityGate = 'static' | 'pixel' | 'spec'
+
 export type AutomationLoopProfile = {
   id: ID
   name: string
@@ -255,9 +351,7 @@ export type AutomationLoopProfile = {
   maxRepairAttempts: number
   maxCostCents: number | null
   maxDurationMs: number
-  qualityGates?: Array<'static' | 'pixel' | 'spec'>
-  enablePixelGate: boolean
-  qualityGate: 'static' | 'pixel'
+  qualityGates: AutomationQualityGate[]
   repairStrategy: 'none' | 'minimal_refine' | 'deep_refine' | 'spec_review_refine'
 }
 
@@ -370,6 +464,18 @@ export type CapabilitySnapshot = {
   }
 }
 
+export type CapabilityPreset = {
+  id: ID
+  productMode: ProductMode
+  name: string
+  description: string
+  domainTemplateId: ID
+  designTemplatePackIds: ID[]
+  skillIds: ID[]
+  mcpToolIds: ID[]
+  loopProfileId: ID
+}
+
 export type ListCapabilitiesResponse = {
   schemaVersion: string
   domainTemplates: DomainTemplate[]
@@ -381,6 +487,7 @@ export type ListCapabilitiesResponse = {
   skills: DesignSkill[]
   mcpToolBindings: McpToolBinding[]
   automationLoopProfiles: AutomationLoopProfile[]
+  capabilityPresets: CapabilityPreset[]
   defaults: {
     domainTemplateId: ID
     aestheticProfileId: ID

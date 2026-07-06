@@ -135,7 +135,7 @@ export type DesignLoopStartedEvent = DesignEventEnvelope<
   {
     profileId: string
     maxRepairAttempts: number
-    qualityGate: 'static' | 'pixel'
+    qualityGates: Array<'static' | 'pixel' | 'spec'>
   }
 >
 
@@ -144,7 +144,7 @@ export type DesignLoopQualityCheckedEvent = DesignEventEnvelope<
   {
     artifactId: string
     attempt: number
-    gate: 'static' | 'pixel'
+    gates: Array<'static' | 'pixel' | 'spec'>
     status: 'pass' | 'warn' | 'fail'
     issues: string[]
   }

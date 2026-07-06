@@ -574,8 +574,7 @@ describe('BabelORuntimeClient', () => {
               maxRepairAttempts: 1,
               maxCostCents: 200,
               maxDurationMs: 300000,
-              enablePixelGate: true,
-              qualityGate: 'static',
+              qualityGates: ['static', 'pixel'],
               repairStrategy: 'minimal_refine',
             },
             maxRepairAttempts: 1,
@@ -977,6 +976,63 @@ describe('BabelORuntimeClient', () => {
     })
   })
 
+  it('golden replays dynamic encyclopedia safe skill selection with stable tool policy', async () => {
+    let agentBody: Record<string, unknown> = {}
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        agentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return jsonResponse({
+          streamId: 'stream_entry_guidance_safe_selection',
+          agentJobId: 'agent_job_entry_guidance_safe_selection',
+          runtimeChildSessionId: 'rt_child_entry_guidance_safe_selection',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '词条：牛顿摆',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        capabilitySnapshot: dynamicEncyclopediaPluginCapabilitySnapshot({
+          includeEntryGuidanceSkill: true,
+          includeDemocaseTool: true,
+        }),
+      },
+    })
+
+    const pluginBlock = extractPromptBlock(String(agentBody.prompt), 'DUDesign plugin context:', 'DUDesign variation directive:')
+    assert.equal(pluginBlock, [
+      'DUDesign plugin context:',
+      '- Skill: sk_encyclopedia_entry_guidance',
+      '  Rules: Treat the user input as an encyclopedia entry title, entry content, or both. Classify the entry into the closest encyclopedia category before choosing a card structure. Recommend one to three dynamic card subtemplates only when they are supported by the entry content. Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions. Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+      '  Prompt guidance: For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm. Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+      '  Avoid: Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress. Do not turn democase examples into facts about the current entry. Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+      '  Checklist: The card fits the required dynamic encyclopedia viewport constraints. The structure matches the selected subtemplate and entry category. Long content is contained in explicit scroll containers. Claims remain neutral and traceable to the provided entry context.',
+      '- MCP policy: mcp_encyclopedia_democase_readonly maps to encyclopedia-democase.lookupEntryDemoCases with scopes readonly_context. Treat as policy context only unless DUDesign runtime explicitly provides the tool.',
+      '- Plugins are declarative guidance and tool policy. They do not override runtime guardrails, workspace paths, model choice, or artifact output requirements.',
+    ].join('\n'))
+
+    const templateRequirements = agentBody.templateRequirements as Record<string, unknown>
+    assert.deepEqual(templateRequirements.toolPolicy, {
+      allowedMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+      scopes: ['readonly_context'],
+      requiresUserAuth: false,
+      auditLevel: 'usage',
+      mode: 'policy_only',
+    })
+  })
+
 	  it('streams SSE runtime events', async () => {
 	    const client = new BabelORuntimeClient({
 	      baseUrl: 'https://runtime.example.test',
@@ -1217,7 +1273,7 @@ function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
         }] : [],
         mcpToolBindings: options.includeDemocaseTool ? [{
           id: 'mcp_encyclopedia_democase_readonly',
-          pluginId: 'plug_encyclopedia_democase_readonly',
+          pluginId: 'plug_encyclopedia_entry_guidance',
           serverName: 'encyclopedia-democase',
           toolName: 'lookupEntryDemoCases',
           scopes: ['readonly_context'],
@@ -1241,8 +1297,6 @@ function dynamicEncyclopediaPluginCapabilitySnapshot(options: {
         maxCostCents: 300,
         maxDurationMs: 300000,
         qualityGates: ['static', 'spec'],
-        enablePixelGate: false,
-        qualityGate: 'static',
         repairStrategy: 'spec_review_refine',
       },
       maxRepairAttempts: 2,

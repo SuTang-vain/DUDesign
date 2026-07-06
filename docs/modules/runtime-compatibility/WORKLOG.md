@@ -1769,3 +1769,158 @@
 
 - 进入动态百科产品体验收口：用户端需要展示 guidance 结果、模板选择确认、自动审查状态和半自动修复入口。
 - 增加 2/3 variation 动态百科 staging smoke，验证多个子模板/不同 variation 的能力分发。
+
+## 2026-07-05 RTC-M36 MCP Invocation Contract
+
+### 已完成
+
+- 新增 `docs/modules/runtime-compatibility/mcp-invocation-contract.md`，固定从 `policy_only` 灰度到真实 MCP 调用的边界。
+- 明确三种调用模式：
+  - `policy_only`
+  - `authorized_invocation`
+  - `replay`
+- 在 `@dudesign/contracts` 中新增标准契约类型：
+  - `McpInvocationMode`
+  - `McpInvocationRequest`
+  - `McpInvocationResult`
+  - `McpInvocationAuditRecord`
+- 在 Runtime Gateway 新增 MCP invocation contract helper：
+  - `runtimeMcpToolPolicy()`
+  - `authorizeMcpInvocation()`
+  - `mcpUnavailableResult()`
+- 单测覆盖：
+  - policy-only tool policy 稳定输出。
+  - 真实调用前必须匹配 selected MCP tool、tool policy、binding target 和 scope。
+  - 需要用户授权的 MCP 工具在未授权前拒绝调用。
+  - MCP unavailable 归一化为可降级、可回放的标准 result。
+- RTC-4.5 `定义真实 MCP 调用 contract` 标记完成。
+
+### 决策
+
+- Application Service 是唯一授权裁决者，Runtime/BabeL-O 不能绕过 DUDesign 直接访问数据库或用户资产。
+- 词条引导向导查询和生成期 agent MCP tool policy 是两条链路。前者可由 Application Service 直连 democase 只读服务；后者必须走 MCP invocation contract。
+- MCP result 只作为带来源上下文注入 prompt，不直接写入长期 memory。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway`
+- `npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="MCP invocation|tool policy|dynamic encyclopedia"`
+
+### 后续建议
+
+- 实现 MCP 调用前授权校验在 Application Service 层的落点，并补 HTTP/API smoke。
+- 定义 MCP audit repository/migration，再接真实 MCP smoke 的授权、调用、结果注入、审计、回放。
+
+## 2026-07-05 RTC-M37 MCP Invocation Authorization Entry
+
+### 已完成
+
+- Application Service 已提供 `POST /api/mcp/invocations/authorize`，作为 runtime/adapter 发起真实 MCP 调用前的唯一授权入口。
+- 入口复用 Runtime Gateway 的 `authorizeMcpInvocation()` contract helper，确保 Application Service 和 Runtime Gateway 对 tool policy 的理解一致。
+- 授权结果写入 `audit_logs`：
+  - `mcp.invocation.authorized`
+  - `mcp.invocation.denied`
+- API smoke 已覆盖授权通过和 scope denied。
+- RTC-4.5 `实现 MCP 调用前授权校验，不允许 runtime 直接绕过 DUDesign Application Service` 标记完成。
+
+### 边界
+
+- 本轮不执行真实 MCP server 调用。
+- 本轮不把工具结果注入 runtime prompt。
+- 审计先使用现有 `audit_logs` 保存 request 和 authorization metadata；专用 replay payload 表仍待补。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+### 后续建议
+
+- 增加 `mcp_invocation_audit_records` 或等价 repository 方法，保存 request/result/replay key。
+- 接入真实 MCP 调用执行器，并把 result 作为带来源的 tool context 注入 runtime。
+
+## 2026-07-05 RTC-M38 MCP Invocation Replay Payload
+
+### 已完成
+
+- MCP invocation contract 的 request/result 现在会被 Application Service 固化为专用 audit record。
+- 专用记录包含：
+  - `McpInvocationRequest`
+  - `McpInvocationResult`
+  - `policySnapshotHash`
+  - `runtimeContractVersion`
+  - `replayKey`
+- 授权通过和拒绝都会生成 replay payload，便于后续真实调用失败排查与合规回放。
+- Runtime Compatibility TODO 中 `实现 MCP 调用审计和 replay payload` 标记完成。
+
+### 边界
+
+- 本轮完成 replay payload 和持久化，不执行真实 MCP server 调用。
+- 本轮不实现 replay execution API。
+- MCP 结果注入规范、MCP unavailable 降级事件和真实 MCP smoke 仍保持待办。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="MCP invocation|tool policy|dynamic encyclopedia"`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+## 2026-07-06 RTC-M39 MCP Executor And Tool Context
+
+### 已完成
+
+- 新增 `McpToolPromptContext` 契约，作为 MCP result 注入 runtime prompt 的标准载体。
+- Runtime Gateway 新增 `mcpToolPromptContext()` helper：
+  - 标注 `serverName/toolName/scopes`。
+  - 保留 reference id/title。
+  - 明确“只作为来源上下文，不自动写入长期 memory”。
+- Application Service 新增可替换 `McpExecutor` 边界，默认 `MockMcpExecutor` 支持：
+  - `encyclopedia-democase.lookupEntryDemoCases`
+  - `quality-tools.validateAccessibility`
+- 新增 `POST /api/mcp/invocations/execute`：
+  - 先复用 `/authorize` 的权限校验。
+  - 授权失败直接返回 denied result，不执行工具。
+  - 授权通过后执行 MCP executor。
+  - 将真实 result 回写同一条 `mcp_invocation_audit_records`。
+  - 返回标准 `toolContext`，供后续 Runtime Gateway 注入 prompt。
+- API smoke 覆盖 mock MCP 执行、结果注入 context 和审计记录更新。
+- RTC-4.5 `MCP 结果注入规范` 标记完成。
+
+### 边界
+
+- 本轮仍未接真实外部 MCP server。
+- 本轮未实现 replay execution API。
+- MCP unavailable 目前以标准 result 表达，尚未进入用户端降级事件展示。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="MCP invocation|tool policy|dynamic encyclopedia"`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+## 2026-07-06 RTC-M40 MCP Replay Execution API
+
+### 已完成
+
+- 新增 replay response contract：`ReplayMcpInvocationResponse`。
+- Repository 增加 `getMcpInvocationAuditRecordByReplayKey()`：
+  - InMemoryStore 从 audit record map 中查找。
+  - PostgresRepository 通过 `replay_key` 查询并回填 cache。
+- 新增 `GET /api/mcp/invocations/replay/:replayKey`：
+  - 只读取 `mcp_invocation_audit_records`。
+  - 不访问外部 MCP server。
+  - 校验当前用户对原 job 至少有 viewer 权限。
+  - 返回历史 request/result、audit record 和由 result 派生的 `McpToolPromptContext`。
+  - 写入 `mcp.invocation.replayed` audit log。
+- API smoke 覆盖 execute 后 replay，断言 replay result/toolContext 与执行结果一致。
+
+### 边界
+
+- replay execution 已完成，但真实外部 MCP transport 仍未接入。
+- 当前 replay 接口按 job viewer 权限开放，后续管理端可增加按 operator/developer role 的审计检索视图。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/runtime-gateway run test -- --test-name-pattern="MCP invocation|tool policy|dynamic encyclopedia"`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
