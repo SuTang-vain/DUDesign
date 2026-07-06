@@ -9,6 +9,7 @@ import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
+import { mcpInvocationToUserError } from '@/lib/capabilityErrors'
 import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
 import type { UserFacingError } from '@/lib/userErrors'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
@@ -168,6 +169,9 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     if (!url) return null
     return `${apiUrl(url)}?v=${previewVersion}`
   }, [detail?.variation.previewUrl, previewVersion])
+  const activeCapabilityNotice = useMemo(() => (
+    capabilityNotice ?? mcpInvocationToUserError(detail?.capabilityNotices?.[0] ?? null)
+  ), [capabilityNotice, detail?.capabilityNotices])
 
   async function submitRefine(): Promise<void> {
     if (!variationId || !detail?.variation.currentArtifactId || !prompt.trim()) return
@@ -537,9 +541,9 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
         </p>
       ) : null}
       <CapabilityNotice
-        error={capabilityNotice}
-        actions={capabilityNotice ? [
-          { label: capabilityNotice.action },
+        error={activeCapabilityNotice}
+        actions={activeCapabilityNotice ? [
+          { label: activeCapabilityNotice.action },
           { label: t('retryImageGeneration') },
           { label: t('switchProvider') },
         ] : undefined}

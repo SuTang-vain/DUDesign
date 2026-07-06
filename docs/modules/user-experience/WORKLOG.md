@@ -1515,5 +1515,19 @@
 
 ### 后续关注
 
-- 扩展 variation detail API，返回最近 MCP invocation result 或 capability notice snapshot。
 - Activity Stream 使用 `mcpInvocationToUserError()` 展示 provider/tool 降级。
+
+## 2026-07-06 UX-9 Variation Detail Capability Notices
+
+### 已完成
+
+- `GET /api/variations/:id` 新增 `capabilityNotices`，返回最近非 `ok` 的 MCP invocation result。
+- Variation 详情页自动读取 `detail.capabilityNotices[0]` 并映射为 `CapabilityNotice`。
+- 返回内容只包含用户端可消费的标准 `McpInvocationResult`，不暴露 admin audit、request 原文、replay key 或 provider secret。
+- API flow smoke 覆盖图片生成内容安全失败后，variation detail 能返回对应 capability notice。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="DUDesign mock API flow"`
+- `node --test apps/web/test/capability-errors.test.mjs`

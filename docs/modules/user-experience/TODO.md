@@ -197,5 +197,5 @@
 - [x] 增加 `CapabilityNotice` 用户端组件，统一展示 MCP / plugin / provider 降级状态。
 - [x] Variation 详情页接入 capability notice 展示位，可复用 `UserFacingError`。
 - [x] 图片生成 provider unavailable 对应动作：继续无图、重试图片、切换 provider。
-- [ ] 将 variation detail API 扩展为返回最近 capability notice / MCP invocation result，让真实 provider 降级能自动显示在用户端。
+- [x] 将 variation detail API 扩展为返回最近 capability notice / MCP invocation result，让真实 provider 降级能自动显示在用户端。
 - [ ] Activity Stream 接入 `mcpInvocationToUserError()`，展示工具调用失败和恢复动作。

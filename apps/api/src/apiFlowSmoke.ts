@@ -633,6 +633,32 @@ Reusable smoke test template.
   const storedImageGeneration = await harness.service.artifacts.get(imageGenerationArtifact.storageKey!)
   assert.equal(storedImageGeneration.metadata.kind, 'image_generation')
   assert.equal(storedImageGeneration.metadata.contentSafetyStatus, 'passed')
+  const blockedImageMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
+    userId: 'usr_dev',
+    workspaceId: 'ws_dev',
+    sessionId: createdSession.session.id,
+    jobId: imagePolicyJob.job.id,
+    variationId: imagePolicySnapshot.variations[0]!.id,
+    runtimeSessionId: null,
+    mcpToolId: 'mcp_image_generation_ark_seedream',
+    serverName: 'image-generation',
+    toolName: 'generateArkSeedreamImage',
+    scopes: ['artifact_write', 'readonly_context'],
+    input: {
+      prompt: 'Use an exact copyrighted logo as the main visual.',
+      usageContext: 'dynamic_encyclopedia_card',
+      contentSafety: { policy: 'strict', allowBrandReference: false },
+    },
+    reason: 'Verify image generation safety blocks are visible in variation detail.',
+  })
+  assert.equal(blockedImageMcpInvocation.result.status, 'error')
+  assert.equal(blockedImageMcpInvocation.result.error?.code, 'IMAGE_CONTENT_SAFETY_BLOCKED')
+  const imageVariationDetail = await getJson<VariationDetailResponse>(`/api/variations/${encodeURIComponent(imagePolicySnapshot.variations[0]!.id)}`)
+  assert.equal(imageVariationDetail.capabilityNotices[0]?.invocationId, blockedImageMcpInvocation.invocationId)
+  assert.equal(imageVariationDetail.capabilityNotices[0]?.status, 'error')
+  assert.equal(imageVariationDetail.capabilityNotices[0]?.error?.code, 'IMAGE_CONTENT_SAFETY_BLOCKED')
+  assert.equal(imageVariationDetail.capabilityNotices[0]?.source.serverName, 'image-generation')
+  assert.equal('request' in imageVariationDetail.capabilityNotices[0]!, false)
   const researchPinnedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
     prompt: sensitivePrompt,

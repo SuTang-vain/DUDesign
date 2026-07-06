@@ -1,7 +1,8 @@
 import type { McpInvocationResult } from '@dudesign/contracts'
 import { toUserFacingError, type UserFacingError } from './userErrors'
 
-export function mcpInvocationToUserError(result: McpInvocationResult): UserFacingError | null {
+export function mcpInvocationToUserError(result: McpInvocationResult | null | undefined): UserFacingError | null {
+  if (!result) return null
   if (result.status === 'ok') return null
 
   return toUserFacingError({

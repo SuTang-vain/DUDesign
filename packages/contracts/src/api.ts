@@ -1151,6 +1151,7 @@ export type VariationDetailResponse = {
     createdAt: string
     quality: ArtifactQualitySummary | null
   }>
+  capabilityNotices: McpInvocationResult[]
 }
 
 export type RestoreVariationVersionResponse = {

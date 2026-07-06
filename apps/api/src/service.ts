@@ -1017,6 +1017,9 @@ export class ApplicationService {
     await this.requireJobAccess(job.id, ctx.userId, 'viewer')
     const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
     const variationTemplatePack = assignedTemplatePackForVariation(variation.index, templateRequirements?.variationTemplateAssignments ?? [])
+    const capabilityNotices = (await this.store.listMcpInvocationAuditRecords({ variationId, limit: 5 }))
+      .map(record => record.result)
+      .filter(result => result.status !== 'ok')
     return {
       variation: {
         ...variation,
@@ -1056,6 +1059,7 @@ export class ApplicationService {
         createdAt: artifact.createdAt,
         quality: artifactQualitySummary(artifact.metadata.quality),
       })),
+      capabilityNotices,
     }
   }
 
