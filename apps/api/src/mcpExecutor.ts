@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import type { McpInvocationRequest, McpInvocationResult, ResearchContextArtifact, ResearchContextPlatform } from '@dudesign/contracts'
+import type {
+  ImageGenerationArtifact,
+  ImageGenerationRequest,
+  ImageGenerationUsageContext,
+  McpInvocationRequest,
+  McpInvocationResult,
+  ResearchContextArtifact,
+  ResearchContextPlatform,
+} from '@dudesign/contracts'
 import { mcpUnavailableResult } from '@dudesign/runtime-gateway'
 import { lookupEncyclopediaDemocases } from './encyclopediaDemocase.js'
 
@@ -71,6 +79,35 @@ export class MockMcpExecutor implements McpExecutor {
           researchContext,
           note: 'Mock Agent-Reach output is normalized before runtime prompt injection. Use as sourced design context only.',
         },
+        completedAt,
+      }
+    }
+    if (request.serverName === 'image-generation' && request.toolName === 'generateArkSeedreamImage') {
+      const imageGeneration = mockImageGenerationArtifact(request, completedAt)
+      return {
+        invocationId: request.invocationId,
+        status: imageGeneration.contentSafety.status === 'blocked' ? 'error' : 'ok',
+        mcpToolId: request.mcpToolId,
+        source: invocationSource(request),
+        summary: imageGeneration.contentSafety.status === 'blocked'
+          ? 'Image generation request was blocked by content safety policy.'
+          : `Generated ${imageGeneration.usageContext} image asset with ${imageGeneration.provider}.`,
+        references: imageGeneration.artifactId
+          ? [{ id: imageGeneration.artifactId, title: 'Generated image asset', url: imageGeneration.imageUrl }]
+          : [],
+        data: {
+          imageGeneration,
+          note: 'Mock image generation output is artifact-backed context only; provider keys and raw provider payloads are never exposed.',
+        },
+        ...(imageGeneration.contentSafety.status === 'blocked'
+          ? {
+              error: {
+                code: 'IMAGE_CONTENT_SAFETY_BLOCKED',
+                message: imageGeneration.contentSafety.reason ?? 'Image generation request failed content safety checks.',
+                retryable: false,
+              },
+            }
+          : {}),
         completedAt,
       }
     }
@@ -204,6 +241,78 @@ function researchPlatformForTool(toolName: string): ResearchContextPlatform {
   if (toolName === 'readPage') return 'web'
   if (toolName === 'scanSocial') return 'social'
   return 'unknown'
+}
+
+function mockImageGenerationArtifact(request: McpInvocationRequest, completedAt: string): ImageGenerationArtifact {
+  const parsed = normalizeImageGenerationRequest(request.input)
+  const promptHash = createHash('sha256').update(JSON.stringify({
+    prompt: parsed.prompt,
+    model: parsed.model,
+    size: parsed.size,
+    usageContext: parsed.usageContext,
+  })).digest('hex')
+  const blocked = /logo|copyrighted|celebrity|private person|exact brand trade dress/i.test(parsed.prompt)
+  const artifactId = blocked ? null : `img_${promptHash.slice(0, 16)}`
+  return {
+    schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
+    provider: 'mock',
+    model: parsed.model,
+    promptHash,
+    imageUrl: artifactId ? `mock://image-generation/${artifactId}.png` : '',
+    size: parsed.size,
+    watermark: parsed.watermark,
+    usageContext: parsed.usageContext,
+    contentType: 'image/png',
+    contentSafety: {
+      status: blocked ? 'blocked' : 'passed',
+      policy: parsed.contentSafety?.policy ?? 'standard',
+      reason: blocked ? 'Prompt appears to request protected brand, celebrity, or copyrighted imagery.' : null,
+    },
+    costCents: blocked ? 0 : 12,
+    artifactId,
+    createdAt: completedAt,
+  }
+}
+
+function normalizeImageGenerationRequest(input: Record<string, unknown>): ImageGenerationRequest {
+  const prompt = optionalString(input.prompt) ?? 'Abstract product visual asset, clean composition, original non-branded design.'
+  const model = optionalString(input.model) ?? 'doubao-seedream-5-0-260128'
+  const size = optionalString(input.size) ?? '2K'
+  const watermark = typeof input.watermark === 'boolean' ? input.watermark : true
+  const usageContext = imageUsageContext(input.usageContext)
+  const contentSafety = isRecord(input.contentSafety)
+    ? {
+        policy: input.contentSafety.policy === 'strict' ? 'strict' as const : 'standard' as const,
+        allowBrandReference: input.contentSafety.allowBrandReference === true,
+      }
+    : {
+        policy: 'standard' as const,
+        allowBrandReference: false,
+      }
+  return {
+    schemaVersion: '2026-07-06.dudesign-image-generation-request.v1',
+    prompt,
+    model,
+    size,
+    watermark,
+    usageContext,
+    variationId: optionalString(input.variationId),
+    templatePackId: optionalString(input.templatePackId),
+    contentSafety,
+  }
+}
+
+function imageUsageContext(value: unknown): ImageGenerationUsageContext {
+  if (
+    value === 'template_hero'
+    || value === 'template_illustration'
+    || value === 'background_texture'
+    || value === 'reference_mood'
+    || value === 'dynamic_encyclopedia_card'
+  ) {
+    return value
+  }
+  return 'template_illustration'
 }
 
 function normalizeMcpExecutorResponse(payload: unknown): McpInvocationResult | null {

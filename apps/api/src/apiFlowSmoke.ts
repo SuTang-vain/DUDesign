@@ -575,6 +575,64 @@ Reusable smoke test template.
   assert.equal(researchContextArtifact?.sourceCount, 1)
   const storedResearchContext = await harness.service.artifacts.get(researchContextArtifact.storageKey!)
   assert.equal(storedResearchContext.metadata.kind, 'research_context')
+  const imagePolicyJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
+    sessionId: createdSession.session.id,
+    prompt: 'Create a dynamic encyclopedia card with an original abstract supporting illustration.',
+    sourceMode: 'new_html',
+    productMode: 'dynamic_encyclopedia_card',
+    variationCount: 1,
+    capabilityRequirements: {
+      template: {
+        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
+      },
+      plugins: {
+        skillIds: ['sk_visual_asset_brief'],
+        mcpToolIds: ['mcp_image_generation_ark_seedream'],
+      },
+    },
+  })
+  const imagePolicySnapshot = await waitForJob(imagePolicyJob.job.id)
+  const executedImageMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
+    userId: 'usr_dev',
+    workspaceId: 'ws_dev',
+    sessionId: createdSession.session.id,
+    jobId: imagePolicyJob.job.id,
+    variationId: imagePolicySnapshot.variations[0]!.id,
+    runtimeSessionId: null,
+    mcpToolId: 'mcp_image_generation_ark_seedream',
+    serverName: 'image-generation',
+    toolName: 'generateArkSeedreamImage',
+    scopes: ['artifact_write', 'readonly_context'],
+    input: {
+      prompt: 'Original blue abstract knowledge-card illustration with soft geometric depth.',
+      model: 'doubao-seedream-5-0-260128',
+      size: '2K',
+      watermark: true,
+      usageContext: 'dynamic_encyclopedia_card',
+      contentSafety: { policy: 'strict', allowBrandReference: false },
+    },
+    reason: 'Create a reviewed generated image artifact for card visual context.',
+  })
+  assert.equal(executedImageMcpInvocation.result.status, 'ok')
+  const imageGenerationArtifact = executedImageMcpInvocation.result.data?.imageGenerationArtifact as {
+    artifactId?: string
+    storageKey?: string
+    contentHash?: string
+    schemaVersion?: string
+    provider?: string
+    usageContext?: string
+    contentSafetyStatus?: string
+    costCents?: number
+  } | undefined
+  assert.ok(imageGenerationArtifact?.artifactId)
+  assert.equal(imageGenerationArtifact?.schemaVersion, '2026-07-06.dudesign-image-generation-artifact.v1')
+  assert.equal(imageGenerationArtifact?.provider, 'mock')
+  assert.equal(imageGenerationArtifact?.usageContext, 'dynamic_encyclopedia_card')
+  assert.equal(imageGenerationArtifact?.contentSafetyStatus, 'passed')
+  assert.equal(imageGenerationArtifact?.costCents, 12)
+  const storedImageGeneration = await harness.service.artifacts.get(imageGenerationArtifact.storageKey!)
+  assert.equal(storedImageGeneration.metadata.kind, 'image_generation')
+  assert.equal(storedImageGeneration.metadata.contentSafetyStatus, 'passed')
   const researchPinnedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
     prompt: sensitivePrompt,

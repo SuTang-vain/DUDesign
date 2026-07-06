@@ -548,6 +548,23 @@ const capabilityPlugins: CapabilityPlugin[] = [
     },
   },
   {
+    id: 'plug_image_generation',
+    type: 'mixed',
+    visibility: 'official',
+    name: 'Image Generation',
+    description: 'Generates controlled visual assets through server-side providers and stores reviewed image artifacts before generation can use them.',
+    category: 'assets',
+    safetyLevel: 'review_required',
+    status: 'active',
+    permissionPolicy: {
+      scopes: ['readonly_context', 'artifact_write'],
+      maxPromptChars: 1800,
+      allowRuntimeToolUse: false,
+      requiresUserAuth: false,
+      auditLevel: 'full',
+    },
+  },
+  {
     id: 'plug_asset_library_readonly',
     type: 'mcp_tool',
     visibility: 'official',
@@ -753,6 +770,30 @@ const designSkills: DesignSkill[] = [
     allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
   },
   {
+    id: 'sk_visual_asset_brief',
+    pluginId: 'plug_image_generation',
+    schemaVersion: '2026-07-06.dudesign-skill.v1',
+    rules: [
+      'Translate visual asset needs into a concise ImageGenerationRequest with prompt, model, size, watermark, usage context, and safety policy.',
+      'Use generated images as supporting visual assets, not as a reason to copy public brand trade dress, logos, copyrighted characters, or protected UI chrome.',
+      'Prefer reusable scene, texture, object, or illustration briefs that can be stored as artifacts and referenced by id.',
+      'Keep provider API keys, raw provider responses, and temporary URLs outside runtime prompts and job snapshots.',
+    ],
+    promptBlocks: [
+      'When an image asset is needed, describe the asset brief separately from page layout. Use only reviewed ImageGenerationArtifact references in generation context.',
+    ],
+    negativeRules: [
+      'Do not request logos, copyrighted characters, exact brand screenshots, public brand trade dress, or user-identifying imagery.',
+      'Do not embed external provider secrets, temporary upload URLs, or raw image generation payloads in HTML.',
+    ],
+    qualityChecklist: [
+      'The asset brief states usage context, size, watermark preference, and safety policy.',
+      'Generated assets are referenced by artifact id or reviewed URL, not by provider secrets.',
+      'The design can degrade gracefully if image generation is unavailable.',
+    ],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+  },
+  {
     id: 'sk_encyclopedia_entry_guidance',
     pluginId: 'plug_encyclopedia_entry_guidance',
     schemaVersion: '2026-07-03.dudesign-skill.v1',
@@ -836,6 +877,15 @@ const mcpToolBindings: McpToolBinding[] = [
     scopes: ['readonly_context'],
     requiresUserAuth: false,
     allowedTemplateCategories: ['creative', 'product', 'ai', 'encyclopedia'],
+  },
+  {
+    id: 'mcp_image_generation_ark_seedream',
+    pluginId: 'plug_image_generation',
+    serverName: 'image-generation',
+    toolName: 'generateArkSeedreamImage',
+    scopes: ['artifact_write', 'readonly_context'],
+    requiresUserAuth: false,
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
   },
 ]
 
@@ -1042,7 +1092,7 @@ function validateDeclarativeSkill(skill: DesignSkill): void {
 }
 
 function isMvpSafePluginPolicy(scopes: PluginPermissionScope[]): boolean {
-  return scopes.every(scope => scope === 'readonly_context' || scope === 'asset_readonly' || scope === 'validation_only')
+  return scopes.every(scope => scope === 'readonly_context' || scope === 'asset_readonly' || scope === 'validation_only' || scope === 'artifact_write')
 }
 
 function capabilityError(code: string, message: string): Error & { status: number; code: string } {

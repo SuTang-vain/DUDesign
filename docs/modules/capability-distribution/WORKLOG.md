@@ -2002,3 +2002,50 @@
 - API smoke 已覆盖：
   - 创建 job 引用 data-intake artifact。
   - 存储后的 job `templateRequirements.dataIntakeArtifactId` 与 `templateRequirements.dataIntake` 不漂移。
+
+## 2026-07-06 CAP-9.2 Image Generation MCP Mock Foundation
+
+### 已完成
+
+- 新增图片生成能力契约：
+  - `ImageGenerationRequest`
+  - `ImageGenerationArtifact`
+  - `ImageGenerationUsageContext`
+- 官方 registry 增加图片生成插件族：
+  - `plug_image_generation`
+  - `sk_visual_asset_brief`
+  - `mcp_image_generation_ark_seedream`
+- `sk_visual_asset_brief` 明确：
+  - 将视觉资产需求转为受控 image request。
+  - 不请求 logo、版权角色、品牌 trade dress、受保护 UI chrome。
+  - provider API key、raw provider response、临时 URL 不进入 runtime prompt 或 job snapshot。
+- `MockMcpExecutor` 增加 image generation 分支：
+  - 成功请求返回 mock `ImageGenerationArtifact`。
+  - 命中 logo / copyrighted / celebrity / exact brand trade dress 等风险词时返回 `IMAGE_CONTENT_SAFETY_BLOCKED`。
+- Application Service 的 MCP execute 阶段新增 `persistMcpCapabilityArtifacts()`：
+  - 继续支持 research context artifact 固化。
+  - 新增 image generation artifact 固化到 artifact store。
+  - MCP result 对外只返回 `/api/capability-artifacts/:artifactId` 形式的稳定引用和 artifact metadata。
+- capability registry 单测覆盖 artifact write scope 的 tool policy。
+- API smoke 覆盖图片生成 MCP：
+  - job snapshot 中选择 `sk_visual_asset_brief` + `mcp_image_generation_ark_seedream`。
+  - 执行 mock image MCP。
+  - 验证 image artifact 写入 artifact store。
+  - 验证 content safety status、cost 和 metadata。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="capability plugin registry|MockMcpExecutor|MCP|api flow"`
+
+### 决策
+
+- 本轮不直接接入火山方舟真实 API；先稳定 DUDesign 内部契约、权限、审计和 artifact 语义。
+- 图片生成产物暂不扩展 `ArtifactKind`，避免把 variation artifact 与 capability artifact 混为一层；真实图片二进制/URL 管理后续再通过 provider adapter 和 artifact resolver 收敛。
+
+### 后续关注
+
+- 增加 Ark Seedream provider adapter：
+  - `ARK_API_KEY` 仅存在服务端 secret。
+  - 支持 provider unavailable、rate limit、content safety blocked、cost usage。
+- 增加真实 provider smoke，但默认 CI/staging smoke 仍使用 mock，避免依赖外部付费服务。

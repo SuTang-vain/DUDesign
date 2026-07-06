@@ -150,6 +150,48 @@ export type ResearchContextArtifactReference = {
   createdAt?: string
 }
 
+export type ImageGenerationUsageContext =
+  | 'template_hero'
+  | 'template_illustration'
+  | 'background_texture'
+  | 'reference_mood'
+  | 'dynamic_encyclopedia_card'
+
+export type ImageGenerationRequest = {
+  schemaVersion: '2026-07-06.dudesign-image-generation-request.v1'
+  prompt: string
+  model: string
+  size: '1K' | '2K' | '4K' | string
+  watermark: boolean
+  usageContext: ImageGenerationUsageContext
+  variationId?: ID | null
+  templatePackId?: ID | null
+  contentSafety?: {
+    policy: 'standard' | 'strict'
+    allowBrandReference: boolean
+  }
+}
+
+export type ImageGenerationArtifact = {
+  schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1'
+  provider: 'mock' | 'ark_seedream' | string
+  model: string
+  promptHash: string
+  imageUrl: string
+  size: string
+  watermark: boolean
+  usageContext: ImageGenerationUsageContext
+  contentType: string
+  contentSafety: {
+    status: 'passed' | 'blocked' | 'review_required'
+    policy: 'standard' | 'strict'
+    reason?: string | null
+  }
+  costCents: number
+  artifactId?: ID | null
+  createdAt: string
+}
+
 export type DataIntakeInputSource =
   | 'prompt'
   | 'url'

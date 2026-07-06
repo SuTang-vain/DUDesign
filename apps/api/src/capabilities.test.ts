@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { DataIntakeAnalysis, ResearchContextArtifact } from '@dudesign/contracts'
+import type { DataIntakeAnalysis, ImageGenerationArtifact, ImageGenerationRequest, ResearchContextArtifact } from '@dudesign/contracts'
 import { listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
 
 describe('capability plugin registry', () => {
@@ -54,6 +54,45 @@ describe('capability plugin registry', () => {
     assert.equal(analysis.recommendedSkills[0]?.id, 'sk_dual_surface_strategy')
   })
 
+  it('supports the ImageGenerationRequest and ImageGenerationArtifact contracts for controlled visual assets', () => {
+    const request: ImageGenerationRequest = {
+      schemaVersion: '2026-07-06.dudesign-image-generation-request.v1',
+      prompt: 'Abstract blue knowledge-card background, clean vector depth, no logos.',
+      model: 'doubao-seedream-5-0-260128',
+      size: '2K',
+      watermark: true,
+      usageContext: 'dynamic_encyclopedia_card',
+      variationId: 'var_01',
+      templatePackId: 'dtp_dynamic_encyclopedia_summary_card',
+      contentSafety: {
+        policy: 'strict',
+        allowBrandReference: false,
+      },
+    }
+    const artifact: ImageGenerationArtifact = {
+      schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
+      provider: 'ark_seedream',
+      model: request.model,
+      promptHash: 'a'.repeat(64),
+      imageUrl: '/api/capability-artifacts/img_01',
+      size: request.size,
+      watermark: request.watermark,
+      usageContext: request.usageContext,
+      contentType: 'image/png',
+      contentSafety: {
+        status: 'passed',
+        policy: 'strict',
+      },
+      costCents: 12,
+      artifactId: 'img_01',
+      createdAt: '2026-07-06T00:00:00.000Z',
+    }
+
+    assert.equal(request.contentSafety?.allowBrandReference, false)
+    assert.equal(artifact.promptHash.length, 64)
+    assert.equal(artifact.usageContext, 'dynamic_encyclopedia_card')
+  })
+
   it('lists automation loop profiles with stop condition defaults', () => {
     const capabilities = listCapabilities()
     const fast = capabilities.automationLoopProfiles.find(profile => profile.id === 'loop_fast')
@@ -105,6 +144,9 @@ describe('capability plugin registry', () => {
     const researchPlugin = capabilities.plugins.find(plugin => plugin.id === 'plug_research_context')
     const researchSkill = capabilities.skills.find(skill => skill.id === 'sk_research_brief_builder')
     const researchSearchBinding = capabilities.mcpToolBindings.find(binding => binding.id === 'mcp_agent_reach_search')
+    const imagePlugin = capabilities.plugins.find(plugin => plugin.id === 'plug_image_generation')
+    const imageSkill = capabilities.skills.find(skill => skill.id === 'sk_visual_asset_brief')
+    const imageBinding = capabilities.mcpToolBindings.find(binding => binding.id === 'mcp_image_generation_ark_seedream')
     const democaseBinding = capabilities.mcpToolBindings.find(binding => binding.id === 'mcp_encyclopedia_democase_readonly')
     assert.ok(guidancePlugin)
     assert.equal(guidancePlugin.type, 'mixed')
@@ -129,6 +171,14 @@ describe('capability plugin registry', () => {
     assert.ok(researchSearchBinding)
     assert.equal(researchSearchBinding.serverName, 'agent-reach')
     assert.deepEqual(researchSearchBinding.scopes, ['readonly_context'])
+    assert.ok(imagePlugin)
+    assert.equal(imagePlugin.category, 'assets')
+    assert.equal(imagePlugin.permissionPolicy.auditLevel, 'full')
+    assert.ok(imageSkill)
+    assert.equal(imageSkill.pluginId, 'plug_image_generation')
+    assert.ok(imageBinding)
+    assert.equal(imageBinding.serverName, 'image-generation')
+    assert.deepEqual(imageBinding.scopes, ['artifact_write', 'readonly_context'])
     assert.ok(democaseBinding)
     assert.equal(democaseBinding.pluginId, 'plug_encyclopedia_entry_guidance')
     assert.deepEqual(democaseBinding.scopes, ['readonly_context'])
@@ -242,6 +292,25 @@ describe('capability plugin registry', () => {
     ])
     assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.scopes, ['readonly_context'])
     assert.equal(snapshot.plugins.pluginSnapshot?.toolPolicy.requiresUserAuth, false)
+    assert.equal(snapshot.plugins.pluginSnapshot?.toolPolicy.auditLevel, 'full')
+  })
+
+  it('snapshots image generation MCP bindings with artifact write scope', () => {
+    const snapshot = resolveCapabilitySnapshot({
+      template: {
+        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
+      },
+      plugins: {
+        skillIds: ['sk_visual_asset_brief'],
+        mcpToolIds: ['mcp_image_generation_ark_seedream'],
+      },
+    })
+
+    assert.deepEqual(snapshot.plugins.skillIds, ['sk_visual_asset_brief'])
+    assert.deepEqual(snapshot.plugins.mcpToolIds, ['mcp_image_generation_ark_seedream'])
+    assert.deepEqual(snapshot.plugins.pluginSnapshot?.mcpToolBindings.map(binding => binding.id), ['mcp_image_generation_ark_seedream'])
+    assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.allowedMcpToolIds, ['mcp_image_generation_ark_seedream'])
+    assert.deepEqual(snapshot.plugins.pluginSnapshot?.toolPolicy.scopes, ['readonly_context', 'artifact_write'])
     assert.equal(snapshot.plugins.pluginSnapshot?.toolPolicy.auditLevel, 'full')
   })
 

@@ -16,6 +16,7 @@ import type {
   DataIntakeRecommendation,
   EncyclopediaEntryGuidanceResponse,
   ExecuteMcpInvocationResponse,
+  ImageGenerationArtifact,
   CreateSourceArtifactRequest,
   CreateSessionRequest,
   DesignTemplatePack,
@@ -930,7 +931,7 @@ export class ApplicationService {
     }
 
     const rawResult = await this.mcpExecutor.execute(authorizationResponse.request)
-    const result = await this.persistMcpResearchContextArtifact(authorizationResponse.request, rawResult)
+    const result = await this.persistMcpCapabilityArtifacts(authorizationResponse.request, rawResult)
     const invocationAuditRecord = await this.store.saveMcpInvocationAuditRecord({
       ...authorizationResponse.invocationAuditRecord,
       result,
@@ -4043,6 +4044,14 @@ export class ApplicationService {
     }
   }
 
+  private async persistMcpCapabilityArtifacts(
+    request: McpInvocationRequest,
+    result: McpInvocationResult,
+  ): Promise<McpInvocationResult> {
+    const withResearchContext = await this.persistMcpResearchContextArtifact(request, result)
+    return await this.persistMcpImageGenerationArtifact(request, withResearchContext)
+  }
+
   private async persistMcpResearchContextArtifact(
     request: McpInvocationRequest,
     result: McpInvocationResult,
@@ -4093,6 +4102,72 @@ export class ApplicationService {
       data: {
         ...(result.data ?? {}),
         researchContextArtifact: reference,
+      },
+    }
+  }
+
+  private async persistMcpImageGenerationArtifact(
+    request: McpInvocationRequest,
+    result: McpInvocationResult,
+  ): Promise<McpInvocationResult> {
+    if (result.status !== 'ok') return result
+    const imageGeneration = isImageGenerationArtifact(result.data?.imageGeneration)
+      ? result.data.imageGeneration
+      : undefined
+    if (!imageGeneration) return result
+
+    const artifactId = createId('img')
+    const createdAt = result.completedAt
+    const persisted: ImageGenerationArtifact = {
+      ...imageGeneration,
+      artifactId,
+      imageUrl: `/api/capability-artifacts/${encodeURIComponent(artifactId)}`,
+      createdAt,
+    }
+    const body = JSON.stringify({
+      kind: 'image_generation',
+      invocationId: request.invocationId,
+      mcpToolId: request.mcpToolId,
+      imageGeneration: persisted,
+      createdAt,
+    }, null, 2)
+    const stored = await this.artifacts.put({
+      workspaceId: request.workspaceId,
+      artifactId,
+      relativePath: 'capabilities/image-generation/image.json',
+      contentType: 'application/json',
+      body,
+      metadata: {
+        kind: 'image_generation',
+        invocationId: request.invocationId,
+        mcpToolId: request.mcpToolId,
+        schemaVersion: persisted.schemaVersion,
+        provider: persisted.provider,
+        model: persisted.model,
+        usageContext: persisted.usageContext,
+        contentSafetyStatus: persisted.contentSafety.status,
+      },
+    })
+
+    return {
+      ...result,
+      references: [{ id: artifactId, title: 'Generated image asset', url: persisted.imageUrl }],
+      data: {
+        ...(result.data ?? {}),
+        imageGeneration: persisted,
+        imageGenerationArtifact: {
+          artifactId,
+          storageKey: stored.storageKey,
+          contentHash: stored.contentHash,
+          sizeBytes: stored.sizeBytes,
+          schemaVersion: persisted.schemaVersion,
+          provider: persisted.provider,
+          model: persisted.model,
+          usageContext: persisted.usageContext,
+          contentSafetyStatus: persisted.contentSafety.status,
+          costCents: persisted.costCents,
+          createdAt,
+        },
       },
     }
   }
@@ -4301,6 +4376,29 @@ function isResearchContextArtifact(value: unknown): value is ResearchContextArti
     && record.riskFlags.every(item => typeof item === 'string')
     && typeof record.rawPayloadHash === 'string'
     && (record.reviewStatus === 'auto_reviewed' || record.reviewStatus === 'human_review_required' || record.reviewStatus === 'rejected')
+}
+
+function isImageGenerationArtifact(value: unknown): value is ImageGenerationArtifact {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  const safety = record.contentSafety
+  return record.schemaVersion === '2026-07-06.dudesign-image-generation-artifact.v1'
+    && typeof record.provider === 'string'
+    && typeof record.model === 'string'
+    && typeof record.promptHash === 'string'
+    && typeof record.imageUrl === 'string'
+    && typeof record.size === 'string'
+    && typeof record.watermark === 'boolean'
+    && typeof record.usageContext === 'string'
+    && typeof record.contentType === 'string'
+    && safety !== null
+    && typeof safety === 'object'
+    && !Array.isArray(safety)
+    && (safety as Record<string, unknown>).status !== 'blocked'
+    && ((safety as Record<string, unknown>).status === 'passed' || (safety as Record<string, unknown>).status === 'review_required')
+    && ((safety as Record<string, unknown>).policy === 'standard' || (safety as Record<string, unknown>).policy === 'strict')
+    && typeof record.costCents === 'number'
+    && typeof record.createdAt === 'string'
 }
 
 function isResearchContextSource(value: unknown): boolean {
