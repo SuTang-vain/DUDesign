@@ -2130,3 +2130,9 @@
 
 - 将 `mcpInvocationToUserError` 接入用户端 Activity Stream/插件执行结果 UI。
 - 为图片生成失败增加可操作按钮：继续无图、重试图片、切换 provider。
+
+### 2026-07-06 追加进展
+
+- 用户端已新增 `CapabilityNotice` 组件，并在 Variation 详情页预留真实展示位。
+- 已补充重试图片 / 切换 provider 的用户端动作文案。
+- 下一步需要由 Application Service 在 variation detail 或 Activity Stream 中返回 recent MCP invocation / capability notice snapshot，才能自动显示真实 provider 降级。

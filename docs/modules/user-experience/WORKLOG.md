@@ -1494,3 +1494,26 @@
 
 - 为动态百科两阶段首页流程补 Playwright E2E：首次点击停留在首页、展示流程条 done/active 状态，二次点击创建 job。
 - 将自动审查状态接入结构化 spec findings，展示规则、严重级别、建议修复和半自动 diff。
+## 2026-07-06 UX-9 Capability Degradation Notice
+
+### 已完成
+
+- 新增用户端 `CapabilityNotice` 组件：
+  - 支持直接传入 `UserFacingError`。
+  - 支持传入 `McpInvocationResult` 并通过 `mcpInvocationToUserError()` 生成用户文案。
+  - 默认展示主动作，并支持补充操作按钮。
+- Variation 详情页在原有 error / notice 区域下方接入 capability notice 展示位。
+- 增加中英文动作文案：
+  - `Retry image` / `重试图片`
+  - `Switch provider` / `切换 provider`
+- 样式使用现有 token：`warning-soft`、`accent`、`surface`、`pill`，保持与当前工作台一致。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/capability-errors.test.mjs`
+
+### 后续关注
+
+- 扩展 variation detail API，返回最近 MCP invocation result 或 capability notice snapshot。
+- Activity Stream 使用 `mcpInvocationToUserError()` 展示 provider/tool 降级。

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CapabilitySummary } from '@/components/CapabilitySummary'
+import { CapabilityNotice } from '@/components/CapabilityNotice'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { VariationActionMenu } from '@/components/VariationActionMenu'
@@ -9,6 +10,7 @@ import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
 import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
+import type { UserFacingError } from '@/lib/userErrors'
 import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'circle' | 'arrow' | 'pen' | 'text'
@@ -59,6 +61,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [draftShape, setDraftShape] = useState<DraftShape | null>(null)
   const draftShapeRef = useRef<DraftShape | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [capabilityNotice, setCapabilityNotice] = useState<UserFacingError | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting'>('idle')
   const [lastExport, setLastExport] = useState<ExportArtifactSummary | null>(null)
@@ -171,6 +174,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     setStatus('refining')
     setError(null)
     setNotice(null)
+    setCapabilityNotice(null)
     try {
       await refineVariation(variationId, {
         prompt: prompt.trim(),
@@ -191,6 +195,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     setStatus('refining')
     setError(null)
     setNotice(null)
+    setCapabilityNotice(null)
     try {
       await createAnnotationBatch(variationId, {
         artifactId: detail.variation.currentArtifactId,
@@ -531,6 +536,14 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           {shareUrl ? <> · <a data-testid="share-link" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></> : null}
         </p>
       ) : null}
+      <CapabilityNotice
+        error={capabilityNotice}
+        actions={capabilityNotice ? [
+          { label: capabilityNotice.action },
+          { label: t('retryImageGeneration') },
+          { label: t('switchProvider') },
+        ] : undefined}
+      />
 
       <section className="ed-grid">
         <section className={`device ${device}`}>

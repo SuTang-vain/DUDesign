@@ -192,3 +192,10 @@
 
 - 用户不需要理解 prompt 工程即可走完词条到动态百科卡片生成流程。
 - 用户端不直接调用 democase MCP，不直接拼接 BabeL-O 私有 prompt。
+## Phase UX-9：能力降级与外部工具状态
+
+- [x] 增加 `CapabilityNotice` 用户端组件，统一展示 MCP / plugin / provider 降级状态。
+- [x] Variation 详情页接入 capability notice 展示位，可复用 `UserFacingError`。
+- [x] 图片生成 provider unavailable 对应动作：继续无图、重试图片、切换 provider。
+- [ ] 将 variation detail API 扩展为返回最近 capability notice / MCP invocation result，让真实 provider 降级能自动显示在用户端。
+- [ ] Activity Stream 接入 `mcpInvocationToUserError()`，展示工具调用失败和恢复动作。

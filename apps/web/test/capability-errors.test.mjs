@@ -24,6 +24,23 @@ describe('capability user errors', () => {
     assert.equal(error?.severity, 'warning')
   })
 
+  it('keeps the image-generation action labels stable for notice UI', () => {
+    const imageError = toUserFacingError({
+      code: 'MCP_UNAVAILABLE',
+      message: 'Ark Seedream image provider request failed.',
+      recoverable: true,
+      scope: 'runtime',
+      context: {
+        mcpToolId: 'mcp_image_generation_ark_seedream',
+        serverName: 'image-generation',
+        toolName: 'generateArkSeedreamImage',
+      },
+    })
+
+    assert.equal(imageError.action, 'Continue without images')
+    assert.match(imageError.message, /Retry image generation later|switch to another image provider/)
+  })
+
   it('keeps non-image MCP unavailable results on the generic capability message', () => {
     const error = toUserFacingError({
       code: 'MCP_UNAVAILABLE',
