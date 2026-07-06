@@ -286,6 +286,22 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'POST' && url.pathname === '/api/mcp/invocations/authorize') {
+    sendJson(res, 200, await service.authorizeMcpInvocation(ctx, await readJson(req)))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/mcp/invocations/execute') {
+    sendJson(res, 200, await service.executeMcpInvocation(ctx, await readJson(req)))
+    return
+  }
+
+  const mcpReplayMatch = url.pathname.match(/^\/api\/mcp\/invocations\/replay\/(.+)$/)
+  if (method === 'GET' && mcpReplayMatch) {
+    sendJson(res, 200, await service.replayMcpInvocation(ctx, decodeURIComponent(mcpReplayMatch[1]!)))
+    return
+  }
+
   const jobStreamMatch = url.pathname.match(/^\/api\/design-jobs\/([^/]+)\/stream$/)
   if (method === 'GET' && jobStreamMatch) {
     await streamJobEvents(res, service, ctx, decodeURIComponent(jobStreamMatch[1]!))

@@ -1,9 +1,11 @@
 import { createDesignEvent } from '@dudesign/contracts'
 import type {
   AdvancedTemplateConstraints,
+  AuthorizeMcpInvocationRequest,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
   EncyclopediaEntryGuidanceResponse,
+  ExecuteMcpInvocationResponse,
   CreateSourceArtifactRequest,
   CreateSessionRequest,
   DesignTemplatePack,
@@ -11,16 +13,28 @@ import type {
   InteractionParadigm,
   ImportDesignTemplatePackRequest,
   RefineVariationRequest,
+  ReplayMcpInvocationResponse,
   ReviewVariationActionRequest,
   SaveVariationTemplateRequest,
   ShareVariationRequest,
   UpdateUserPreferencesRequest,
   UserCapabilityPreference,
+  McpInvocationRequest,
+  McpInvocationResult,
 } from '@dudesign/contracts'
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
-import { MockRuntimeGateway, type RuntimeGateway, type RuntimeModels } from '@dudesign/runtime-gateway'
+import {
+  authorizeMcpInvocation,
+  DUDESIGN_RUNTIME_CONTRACT_VERSION,
+  type McpInvocationAuthorization,
+  mcpToolPromptContext,
+  MockRuntimeGateway,
+  type RuntimeGateway,
+  type RuntimeModels,
+} from '@dudesign/runtime-gateway'
 import type { Artifact, DesignVariation, DesignVariationStatus, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
 import type { EncyclopediaEntryGuidance } from '@dudesign/domain'
+import { createHash } from 'node:crypto'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
 import {
@@ -56,6 +70,7 @@ import {
   type ScreenshotJobQueuePayload,
 } from './designJobQueue.js'
 import { attachDesignJobWorker } from './designJobWorker.js'
+import { MockMcpExecutor, type McpExecutor } from './mcpExecutor.js'
 import {
   buildAutomationRepairPrompt,
   evaluateAutomationLoopStop,
@@ -120,6 +135,7 @@ export class ApplicationService {
   readonly runtime: RuntimeGateway
   readonly artifacts: ArtifactStore
   readonly queue: DesignJobQueue
+  readonly mcpExecutor: McpExecutor
   private readonly backgroundTasks = new Set<Promise<unknown>>()
 
   constructor(options: {
@@ -128,6 +144,7 @@ export class ApplicationService {
     runtime?: RuntimeGateway
     artifacts?: ArtifactStore
     queue?: DesignJobQueue
+    mcpExecutor?: McpExecutor
     consumeQueue?: boolean
   } = {}) {
     this.store = options.store ?? new InMemoryStore()
@@ -137,6 +154,7 @@ export class ApplicationService {
       rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
     })
     this.queue = options.queue ?? new InMemoryDesignJobQueue()
+    this.mcpExecutor = options.mcpExecutor ?? new MockMcpExecutor()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
     }
@@ -761,6 +779,148 @@ export class ApplicationService {
         url: artifact.kind === 'screenshot' ? screenshotUrlForArtifact(artifact) : null,
         quality: artifactQualitySummary(artifact.metadata.quality),
       })),
+    }
+  }
+
+  async authorizeMcpInvocation(ctx: RequestContext, input: AuthorizeMcpInvocationRequest) {
+    const job = await this.store.getJobById(input.jobId)
+    if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${input.jobId}`)
+    await this.requireJobAccess(job.id, ctx.userId, 'editor')
+    if (job.userId !== input.userId || job.workspaceId !== input.workspaceId || job.sessionId !== input.sessionId) {
+      throw createHttpError(400, 'MCP_INVOCATION_CONTEXT_MISMATCH', 'MCP invocation context does not match the design job.')
+    }
+    if (input.variationId) {
+      const variation = await this.store.getVariationById(input.variationId)
+      if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${input.variationId}`)
+      if (variation.jobId !== job.id || variation.sessionId !== job.sessionId) {
+        throw createHttpError(400, 'MCP_INVOCATION_VARIATION_MISMATCH', 'MCP invocation variation does not belong to the design job.')
+      }
+    }
+
+    const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
+    const capabilitySnapshot = templateRequirements?.capabilitySnapshot
+    if (!capabilitySnapshot) throw createHttpError(409, 'MCP_POLICY_MISSING', 'Design job does not include an MCP tool policy.')
+
+    const request = {
+      ...input,
+      invocationId: input.invocationId ?? createId('mcpinv'),
+      mode: input.mode ?? 'authorized_invocation',
+      requestedAt: input.requestedAt ?? new Date().toISOString(),
+    }
+    const authorization = authorizeMcpInvocation(capabilitySnapshot, request)
+    const completedAt = new Date().toISOString()
+    const result = mcpAuthorizationResult(request, authorization, completedAt)
+    const policySnapshotHash = mcpPolicySnapshotHash(capabilitySnapshot.plugins.pluginSnapshot ?? null)
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole ?? 'support',
+      action: authorization.status === 'authorized' ? 'mcp.invocation.authorized' : 'mcp.invocation.denied',
+      targetType: 'mcp_invocation',
+      targetId: request.invocationId,
+      reason: request.reason,
+      metadata: {
+        jobId: job.id,
+        variationId: request.variationId ?? null,
+        mcpToolId: request.mcpToolId,
+        mode: request.mode,
+        request,
+        authorization: auditAuthorizationMetadata(authorization),
+      },
+    })
+    const invocationAuditRecord = await this.store.saveMcpInvocationAuditRecord({
+      invocationId: request.invocationId,
+      request,
+      result,
+      policySnapshotHash,
+      runtimeContractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+      replayKey: `mcp-replay:${request.invocationId}`,
+      createdAt: request.requestedAt,
+      completedAt,
+    })
+
+    return {
+      invocationId: request.invocationId,
+      status: authorization.status,
+      ...(authorization.status === 'denied' ? { code: authorization.code, message: authorization.message } : {}),
+      request,
+      audit,
+      invocationAuditRecord,
+    }
+  }
+
+  async executeMcpInvocation(ctx: RequestContext, input: AuthorizeMcpInvocationRequest): Promise<ExecuteMcpInvocationResponse> {
+    const authorizationResponse = await this.authorizeMcpInvocation(ctx, input)
+    if (authorizationResponse.status === 'denied') {
+      return {
+        ...authorizationResponse,
+        result: authorizationResponse.invocationAuditRecord.result,
+        toolContext: null,
+      }
+    }
+
+    const result = await this.mcpExecutor.execute(authorizationResponse.request)
+    const invocationAuditRecord = await this.store.saveMcpInvocationAuditRecord({
+      ...authorizationResponse.invocationAuditRecord,
+      result,
+      completedAt: result.completedAt,
+    })
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole ?? 'support',
+      action: result.status === 'ok' ? 'mcp.invocation.executed' : 'mcp.invocation.unavailable',
+      targetType: 'mcp_invocation',
+      targetId: authorizationResponse.invocationId,
+      reason: authorizationResponse.request.reason,
+      metadata: {
+        jobId: authorizationResponse.request.jobId,
+        variationId: authorizationResponse.request.variationId ?? null,
+        mcpToolId: authorizationResponse.request.mcpToolId,
+        mode: authorizationResponse.request.mode,
+        result,
+      },
+    })
+
+    return {
+      ...authorizationResponse,
+      audit,
+      invocationAuditRecord,
+      result,
+      toolContext: mcpToolPromptContext(result),
+    }
+  }
+
+  async replayMcpInvocation(ctx: RequestContext, replayKey: string): Promise<ReplayMcpInvocationResponse> {
+    const invocationAuditRecord = await this.store.getMcpInvocationAuditRecordByReplayKey(replayKey)
+    if (!invocationAuditRecord) throw createHttpError(404, 'MCP_REPLAY_NOT_FOUND', `MCP replay record not found: ${replayKey}`)
+    const job = await this.store.getJobById(invocationAuditRecord.request.jobId)
+    if (!job) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${invocationAuditRecord.request.jobId}`)
+    await this.requireJobAccess(job.id, ctx.userId, 'viewer')
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole ?? 'support',
+      action: 'mcp.invocation.replayed',
+      targetType: 'mcp_invocation',
+      targetId: invocationAuditRecord.invocationId,
+      reason: 'Replay MCP invocation from audit record.',
+      metadata: {
+        replayKey,
+        jobId: invocationAuditRecord.request.jobId,
+        variationId: invocationAuditRecord.request.variationId ?? null,
+        mcpToolId: invocationAuditRecord.request.mcpToolId,
+        resultStatus: invocationAuditRecord.result.status,
+      },
+    })
+    return {
+      invocationId: invocationAuditRecord.invocationId,
+      replayKey: invocationAuditRecord.replayKey,
+      request: invocationAuditRecord.request,
+      result: invocationAuditRecord.result,
+      invocationAuditRecord,
+      toolContext: mcpToolPromptContext(invocationAuditRecord.result),
+      audit,
     }
   }
 
@@ -2955,7 +3115,10 @@ export class ApplicationService {
   }): Promise<Artifact> {
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const artifactId = input.runtimeArtifactId?.startsWith('art_') ? input.runtimeArtifactId : `art_${input.variation.id}_runtime_${version}`
-    const quality = await this.analyzeArtifactQuality(input.html, input.jobId)
+    const quality = await this.analyzeArtifactQuality(input.html, {
+      jobId: input.jobId,
+      variationIndex: input.variation.index,
+    })
     const stored = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId,
@@ -3023,7 +3186,10 @@ export class ApplicationService {
     }
     const version = await this.nextHtmlArtifactVersion(input.variation.id)
     const htmlArtifactId = `art_${input.variation.id}_workspace_${version}`
-    const quality = await this.analyzeArtifactQuality(entry.content, input.jobId)
+    const quality = await this.analyzeArtifactQuality(entry.content, {
+      jobId: input.jobId,
+      variationIndex: input.variation.index,
+    })
     const storedEntry = await this.artifacts.put({
       workspaceId: input.workspaceId,
       artifactId: htmlArtifactId,
@@ -3314,7 +3480,7 @@ export class ApplicationService {
       payload: {
         profileId: profile.id,
         maxRepairAttempts: automation.maxRepairAttempts,
-        qualityGate: profile.qualityGate,
+        qualityGates: profile.qualityGates,
       },
     }))
     await this.publishDesignEvent(createDesignEvent({
@@ -3325,7 +3491,7 @@ export class ApplicationService {
       payload: {
         artifactId: input.artifact.id,
         attempt,
-        gate: profile.qualityGate,
+        gates: profile.qualityGates,
         status: input.quality.status,
         issues: input.quality.issues,
       },
@@ -3452,13 +3618,21 @@ export class ApplicationService {
     }))
   }
 
-  private async analyzeArtifactQuality(html: string, jobId?: string | null): Promise<ArtifactQualityReport> {
-    const profileGate = jobId ? await this.resolveArtifactQualityGateForJob(jobId) : null
+  private async analyzeArtifactQuality(
+    html: string,
+    context?: { jobId?: string | null; variationIndex?: number | null } | string | null,
+  ): Promise<ArtifactQualityReport> {
+    const qualityContext = typeof context === 'string' || context === null
+      ? { jobId: context, variationIndex: null }
+      : context
+    const profileGate = qualityContext?.jobId
+      ? await this.resolveArtifactQualityGateForJob(qualityContext.jobId, qualityContext.variationIndex)
+      : null
     const baseQuality = await analyzeHtmlArtifactQualityWithPixelGate(html, {
-      enabled: profileGate?.enablePixelGate ?? pixelQualityGateEnabled(),
+      enabled: profileGate ? profileGate.qualityGates.includes('pixel') : pixelQualityGateEnabled(),
       timeoutMs: pixelQualityGateTimeoutMs(),
     })
-    if (!profileGate?.enableSpecGate) return baseQuality
+    if (!profileGate?.qualityGates.includes('spec')) return baseQuality
     const specReview = reviewDynamicEncyclopediaSpec({
       html,
       templatePackIds: profileGate.designTemplatePackIds,
@@ -3477,9 +3651,8 @@ export class ApplicationService {
     }
   }
 
-  private async resolveArtifactQualityGateForJob(jobId: string): Promise<{
-    enablePixelGate: boolean
-    enableSpecGate: boolean
+  private async resolveArtifactQualityGateForJob(jobId: string, variationIndex?: number | null): Promise<{
+    qualityGates: Array<'static' | 'pixel' | 'spec'>
     designTemplatePackIds: string[]
     interactionParadigmId: string | null
   } | null> {
@@ -3489,10 +3662,18 @@ export class ApplicationService {
     const businessContext = job.templateRequirements.businessContext as Record<string, unknown> | undefined
     const automation = requirements?.capabilitySnapshot?.automation
     if (!automation) return null
+    const assignedTemplatePackId = typeof variationIndex === 'number'
+      ? assignedTemplatePackIdForVariation(variationIndex, requirements?.variationTemplateAssignments ?? [])
+      : null
+    const qualityGates = [
+      ...new Set([
+        ...automation.loopProfile.qualityGates,
+        ...(job.productMode === 'dynamic_encyclopedia_card' ? ['spec' as const] : []),
+      ]),
+    ]
     return {
-      enablePixelGate: automation.loopProfile.enablePixelGate || automation.loopProfile.qualityGate === 'pixel',
-      enableSpecGate: job.productMode === 'dynamic_encyclopedia_card' || (automation.loopProfile.qualityGates ?? []).includes('spec'),
-      designTemplatePackIds: requirements?.designTemplatePackIds ?? [],
+      qualityGates,
+      designTemplatePackIds: assignedTemplatePackId ? [assignedTemplatePackId] : requirements?.designTemplatePackIds ?? [],
       interactionParadigmId: typeof businessContext?.interactionParadigmId === 'string'
         ? businessContext.interactionParadigmId
         : null,
@@ -3744,6 +3925,13 @@ function assignedTemplatePackForVariation(
   return assignments.find(assignment => assignment.variationIndex === variationIndex)?.designTemplatePack ?? null
 }
 
+function assignedTemplatePackIdForVariation(
+  variationIndex: number,
+  assignments: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']>,
+): string | null {
+  return assignments.find(assignment => assignment.variationIndex === variationIndex)?.designTemplatePackId ?? null
+}
+
 function automationTemplateSummaryForVariation(variationIndex: number, templateRequirements: Record<string, unknown>): string | null {
   const normalized = normalizeTemplateRequirements(templateRequirements)
   const templatePack = assignedTemplatePackForVariation(variationIndex, normalized?.variationTemplateAssignments ?? [])
@@ -3913,6 +4101,74 @@ function slugId(value: string): string {
 
 function isCapabilitySnapshot(value: unknown): value is NonNullable<CreateDesignJobRequest['templateRequirements']>['capabilitySnapshot'] {
   return Boolean(value && typeof value === 'object' && typeof (value as Record<string, unknown>).schemaVersion === 'string')
+}
+
+function auditAuthorizationMetadata(authorization: McpInvocationAuthorization): Record<string, unknown> {
+  if (authorization.status === 'denied') {
+    return {
+      status: authorization.status,
+      code: authorization.code,
+      message: authorization.message,
+    }
+  }
+  return {
+    status: authorization.status,
+    bindingId: authorization.binding.id,
+    serverName: authorization.binding.serverName,
+    toolName: authorization.binding.toolName,
+    scopes: authorization.binding.scopes,
+    requiresUserAuth: authorization.binding.requiresUserAuth,
+  }
+}
+
+function mcpAuthorizationResult(
+  request: McpInvocationRequest,
+  authorization: McpInvocationAuthorization,
+  completedAt: string,
+): McpInvocationResult {
+  if (authorization.status === 'denied') {
+    return {
+      invocationId: request.invocationId,
+      status: 'denied',
+      mcpToolId: request.mcpToolId,
+      source: {
+        serverName: request.serverName,
+        toolName: request.toolName,
+        scopes: request.scopes,
+      },
+      summary: 'MCP invocation denied before execution.',
+      references: [],
+      error: {
+        code: authorization.code,
+        message: authorization.message,
+        retryable: false,
+      },
+      completedAt,
+    }
+  }
+  return {
+    invocationId: request.invocationId,
+    status: 'ok',
+    mcpToolId: request.mcpToolId,
+    source: {
+      serverName: request.serverName,
+      toolName: request.toolName,
+      scopes: request.scopes,
+    },
+    summary: 'MCP invocation authorized; execution pending.',
+    references: [],
+    data: {
+      authorizationStatus: 'authorized',
+      mode: request.mode,
+    },
+    completedAt,
+  }
+}
+
+function mcpPolicySnapshotHash(pluginSnapshot: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(pluginSnapshot ?? null))
+    .digest('hex')
 }
 
 function withCapabilityPreferenceDefaults(value: UserCapabilityPreference | null | undefined): UserCapabilityPreference {

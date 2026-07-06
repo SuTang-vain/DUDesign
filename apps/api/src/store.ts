@@ -40,7 +40,7 @@ import type {
   VariationJobContext,
   VariationRefineContext,
 } from './repository.js'
-import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 import { createHash } from 'node:crypto'
@@ -117,6 +117,7 @@ export class InMemoryStore implements ApplicationRepository {
   readonly designTemplatePackVersions = new Map<string, DesignTemplatePackVersion>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
   readonly auditLogs: AuditLog[] = []
+  readonly mcpInvocationAuditRecords = new Map<string, McpInvocationAuditRecord>()
   readonly usageEvents: UsageEvent[] = []
   readonly designEvents = new Map<string, DesignEvent[]>()
   readonly authIdentities = new Map<string, AuthIdentity>()
@@ -847,6 +848,34 @@ export class InMemoryStore implements ApplicationRepository {
   listAuditLogs(options: { limit?: number } = {}): AuditLog[] {
     const limit = options.limit ?? 100
     return [...this.auditLogs]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+  }
+
+  saveMcpInvocationAuditRecord(record: McpInvocationAuditRecord): MaybePromise<McpInvocationAuditRecord> {
+    this.mcpInvocationAuditRecords.set(record.invocationId, record)
+    return record
+  }
+
+  getMcpInvocationAuditRecord(invocationId: string): MaybePromise<McpInvocationAuditRecord | null> {
+    return this.mcpInvocationAuditRecords.get(invocationId) ?? null
+  }
+
+  getMcpInvocationAuditRecordByReplayKey(replayKey: string): MaybePromise<McpInvocationAuditRecord | null> {
+    return [...this.mcpInvocationAuditRecords.values()].find(record => record.replayKey === replayKey) ?? null
+  }
+
+  listMcpInvocationAuditRecords(options: {
+    jobId?: string
+    variationId?: string
+    mcpToolId?: string
+    limit?: number
+  } = {}): MaybePromise<McpInvocationAuditRecord[]> {
+    const limit = options.limit ?? 100
+    return [...this.mcpInvocationAuditRecords.values()]
+      .filter(record => !options.jobId || record.request.jobId === options.jobId)
+      .filter(record => !options.variationId || record.request.variationId === options.variationId)
+      .filter(record => !options.mcpToolId || record.request.mcpToolId === options.mcpToolId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit)
   }

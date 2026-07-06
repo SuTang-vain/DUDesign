@@ -2,15 +2,18 @@ import assert from 'node:assert/strict'
 import type { AddressInfo } from 'node:net'
 import type {
   CreateAnnotationBatchResponse,
+  AuthorizeMcpInvocationResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
   CreateSourceArtifactResponse,
   DesignJobSnapshotResponse,
   EncyclopediaEntryGuidanceResponse,
+  ExecuteMcpInvocationResponse,
   ExportVariationResponse,
   ListDesignTemplatePacksResponse,
   RefineVariationResponse,
   RepairVariationPreviewResponse,
+  ReplayMcpInvocationResponse,
   ReviewVariationActionResponse,
   RestoreVariationVersionResponse,
   SaveDesignTemplatePackResponse,
@@ -505,6 +508,82 @@ Reusable smoke test template.
   assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_accessibility_validate'])
   assert.deepEqual(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.toolPolicy.allowedMcpToolIds, ['mcp_accessibility_validate'])
   assert.equal(jobSnapshot.job.capabilitySnapshot?.plugins.pluginSnapshot?.skills[0]?.id, 'sk_static_export_safe')
+  const authorizedMcpInvocation = await postJson<AuthorizeMcpInvocationResponse>('/api/mcp/invocations/authorize', {
+    userId: 'usr_dev',
+    workspaceId: 'ws_dev',
+    sessionId: createdSession.session.id,
+    jobId: createdJob.job.id,
+    variationId: jobSnapshot.variations[0]!.id,
+    runtimeSessionId: null,
+    mcpToolId: 'mcp_accessibility_validate',
+    serverName: 'quality-tools',
+    toolName: 'validateAccessibility',
+    scopes: ['validation_only'],
+    input: { artifactId: jobSnapshot.variations[0]!.currentArtifactId },
+    reason: 'Validate generated artifact accessibility.',
+  })
+  assert.equal(authorizedMcpInvocation.status, 'authorized')
+  assert.equal(authorizedMcpInvocation.request.mcpToolId, 'mcp_accessibility_validate')
+  assert.equal(authorizedMcpInvocation.invocationAuditRecord.invocationId, authorizedMcpInvocation.invocationId)
+  assert.equal(authorizedMcpInvocation.invocationAuditRecord.result.status, 'ok')
+  assert.match(authorizedMcpInvocation.invocationAuditRecord.replayKey, /^mcp-replay:mcpinv_/)
+  const executedMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
+    userId: 'usr_dev',
+    workspaceId: 'ws_dev',
+    sessionId: createdSession.session.id,
+    jobId: createdJob.job.id,
+    variationId: jobSnapshot.variations[0]!.id,
+    runtimeSessionId: null,
+    mcpToolId: 'mcp_accessibility_validate',
+    serverName: 'quality-tools',
+    toolName: 'validateAccessibility',
+    scopes: ['validation_only'],
+    input: { artifactId: jobSnapshot.variations[0]!.currentArtifactId },
+    reason: 'Execute accessibility validation for prompt context.',
+  })
+  assert.equal(executedMcpInvocation.status, 'authorized')
+  assert.equal(executedMcpInvocation.result.status, 'ok')
+  assert.equal(executedMcpInvocation.invocationAuditRecord.result.summary, 'Accessibility validation accepted for queued artifact review.')
+  assert.match(executedMcpInvocation.toolContext?.contextText ?? '', /Source: quality-tools\.validateAccessibility/)
+  const replayedMcpInvocation = await getJson<ReplayMcpInvocationResponse>(
+    `/api/mcp/invocations/replay/${encodeURIComponent(executedMcpInvocation.invocationAuditRecord.replayKey)}`,
+  )
+  assert.equal(replayedMcpInvocation.invocationId, executedMcpInvocation.invocationId)
+  assert.equal(replayedMcpInvocation.result.summary, executedMcpInvocation.result.summary)
+  assert.equal(replayedMcpInvocation.toolContext?.contextText, executedMcpInvocation.toolContext?.contextText)
+  const deniedMcpResponse = await fetch(`${baseUrl}/api/mcp/invocations/authorize`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      userId: 'usr_dev',
+      workspaceId: 'ws_dev',
+      sessionId: createdSession.session.id,
+      jobId: createdJob.job.id,
+      variationId: jobSnapshot.variations[0]!.id,
+      runtimeSessionId: null,
+      mcpToolId: 'mcp_accessibility_validate',
+      serverName: 'quality-tools',
+      toolName: 'validateAccessibility',
+      scopes: ['external_network'],
+      input: { url: 'https://example.test' },
+      reason: 'Attempt a scope that is outside the selected tool policy.',
+    }),
+  })
+  assert.equal(deniedMcpResponse.ok, true)
+  const deniedMcpInvocation = await deniedMcpResponse.json() as AuthorizeMcpInvocationResponse
+  assert.equal(deniedMcpInvocation.status, 'denied')
+  assert.equal(deniedMcpInvocation.code, 'MCP_SCOPE_DENIED')
+  assert.equal(deniedMcpInvocation.invocationAuditRecord.result.status, 'denied')
+  const mcpAudits = harness.service.store.listAuditLogs().filter(audit => audit.action.startsWith('mcp.invocation.'))
+  assert.ok(mcpAudits.some(audit => audit.action === 'mcp.invocation.authorized' && audit.targetId === authorizedMcpInvocation.invocationId))
+  assert.ok(mcpAudits.some(audit => audit.action === 'mcp.invocation.executed' && audit.targetId === executedMcpInvocation.invocationId))
+  assert.ok(mcpAudits.some(audit => audit.action === 'mcp.invocation.replayed' && audit.targetId === executedMcpInvocation.invocationId))
+  assert.ok(mcpAudits.some(audit => audit.action === 'mcp.invocation.denied' && audit.targetId === deniedMcpInvocation.invocationId))
+  const mcpInvocationAuditRecords = await harness.service.store.listMcpInvocationAuditRecords({ jobId: createdJob.job.id })
+  assert.equal(mcpInvocationAuditRecords.length, 3)
+  assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === authorizedMcpInvocation.invocationId && record.result.status === 'ok'))
+  assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === executedMcpInvocation.invocationId && record.result.summary === 'Accessibility validation accepted for queued artifact review.'))
+  assert.ok(mcpInvocationAuditRecords.some(record => record.invocationId === deniedMcpInvocation.invocationId && record.result.status === 'denied'))
   assert.equal(jobSnapshot.job.designTemplatePacks.length, 3)
   assert.deepEqual(
     (storedCreatedJob?.templateRequirements.designTemplatePackVersions as Array<{ id: string; version: string }>).map(item => item.id),

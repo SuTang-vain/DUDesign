@@ -278,6 +278,34 @@ MVP 不开放 UI，但建议提前建表，避免后续团队协作重写权限�
 - `audit_logs_operator_created_idx(operator_user_id, created_at desc)`
 - `audit_logs_target_idx(target_type, target_id)`
 
+### mcp_invocation_audit_records
+
+真实 MCP 调用从 `policy_only` 进入授权调用后，需要比通用 `audit_logs` 更稳定的 replay payload。该表保存标准化 request、标准化 result 和 policy snapshot hash，便于问题排查、合规回放和后续真实 MCP smoke。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| invocation_id | text primary key | MCP invocation id |
+| user_id | text not null references users(id) | 归属用户 |
+| workspace_id | text not null references workspaces(id) | 归属 workspace |
+| session_id | text not null references design_sessions(id) | 关联 session |
+| job_id | text not null references design_jobs(id) | 关联 job |
+| variation_id | text references design_variations(id) | 关联 variation，可为空 |
+| mcp_tool_id | text not null | DUDesign MCP tool binding id |
+| request | jsonb not null | 标准 `McpInvocationRequest` |
+| result | jsonb not null | 标准 `McpInvocationResult` |
+| policy_snapshot_hash | text not null | 调用时 tool policy snapshot hash |
+| runtime_contract_version | text not null | DUDesign Runtime contract version |
+| replay_key | text not null unique | 后续 replay / 排障定位 key |
+| created_at | timestamptz not null | 请求创建时间 |
+| completed_at | timestamptz not null | 授权或调用结果完成时间 |
+
+索引：
+
+- `mcp_invocation_audit_records_job_idx(job_id, created_at desc)`
+- `mcp_invocation_audit_records_variation_idx(variation_id, created_at desc)`，仅 `variation_id is not null`
+- `mcp_invocation_audit_records_tool_idx(mcp_tool_id, created_at desc)`
+- `mcp_invocation_audit_records_workspace_idx(workspace_id, created_at desc)`
+
 ## 迁移顺序建议
 
 1. 建 `users`、`workspaces`、`workspace_members`。
@@ -286,7 +314,8 @@ MVP 不开放 UI，但建议提前建表，避免后续团队协作重写权限�
 4. 建 `artifacts`，再补 `design_sessions.source_artifact_id` 和 `design_variations.current_artifact_id` 外键约束。
 5. 建 `annotation_batches`、`shares`。
 6. 建 `usage_events`、`audit_logs`。
-7. 添加应用层 repository，并用同一套 API smoke 跑 PostgreSQL 与 InMemoryStore 双实现。
+7. 建 `mcp_invocation_audit_records`，用于真实 MCP 调用的专用审计和 replay payload。
+8. 添加应用层 repository，并用同一套 API smoke 跑 PostgreSQL 与 InMemoryStore 双实现。
 
 ## Repository 接口切分
 
@@ -297,6 +326,7 @@ MVP 不开放 UI，但建议提前建表，避免后续团队协作重写权限�
 - `ShareRepository`：share token、revoke、过期。
 - `UsageRepository`：usage event 写入和 cost summary 聚合。
 - `AuditRepository`：管理端操作审计。
+- `McpInvocationAuditRepository`：MCP invocation request/result/replay key 专用审计。
 
 ## 下一步落地
 

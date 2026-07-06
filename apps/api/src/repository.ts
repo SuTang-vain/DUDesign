@@ -13,7 +13,7 @@ import type {
   EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, AuthIdentity, AuthSession, SessionMessage } from './store.js'
-import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
 
 export type MaybePromise<T> = T | Promise<T>
 
@@ -493,6 +493,15 @@ export type ApplicationRepository = {
   setVariationCurrentArtifact(variationId: string, artifactId: string, previewUrl: string | null): MaybePromise<DesignVariation | null>
   createAuditLog(input: Omit<AuditLog, 'id' | 'createdAt'>): MaybePromise<AuditLog>
   listAuditLogs(options?: { limit?: number }): AuditLog[]
+  saveMcpInvocationAuditRecord(record: McpInvocationAuditRecord): MaybePromise<McpInvocationAuditRecord>
+  getMcpInvocationAuditRecord(invocationId: string): MaybePromise<McpInvocationAuditRecord | null>
+  getMcpInvocationAuditRecordByReplayKey(replayKey: string): MaybePromise<McpInvocationAuditRecord | null>
+  listMcpInvocationAuditRecords(options?: {
+    jobId?: string
+    variationId?: string
+    mcpToolId?: string
+    limit?: number
+  }): MaybePromise<McpInvocationAuditRecord[]>
   createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): MaybePromise<UsageEvent>
   listUsageEvents(options?: {
     userId?: string

@@ -2350,3 +2350,155 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 
 - 将 finding 展示到用户端 Review pending 面板，而不只展示第一条 quality issue。
 - 增加真实动态百科 fixture HTML，覆盖 summary/timeline/relation 等子模板的规则差异。
+
+## 2026-07-04 APP-M43 Follow-up: Variation-Scoped Spec Review Context
+
+### 发现
+
+- 远端最新动态百科任务 `job_aac495bcbe5c431f`（prompt：`牛顿摆`）触发 `encyclopedia.timeline_template_mismatch`。
+- 该 job 同时包含 summary、timeline 和 data operations 模板包；部分 artifact 的实际 variation assignment 并不是 timeline，但仍被 timeline 规则审查。
+- 根因是当前 `analyzeArtifactQuality` 使用 job 级 `designTemplatePackIds` 作为 spec review 输入，导致只要 job 候选模板集合包含 `dtp_dynamic_encyclopedia_timeline_card`，所有 variation 都会被要求存在时间线/里程碑内容。
+
+### 结论
+
+- 这是后端业务服务层的质量门禁上下文粒度问题，不是 Babel-O Nexus runtime 兼容问题。
+- 自动审查功能本身已生效，并能触发自动修复；但 spec review 的模板上下文必须改为 variation 级。
+
+### 已更新规划
+
+- `application-service/TODO.md`：新增 variation-scoped spec review 修复项与回归测试要求。
+- `capability-distribution/TODO.md`：明确 `variationTemplateAssignments` 是单个 variation 审查事实来源，job 级 `designTemplatePackIds` 只代表候选模板集合。
+- `admin-console/TODO.md`：补充管理端展示 review context，帮助区分真实模板失败与规则误伤。
+- `dynamic-encyclopedia-card-business-logic-plan.md`：补充 Stage 5 审查器必须使用当前 variation 实际分配 child template。
+
+### 后续建议
+
+- 修复 `createRuntimeHtmlArtifact` / `createRuntimeWorkspaceArtifacts` 调用链，让 `analyzeArtifactQuality` 接收 variation 或 resolved review context。
+- 增加回归测试：同一个 job 同时包含 summary/timeline/data 模板时，非 timeline variation 不触发 timeline mismatch。
+
+## 2026-07-04 APP-M44 Variation-Scoped Spec Review Fix
+
+### 已完成
+
+- `createRuntimeHtmlArtifact` / `createRuntimeWorkspaceArtifacts` 在分析 artifact quality 时传入当前 `variation.index`。
+- `analyzeArtifactQuality` 支持 `{ jobId, variationIndex }` review context，并保持旧的 `jobId` 调用兼容。
+- `resolveArtifactQualityGateForJob` 优先从 `variationTemplateAssignments` 解析当前 variation 的 `designTemplatePackId`。
+- 动态百科 `productMode` 会确保 spec gate 生效，但 template-specific 规则只使用当前 variation 实际分配的 child template。
+- 清理残留旧 automation profile 字段使用，将 `qualityGate` / `enablePixelGate` 统一迁移到 `qualityGates` 数组语义。
+- 新增回归测试：job 候选模板包含 summary + timeline，但当前 variation 分配 summary 时，不触发 `encyclopedia.timeline_template_mismatch`，也不进入自动修复。
+
+### 验证
+
+- `npx tsc -b packages/contracts apps/api packages/runtime-gateway`
+- `node --test --test-concurrency=1 apps/api/dist/designJobEvents.test.js --test-name-pattern 'assigned variation template only'`
+- `node --test --test-concurrency=1 apps/api/dist/automationLoop.test.js apps/api/dist/encyclopediaSpecReview.test.js`
+- `node --test --test-concurrency=1 packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 备注
+
+- 全量 API 测试曾跑出 `capabilities.test` 中两个 registry 断言漂移，和本次 variation-scoped spec review 修复无关；后续应单独处理 capability registry 测试期望与当前实现的对齐。
+
+## 2026-07-05 APP-M45 MCP Invocation Authorization Entry
+
+### 已完成
+
+- 新增 Application Service MCP 调用前授权入口：`authorizeMcpInvocation()`。
+- 新增 HTTP 入口：`POST /api/mcp/invocations/authorize`。
+- 授权入口校验：
+  - job 存在且当前用户具备 editor 权限。
+  - request 中 user/workspace/session/job 与业务资源归属一致。
+  - variation 若传入，必须属于该 job/session。
+  - job 必须包含 `capabilitySnapshot.plugins.pluginSnapshot.toolPolicy`。
+  - selected MCP tool、allowed tool policy、binding target 和 scope 必须全部匹配。
+- 授权通过或拒绝都会写入现有 `audit_logs`：
+  - `mcp.invocation.authorized`
+  - `mcp.invocation.denied`
+- API smoke 覆盖：
+  - `mcp_accessibility_validate` + `validation_only` 授权通过。
+  - `external_network` 越权 scope 返回 `denied / MCP_SCOPE_DENIED`。
+  - audit log 记录 authorized 和 denied 两类动作。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+### 后续建议
+
+- 当前只完成授权和审计骨架，尚未执行真实外部 MCP 调用。
+- 下一步建议新增 MCP invocation audit 专用 repository/migration，保存 request/result/replay key，再进入真实调用和 replay smoke。
+
+## 2026-07-05 APP-M46 MCP Invocation Audit Records
+
+### 已完成
+
+- 新增 `mcp_invocation_audit_records` SQL migration，保存 MCP invocation 的标准 request/result、policy snapshot hash、runtime contract version 和 replay key。
+- `ApplicationRepository` 增加：
+  - `saveMcpInvocationAuditRecord()`
+  - `getMcpInvocationAuditRecord()`
+  - `listMcpInvocationAuditRecords()`
+- `InMemoryStore` 与 `PostgresRepository` 都实现 MCP invocation 专用审计记录。
+- `authorizeMcpInvocation()` 在写通用 `audit_logs` 后，同时写专用 invocation audit record：
+  - 授权通过写 `result.status=ok`。
+  - 授权拒绝写 `result.status=denied` 和标准错误信息。
+- API smoke 增加 authorized / denied 两条专用审计记录断言。
+- PostgreSQL opt-in integration smoke 增加 save/get/list/hydrate MCP invocation audit record 覆盖。
+- `database-schema.md` 补充 `mcp_invocation_audit_records` 表说明、索引和 repository 切分。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+### 后续建议
+
+- 接入真实 MCP executor 后，把真实 tool result 更新到同一条 audit record。
+- 增加 replay 执行入口和真实 MCP smoke：授权、调用、结果注入、审计、回放。
+
+## 2026-07-06 APP-M47 MCP Execute API
+
+### 已完成
+
+- 新增 Application Service `McpExecutor` 边界，默认 `MockMcpExecutor` 不访问外部网络。
+- `MockMcpExecutor` 支持：
+  - 动态百科 democase 只读查询 mock。
+  - accessibility validation mock。
+- 新增 `POST /api/mcp/invocations/execute`：
+  - 复用 `authorizeMcpInvocation()` 权限校验。
+  - 执行后用真实 result 覆盖专用 MCP audit record。
+  - 写入 `mcp.invocation.executed` 或 `mcp.invocation.unavailable` audit log。
+  - 返回标准 `toolContext`，供后续 runtime prompt 注入。
+- API smoke 已覆盖执行成功、tool context source 标注、专用审计记录 result 更新。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+### 后续建议
+
+- 将 `McpExecutor` 从 mock 切换到可配置真实 MCP transport。
+- 增加 replay execution API，基于 `replayKey` 读取历史 request/result，不访问外部 MCP server。
+
+## 2026-07-06 APP-M48 MCP Replay API
+
+### 已完成
+
+- Repository 增加 `getMcpInvocationAuditRecordByReplayKey()`，支持 InMemoryStore 与 PostgresRepository。
+- 新增 `ApplicationService.replayMcpInvocation()`：
+  - 按 replay key 读取专用 MCP audit record。
+  - 校验原 job viewer 权限。
+  - 返回历史 request/result 和标准 tool context。
+  - 记录 `mcp.invocation.replayed` audit log。
+- 新增 HTTP 入口：`GET /api/mcp/invocations/replay/:replayKey`。
+- API smoke 覆盖 execute 后 replay，确保回放结果不重新执行 executor，且 tool context 稳定。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/api`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capabilities"`
+
+### 后续建议
+
+- 增加真实 MCP transport adapter，并用同一套 replay API 保护线上排障和合规回放。
+- 在管理端增加 MCP invocation audit 检索 UI，支持按 job、variation、tool、result status 过滤。

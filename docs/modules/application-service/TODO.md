@@ -190,6 +190,11 @@
 - [x] 实现 runtime health 读取代理。
 - [x] 实现 cost 聚合接口。
 - [x] 将 cost 聚合口径切换到 immutable usage events。
+- [x] 实现 MCP invocation 专用审计记录：
+  - [x] 新增 `mcp_invocation_audit_records` SQL migration。
+  - [x] Repository 提供 save/get/list MCP invocation audit records。
+  - [x] 授权通过和拒绝都保存标准 request/result、policy snapshot hash、runtime contract version 和 replay key。
+  - [x] API smoke 覆盖 authorized / denied 专用审计记录。
 
 验收：
 
@@ -200,6 +205,11 @@
 
 - [ ] Repository 单元测试。
 - [ ] Service 状态机测试。
+- [x] 动态百科 spec review 按 variation 实际分配的 child template 执行，而不是按 job 级全量 `designTemplatePackIds` 执行。
+  - [x] `analyzeArtifactQuality` 接收 variation 上下文或 resolved review context。
+  - [x] 从 `variationTemplateAssignments` 解析当前 variation 的 `designTemplatePackId`。
+  - [x] timeline 规则只应用于实际分配 `dtp_dynamic_encyclopedia_timeline_card` 的 variation，避免 summary/data operations 变体被误伤。
+  - [x] 增加回归测试：同一 job 包含 summary/timeline/data templates 时，非 timeline variation 不触发 `encyclopedia.timeline_template_mismatch`。
 - [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
 - [x] API 集成 smoke 覆盖 artifact snapshot、ZIP export、share 不漂移、历史版本 restore。
 - [x] API workspace 默认测试串行执行，避免多 HTTP harness、异步 screenshot 和队列 worker 并发串扰。

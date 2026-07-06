@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, EncyclopediaEntryGuidance, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
-import type { DesignEvent, DesignTemplatePack, UserCapabilityPreference } from '@dudesign/contracts'
+import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type AuthIdentity, type AuthSession, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
@@ -188,6 +188,7 @@ export class PostgresRepository extends InMemoryStore {
     this.designTemplatePackVersions.clear()
     this.annotationBatches.clear()
     this.auditLogs.splice(0, this.auditLogs.length)
+    this.mcpInvocationAuditRecords.clear()
     this.usageEvents.splice(0, this.usageEvents.length)
     this.designEvents.clear()
     this.authIdentities.clear()
@@ -236,6 +237,10 @@ export class PostgresRepository extends InMemoryStore {
     }
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
+    for (const row of (await this.pool.query('select * from mcp_invocation_audit_records order by created_at')).rows) {
+      const record = mapMcpInvocationAuditRecord(row)
+      this.mcpInvocationAuditRecords.set(record.invocationId, record)
+    }
     for (const row of (await this.pool.query('select * from usage_events order by created_at')).rows) this.usageEvents.push(mapUsageEvent(row))
     for (const row of (await this.pool.query('select * from auth_identities')).rows) {
       const identity = mapAuthIdentity(row)
@@ -486,6 +491,63 @@ export class PostgresRepository extends InMemoryStore {
     await this.persistAuditLog(audit)
     this.auditLogs.push(audit)
     return audit
+  }
+
+  override async saveMcpInvocationAuditRecord(record: McpInvocationAuditRecord): Promise<McpInvocationAuditRecord> {
+    await this.persistMcpInvocationAuditRecord(record)
+    this.mcpInvocationAuditRecords.set(record.invocationId, record)
+    return record
+  }
+
+  override async getMcpInvocationAuditRecord(invocationId: string): Promise<McpInvocationAuditRecord | null> {
+    const cached = this.mcpInvocationAuditRecords.get(invocationId)
+    if (cached) return cached
+    const row = (await this.pool.query('select * from mcp_invocation_audit_records where invocation_id = $1', [invocationId])).rows[0]
+    if (!row) return null
+    const record = mapMcpInvocationAuditRecord(row)
+    this.mcpInvocationAuditRecords.set(record.invocationId, record)
+    return record
+  }
+
+  override async getMcpInvocationAuditRecordByReplayKey(replayKey: string): Promise<McpInvocationAuditRecord | null> {
+    const cached = [...this.mcpInvocationAuditRecords.values()].find(record => record.replayKey === replayKey)
+    if (cached) return cached
+    const row = (await this.pool.query('select * from mcp_invocation_audit_records where replay_key = $1', [replayKey])).rows[0]
+    if (!row) return null
+    const record = mapMcpInvocationAuditRecord(row)
+    this.mcpInvocationAuditRecords.set(record.invocationId, record)
+    return record
+  }
+
+  override async listMcpInvocationAuditRecords(options: {
+    jobId?: string
+    variationId?: string
+    mcpToolId?: string
+    limit?: number
+  } = {}): Promise<McpInvocationAuditRecord[]> {
+    const clauses: string[] = []
+    const values: unknown[] = []
+    if (options.jobId) {
+      values.push(options.jobId)
+      clauses.push(`job_id = $${values.length}`)
+    }
+    if (options.variationId) {
+      values.push(options.variationId)
+      clauses.push(`variation_id = $${values.length}`)
+    }
+    if (options.mcpToolId) {
+      values.push(options.mcpToolId)
+      clauses.push(`mcp_tool_id = $${values.length}`)
+    }
+    values.push(options.limit ?? 100)
+    const where = clauses.length ? `where ${clauses.join(' and ')}` : ''
+    const rows = (await this.pool.query(`
+      select * from mcp_invocation_audit_records
+      ${where}
+      order by created_at desc
+      limit $${values.length}
+    `, values)).rows
+    return rows.map(mapMcpInvocationAuditRecord)
   }
 
   override async createUsageEvent(input: Omit<UsageEvent, 'id' | 'createdAt'>): Promise<UsageEvent> {
@@ -2214,6 +2276,37 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
+  private async persistMcpInvocationAuditRecord(record: McpInvocationAuditRecord): Promise<void> {
+    await this.pool.query(`
+      insert into mcp_invocation_audit_records (
+        invocation_id, user_id, workspace_id, session_id, job_id, variation_id, mcp_tool_id,
+        request, result, policy_snapshot_hash, runtime_contract_version, replay_key, created_at, completed_at
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14)
+      on conflict (invocation_id) do update set
+        result = excluded.result,
+        policy_snapshot_hash = excluded.policy_snapshot_hash,
+        runtime_contract_version = excluded.runtime_contract_version,
+        replay_key = excluded.replay_key,
+        completed_at = excluded.completed_at
+    `, [
+      record.invocationId,
+      record.request.userId,
+      record.request.workspaceId,
+      record.request.sessionId,
+      record.request.jobId,
+      record.request.variationId ?? null,
+      record.request.mcpToolId,
+      JSON.stringify(record.request),
+      JSON.stringify(record.result),
+      record.policySnapshotHash,
+      record.runtimeContractVersion,
+      record.replayKey,
+      record.createdAt,
+      record.completedAt,
+    ])
+  }
+
   private async persistModelService(model: ModelService): Promise<void> {
     await this.pool.query(`
       insert into model_services (id, provider, model_id, display_name, description, enabled, is_default, capabilities, context_window, input_token_cost_cents, output_token_cost_cents, metadata, created_at, updated_at)
@@ -2834,6 +2927,21 @@ function mapAuditLog(row: any): AuditLog {
     reason: row.reason,
     metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
+  }
+}
+
+function mapMcpInvocationAuditRecord(row: any): McpInvocationAuditRecord {
+  const request = row.request ?? {}
+  const result = row.result ?? {}
+  return {
+    invocationId: row.invocation_id,
+    request,
+    result,
+    policySnapshotHash: row.policy_snapshot_hash,
+    runtimeContractVersion: row.runtime_contract_version,
+    replayKey: row.replay_key,
+    createdAt: toIso(row.created_at),
+    completedAt: toIso(row.completed_at),
   }
 }
 

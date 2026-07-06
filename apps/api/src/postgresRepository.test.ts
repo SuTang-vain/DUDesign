@@ -185,6 +185,45 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       costCents: 0,
       metadata: { templateId: privateTemplate.id, templateVersion: '1.0.0' },
     })
+    const mcpInvocationAuditRecord = await repository.saveMcpInvocationAuditRecord({
+      invocationId: 'mcpinv_pg_smoke',
+      request: {
+        invocationId: 'mcpinv_pg_smoke',
+        mode: 'authorized_invocation',
+        userId: repository.devUser.id,
+        workspaceId: repository.devWorkspace.id,
+        sessionId: session.id,
+        jobId: job.id,
+        variationId: variation.id,
+        runtimeSessionId: 'rt_child_pg_smoke',
+        mcpToolId: 'mcp_accessibility_validate',
+        serverName: 'quality-tools',
+        toolName: 'validateAccessibility',
+        scopes: ['validation_only'],
+        input: { artifactId: artifact.id },
+        reason: 'Postgres smoke MCP authorization.',
+        requestedAt: new Date().toISOString(),
+      },
+      result: {
+        invocationId: 'mcpinv_pg_smoke',
+        status: 'ok',
+        mcpToolId: 'mcp_accessibility_validate',
+        source: {
+          serverName: 'quality-tools',
+          toolName: 'validateAccessibility',
+          scopes: ['validation_only'],
+        },
+        summary: 'MCP invocation authorized in Postgres smoke.',
+        references: [],
+        data: { smoke: true },
+        completedAt: new Date().toISOString(),
+      },
+      policySnapshotHash: 'sha256:pg-mcp-policy',
+      runtimeContractVersion: '2026-06-26.dudesign-runtime.v1',
+      replayKey: 'mcp-replay:mcpinv_pg_smoke',
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    })
     const driftedEvent = {
       schemaVersion: '2026-06-26.dudesign-events.v1',
       type: 'design.variation_streaming',
@@ -244,6 +283,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.designTemplatePackVersions.get(`${privateTemplate.id}:1.0.0`)?.pack.name, 'Private PG Smoke')
       assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.selectedTemplateIds[0], 'dtp_dynamic_encyclopedia_timeline_card')
       assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.interactionParadigmId, 'ip_timeline_story')
+      assert.equal(hydrated.mcpInvocationAuditRecords.get(mcpInvocationAuditRecord.invocationId)?.replayKey, 'mcp-replay:mcpinv_pg_smoke')
       clearHydratedCache(hydrated)
       hydrated.designTemplatePacks.clear()
       hydrated.designTemplatePackVersions.clear()
@@ -285,6 +325,9 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(await hydrated.canUserUseModel(repository.devUser.id, userModels.defaultModelId!), true)
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.colorPaletteId, 'pal_minimal_mono')
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.skillId, 'sk_accessibility_first')
+      assert.equal((await hydrated.getMcpInvocationAuditRecord(mcpInvocationAuditRecord.invocationId))?.result.status, 'ok')
+      const mcpInvocationAuditRecords = await hydrated.listMcpInvocationAuditRecords({ jobId: job.id })
+      assert.equal(mcpInvocationAuditRecords.some(record => record.replayKey === 'mcp-replay:mcpinv_pg_smoke'), true)
       const templates = await hydrated.listDesignTemplatePacks(repository.devUser.id, repository.devWorkspace.id)
       assert.equal(templates[0]?.source, 'official')
       assert.equal(templates.some(template => template.id === privateTemplate.id), true)
@@ -369,6 +412,7 @@ function clearHydratedCache(repository: PostgresRepository): void {
   repository.designTemplatePackVersions.clear()
   repository.annotationBatches.clear()
   repository.encyclopediaEntryGuidances.clear()
+  repository.mcpInvocationAuditRecords.clear()
   repository.auditLogs.splice(0, repository.auditLogs.length)
   repository.usageEvents.splice(0, repository.usageEvents.length)
 }
