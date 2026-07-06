@@ -196,6 +196,8 @@ function emptyMcpSummary() {
     },
     filters: {
       mcpToolId: null,
+      createdFrom: null,
+      createdTo: null,
       limit: 1000,
     },
   }

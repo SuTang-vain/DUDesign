@@ -16,6 +16,13 @@ test('MCP invocation audit supports filters and long replay keys', async ({ page
   const democaseHealthRow = page.getByTestId('mcp-tool-health-row').filter({ hasText: 'mcp_encyclopedia_democase_readonly' })
   await expect(democaseHealthRow).toContainText('mcp_encyclopedia_democase_readonly')
   await expect(democaseHealthRow).toContainText('MCP_UNAVAILABLE')
+  await page.getByLabel('From').fill('2026-07-06T09:00')
+  await page.getByLabel('To').fill('2026-07-06T11:00')
+  await expect.poll(() => requests.some(url =>
+    url.includes('/api/admin/mcp/summary')
+    && url.includes('createdFrom=2026-07-06T09%3A00%3A00.000Z')
+    && url.includes('createdTo=2026-07-06T11%3A00%3A00.000Z'),
+  )).toBe(true)
   await expect(page.getByTestId('mcp-invocation-audit-panel')).toBeVisible()
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('mcpinv_ok_long')
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText(longReplayKey)
@@ -73,7 +80,7 @@ async function mockAdminApi(page: Page, requests: string[] = []): Promise<void> 
     }
 
     if (url.pathname === '/api/admin/mcp/summary') {
-      return json(route, mcpSummary())
+      return json(route, mcpSummary(url))
     }
 
     if (url.pathname === '/api/admin/audit-logs') {
@@ -181,7 +188,7 @@ function unavailableInvocation() {
   }
 }
 
-function mcpSummary() {
+function mcpSummary(url: URL) {
   return {
     totals: {
       totalCount: 3,
@@ -241,6 +248,8 @@ function mcpSummary() {
     },
     filters: {
       mcpToolId: null,
+      createdFrom: url.searchParams.get('createdFrom'),
+      createdTo: url.searchParams.get('createdTo'),
       limit: 1000,
     },
   }
