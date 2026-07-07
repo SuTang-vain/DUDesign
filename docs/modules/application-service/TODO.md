@@ -83,12 +83,21 @@
 - [x] MU-1 Auth Repository 与 Session Cookie。
   - [x] 新增 `auth_sessions` migration，只存 session token hash。
   - [x] 新增 `auth_identities` migration，支持 password provider。
+  - [x] 扩展 `auth_identities.provider` 支持 `oauth_google` / `oauth_github`。
   - [x] 新增 auth repository methods：创建 identity、按 email 查找、创建/撤销 session、按 token hash 解析 session。
   - [x] 新增 password hash / verify 工具。
   - [x] 新增 session cookie set/clear，生产 cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`。
   - [x] `createRequestContext()` 支持从 cookie 解析 userId。
   - [x] dev header fallback 仅在 `DUDESIGN_AUTH_MODE=dev` 时启用。
   - [x] 实现 `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`。
+- [~] MU-5 OAuth Provider Login。
+  - [x] 新增 Google/GitHub OAuth provider contract。
+  - [x] 新增 `GET /api/auth/oauth/:provider/start` 和 `GET /api/auth/oauth/:provider/callback`。
+  - [x] OAuth callback 通过 provider subject 登录、通过 verified email 绑定已有用户，或创建新用户和个人 workspace。
+  - [x] OAuth 成功后继续签发 DUDesign 自有 `dudesign_session`，不把 provider access token 作为业务登录态。
+  - [x] OAuth state 使用 HttpOnly cookie 校验，降低 callback CSRF 风险。
+  - [ ] 用户端登录页接入 Google/GitHub 登录按钮和 callback 成功跳转。
+  - [ ] staging 配置真实 Google/GitHub OAuth client 并跑 provider smoke。
 - [x] MU-2 Workspace Membership Guard。
   - [x] 用户注册时创建个人 hosted workspace。
   - [x] 用户注册时写入 owner membership。

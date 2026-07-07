@@ -81,7 +81,7 @@ export type AuditLog = {
 export type AuthIdentity = {
   id: string
   userId: string
-  provider: 'password'
+  provider: 'password' | 'oauth_google' | 'oauth_github'
   providerSubject: string
   passwordHash: string | null
   verifiedAt: string | null

@@ -31,7 +31,7 @@ MVP 暂不做：
 
 - 完整团队协作 UI。
 - 企业 SSO。
-- OAuth 第三方登录。
+- OAuth 第三方登录在第一版规划中不作为阻塞项；当前已作为 MU-5 后端增强进入 session-cookie 架构，仍需用户端登录页和 staging provider smoke 才算产品闭环。
 - 复杂组织账单。
 - 多 workspace 邀请审批流。
 - 实时多人编辑。
@@ -127,6 +127,8 @@ MVP 第一版可以只创建 owner membership，并实现 role guard 抽象；�
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `GET /api/auth/oauth/:provider/start`
+- `GET /api/auth/oauth/:provider/callback`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `POST /api/auth/password/reset/request`

@@ -4,6 +4,7 @@ import type { DesignEvent } from '@dudesign/contracts'
 import { ApplicationService, type HttpError } from './service.js'
 import { createApplicationServiceFromEnv } from './serviceFactory.js'
 import { createRequestContext, type RequestContext } from './auth.js'
+import { assertOAuthState, clearOAuthStateCookie, oauthProviderFromPath } from './oauth.js'
 
 const defaultPort = Number(process.env.PORT ?? 4000)
 const defaultHost = process.env.HOST ?? '127.0.0.1'
@@ -64,6 +65,29 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   if (method === 'POST' && url.pathname === '/api/auth/login') {
     const result = await service.loginUser(ctx, await readJson(req), requestMeta(req))
     res.setHeader('set-cookie', result.cookie)
+    sendJson(res, 200, result.body)
+    return
+  }
+
+  const oauthStartMatch = url.pathname.match(/^\/api\/auth\/oauth\/([^/]+)\/start$/)
+  if (method === 'GET' && oauthStartMatch) {
+    const provider = oauthProviderFromPath(decodeURIComponent(oauthStartMatch[1]!))
+    if (!provider) throw routeError(404, 'OAUTH_PROVIDER_NOT_FOUND', 'OAuth provider not found.')
+    const result = await service.startOAuthLogin(provider)
+    res.setHeader('set-cookie', result.cookie)
+    sendJson(res, 200, result.body)
+    return
+  }
+
+  const oauthCallbackMatch = url.pathname.match(/^\/api\/auth\/oauth\/([^/]+)\/callback$/)
+  if (method === 'GET' && oauthCallbackMatch) {
+    const provider = oauthProviderFromPath(decodeURIComponent(oauthCallbackMatch[1]!))
+    if (!provider) throw routeError(404, 'OAUTH_PROVIDER_NOT_FOUND', 'OAuth provider not found.')
+    const providerError = url.searchParams.get('error')
+    if (providerError) throw routeError(400, 'OAUTH_PROVIDER_ERROR', url.searchParams.get('error_description') ?? providerError)
+    assertOAuthState(req.headers, provider, url.searchParams.get('state'))
+    const result = await service.completeOAuthLogin(provider, url.searchParams.get('code') ?? '', requestMeta(req))
+    res.setHeader('set-cookie', [result.cookie, clearOAuthStateCookie()])
     sendJson(res, 200, result.body)
     return
   }
@@ -698,6 +722,13 @@ function sendError(res: http.ServerResponse, error: unknown): void {
       message: error instanceof Error ? error.message : 'Unknown error',
     },
   })
+}
+
+function routeError(status: number, code: string, message: string): Error & { status: number; code: string } {
+  const error = new Error(message) as Error & { status: number; code: string }
+  error.status = status
+  error.code = code
+  return error
 }
 
 function parseOptionalInteger(value: string | null): number | null {

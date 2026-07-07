@@ -1,7 +1,7 @@
 create table if not exists auth_identities (
   id text primary key,
   user_id text not null references users(id) on delete cascade,
-  provider text not null check (provider in ('password')),
+  provider text not null check (provider in ('password', 'oauth_google', 'oauth_github')),
   provider_subject text not null,
   password_hash text,
   verified_at timestamptz,

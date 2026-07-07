@@ -7,10 +7,14 @@ import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 describe('session cookie authentication flow', () => {
   let harness: ApiFlowHarness | null = null
   let previousAuthMode: string | undefined
+  const previousEnv = { ...process.env }
+  const originalFetch = globalThis.fetch
 
   afterEach(async () => {
     if (previousAuthMode === undefined) delete process.env.DUDESIGN_AUTH_MODE
     else process.env.DUDESIGN_AUTH_MODE = previousAuthMode
+    process.env = { ...previousEnv }
+    globalThis.fetch = originalFetch
     await harness?.close()
     harness = null
   })
@@ -120,6 +124,55 @@ describe('session cookie authentication flow', () => {
     assert.equal(synced.audit.operatorRole, 'operator')
   })
 
+  it('completes Google OAuth and signs a DUDesign session cookie', async () => {
+    previousAuthMode = process.env.DUDESIGN_AUTH_MODE
+    process.env.DUDESIGN_AUTH_MODE = 'session'
+    process.env.DUDESIGN_OAUTH_GOOGLE_CLIENT_ID = 'google-client'
+    process.env.DUDESIGN_OAUTH_GOOGLE_CLIENT_SECRET = 'google-secret'
+    process.env.DUDESIGN_OAUTH_GOOGLE_REDIRECT_URI = 'http://localhost/api/auth/oauth/google/callback'
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = String(input)
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return jsonResponse({ access_token: 'google-access' })
+      }
+      if (url === 'https://openidconnect.googleapis.com/v1/userinfo') {
+        return jsonResponse({
+          sub: 'google-sub-1',
+          email: 'oauth-designer@example.com',
+          email_verified: true,
+          name: 'OAuth Designer',
+          picture: 'https://example.com/oauth.png',
+        })
+      }
+      return originalFetch(input, init)
+    }) as typeof fetch
+    harness = await startApiFlowHarness(new ApplicationService())
+
+    const startResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/start`)
+    assert.equal(startResponse.status, 200)
+    const oauthCookie = startResponse.headers.get('set-cookie') ?? ''
+    assert.match(oauthCookie, /dudesign_oauth_state=google\./)
+    const startBody = await startResponse.json() as { authorizationUrl: string }
+    const authorizationUrl = new URL(startBody.authorizationUrl)
+    assert.equal(authorizationUrl.searchParams.get('client_id'), 'google-client')
+    assert.equal(authorizationUrl.searchParams.get('scope'), 'openid email profile')
+    const state = authorizationUrl.searchParams.get('state')
+    assert.ok(state)
+
+    const callbackResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/callback?code=oauth_code&state=${encodeURIComponent(state)}`, {
+      headers: { cookie: oauthCookie },
+    })
+    assert.equal(callbackResponse.status, 200)
+    const sessionCookie = callbackResponse.headers.get('set-cookie') ?? ''
+    assert.match(sessionCookie, /dudesign_session=/)
+    const signedIn = await callbackResponse.json() as AuthUserResponse
+    assert.equal(signedIn.user.email, 'oauth-designer@example.com')
+    assert.equal(signedIn.user.name, 'OAuth Designer')
+
+    const identity = await harness.service.store.getAuthIdentityByProvider('oauth_google', 'google-sub-1')
+    assert.equal(identity?.userId, signedIn.user.id)
+  })
+
   let currentSetCookie = ''
 
   async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -164,5 +217,12 @@ describe('session cookie authentication flow', () => {
   function lastSetCookie(): string {
     assert.ok(currentSetCookie, 'Expected a Set-Cookie header')
     return currentSetCookie
+  }
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })
   }
 })

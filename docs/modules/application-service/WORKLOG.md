@@ -2683,3 +2683,45 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 ### 后续建议
 
 - 把 template publish/disable、子模板禁用、审查规则禁用统一抽象为 scoped governance override 前，先钉死 object type、冲突优先级和审计 replay 规则。
+
+## 2026-07-07 APP-M53 Google/GitHub OAuth Provider Login Backend
+
+### 已完成
+
+- `auth_identities.provider` 从 password-only 扩展为：
+  - `password`
+  - `oauth_google`
+  - `oauth_github`
+- 新增 migration `0017_oauth_identity_providers.sql`，升级既有 PostgreSQL provider check constraint。
+- 新增 OAuth provider adapter：
+  - 读取 `DUDESIGN_OAUTH_GOOGLE_*` 和 `DUDESIGN_OAUTH_GITHUB_*` env。
+  - 生成 OAuth authorization URL。
+  - 使用 HttpOnly `dudesign_oauth_state` cookie 校验 callback state。
+  - Google 使用 OIDC userinfo，GitHub 在 public email 不可用时读取 `/user/emails` 选择 verified email。
+- 新增 API：
+  - `GET /api/auth/oauth/google/start`
+  - `GET /api/auth/oauth/google/callback`
+  - `GET /api/auth/oauth/github/start`
+  - `GET /api/auth/oauth/github/callback`
+- OAuth callback 成功后不保存 provider access token，只用 provider profile 解析身份，然后继续签发 DUDesign 自有 `dudesign_session`。
+- 账号绑定规则：
+  - 先按 `provider + providerSubject` 找已有 identity。
+  - 未命中时按 verified email 绑定已有 DUDesign user。
+  - 未命中时创建新 user 和个人 hosted workspace。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="session cookie authentication flow|OAuth helpers|multi-user access"`
+
+### 决策
+
+- MVP OAuth 登录不持久保存 Google/GitHub access token；后续 GitHub repo 导入应作为单独 integration 授权，不复用登录 token。
+- OAuth callback 首版返回 `AuthUserResponse` JSON；用户端登录页接入后再根据产品路由决定是否 302 到 app 首页。
+- Google/GitHub provider env 缺失时返回 `OAUTH_PROVIDER_NOT_CONFIGURED`，避免半配置状态误导用户。
+
+### 后续建议
+
+- 第 1 层用户端补登录/注册页：邮箱密码、Continue with Google、Continue with GitHub、登出、未登录跳转。
+- staging 配置真实 OAuth client，并增加 opt-in provider smoke。
+- 上线前补 rate limit、登录失败节流、CSRF/CORS allowlist 和密码重置。

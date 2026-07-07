@@ -883,6 +883,13 @@ export type LoginUserRequest = {
   password: string
 }
 
+export type OAuthProvider = 'google' | 'github'
+
+export type OAuthStartResponse = {
+  provider: OAuthProvider
+  authorizationUrl: string
+}
+
 export type AuthWorkspace = {
   id: ID
   ownerId: ID

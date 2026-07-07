@@ -77,6 +77,15 @@ import {
   verifyPassword,
   type RequestContext,
 } from './auth.js'
+import {
+  createOAuthAuthorizationUrl,
+  createOAuthStateCookie,
+  exchangeOAuthCodeForProfile,
+  oauthConfig,
+  oauthIdentityProvider,
+  type OAuthProvider,
+  type OAuthProfile,
+} from './oauth.js'
 import { createId } from './id.js'
 import { DYNAMIC_ENCYCLOPEDIA_PRESET, listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
 import { DESIGN_TEMPLATE_PACK_SCHEMA_VERSION, importDesignMd } from './designTemplatePack.js'
@@ -400,6 +409,36 @@ export class ApplicationService {
     const user = await this.requireUser(identity.userId)
     const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
+    const auth = await this.createAuthSessionForUser(user.id, meta)
+    return {
+      cookie: auth.cookie,
+      body: {
+        user,
+        workspace,
+        workspaces: [workspace],
+      },
+    }
+  }
+
+  async startOAuthLogin(provider: OAuthProvider) {
+    const config = oauthConfig(provider)
+    const authorization = createOAuthAuthorizationUrl(config)
+    return {
+      cookie: createOAuthStateCookie(provider, authorization.state),
+      body: {
+        provider,
+        authorizationUrl: authorization.authorizationUrl,
+      },
+    }
+  }
+
+  async completeOAuthLogin(
+    provider: OAuthProvider,
+    code: string,
+    meta: { userAgent?: string | null; ip?: string | null } = {},
+  ) {
+    const profile = await exchangeOAuthCodeForProfile(oauthConfig(provider), code)
+    const { user, workspace } = await this.findOrCreateOAuthUser(profile)
     const auth = await this.createAuthSessionForUser(user.id, meta)
     return {
       cookie: auth.cookie,
@@ -2676,6 +2715,45 @@ export class ApplicationService {
     return {
       session,
       cookie: sessionCookie(token, { maxAgeSeconds }),
+    }
+  }
+
+  private async findOrCreateOAuthUser(profile: OAuthProfile) {
+    const email = normalizeAuthEmail(profile.email)
+    if (!profile.emailVerified) {
+      throw createHttpError(400, 'OAUTH_EMAIL_UNVERIFIED', 'OAuth provider did not return a verified email.')
+    }
+    const provider = oauthIdentityProvider(profile.provider)
+    const existingIdentity = await this.store.getAuthIdentityByProvider(provider, profile.providerSubject)
+    if (existingIdentity) {
+      const user = await this.requireUser(existingIdentity.userId)
+      const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
+      if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
+      return { user, workspace }
+    }
+    const existingUser = await this.store.getUserByEmail(email)
+    const userContext = existingUser
+      ? {
+          user: existingUser,
+          workspace: await this.store.getPrimaryWorkspaceForUser(existingUser.id),
+        }
+      : await this.store.createUserWithWorkspace({
+          email,
+          name: profile.name,
+        })
+    if (!userContext.workspace) {
+      throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${userContext.user.id}`)
+    }
+    await this.store.createAuthIdentity({
+      userId: userContext.user.id,
+      provider,
+      providerSubject: profile.providerSubject,
+      passwordHash: null,
+      verifiedAt: new Date().toISOString(),
+    })
+    return {
+      user: userContext.user,
+      workspace: userContext.workspace,
     }
   }
 
