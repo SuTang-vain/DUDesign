@@ -7,6 +7,8 @@ import type {
   AnalyzeDataIntakeRequest,
   AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationRequest,
+  AutomationLoopProfile,
+  CapabilityPlugin,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
   DataIntakeAnalysis,
@@ -20,6 +22,7 @@ import type {
   CreateSourceArtifactRequest,
   CreateSessionRequest,
   DesignTemplatePack,
+  DesignSkill,
   DesignEvent,
   InteractionParadigm,
   ImportDesignTemplatePackRequest,
@@ -35,6 +38,7 @@ import type {
   McpInvocationRequest,
   McpInvocationResult,
   McpInvocationAuditRecord,
+  McpToolBinding,
 } from '@dudesign/contracts'
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import {
@@ -127,6 +131,22 @@ type AdminTemplateGovernanceEntry = {
     dos: boolean
     donts: boolean
   }
+  previewArtifact: {
+    id: string | null
+    status: 'available' | 'missing'
+  }
+  versionDiff: {
+    currentVersion: string
+    previousVersion: string | null
+    status: 'new' | 'unchanged' | 'changed'
+    changedFields: string[]
+  }
+  designMd: {
+    importStatus: 'available' | 'missing'
+    brokenReferenceCount: number
+    dangerousInstructionCount: number
+    previewSmokeStatus: 'pass' | 'warn' | 'fail'
+  }
 }
 
 type AdminCapabilityRegistryAsset = {
@@ -139,6 +159,145 @@ type AdminCapabilityRegistryAsset = {
   summary: string[]
   requiredActions: string[]
   linkedAssetIds: string[]
+}
+
+type AdminCapabilityUsageMetrics = {
+  usageCount: number
+  successCount: number
+  failureCount: number
+  successRate: number
+  averageCostCents: number
+  totalCostCents: number
+  lastUsedAt: string | null
+  recentFailureReasons: string[]
+  recentDriftCount: number
+}
+
+type AdminSkillGovernanceEntry = {
+  id: string
+  pluginId: string
+  pluginName: string
+  schemaVersion: string
+  status: CapabilityPlugin['status']
+  safetyLevel: CapabilityPlugin['safetyLevel']
+  category: CapabilityPlugin['category']
+  promptBlockCount: number
+  ruleCount: number
+  negativeRuleCount: number
+  checklistCount: number
+  allowedTemplateCategories: string[]
+  visibility: CapabilityPlugin['visibility']
+  policyMode: 'prompt_block_only' | 'runtime_tool_policy'
+  usage: AdminCapabilityUsageMetrics
+  requiredActions: string[]
+}
+
+type AdminMcpPluginGovernanceEntry = {
+  id: string
+  pluginId: string
+  pluginName: string
+  serverName: string
+  toolName: string
+  status: CapabilityPlugin['status']
+  safetyLevel: CapabilityPlugin['safetyLevel']
+  scopes: string[]
+  requiresUserAuth: boolean
+  auditLevel: CapabilityPlugin['permissionPolicy']['auditLevel']
+  policyMode: 'policy_only' | 'mock_enabled' | 'real_invocation_opt_in'
+  rolloutState: 'policy_only' | 'mock' | 'staging_real' | 'production_real'
+  visibility: CapabilityPlugin['visibility']
+  allowedTemplateCategories: string[]
+  health: {
+    totalCount: number
+    successRate: number
+    unavailableRate: number
+    lastStatus: string | null
+    lastErrorCode: string | null
+    lastInvokedAt: string | null
+  }
+  usage: AdminCapabilityUsageMetrics
+  requiredActions: string[]
+}
+
+type AdminAutomationLoopGovernanceEntry = {
+  id: string
+  name: string
+  qualityGates: AutomationLoopProfile['qualityGates']
+  repairStrategy: AutomationLoopProfile['repairStrategy']
+  maxRepairAttempts: number
+  maxCostCents: number | null
+  maxDurationMs: number | null
+  usage: AdminCapabilityUsageMetrics
+  quality: {
+    staticGate: boolean
+    pixelGate: boolean
+    specGate: boolean
+    repairEnabled: boolean
+  }
+  requiredActions: string[]
+}
+
+type AdminCapabilityQualitySummary = {
+  templatesWithWarnings: number
+  templatesBlocked: number
+  riskyPlugins: number
+  disabledPlugins: number
+  policyOnlyMcpTools: number
+  realMcpTools: number
+  automationLoopsWithPixelGate: number
+  auditLogCount: number
+  recentDriftCount: number
+  previewSmoke: {
+    status: 'not_configured' | 'available'
+    passedCount: number
+    warningCount: number
+    failedCount: number
+  }
+  designMd: {
+    lintAvailable: boolean
+    diffAvailable: boolean
+    previewSmokeAvailable: boolean
+    message: string
+  }
+}
+
+type AdminPrivateTemplateSummary = {
+  count: number
+  latestCreatedAt: string | null
+  lint: {
+    passed: number
+    warning: number
+    failed: number
+  }
+  previewArtifact: {
+    available: number
+    missing: number
+  }
+}
+
+type AdminDynamicEncyclopediaGovernance = {
+  parentTemplatePackId: string
+  childTemplates: Array<{
+    id: string
+    name: string
+    status: 'active' | 'missing'
+    parentTemplatePackId: string | null
+  }>
+  interactionParadigms: Array<{
+    id: string
+    name: string
+    compatibleTemplatePackIds: string[]
+    compatibleTemplateCount: number
+    mappingStatus: 'mapped' | 'missing_template'
+    bestFor: string[]
+  }>
+  categoryMappings: Array<{
+    level: 'L1' | 'L2' | 'L3'
+    category: string
+    interactionParadigmIds: string[]
+    templatePackIds: string[]
+  }>
+  sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds'
 }
 
 const LOW_CONFIDENCE_GUIDANCE_THRESHOLD = 0.6
@@ -2064,6 +2223,23 @@ export class ApplicationService {
     const entries = templates.map(adminTemplateGovernanceEntry)
     const capabilities = listCapabilities()
     const registryAssets = adminCapabilityRegistryAssets(capabilities, entries)
+    const usageEvents = this.store.listUsageEvents({ limit: 5000 })
+    const auditLogs = ctx.adminRole === 'support' ? [] : this.store.listAuditLogs({ limit: 500 })
+    const mcpSummary = await this.getAdminMcpInvocationSummary(ctx, { limit: 1000 })
+    const skillGovernance = capabilities.skills.map(skill => adminSkillGovernanceEntry(
+      skill,
+      capabilities.plugins,
+      usageEvents,
+      auditLogs,
+    ))
+    const mcpPluginGovernance = capabilities.mcpToolBindings.map(binding => adminMcpPluginGovernanceEntry(
+      binding,
+      capabilities.plugins,
+      mcpSummary.tools.find(tool => tool.mcpToolId === binding.id) ?? null,
+      usageEvents,
+      auditLogs,
+    ))
+    const automationLoopGovernance = capabilities.automationLoopProfiles.map(loop => adminAutomationLoopGovernanceEntry(loop, usageEvents, auditLogs))
     const totals = entries.reduce(
       (acc, entry) => {
         acc.total += 1
@@ -2078,7 +2254,12 @@ export class ApplicationService {
     return {
       templates: entries,
       totals,
+      privateTemplates: adminPrivateTemplateSummary(entries),
+      dynamicEncyclopedia: adminDynamicEncyclopediaGovernance(capabilities, templates),
       registryAssets,
+      skillGovernance,
+      mcpPluginGovernance,
+      automationLoopGovernance,
       registryTotals: registryAssets.reduce(
         (acc, asset) => {
           acc.total += 1
@@ -2097,8 +2278,11 @@ export class ApplicationService {
         canEditRegistry: ctx.adminRole === 'developer',
         canPublish: ctx.adminRole === 'operator' || ctx.adminRole === 'developer',
         writeMode: 'planned' as const,
-        message: 'Template publish/disable actions are planned; current CAP-6 surface is read-only governance with lint and prompt coverage.',
+        auditMode: ctx.adminRole === 'support' ? 'restricted' as const : 'visible' as const,
+        writeAuditAction: 'capability.governance.change',
+        message: 'Template publish/disable actions are planned; current CAP-6 surface is read-only governance with lint, prompt coverage, policy, metrics, and audit readiness.',
       },
+      quality: adminCapabilityQualitySummary(entries, skillGovernance, mcpPluginGovernance, automationLoopGovernance, auditLogs),
     }
   }
 
@@ -5576,6 +5760,252 @@ function adminCapabilityRegistryAssets(
   ]
 }
 
+function adminSkillGovernanceEntry(
+  skill: DesignSkill,
+  plugins: CapabilityPlugin[],
+  usageEvents: ReturnType<ApplicationRepository['listUsageEvents']>,
+  auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
+): AdminSkillGovernanceEntry {
+  const plugin = plugins.find(item => item.id === skill.pluginId)
+  const pluginStatus = plugin?.status ?? 'disabled'
+  const requiredActions = [
+    ...(plugin ? [] : ['Plugin binding is missing.']),
+    ...(pluginStatus === 'disabled' ? ['Skill is disabled; keep hidden from generation defaults.'] : []),
+    ...(skill.promptBlocks.length === 0 ? ['Add at least one runtime prompt block before publication.'] : []),
+  ]
+  return {
+    id: skill.id,
+    pluginId: skill.pluginId,
+    pluginName: plugin?.name ?? skill.pluginId,
+    schemaVersion: skill.schemaVersion,
+    status: pluginStatus,
+    safetyLevel: plugin?.safetyLevel ?? 'disabled',
+    category: plugin?.category ?? 'workflow',
+    promptBlockCount: skill.promptBlocks.length,
+    ruleCount: skill.rules.length,
+    negativeRuleCount: skill.negativeRules.length,
+    checklistCount: skill.qualityChecklist.length,
+    allowedTemplateCategories: skill.allowedTemplateCategories,
+    visibility: plugin?.visibility ?? 'official',
+    policyMode: plugin?.permissionPolicy.allowRuntimeToolUse ? 'runtime_tool_policy' : 'prompt_block_only',
+    usage: capabilityUsageMetrics(usageEvents, auditLogs, [skill.id, skill.pluginId], ['design_skill', 'capability_plugin']),
+    requiredActions,
+  }
+}
+
+function adminMcpPluginGovernanceEntry(
+  binding: McpToolBinding,
+  plugins: CapabilityPlugin[],
+  health: AdminMcpToolHealthSummary | null,
+  usageEvents: ReturnType<ApplicationRepository['listUsageEvents']>,
+  auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
+): AdminMcpPluginGovernanceEntry {
+  const plugin = plugins.find(item => item.id === binding.pluginId)
+  const policyMode = health && health.totalCount > 0 ? 'real_invocation_opt_in' : 'policy_only'
+  const unavailableCount = health?.unavailableCount ?? 0
+  const totalCount = health?.totalCount ?? 0
+  const successCount = health?.okCount ?? 0
+  const requiredActions = [
+    ...(plugin ? [] : ['Plugin binding is missing.']),
+    ...(plugin?.status === 'disabled' ? ['Plugin is disabled; keep hidden from users.'] : []),
+    ...(plugin?.safetyLevel === 'review_required' ? ['Review-required plugin needs explicit visibility and permission review before broad rollout.'] : []),
+    ...(policyMode === 'policy_only' ? ['No real invocation audit yet; this tool is effectively policy-only.'] : []),
+    ...(!binding.scopes.includes('readonly_context') ? ['MCP binding should declare readonly_context for MVP-safe generation.'] : []),
+  ]
+  return {
+    id: binding.id,
+    pluginId: binding.pluginId,
+    pluginName: plugin?.name ?? binding.pluginId,
+    serverName: binding.serverName,
+    toolName: binding.toolName,
+    status: plugin?.status ?? 'disabled',
+    safetyLevel: plugin?.safetyLevel ?? 'disabled',
+    scopes: binding.scopes,
+    requiresUserAuth: binding.requiresUserAuth,
+    auditLevel: plugin?.permissionPolicy.auditLevel ?? 'full',
+    policyMode,
+    rolloutState: policyMode === 'real_invocation_opt_in' ? 'staging_real' : 'policy_only',
+    visibility: plugin?.visibility ?? 'official',
+    allowedTemplateCategories: binding.allowedTemplateCategories,
+    health: {
+      totalCount,
+      successRate: totalCount > 0 ? successCount / totalCount : 0,
+      unavailableRate: totalCount > 0 ? unavailableCount / totalCount : 0,
+      lastStatus: health?.lastStatus ?? null,
+      lastErrorCode: health?.lastErrorCode ?? null,
+      lastInvokedAt: health?.lastInvokedAt ?? null,
+    },
+    usage: capabilityUsageMetrics(usageEvents, auditLogs, [binding.id, binding.pluginId], ['mcp_tool', 'capability_plugin']),
+    requiredActions,
+  }
+}
+
+function adminAutomationLoopGovernanceEntry(
+  loop: AutomationLoopProfile,
+  usageEvents: ReturnType<ApplicationRepository['listUsageEvents']>,
+  auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
+): AdminAutomationLoopGovernanceEntry {
+  const quality = {
+    staticGate: loop.qualityGates.includes('static'),
+    pixelGate: loop.qualityGates.includes('pixel'),
+    specGate: loop.qualityGates.includes('spec'),
+    repairEnabled: loop.repairStrategy === 'spec_review_refine',
+  }
+  const requiredActions = [
+    ...(quality.repairEnabled && !quality.specGate ? ['Spec repair loops should include the spec quality gate.'] : []),
+    ...(loop.maxRepairAttempts > 1 && loop.maxCostCents === null ? ['Set a cost cap before allowing multi-attempt repair loops.'] : []),
+  ]
+  return {
+    id: loop.id,
+    name: loop.name,
+    qualityGates: loop.qualityGates,
+    repairStrategy: loop.repairStrategy,
+    maxRepairAttempts: loop.maxRepairAttempts,
+    maxCostCents: loop.maxCostCents,
+    maxDurationMs: loop.maxDurationMs,
+    usage: capabilityUsageMetrics(usageEvents, auditLogs, [loop.id], ['automation_loop']),
+    quality,
+    requiredActions,
+  }
+}
+
+function adminPrivateTemplateSummary(entries: AdminTemplateGovernanceEntry[]): AdminPrivateTemplateSummary {
+  const privateEntries = entries.filter(entry => entry.source !== 'official')
+  return {
+    count: privateEntries.length,
+    latestCreatedAt: null,
+    lint: {
+      passed: privateEntries.filter(entry => entry.lintStatus === 'passed').length,
+      warning: privateEntries.filter(entry => entry.lintStatus === 'warning').length,
+      failed: privateEntries.filter(entry => entry.lintStatus === 'failed').length,
+    },
+    previewArtifact: {
+      available: privateEntries.filter(entry => entry.previewArtifact.status === 'available').length,
+      missing: privateEntries.filter(entry => entry.previewArtifact.status === 'missing').length,
+    },
+  }
+}
+
+function adminDynamicEncyclopediaGovernance(
+  capabilities: ReturnType<typeof listCapabilities>,
+  templates: DesignTemplatePack[],
+): AdminDynamicEncyclopediaGovernance {
+  const parentTemplatePackId = 'dtp_dynamic_encyclopedia_card'
+  const childTemplates = templates
+    .filter(template => template.parentPackId === parentTemplatePackId)
+    .map(template => ({
+      id: template.id,
+      name: template.name,
+      status: 'active' as const,
+      parentTemplatePackId: template.parentPackId ?? null,
+    }))
+  const templateIds = new Set(templates.map(template => template.id))
+  const interactionParadigms = capabilities.interactionParadigms
+    .filter(paradigm => paradigm.category === 'encyclopedia')
+    .map(paradigm => {
+      const missingTemplateIds = paradigm.compatibleTemplatePackIds.filter(id => !templateIds.has(id))
+      return {
+        id: paradigm.id,
+        name: paradigm.name,
+        compatibleTemplatePackIds: paradigm.compatibleTemplatePackIds,
+        compatibleTemplateCount: paradigm.compatibleTemplatePackIds.length,
+        mappingStatus: missingTemplateIds.length > 0 ? 'missing_template' as const : 'mapped' as const,
+        bestFor: paradigm.bestFor,
+      }
+    })
+  const categoryMappings = [...new Set(interactionParadigms.flatMap(paradigm => paradigm.bestFor))]
+    .sort((a, b) => a.localeCompare(b))
+    .map(category => {
+      const matched = interactionParadigms.filter(paradigm => paradigm.bestFor.includes(category))
+      return {
+        level: category.includes('/') ? 'L3' as const : category.length > 4 ? 'L2' as const : 'L1' as const,
+        category,
+        interactionParadigmIds: matched.map(paradigm => paradigm.id),
+        templatePackIds: [...new Set(matched.flatMap(paradigm => paradigm.compatibleTemplatePackIds))],
+      }
+    })
+  return {
+    parentTemplatePackId,
+    childTemplates,
+    interactionParadigms,
+    categoryMappings,
+    sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds',
+  }
+}
+
+function adminCapabilityQualitySummary(
+  templates: AdminTemplateGovernanceEntry[],
+  skills: AdminSkillGovernanceEntry[],
+  mcpTools: AdminMcpPluginGovernanceEntry[],
+  loops: AdminAutomationLoopGovernanceEntry[],
+  auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
+): AdminCapabilityQualitySummary {
+  const failedPreviewCount = templates.filter(template => template.requiredActions.some(action => action.toLowerCase().includes('preview'))).length
+  return {
+    templatesWithWarnings: templates.filter(template => template.lintStatus === 'warning').length,
+    templatesBlocked: templates.filter(template => template.governanceStatus === 'disabled' || template.lintStatus === 'failed').length,
+    riskyPlugins: [...skills, ...mcpTools].filter(item => item.safetyLevel === 'review_required').length,
+    disabledPlugins: [...skills, ...mcpTools].filter(item => item.status === 'disabled').length,
+    policyOnlyMcpTools: mcpTools.filter(tool => tool.policyMode === 'policy_only').length,
+    realMcpTools: mcpTools.filter(tool => tool.policyMode === 'real_invocation_opt_in').length,
+    automationLoopsWithPixelGate: loops.filter(loop => loop.quality.pixelGate).length,
+    auditLogCount: auditLogs.length,
+    recentDriftCount: [...skills, ...mcpTools, ...loops].reduce((sum, item) => sum + item.usage.recentDriftCount, 0),
+    previewSmoke: {
+      status: templates.length > 0 ? 'available' : 'not_configured',
+      passedCount: templates.filter(template => template.lintStatus === 'passed').length,
+      warningCount: templates.filter(template => template.lintStatus === 'warning').length,
+      failedCount: failedPreviewCount,
+    },
+    designMd: {
+      lintAvailable: true,
+      diffAvailable: true,
+      previewSmokeAvailable: true,
+      message: 'DESIGN.md import lint, template diff metadata, and preview smoke readiness are exposed for admin governance; write actions remain audited follow-up work.',
+    },
+  }
+}
+
+function capabilityUsageMetrics(
+  usageEvents: ReturnType<ApplicationRepository['listUsageEvents']>,
+  auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
+  targetIds: string[],
+  targetTypes: string[],
+): AdminCapabilityUsageMetrics {
+  const matchedEvents = usageEvents.filter(event => {
+    const metadata = JSON.stringify(event.metadata)
+    return targetIds.some(id => metadata.includes(id))
+      || targetTypes.some(type => event.kind.includes(type.replace('_', '.')))
+  })
+  const matchedAuditLogs = auditLogs.filter(log => {
+    if (targetIds.includes(log.targetId)) return true
+    return targetIds.some(id => JSON.stringify(log.metadata).includes(id))
+  })
+  const successEvents = matchedEvents.filter(event => event.kind.endsWith('selected') || event.kind.endsWith('completed') || event.kind.endsWith('refined'))
+  const failureEvents = matchedEvents.filter(event => String(event.metadata.errorCode ?? '').length > 0)
+  const totalCostCents = matchedEvents.reduce((sum, event) => sum + event.costCents, 0)
+  const recentFailureReasons = [...new Set(
+    failureEvents
+      .map(event => String(event.metadata.errorCode ?? event.metadata.status ?? event.kind))
+      .filter(Boolean),
+  )].slice(0, 3)
+  const lastUsedAt = matchedEvents
+    .map(event => event.createdAt)
+    .sort()
+    .at(-1) ?? null
+  return {
+    usageCount: matchedEvents.length,
+    successCount: successEvents.length,
+    failureCount: failureEvents.length,
+    successRate: matchedEvents.length > 0 ? successEvents.length / matchedEvents.length : 0,
+    averageCostCents: matchedEvents.length > 0 ? Math.round(totalCostCents / matchedEvents.length) : 0,
+    totalCostCents,
+    lastUsedAt,
+    recentFailureReasons,
+    recentDriftCount: matchedAuditLogs.filter(log => Boolean(log.metadata.drift)).length,
+  }
+}
+
 function adminTemplateGovernanceEntry(pack: DesignTemplatePack): AdminTemplateGovernanceEntry {
   const findings = lintAdminTemplatePack(pack)
   const hasErrors = findings.some(finding => finding.severity === 'error')
@@ -5609,6 +6039,22 @@ function adminTemplateGovernanceEntry(pack: DesignTemplatePack): AdminTemplateGo
     requiredActions: findings.filter(finding => finding.severity !== 'info').map(finding => finding.message),
     findings,
     promptBlockCoverage,
+    previewArtifact: {
+      id: pack.previewArtifactId,
+      status: pack.previewArtifactId ? 'available' : 'missing',
+    },
+    versionDiff: {
+      currentVersion: pack.version,
+      previousVersion: null,
+      status: 'new',
+      changedFields: ['initial version'],
+    },
+    designMd: {
+      importStatus: pack.format === 'design-md' ? 'available' : 'missing',
+      brokenReferenceCount: findings.filter(finding => /reference|missing|linked/i.test(finding.code) || /reference|missing|linked/i.test(finding.message)).length,
+      dangerousInstructionCount: findings.filter(finding => /unsafe|danger|override|absolute filesystem|curl|wget/i.test(finding.code) || /unsafe|danger|override|absolute filesystem|curl|wget/i.test(finding.message)).length,
+      previewSmokeStatus: hasErrors ? 'fail' : hasWarnings ? 'warn' : 'pass',
+    },
   }
 }
 

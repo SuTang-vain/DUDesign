@@ -753,3 +753,39 @@
 ### 下一步
 
 - 将 summary 进一步扩展到 capability usage events，覆盖模板/skill 使用量、成本和 drift。
+
+## 2026-07-07 ADM-M20 Capability Governance Readonly Expansion
+
+### 已完成
+
+- 扩展 `GET /api/admin/capabilities/templates`：
+  - 模板治理条目新增 preview artifact 状态。
+  - 模板治理条目新增 DESIGN.md import/lint 摘要、broken reference 数、危险指令数和 preview smoke 状态。
+  - 模板治理条目新增版本 diff 摘要字段，当前以 baseline/new 状态暴露，后续可接真实 `design_template_versions` diff。
+  - 新增用户私有模板聚合：数量、lint pass/warn/fail、preview artifact available/missing；createdAt 尚未进入 template contract，因此最近创建时间明确显示 `not tracked`。
+  - 新增动态百科治理块：父模板包、子模板、interaction paradigm、分类映射和唯一事实来源 `InteractionParadigm.compatibleTemplatePackIds`。
+- 管理端 Template Governance 页面新增：
+  - User Private Templates 面板。
+  - Dynamic Encyclopedia Mapping 面板。
+  - 每个 template row 展示 preview、DESIGN.md、broken refs 和 version diff 状态。
+- Capability Governance 浏览器 smoke 增加 private template 与动态百科映射断言。
+- API flow smoke 增加真实服务响应断言，覆盖动态百科 child template、interaction paradigm mapping 和 DESIGN.md/preview/diff 字段。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/admin run build`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern "DUDesign mock API flow"`
+- `npm --workspace @dudesign/admin run test:e2e -- capability-governance.spec.ts`
+
+### 决策
+
+- 本轮继续保持 capability governance 写操作为 read-only planned 状态；发布、下线、归档、禁用风险 skill/plugin 仍需单独实现 Admin write API 和审计。
+- 动态百科 L1/L2/L3 映射不建立第二套配置表，管理端只从 `InteractionParadigm.compatibleTemplatePackIds` 派生，避免模板映射漂移。
+- 用户私有模板最近创建时间暂不伪造；等 DesignTemplatePack contract 或持久化读取层暴露 createdAt 后再显示真实值。
+
+### 下一步
+
+- 实现 capability usage events 查询 API，支持按 capability type、target id、时间范围过滤。
+- 推进官方 Design Template Pack 发布/下线/归档和版本 diff 写操作，并写入 `capability.governance.change` audit log。
+- 增加风险 skill/plugin 禁用 API，验证禁用后用户端创建 job 被拒绝。

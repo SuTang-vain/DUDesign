@@ -378,6 +378,34 @@ export type AdminTemplateGovernanceEntry = {
     dos: boolean
     donts: boolean
   }
+  previewArtifact: {
+    id: string | null
+    status: 'available' | 'missing'
+  }
+  versionDiff: {
+    currentVersion: string
+    previousVersion: string | null
+    status: 'new' | 'unchanged' | 'changed'
+    changedFields: string[]
+  }
+  designMd: {
+    importStatus: 'available' | 'missing'
+    brokenReferenceCount: number
+    dangerousInstructionCount: number
+    previewSmokeStatus: 'pass' | 'warn' | 'fail'
+  }
+}
+
+export type AdminCapabilityUsageMetrics = {
+  usageCount: number
+  successCount: number
+  failureCount: number
+  successRate: number
+  averageCostCents: number
+  totalCostCents: number
+  lastUsedAt: string | null
+  recentFailureReasons: string[]
+  recentDriftCount: number
 }
 
 export type AdminTemplateGovernanceResponse = {
@@ -390,6 +418,127 @@ export type AdminTemplateGovernanceResponse = {
     passed: number
     warning: number
     failed: number
+  }
+  privateTemplates: {
+    count: number
+    latestCreatedAt: string | null
+    lint: {
+      passed: number
+      warning: number
+      failed: number
+    }
+    previewArtifact: {
+      available: number
+      missing: number
+    }
+  }
+  dynamicEncyclopedia: {
+    parentTemplatePackId: string
+    childTemplates: Array<{
+      id: string
+      name: string
+      status: 'active' | 'missing'
+      parentTemplatePackId: string | null
+    }>
+    interactionParadigms: Array<{
+      id: string
+      name: string
+      compatibleTemplatePackIds: string[]
+      compatibleTemplateCount: number
+      mappingStatus: 'mapped' | 'missing_template'
+      bestFor: string[]
+    }>
+    categoryMappings: Array<{
+      level: 'L1' | 'L2' | 'L3'
+      category: string
+      interactionParadigmIds: string[]
+      templatePackIds: string[]
+    }>
+    sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds'
+  }
+  skillGovernance: Array<{
+    id: string
+    pluginId: string
+    pluginName: string
+    schemaVersion: string
+    status: 'active' | 'archived' | 'disabled'
+    safetyLevel: 'safe' | 'review_required' | 'disabled'
+    category: string
+    promptBlockCount: number
+    ruleCount: number
+    negativeRuleCount: number
+    checklistCount: number
+    allowedTemplateCategories: string[]
+    visibility: 'official' | 'private' | 'workspace' | 'team'
+    policyMode: 'prompt_block_only' | 'runtime_tool_policy'
+    usage: AdminCapabilityUsageMetrics
+    requiredActions: string[]
+  }>
+  mcpPluginGovernance: Array<{
+    id: string
+    pluginId: string
+    pluginName: string
+    serverName: string
+    toolName: string
+    status: 'active' | 'archived' | 'disabled'
+    safetyLevel: 'safe' | 'review_required' | 'disabled'
+    scopes: string[]
+    requiresUserAuth: boolean
+    auditLevel: 'none' | 'usage' | 'full'
+    policyMode: 'policy_only' | 'mock_enabled' | 'real_invocation_opt_in'
+    rolloutState: 'policy_only' | 'mock' | 'staging_real' | 'production_real'
+    visibility: 'official' | 'private' | 'workspace' | 'team'
+    allowedTemplateCategories: string[]
+    health: {
+      totalCount: number
+      successRate: number
+      unavailableRate: number
+      lastStatus: string | null
+      lastErrorCode: string | null
+      lastInvokedAt: string | null
+    }
+    usage: AdminCapabilityUsageMetrics
+    requiredActions: string[]
+  }>
+  automationLoopGovernance: Array<{
+    id: string
+    name: string
+    qualityGates: Array<'static' | 'pixel' | 'spec'>
+    repairStrategy: 'none' | 'minimal_refine' | 'deep_refine' | 'spec_review_refine'
+    maxRepairAttempts: number
+    maxCostCents: number | null
+    maxDurationMs: number | null
+    usage: AdminCapabilityUsageMetrics
+    quality: {
+      staticGate: boolean
+      pixelGate: boolean
+      specGate: boolean
+      repairEnabled: boolean
+    }
+    requiredActions: string[]
+  }>
+  quality: {
+    templatesWithWarnings: number
+    templatesBlocked: number
+    riskyPlugins: number
+    disabledPlugins: number
+    policyOnlyMcpTools: number
+    realMcpTools: number
+    automationLoopsWithPixelGate: number
+    auditLogCount: number
+    recentDriftCount: number
+    previewSmoke: {
+      status: 'not_configured' | 'available'
+      passedCount: number
+      warningCount: number
+      failedCount: number
+    }
+    designMd: {
+      lintAvailable: boolean
+      diffAvailable: boolean
+      previewSmokeAvailable: boolean
+      message: string
+    }
   }
   registryAssets: Array<{
     id: string
@@ -406,7 +555,9 @@ export type AdminTemplateGovernanceResponse = {
   governance: {
     canEditRegistry: boolean
     canPublish: boolean
-    writeMode: 'planned'
+    writeMode: 'planned' | 'enabled'
+    auditMode: 'restricted' | 'visible'
+    writeAuditAction: string
     message: string
   }
 }

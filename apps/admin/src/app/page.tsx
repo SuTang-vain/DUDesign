@@ -559,12 +559,188 @@ export default function AdminHomePage(): React.JSX.Element {
               <span>write mode: {templateGovernance?.governance.writeMode ?? 'unknown'}</span>
               <span>publish: {templateGovernance?.governance.canPublish ? 'allowed' : 'restricted'}</span>
               <span>registry edit: {templateGovernance?.governance.canEditRegistry ? 'developer' : 'restricted'}</span>
+              <span>audit: {templateGovernance?.governance.auditMode ?? 'unknown'}</span>
+              <span>write audit action: {templateGovernance?.governance.writeAuditAction ?? 'n/a'}</span>
             </div>
             <p className="muted">{templateGovernance?.governance.message ?? 'Template governance has not loaded yet.'}</p>
             {!templateGovernance || templateGovernance.templates.length === 0 ? (
               <p className="muted">No template governance entries loaded.</p>
             ) : (
               <>
+              <section className="registry-governance-group" data-testid="capability-governance-summary">
+                <header>
+                  <h3>Capability Governance Summary</h3>
+                  <span className={`status-pill ${templateGovernance.quality.recentDriftCount > 0 ? 'degraded' : 'compatible'}`}>
+                    {templateGovernance.quality.recentDriftCount} drift
+                  </span>
+                </header>
+                <div className="metric-grid template-metrics">
+                  <div className="metric">
+                    <span>DESIGN.md lint / diff / preview</span>
+                    <strong>{templateGovernance.quality.designMd.lintAvailable && templateGovernance.quality.designMd.diffAvailable && templateGovernance.quality.designMd.previewSmokeAvailable ? 'ready' : 'partial'}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Preview smoke</span>
+                    <strong>{templateGovernance.quality.previewSmoke.passedCount}/{templateGovernance.templates.length}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>MCP rollout</span>
+                    <strong>{templateGovernance.quality.realMcpTools} real · {templateGovernance.quality.policyOnlyMcpTools} policy</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Audit logs</span>
+                    <strong>{templateGovernance.quality.auditLogCount}</strong>
+                  </div>
+                </div>
+                <p className="muted">{templateGovernance.quality.designMd.message}</p>
+              </section>
+
+              <section className="registry-governance-group" data-testid="private-template-governance-panel">
+                <header>
+                  <h3>User Private Templates</h3>
+                  <span className="status-pill">{templateGovernance.privateTemplates.count}</span>
+                </header>
+                <div className="metric-grid template-metrics">
+                  <div className="metric">
+                    <span>Lint pass / warn / fail</span>
+                    <strong>{templateGovernance.privateTemplates.lint.passed}/{templateGovernance.privateTemplates.lint.warning}/{templateGovernance.privateTemplates.lint.failed}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Preview artifact</span>
+                    <strong>{templateGovernance.privateTemplates.previewArtifact.available}/{templateGovernance.privateTemplates.count}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Latest created</span>
+                    <strong>{templateGovernance.privateTemplates.latestCreatedAt ?? 'not tracked'}</strong>
+                  </div>
+                  <div className="metric">
+                    <span>Missing preview</span>
+                    <strong>{templateGovernance.privateTemplates.previewArtifact.missing}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="registry-governance-group" data-testid="dynamic-encyclopedia-governance-panel">
+                <header>
+                  <h3>Dynamic Encyclopedia Mapping</h3>
+                  <span className="status-pill">{templateGovernance.dynamicEncyclopedia.sourceOfTruth}</span>
+                </header>
+                <div className="template-token-grid">
+                  <span>parent {templateGovernance.dynamicEncyclopedia.parentTemplatePackId}</span>
+                  <span>{templateGovernance.dynamicEncyclopedia.childTemplates.length} child templates</span>
+                  <span>{templateGovernance.dynamicEncyclopedia.interactionParadigms.length} paradigms</span>
+                  <span>{templateGovernance.dynamicEncyclopedia.categoryMappings.length} category mappings</span>
+                </div>
+                <div className="registry-asset-grid">
+                  {templateGovernance.dynamicEncyclopedia.interactionParadigms.map(paradigm => (
+                    <article className="registry-asset-card" key={paradigm.id}>
+                      <div>
+                        <strong>{paradigm.name}</strong>
+                        <p>{paradigm.id} · {paradigm.compatibleTemplatePackIds.join(', ')}</p>
+                        <small>{paradigm.bestFor.slice(0, 4).join(', ')}</small>
+                      </div>
+                      <span className={`status-pill ${paradigm.mappingStatus === 'mapped' ? 'compatible' : 'unavailable'}`}>{paradigm.mappingStatus}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="registry-governance-group" data-testid="skill-governance-panel">
+                <header>
+                  <h3>Official Skills</h3>
+                  <span className="status-pill">{templateGovernance.skillGovernance.length}</span>
+                </header>
+                <div className="registry-asset-grid">
+                  {templateGovernance.skillGovernance.map(skill => (
+                    <article className="registry-asset-card" key={skill.id}>
+                      <div>
+                        <strong>{skill.pluginName}</strong>
+                        <p>{skill.id} · {skill.policyMode}</p>
+                        <small>{skill.schemaVersion} · {skill.category} · {skill.safetyLevel}</small>
+                      </div>
+                      <span className={`status-pill ${pluginStatusClass(skill.status, skill.safetyLevel)}`}>{skill.status}</span>
+                      <div className="template-token-grid compact">
+                        <span>{skill.ruleCount} rules</span>
+                        <span>{skill.promptBlockCount} prompts</span>
+                        <span>{skill.checklistCount} checks</span>
+                        <span>{formatRate(skill.usage.successRate)} success</span>
+                      </div>
+                      {skill.requiredActions.length > 0 ? (
+                        <div className="finding-list">
+                          {skill.requiredActions.slice(0, 2).map(action => (
+                            <span className="severity warning" key={action}>{action}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="registry-governance-group" data-testid="mcp-policy-governance-panel">
+                <header>
+                  <h3>MCP Plugin Policy</h3>
+                  <span className="status-pill">{templateGovernance.mcpPluginGovernance.length}</span>
+                </header>
+                <div className="registry-asset-grid">
+                  {templateGovernance.mcpPluginGovernance.map(tool => (
+                    <article className="registry-asset-card" key={tool.id}>
+                      <div>
+                        <strong>{tool.pluginName}</strong>
+                        <p>{tool.id} · {tool.serverName}.{tool.toolName}</p>
+                        <small>{tool.rolloutState} · {tool.auditLevel} audit · {tool.scopes.join(', ')}</small>
+                      </div>
+                      <span className={`status-pill ${mcpPolicyStatusClass(tool.policyMode, tool.safetyLevel)}`}>{tool.policyMode}</span>
+                      <div className="template-token-grid compact">
+                        <span>{tool.health.totalCount} calls</span>
+                        <span>{formatRate(tool.health.successRate)} success</span>
+                        <span>{formatRate(tool.health.unavailableRate)} unavailable</span>
+                        <span>{tool.health.lastStatus ?? 'no calls'}</span>
+                      </div>
+                      {tool.requiredActions.length > 0 ? (
+                        <div className="finding-list">
+                          {tool.requiredActions.slice(0, 2).map(action => (
+                            <span className="severity warning" key={action}>{action}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <section className="registry-governance-group" data-testid="automation-loop-governance-panel">
+                <header>
+                  <h3>Automation Loop Metrics</h3>
+                  <span className="status-pill">{templateGovernance.automationLoopGovernance.length}</span>
+                </header>
+                <div className="registry-asset-grid">
+                  {templateGovernance.automationLoopGovernance.map(loop => (
+                    <article className="registry-asset-card" key={loop.id}>
+                      <div>
+                        <strong>{loop.name}</strong>
+                        <p>{loop.id} · {loop.repairStrategy}</p>
+                        <small>{loop.qualityGates.join(' + ')} · max {loop.maxRepairAttempts} repair(s)</small>
+                      </div>
+                      <span className={`status-pill ${loop.quality.repairEnabled ? 'degraded' : 'compatible'}`}>{loop.quality.repairEnabled ? 'repair' : 'observe'}</span>
+                      <div className="template-token-grid compact">
+                        <span>{loop.usage.usageCount} uses</span>
+                        <span>{formatRate(loop.usage.successRate)} success</span>
+                        <span>${(loop.usage.averageCostCents / 100).toFixed(2)} avg</span>
+                        <span>{loop.quality.pixelGate ? 'pixel gate' : 'static gate'}</span>
+                      </div>
+                      {loop.requiredActions.length > 0 ? (
+                        <div className="finding-list">
+                          {loop.requiredActions.slice(0, 2).map(action => (
+                            <span className="severity warning" key={action}>{action}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              </section>
+
               <div className="registry-governance-groups">
                 {registryGroups(templateGovernance.registryAssets).map(group => (
                   <section className="registry-governance-group" key={group.type}>
@@ -616,6 +792,10 @@ export default function AdminHomePage(): React.JSX.Element {
                       <span>{template.componentCount} components</span>
                       <span>{template.sectionCount} sections</span>
                       <span>{coverageSummary(template.promptBlockCoverage)}</span>
+                      <span>preview {template.previewArtifact.status}</span>
+                      <span>DESIGN.md {template.designMd.importStatus}</span>
+                      <span>{template.designMd.brokenReferenceCount} broken refs</span>
+                      <span>diff {template.versionDiff.status}</span>
                     </div>
                     {template.childTemplates.length > 0 ? (
                       <div className="subtemplate-strip">
@@ -1380,4 +1560,22 @@ function assetStatusClass(status: AdminTemplateGovernanceResponse['registryAsset
   if (status === 'active') return 'compatible'
   if (status === 'warning') return 'degraded'
   return 'unavailable'
+}
+
+function pluginStatusClass(
+  status: AdminTemplateGovernanceResponse['skillGovernance'][number]['status'],
+  safetyLevel: AdminTemplateGovernanceResponse['skillGovernance'][number]['safetyLevel'],
+): string {
+  if (status === 'disabled' || safetyLevel === 'disabled') return 'unavailable'
+  if (safetyLevel === 'review_required' || status === 'archived') return 'degraded'
+  return 'compatible'
+}
+
+function mcpPolicyStatusClass(
+  policyMode: AdminTemplateGovernanceResponse['mcpPluginGovernance'][number]['policyMode'],
+  safetyLevel: AdminTemplateGovernanceResponse['mcpPluginGovernance'][number]['safetyLevel'],
+): string {
+  if (safetyLevel === 'disabled') return 'unavailable'
+  if (policyMode === 'policy_only' || safetyLevel === 'review_required') return 'degraded'
+  return 'compatible'
 }

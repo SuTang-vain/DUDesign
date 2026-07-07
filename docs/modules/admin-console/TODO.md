@@ -93,17 +93,17 @@
 
 ## Phase ADM-5.5：Capability Governance
 
-- [ ] 展示官方场景模板、视觉 profile、色板、参考品牌和 Design Template Pack。
-- [ ] 展示用户私有模板数量、最近创建时间、lint 状态和 preview artifact 状态。
+- [x] 展示官方场景模板、视觉 profile、色板、参考品牌和 Design Template Pack。
+- [x] 展示用户私有模板数量、最近创建时间、lint 状态和 preview artifact 状态。（最近创建时间当前标记为 not tracked，等待模板 created_at contract 落库后启用）
 - [ ] 支持官方 Design Template Pack 发布、下线、归档和版本 diff。
-- [ ] 展示 `DESIGN.md` import/lint 结果、broken reference、危险指令和 preview smoke。
-- [ ] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
+- [x] 展示 `DESIGN.md` import/lint 结果、broken reference、危险指令和 preview smoke。
+- [x] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
 - [ ] 支持禁用风险 skill 或插件，并写入 audit log。
-- [ ] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
+- [x] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
 - [~] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。MCP 调用量、成功率、失败原因和时间范围过滤已完成首版；模板/skill/成本/drift 聚合待补。
 - [ ] 支持 capability usage events 查询。
-- [ ] 管理动态百科父模板包、子模板和交互范式（12.5：首批子模板为 summary/timeline/relation/compare/expandable，explore 为下一批）。
-- [ ] 管理百科 L1/L2/L3 分类到子模板/交互范式的映射（12.6：以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源）。
+- [x] 管理动态百科父模板包、子模板和交互范式（12.5：首批子模板为 summary/timeline/relation/compare/expandable，explore 为下一批）。
+- [x] 管理百科 L1/L2/L3 分类到子模板/交互范式的映射（12.6：以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源）。
 - [x] 展示 MCP invocation 审计摘要，支持按 job、variation、tool、status 查询 replay key。
 - [x] 展示 democase MCP 健康状态、调用量、失败率和审计摘要（12.1：MCP 只服务生成期 agent；向导直连查询不计入 MCP 审计）。
 - [ ] 展示动态百科词条引导命中率、低置信度比例和人工确认比例。
@@ -136,7 +136,7 @@
 - [x] Runtime Health contract mismatch/degraded 浏览器 smoke test。
 - [x] MCP invocation audit API smoke test。
 - [x] MCP invocation audit 管理端浏览器 smoke test。
-- [ ] Capability Governance 页面 smoke test。
+- [x] Capability Governance 页面 smoke test。
 - [ ] 官方模板 lint/diff/preview smoke test。
 - [ ] 插件禁用后用户端创建 job 被拒绝的 Admin + API 联动测试。
 

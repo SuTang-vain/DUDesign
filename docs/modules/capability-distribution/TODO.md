@@ -154,15 +154,15 @@
 - [ ] 管理端模板编辑 / 发布 / 禁用写操作与审计流。
 
 > 用户前端模板列表已确认保持当前页面形态，本阶段不再推进“官方 / 我的 / 业务模板包 / 最近使用”分组和模板详情页改造。
-- [ ] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
-- [ ] 管理官方 skill。
-- [ ] 管理 MCP 插件可见性和权限。
-- [ ] 展示 MCP tool policy，从 `policy_only` 到真实调用能力的灰度状态。
-- [ ] 展示 automation loop 成功率和成本。
-- [ ] 展示模板/插件质量指标。
-- [ ] 展示模板/插件使用量、成功率、平均成本、失败原因和最近 drift。
+- [x] 展示 `DESIGN.md` lint / diff / preview smoke 结果。
+- [x] 展示官方 skill 治理信息：schema、prompt block、rules、checklist、安全等级、使用指标。
+- [x] 展示 MCP 插件可见性和权限：scope、auth、audit level、policy mode、rollout state。
+- [x] 展示 MCP tool policy，从 `policy_only` 到真实调用能力的灰度状态。
+- [x] 展示 automation loop 成功率和成本。
+- [x] 展示模板/插件质量指标。
+- [x] 展示模板/插件使用量、成功率、平均成本、失败原因和最近 drift。
 - [ ] 支持禁用风险插件。
-- [ ] 记录能力治理审计日志。
+- [x] 记录能力治理审计日志的管理端可见性：当前展示 audit mode、write audit action 和 drift/audit 汇总；实际写操作审计随发布/禁用接口推进。
 
 验收：
 

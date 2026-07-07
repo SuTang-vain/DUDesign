@@ -119,12 +119,18 @@ async function mockAdminApi(
           warning: 0,
           failed: 0,
         },
+        skillGovernance: [],
+        mcpPluginGovernance: [],
+        automationLoopGovernance: [],
+        quality: emptyCapabilityQuality(),
         registryAssets: [],
         registryTotals: {},
         governance: {
           canEditRegistry: false,
           canPublish: false,
           writeMode: 'planned',
+          auditMode: 'visible',
+          writeAuditAction: 'capability.governance.change',
           message: 'No template governance fixtures.',
         },
       })
@@ -171,6 +177,27 @@ async function mockAdminApi(
 
     return json(route, { error: { message: `Unhandled ${method} ${url.pathname}` } }, 404)
   })
+}
+
+function emptyCapabilityQuality() {
+  return {
+    templatesWithWarnings: 0,
+    templatesBlocked: 0,
+    riskyPlugins: 0,
+    disabledPlugins: 0,
+    policyOnlyMcpTools: 0,
+    realMcpTools: 0,
+    automationLoopsWithPixelGate: 0,
+    auditLogCount: 0,
+    recentDriftCount: 0,
+    previewSmoke: { status: 'not_configured', passedCount: 0, warningCount: 0, failedCount: 0 },
+    designMd: {
+      lintAvailable: true,
+      diffAvailable: true,
+      previewSmokeAvailable: true,
+      message: 'No DESIGN.md governance fixtures.',
+    },
+  }
 }
 
 function syncResponse() {

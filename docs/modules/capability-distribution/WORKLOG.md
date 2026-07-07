@@ -2138,3 +2138,40 @@
 - Application Service 已在 variation detail 中返回 recent MCP invocation result；Variation 页面会自动显示真实 provider 降级。
 - Variation Inspect 面板已使用 `mcpInvocationToUserError()` 展示 provider/tool 降级活动。
 - 首页生成过程 Activity Stream 已通过 `design.runtime_warning.context` 接入 provider/tool 降级。
+
+## 2026-07-07 CAP-6 Admin Capability Governance Visibility
+
+### 已完成
+
+- 扩展 `GET /api/admin/capabilities/templates`：
+  - 返回 `skillGovernance`：官方 skill 的 schema、prompt block、rules、negative rules、checklist、适用 category、安全等级、policy mode、usage 指标和 required actions。
+  - 返回 `mcpPluginGovernance`：MCP binding 的 server/tool、scope、auth、audit level、policy mode、rollout state、health、usage 指标和 required actions。
+  - 返回 `automationLoopGovernance`：loop quality gates、repair strategy、使用次数、成功率、平均成本和 required actions。
+  - 返回 `quality`：DESIGN.md lint/diff/preview smoke 可见性、模板 warning/block 计数、policy-only/real MCP 数、audit log 数和 recent drift 数。
+- 管理端 Templates 页新增 CAP-6 治理摘要区：
+  - DESIGN.md lint / diff / preview smoke readiness。
+  - 官方 skill 治理卡片。
+  - MCP plugin policy 灰度卡片。
+  - automation loop metrics 卡片。
+  - write audit action 和 audit mode。
+- 新增管理端浏览器 smoke：`apps/admin/e2e/capability-governance.spec.ts`。
+- 更新既有 admin e2e mock，使 CAP-6 governance response 新字段保持兼容。
+
+### 验证
+
+- `npx tsc -b apps/api apps/admin`
+- `npm --workspace @dudesign/admin run test:e2e -- capability-governance.spec.ts`
+- `npm --workspace @dudesign/admin run build`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="api flow|MCP|capability"`
+
+### 决策
+
+- 本轮只推进管理端治理可见性，不改用户前端模板列表形态。
+- 模板编辑 / 发布 / 禁用、风险插件禁用仍保留为下一阶段写操作，并必须走 Admin API + audit log。
+- 指标首版复用 `usage_events`、MCP invocation audit 和 audit logs，不新增独立 metrics 表。
+
+### 后续关注
+
+- 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 draft/publish/disable，并记录 `capability.governance.change`。
+- 增加 `PATCH /api/admin/capabilities/plugins/:id`，支持风险插件禁用、可见性和权限调整，并记录审计。
+- 将 template contribution candidate 的 diff / preview smoke / risk review 接入同一治理面板。
