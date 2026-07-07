@@ -99,6 +99,7 @@
   - [x] OAuth 成功后继续签发 DUDesign 自有 `dudesign_session`，不把 provider access token 作为业务登录态。
   - [x] OAuth state 使用 HttpOnly cookie 校验，降低 callback CSRF 风险。
   - [x] 用户端登录页接入 Google/GitHub 登录按钮和未配置禁用态。
+  - [x] 新增 staging OAuth readiness 检查脚本，覆盖 provider status、API env、HTTPS 和 Nginx server name。
   - [ ] staging 配置真实 Google/GitHub OAuth client 并跑 provider smoke。
 - [x] MU-2 Workspace Membership Guard。
   - [x] 用户注册时创建个人 hosted workspace。

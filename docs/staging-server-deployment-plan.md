@@ -193,6 +193,8 @@ https://<domain>/api/auth/oauth/google/callback
 - provider 必须同时配置 client id、client secret、redirect uri 才视为可用。
 - 当前 staging 若只使用公网 IP + HTTP，适合作为基础链路测试，不建议作为 Google/GitHub OAuth 的正式回调地址。
 - 配置真实 provider 前，用户登录主路径保持邮箱密码。
+- 可运行 `deploy/staging/scripts/check-oauth-readiness-remote.sh` 检查远端 Nginx、HTTPS、provider status 和 API 容器 OAuth env。
+- 默认检查脚本只报告 warning；需要作为发布门禁时设置 `DUDESIGN_REQUIRE_OAUTH_READY=true`。
 
 ## 6. 数据库策略
 
@@ -431,4 +433,6 @@ docker compose -f deploy/staging/docker-compose.yml --env-file /opt/dudesign/sha
 - [x] 通过浏览器打开公网用户端。
 - [x] 管理端 smoke。
 - [x] 引入 Nginx。
+- [x] 新增 OAuth readiness 远端检查脚本。
 - [ ] 后续配置域名和 HTTPS。
+- [ ] 配置真实 Google/GitHub OAuth client 并运行 OAuth readiness 门禁。

@@ -12,12 +12,14 @@
 - contracts 增加 `OAuthProvidersResponse`，避免用户端硬编码 provider 状态结构。
 - staging compose 显式透传 `DUDESIGN_OAUTH_*` 六个变量到 API 容器，避免 `.env` 已填写但 API 进程读不到。
 - provider 状态接口不返回 secret，只返回 `{ provider, configured }`。
+- 新增 `deploy/staging/scripts/check-oauth-readiness-remote.sh`，用于检查远端 provider status、API 容器 OAuth env、Nginx server_name、HTTPS 和 certbot 状态。
 
 ### 验证
 
 - `npm run typecheck`
 - `npm --workspace @dudesign/api test -- auth-flow.test.ts`
 - 远端 staging `GET /api/auth/oauth/providers` 返回 Google/GitHub 均为 `configured:false`，符合当前未配置真实 OAuth client 的现状。
+- `deploy/staging/scripts/check-oauth-readiness-remote.sh` 可正常报告当前缺口：未配置 provider、未启用 HTTPS、Nginx 仍使用 `server_name _`。
 
 ### 后续关注
 
