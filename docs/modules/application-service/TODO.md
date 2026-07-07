@@ -90,6 +90,7 @@
   - [x] `createRequestContext()` 支持从 cookie 解析 userId。
   - [x] dev header fallback 仅在 `DUDESIGN_AUTH_MODE=dev` 时启用。
   - [x] 实现 `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`。
+  - [x] auth bootstrap 响应统一返回 `models`，保证登录/注册/OAuth/me 后可直接进入用户工作台。
 - [~] MU-5 OAuth Provider Login。
   - [x] 新增 Google/GitHub OAuth provider contract。
   - [x] 新增 `GET /api/auth/oauth/:provider/start` 和 `GET /api/auth/oauth/:provider/callback`。

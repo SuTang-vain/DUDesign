@@ -3,6 +3,31 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-07 UX-M54 Session Auth Browser E2E
+
+### 已完成
+
+- 新增 `apps/web/e2e/auth-flow.spec.ts`，在 `DUDESIGN_AUTH_MODE=session` 下覆盖真实浏览器登录闭环：
+  - 匿名访问 `/` 重定向到 `/login`。
+  - 邮箱注册新用户。
+  - 注册后进入工作台并看到 workspace / 用户菜单。
+  - 通过用户头像菜单登出。
+  - 登出后再次访问 `/` 继续重定向到 `/login`。
+- 登录页增加稳定测试定位器和 hydration-ready 标记，避免 E2E 在 React 接管前点击。
+- 用户操作区接入真实 `logoutUser()`，并在 profile 菜单提供登出入口。
+- Playwright 默认 baseURL 切到 `127.0.0.1`，与 API cookie 域保持同站；API readiness 改用 `/health`，兼容 dev/session auth 模式。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/auth-ui.test.mjs apps/web/test/capability-errors.test.mjs`
+- `DUDESIGN_AUTH_MODE=session npm --workspace @dudesign/web run test:e2e -- auth-flow.spec.ts`
+
+### 后续关注
+
+- 真实 Google/GitHub OAuth provider 配置完成后，补 provider callback browser smoke。
+- 后续可把用户菜单浮层改为 portal，减少复杂顶部布局对菜单定位的影响。
+
 ## 2026-07-03 UX-M25 Dynamic Encyclopedia Mode Planning
 
 ### 已完成

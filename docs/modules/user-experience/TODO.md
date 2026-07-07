@@ -29,6 +29,7 @@
 - [x] 登录页支持 Google/GitHub OAuth provider 入口。
 - [x] API client 切换到 `/api/auth/me` 获取当前用户 bootstrap，并对私有 API 使用 `credentials: include`。
 - [x] 未登录访问工作台时跳转到 `/login`。
+- [x] 建立真实浏览器 auth E2E：注册 -> 进入工作台 -> 用户菜单登出 -> 匿名访问重定向。
 - [x] 实现登录后工作台页面。
 - [x] 展示最近会话。
 - [x] 支持创建新会话。
@@ -39,6 +40,7 @@
 
 - 用户刷新页面后可以重新看到历史会话。
 - 会话列表只展示当前用户可访问资源。
+- session auth 模式下真实浏览器能完成注册、进入工作台、登出和匿名重定向。
 
 ## Phase UX-2：交互首页
 

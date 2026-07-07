@@ -3,6 +3,29 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-07 APP-M54 Auth Bootstrap Contract
+
+### 已完成
+
+- 将 session auth 登录入口响应与 dev bootstrap 对齐：
+  - `POST /api/auth/register`
+  - `POST /api/auth/login`
+  - OAuth callback 完成后的业务响应
+  - `GET /api/auth/me`
+- `AuthUserResponse` contract 增加 `models: ListUserModelsResponse`，确保用户登录后首页可直接恢复模型选择器和默认模型。
+- 扩展 session cookie auth 测试，断言 register / me / login 返回相同模型 bootstrap。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="session cookie authentication flow|OAuth helpers|multi-user access"`
+- `DUDESIGN_AUTH_MODE=session npm --workspace @dudesign/web run test:e2e -- auth-flow.spec.ts`
+
+### 后续关注
+
+- staging 接入真实 OAuth client 后，补 Google/GitHub provider smoke。
+- 后续若模型访问权限支持动态变更，需要确保 `/api/auth/me` 返回的模型列表与 `GET /api/models` 保持同一权限口径。
+
 ## 2026-07-07 APP-M53 Review Mode State Machine
 
 ### 已完成

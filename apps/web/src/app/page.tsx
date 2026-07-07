@@ -168,7 +168,7 @@ export default function HomePage(): React.JSX.Element {
           })
       })
       .catch(err => {
-        if (err instanceof Error && err.message.includes('AUTH_REQUIRED')) {
+        if (isAuthRequiredError(err)) {
           window.location.href = '/login'
           return
         }
@@ -224,6 +224,10 @@ export default function HomePage(): React.JSX.Element {
         if (!cancelled) setTemplatePacks(response.templates)
       })
       .catch(err => {
+        if (isAuthRequiredError(err)) {
+          window.location.href = '/login'
+          return
+        }
         console.warn('Failed to load design templates', err)
       })
     return () => { cancelled = true }
@@ -342,7 +346,8 @@ export default function HomePage(): React.JSX.Element {
 
   const workspaces = bootstrap?.workspaces?.length ? bootstrap.workspaces : bootstrap ? [bootstrap.workspace] : []
   const workspace = workspaces.find(item => item.id === selectedWorkspaceId) ?? bootstrap?.workspace
-  const selectedModel = bootstrap?.models.models.find(model => model.id === modelServiceId)
+  const modelOptions = bootstrap?.models?.models ?? []
+  const selectedModel = modelOptions.find(model => model.id === modelServiceId)
   const selectedDomain = capabilities?.domainTemplates.find(template => template.id === domainTemplateId)
   const selectedAesthetic = capabilities?.aestheticProfiles.find(profile => profile.id === aestheticProfileId)
   const availablePalettes = capabilities?.colorPalettes.filter(palette =>
@@ -1031,7 +1036,7 @@ export default function HomePage(): React.JSX.Element {
                 setOpenMenu={setOpenMenu}
               >
                 <div className="model-option-list" data-testid="model-paired-popover">
-                  {(bootstrap?.models.models ?? []).map(model => (
+                  {modelOptions.map(model => (
                     <button
                       key={model.id}
                       className={model.id === modelServiceId ? 'active' : ''}
@@ -1518,6 +1523,14 @@ function formatRelativeTime(value: string): string {
   const hours = Math.round(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.round(hours / 24)}d ago`
+}
+
+function isAuthRequiredError(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('code' in err)) return false
+  const error = err as { code?: unknown; status?: unknown }
+  return error.code === 'AUTH_REQUIRED'
+    || error.code === 'UNAUTHENTICATED'
+    || error.status === 401
 }
 
 function formatBytes(value: number): string {

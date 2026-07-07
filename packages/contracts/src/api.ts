@@ -918,6 +918,7 @@ export type AuthUserResponse = {
   }
   workspace: AuthWorkspace
   workspaces: AuthWorkspace[]
+  models: ListUserModelsResponse
 }
 
 export type LogoutResponse = {

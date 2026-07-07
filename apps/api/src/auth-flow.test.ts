@@ -36,6 +36,8 @@ describe('session cookie authentication flow', () => {
     }, 201)
     assert.equal(registered.user.email, 'product@example.com')
     assert.ok(registered.workspace.id.startsWith('ws_'))
+    assert.ok(registered.models.models.length > 0)
+    assert.ok(registered.models.defaultModelId)
     const sessionCookie = lastSetCookie()
     assert.match(sessionCookie, /dudesign_session=/)
     assert.match(sessionCookie, /HttpOnly/)
@@ -46,6 +48,7 @@ describe('session cookie authentication flow', () => {
     })
     assert.equal(me.user.id, registered.user.id)
     assert.equal(me.workspace.id, registered.workspace.id)
+    assert.deepEqual(me.models, registered.models)
 
     const session = await postJson<CreateSessionResponse>('/api/sessions', {
       workspaceId: registered.workspace.id,
@@ -73,6 +76,7 @@ describe('session cookie authentication flow', () => {
       password: 'correct-horse-battery',
     })
     assert.equal(loggedIn.user.id, registered.user.id)
+    assert.deepEqual(loggedIn.models, registered.models)
     assert.match(lastSetCookie(), /dudesign_session=/)
   })
 

@@ -14,8 +14,10 @@ export default function LoginPage(): React.JSX.Element {
   const [password, setPassword] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
 
   useEffect(() => {
+    setIsHydrated(true)
     const params = new URLSearchParams(window.location.search)
     const errorCode = params.get('error')
     if (errorCode) setError(errorCode)
@@ -82,28 +84,28 @@ export default function LoginPage(): React.JSX.Element {
 
         <div className="auth-divider"><span>or</span></div>
 
-        <form className="auth-form" onSubmit={event => void submit(event)}>
+        <form className="auth-form" data-testid="auth-form" onSubmit={event => void submit(event)}>
           {mode === 'register' ? (
             <label>
               Name
-              <input value={name} onChange={event => setName(event.target.value)} autoComplete="name" placeholder="Ada Lovelace" />
+              <input data-testid="auth-name" value={name} onChange={event => setName(event.target.value)} autoComplete="name" placeholder="Ada Lovelace" />
             </label>
           ) : null}
           <label>
             Email
-            <input value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" required />
+            <input data-testid="auth-email" value={email} onChange={event => setEmail(event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" required />
           </label>
           <label>
             Password
-            <input value={password} onChange={event => setPassword(event.target.value)} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required />
+            <input data-testid="auth-password" value={password} onChange={event => setPassword(event.target.value)} type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required />
           </label>
           {error ? <p className="auth-error">{error}</p> : null}
-          <button className="auth-submit" type="submit" disabled={status === 'submitting'}>
+          <button className="auth-submit" data-testid="auth-submit" type="submit" disabled={status === 'submitting'}>
             {status === 'submitting' ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
 
-        <button className="auth-switch" type="button" onClick={() => {
+        <button className="auth-switch" data-testid="auth-mode-toggle" data-ready={isHydrated ? 'true' : 'false'} type="button" onClick={() => {
           setMode(current => current === 'login' ? 'register' : 'login')
           setError(null)
         }}>

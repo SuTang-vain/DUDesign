@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { logoutUser } from '@/lib/api'
 import { useLanguage, type AppLanguage } from './LanguageProvider'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
@@ -24,12 +25,23 @@ export function UserActionCluster(props: {
 }): React.JSX.Element {
   const user = props.user ?? fallbackUser
   const [openMenu, setOpenMenu] = useState<OpenUserMenu>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
   const { language, setLanguage, t } = useLanguage()
   const label = user.name || user.email || 'DUDesign User'
   const initials = initialsForUser(user)
   const mode = props.mode ?? 'full'
 
+  async function handleSignOut(): Promise<void> {
+    try {
+      await logoutUser()
+    } finally {
+      window.location.href = '/login'
+    }
+  }
+
   useEffect(() => {
+    setIsHydrated(true)
+
     function closeOnOutside(event: PointerEvent): void {
       const target = event.target
       if (target instanceof Element && target.closest('[data-user-actions="true"]')) return
@@ -49,13 +61,14 @@ export function UserActionCluster(props: {
   }, [])
 
   return (
-    <div className="user-action-cluster" data-user-actions="true" data-testid="user-action-cluster">
+    <div className="user-action-cluster" data-user-actions="true" data-ready={isHydrated ? 'true' : 'false'} data-testid="user-action-cluster">
       {mode === 'full' ? (
         <>
           <ThemeToggle />
           <ActionButton
             label={t('settings')}
             active={openMenu === 'settings'}
+            testId="user-settings-button"
             onClick={() => setOpenMenu(current => current === 'settings' ? null : 'settings')}
           >
             <Icon name="sliders" size={16} />
@@ -63,6 +76,7 @@ export function UserActionCluster(props: {
           <ActionButton
             label={t('more')}
             active={openMenu === 'more'}
+            testId="user-more-button"
             onClick={() => setOpenMenu(current => current === 'more' ? null : 'more')}
           >
             <Icon name="moreHorizontal" size={18} />
@@ -72,6 +86,8 @@ export function UserActionCluster(props: {
       <button
         type="button"
         className="user-avatar-button"
+        data-testid="user-profile-button"
+        data-ready={isHydrated ? 'true' : 'false'}
         aria-label={`${t('userProfileFor')} ${label}`}
         aria-expanded={openMenu === 'profile'}
         onClick={() => setOpenMenu(current => current === 'profile' ? null : 'profile')}
@@ -112,7 +128,15 @@ export function UserActionCluster(props: {
           <ReservedMenuItem title={t('help')} detail={t('helpDetail')} />
           <ReservedMenuItem title={t('feedback')} detail={t('feedbackDetail')} />
           <ReservedMenuItem title={t('keyboardShortcuts')} detail={t('keyboardShortcutsDetail')} />
-          <ReservedMenuItem title={t('signOut')} detail={t('signOutDetail')} />
+          <button
+            type="button"
+            className="user-action-menu-item"
+            data-testid="sign-out-button"
+            onClick={() => void handleSignOut()}
+          >
+            <span>{t('signOut')}</span>
+            <small>{t('signOutDetail')}</small>
+          </button>
         </UserActionMenu>
       ) : null}
       {openMenu === 'profile' ? (
@@ -122,6 +146,15 @@ export function UserActionCluster(props: {
             <strong>{label}</strong>
             {user.email ? <small>{user.email}</small> : null}
           </div>
+          <button
+            type="button"
+            className="user-action-menu-item"
+            data-testid="sign-out-button"
+            onClick={() => void handleSignOut()}
+          >
+            <span>{t('signOut')}</span>
+            <small>{t('signOutDetail')}</small>
+          </button>
         </UserActionMenu>
       ) : null}
     </div>
@@ -131,6 +164,7 @@ export function UserActionCluster(props: {
 function ActionButton(props: {
   label: string
   active: boolean
+  testId?: string
   children: React.ReactNode
   onClick: () => void
 }): React.JSX.Element {
@@ -140,6 +174,7 @@ function ActionButton(props: {
       className={`user-action-button${props.active ? ' active' : ''}`}
       aria-label={props.label}
       aria-expanded={props.active}
+      data-testid={props.testId}
       onClick={props.onClick}
     >
       <span aria-hidden>{props.children}</span>

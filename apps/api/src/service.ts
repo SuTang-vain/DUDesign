@@ -392,6 +392,7 @@ export class ApplicationService {
         user,
         workspace,
         workspaces: [workspace],
+        models: await this.store.listUserModelOptions(user.id),
       },
     }
   }
@@ -416,6 +417,7 @@ export class ApplicationService {
         user,
         workspace,
         workspaces: [workspace],
+        models: await this.store.listUserModelOptions(user.id),
       },
     }
   }
@@ -446,6 +448,7 @@ export class ApplicationService {
         user,
         workspace,
         workspaces: [workspace],
+        models: await this.store.listUserModelOptions(user.id),
       },
     }
   }
@@ -462,7 +465,8 @@ export class ApplicationService {
     const user = await this.requireUser(ctx.userId)
     const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-    return { user, workspace, workspaces: [workspace] }
+    const models = await this.store.listUserModelOptions(user.id)
+    return { user, workspace, workspaces: [workspace], models }
   }
 
   async listUserModels(ctx: RequestContext) {

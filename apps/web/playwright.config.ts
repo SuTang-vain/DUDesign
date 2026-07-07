@@ -8,7 +8,7 @@ export default defineConfig({
   },
   reporter: [['list']],
   use: {
-    baseURL: process.env.DUDESIGN_WEB_URL ?? 'http://localhost:3001',
+    baseURL: process.env.DUDESIGN_WEB_URL ?? 'http://127.0.0.1:3001',
     trace: 'on-first-retry',
   },
   webServer: process.env.DUDESIGN_WEB_URL
@@ -16,13 +16,13 @@ export default defineConfig({
     : [
         {
           command: 'npm --workspace @dudesign/api run dev',
-          url: 'http://127.0.0.1:4000/api/dev/bootstrap',
+          url: 'http://127.0.0.1:4000/health',
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
         },
         {
           command: 'npm --workspace @dudesign/web run dev',
-          url: 'http://localhost:3001',
+          url: 'http://127.0.0.1:3001',
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
         },
