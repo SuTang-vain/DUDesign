@@ -197,6 +197,123 @@ describe('Design job event persistence and partial failures', () => {
     harness = null
   })
 
+  it('records findings without repair when review mode is off', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('quality-failure'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Review mode off',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Generate an artifact that should be checked but not repaired.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      capabilityRequirements: {
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {
+        businessContext: {
+          reviewMode: 'off',
+        },
+      },
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+    await harness.service.flushBackgroundTasks()
+
+    const events = await harness.service.store.listDesignEvents(job.job.id)
+    const qualityChecked = events.find(event => event.type === 'design.loop_quality_checked')
+    const stopped = events.find(event => event.type === 'design.loop_stopped')
+    assert.equal(qualityChecked?.payload.reviewMode, 'off')
+    assert.equal(stopped?.payload.reason, 'review_disabled')
+    assert.equal(events.some(event => event.type === 'design.loop_repair_planned'), false)
+    const queueState = await harness.service.queue.getJobState(
+      `queue:refine:automation-loop:${job.variations[0]!.id}:attempt:1`,
+    )
+    assert.equal(queueState, null)
+
+    const detail = await getJson<{ currentArtifact: { version: number } | null }>(
+      harness,
+      `/api/variations/${job.variations[0]!.id}`,
+    )
+    assert.equal(detail.currentArtifact?.version, 1)
+
+    await harness.close()
+    harness = null
+  })
+
+  it('waits for confirmation before repair when review mode is semi_auto', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('quality-failure'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Review mode semi auto',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Generate an artifact that should wait for confirmation before repair.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      capabilityRequirements: {
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {
+        businessContext: {
+          reviewMode: 'semi_auto',
+        },
+      },
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+    await harness.service.flushBackgroundTasks()
+
+    const eventsBeforeConfirmation = await harness.service.store.listDesignEvents(job.job.id)
+    const repairPlanned = eventsBeforeConfirmation.find(event => event.type === 'design.loop_repair_planned')
+    const stopped = eventsBeforeConfirmation.find(event => event.type === 'design.loop_stopped')
+    assert.equal(repairPlanned?.payload.reviewMode, 'semi_auto')
+    assert.equal(repairPlanned?.payload.requiresConfirmation, true)
+    assert.equal(stopped?.payload.reason, 'review_pending_confirmation')
+    const plannedQueueState = await harness.service.queue.getJobState(
+      `queue:refine:automation-loop:${repairPlanned?.payload.artifactId}:attempt:${repairPlanned?.payload.attempt}`,
+    )
+    assert.equal(plannedQueueState, null)
+
+    const reviewAction = await postJson<{ status: 'repair_queued' | 'skipped' }>(
+      harness,
+      `/api/variations/${job.variations[0]!.id}/review-actions`,
+      { action: 'confirm_repair', artifactId: repairPlanned?.payload.artifactId },
+    )
+    assert.equal(reviewAction.status, 'repair_queued')
+    await harness.service.flushBackgroundTasks()
+    const confirmedQueueState = await harness.service.queue.getJobState(
+      `queue:refine:automation-loop:${repairPlanned?.payload.artifactId}:attempt:${repairPlanned?.payload.attempt}`,
+    )
+    assert.equal(confirmedQueueState?.kind, 'refine_job')
+    assert.equal(confirmedQueueState?.status, 'completed')
+
+    const detail = await getJson<{ currentArtifact: { version: number } | null }>(
+      harness,
+      `/api/variations/${job.variations[0]!.id}`,
+    )
+    assert.equal(detail.currentArtifact?.version, 2)
+
+    await harness.close()
+    harness = null
+  })
+
   it('stops automation repair at max attempts when repaired artifact still fails', async () => {
     harness = await startApiFlowHarness(new ApplicationService({
       runtime: new ControlledRuntimeGateway('quality-failure-still-fails'),

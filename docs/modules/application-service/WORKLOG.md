@@ -3,6 +3,58 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-07 APP-M53 Review Mode State Machine
+
+### 已完成
+
+- 收口业务服务层 review mode 状态机：
+  - `off`：执行质量/规范检查并写入事件，不生成 repair plan，不入队修复。
+  - `semi_auto`：生成 `design.loop_repair_planned`，标记 `requiresConfirmation=true`，随后写入 `review_pending_confirmation` stopped 事件，等待用户调用 review action。
+  - `auto`：保持现有自动修复行为，失败且未触发 stop condition 时直接 enqueue refine job。
+- 事件契约补充 review mode 语义：
+  - `design.loop_started.payload.reviewMode`。
+  - `design.loop_quality_checked.payload.reviewMode`。
+  - `design.loop_repair_planned.payload.reviewMode/requiresConfirmation`。
+  - `design.loop_stopped.reason` 增加 `review_disabled`、`review_pending_confirmation`。
+- `reviewVariationAction(confirm_repair)` 继续作为 semi-auto 的人工确认入口，确认后复用 automation refine queue。
+
+### 验证
+
+- `designJobEvents.test` 增加：
+  - review mode `off` 不排 repair queue，artifact 版本不变。
+  - review mode `semi_auto` 等待确认，确认后入队并产出修复版本。
+
+### 后续建议
+
+- 用户页面前端可据 `review_pending_confirmation` 和 `requiresConfirmation` 展示“确认修复/跳过”状态。
+- 管理端后续可统计不同 review mode 的自动修复次数、人工确认次数和跳过率。
+
+## 2026-07-07 APP-M52 Dynamic Encyclopedia Guidance Snapshot
+
+### 已完成
+
+- 补齐动态百科词条分类 L3：
+  - `EncyclopediaEntryGuidance.tertiaryCategory`。
+  - contracts guidance response / confirmation override。
+  - PostgreSQL migration `0015_guidance_tertiary_category.sql`，并同步 clean DB baseline。
+- `ApplicationService.createDesignJob()` 支持只传 `templateRequirements.businessContext.guidanceId`：
+  - 服务层读取 guidance。
+  - 自动展开 capability requirements、interaction paradigm、child template candidates、classification L1/L2/L3 和 review mode。
+  - 写入 immutable job snapshot，避免前端拼装上下文造成历史任务漂移。
+- 百科规范审查器增加中立语气静态风险检查：
+  - 结构/安全/模板一致性继续 deterministic review。
+  - 明显营销化和不可验证最高级表达输出 warning。
+
+### 验证
+
+- `apiFlowSmoke` 增加 L3、低置信确认覆盖、guidanceId-only job snapshot 和 child template snapshot 断言。
+- `encyclopediaSpecReview.test` 增加 `encyclopedia.neutral_tone_risk` 覆盖。
+
+### 后续建议
+
+- 将动态百科 guidance/job snapshot 接入用户页面前端，优先做“词条引导 -> 候选模板 -> 创建 job”的真实 UI flow。
+- 后续 Phase 2 再接事实级中立性审查，可作为 LLM reviewer 或 democase source verifier，不阻塞当前 MVP 静态门禁。
+
 ## 2026-07-03 APP-M32 DesignJob Product Mode
 
 ### 已完成

@@ -644,6 +644,7 @@ export type ConfirmEncyclopediaEntryGuidanceRequest = {
   classificationOverride?: {
     primaryCategory: string
     secondaryCategory: string
+    tertiaryCategory?: string | null
   }
   automationMode?: 'off' | 'semi_auto' | 'auto'
 }
@@ -662,6 +663,7 @@ export type EncyclopediaEntryGuidanceResponse = {
   classification: {
     primaryCategory: string
     secondaryCategory: string
+    tertiaryCategory: string
     confidence: number
     signals: string[]
     source: 'mock_rules'
@@ -690,9 +692,27 @@ export type EncyclopediaEntryGuidanceResponse = {
       entryTitle: string
       entryPrimaryCategory: string
       entrySecondaryCategory: string
+      entryTertiaryCategory: string
+      classification: {
+        l1: string
+        l2: string
+        l3: string
+        confidence: number
+        signals: string[]
+        source: 'mock_rules'
+      }
       interactionParadigmId: ID
+      interactionParadigm: InteractionParadigm
       recommendedTemplateIds: ID[]
+      childTemplates: Array<{
+        designTemplatePackId: ID
+        interactionParadigmId: ID
+        selected: boolean
+        confidence: number
+        reason: string
+      }>
       automationMode: 'off' | 'semi_auto' | 'auto'
+      reviewMode: 'off' | 'semi_auto' | 'auto'
     }
   }
 }
@@ -953,9 +973,27 @@ export type CreateDesignJobRequest = {
       entryTitle?: string
       entryPrimaryCategory?: string
       entrySecondaryCategory?: string
+      entryTertiaryCategory?: string
+      classification?: {
+        l1: string
+        l2: string
+        l3: string
+        confidence: number
+        signals: string[]
+        source: 'mock_rules'
+      }
       interactionParadigmId?: ID
+      interactionParadigm?: InteractionParadigm
       recommendedTemplateIds?: ID[]
+      childTemplates?: Array<{
+        designTemplatePackId: ID
+        interactionParadigmId: ID
+        selected: boolean
+        confidence: number
+        reason: string
+      }>
       automationMode?: 'off' | 'semi_auto' | 'auto'
+      reviewMode?: 'off' | 'semi_auto' | 'auto'
     }
     variationTemplateAssignments?: Array<{
       variationIndex: number

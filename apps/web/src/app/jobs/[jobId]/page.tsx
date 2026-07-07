@@ -279,41 +279,37 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 <span className="label">{formatVariationIndex(variation.index)}</span>
                 <span className={`var-status ${variation.status}`}>{variationStatusText(variation.status, t)}</span>
               </div>
-              {quality && quality.status !== 'pass' ? (
-                <div className={`var-quality ${quality.status}`} data-testid="variation-quality-banner">
-                  <strong>{quality.status === 'fail' ? 'Quality failed' : isInfrastructureQualityWarning(quality.issues[0]) ? 'Quality check notice' : 'Quality · warn'}</strong>
-                  <span>{formatQualityIssue(quality.issues[0])}</span>
-                </div>
-              ) : null}
-              {semiAutoReview && quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
-                <section className="review-pending-panel" data-testid="review-pending-panel">
-                  <span className="eyebrow">Review pending</span>
-                  <strong>{quality.status === 'fail' ? 'Spec review failed' : isInfrastructureQualityWarning(quality.issues[0]) ? 'Visual check unavailable' : 'Spec review warning'}</strong>
-                  <p>{formatQualityIssue(quality.issues[0])}</p>
-                  {reviewDecision === 'repair_queued' ? (
-                    <small>Repair request is queued for the next automation milestone.</small>
-                  ) : (
-                    <div className="review-actions">
-                      <button
-                        type="button"
-                        disabled={reviewSubmitting[variation.id]}
-                        onClick={() => { void submitReviewAction(variation, 'confirm_repair') }}
-                      >
-                        {reviewSubmitting[variation.id] ? 'Submitting...' : 'Confirm repair'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={reviewSubmitting[variation.id]}
-                        onClick={() => { void submitReviewAction(variation, 'skip') }}
-                      >
-                        Skip
-                      </button>
-                      <a href={`/variations/${variation.id}`}>Manual edit</a>
-                    </div>
-                  )}
-                </section>
-              ) : null}
               <div className="var-preview" data-testid="variation-card-preview-frame-container">
+                {quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
+                  <section className={`quality-popover ${quality.status}`} data-testid="variation-quality-banner">
+                    <div className="quality-popover-main">
+                      <span>{quality.status === 'fail' ? '检查失败' : isInfrastructureQualityWarning(quality.issues[0]) ? '检查暂不可用' : '需要确认'}</span>
+                      <p>{formatQualityIssue(quality.issues[0])}</p>
+                    </div>
+                    {semiAutoReview ? (
+                      reviewDecision === 'repair_queued' ? (
+                        <small>已加入修复队列</small>
+                      ) : (
+                        <div className="quality-popover-actions">
+                          <button
+                            type="button"
+                            disabled={reviewSubmitting[variation.id]}
+                            onClick={() => { void submitReviewAction(variation, 'confirm_repair') }}
+                          >
+                            修复
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reviewSubmitting[variation.id]}
+                            onClick={() => { void submitReviewAction(variation, 'skip') }}
+                          >
+                            忽略
+                          </button>
+                        </div>
+                      )
+                    ) : null}
+                  </section>
+                ) : null}
                 {showCode && codeFiles ? (
                   <CodeFileViewer
                     files={codeFilesForViewer(codeFiles)}

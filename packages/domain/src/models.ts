@@ -190,6 +190,7 @@ export type EncyclopediaEntryGuidance = {
   context: string | null
   primaryCategory: string
   secondaryCategory: string
+  tertiaryCategory: string
   confidence: number
   signals: string[]
   recommendedTemplateIds: ID[]

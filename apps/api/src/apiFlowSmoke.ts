@@ -226,8 +226,24 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       lintStatus: string
       childTemplates: Array<{ id: string }>
       promptBlockCoverage: { colors: boolean; components: boolean; sections: boolean; dos: boolean; donts: boolean }
+      previewArtifact: { status: string }
+      versionDiff: { status: string; currentVersion: string }
+      designMd: { brokenReferenceCount: number; dangerousInstructionCount: number; previewSmokeStatus: string }
     }>
     totals: { businessTemplatePackages: number }
+    privateTemplates: {
+      count: number
+      latestCreatedAt: string | null
+      lint: { passed: number; warning: number; failed: number }
+      previewArtifact: { available: number; missing: number }
+    }
+    dynamicEncyclopedia: {
+      sourceOfTruth: string
+      parentTemplatePackId: string
+      childTemplates: Array<{ id: string; status: string }>
+      interactionParadigms: Array<{ id: string; mappingStatus: string; compatibleTemplatePackIds: string[] }>
+      categoryMappings: Array<{ category: string; interactionParadigmIds: string[]; templatePackIds: string[] }>
+    }
     registryAssets: Array<{ id: string; type: string; status: string }>
     registryTotals: Record<string, number>
     governance: { writeMode: string }
@@ -247,7 +263,25 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     dos: true,
     donts: true,
   })
+  assert.equal(encyclopediaGovernance.previewArtifact.status, 'missing')
+  assert.equal(encyclopediaGovernance.versionDiff.status, 'new')
+  assert.equal(encyclopediaGovernance.designMd.brokenReferenceCount, 0)
+  assert.equal(encyclopediaGovernance.designMd.dangerousInstructionCount, 0)
   assert.equal(templateGovernance.totals.businessTemplatePackages, 1)
+  assert.equal(templateGovernance.privateTemplates.count, 0)
+  assert.equal(templateGovernance.privateTemplates.latestCreatedAt, null)
+  assert.equal(templateGovernance.dynamicEncyclopedia.parentTemplatePackId, 'dtp_dynamic_encyclopedia_card')
+  assert.equal(templateGovernance.dynamicEncyclopedia.sourceOfTruth, 'InteractionParadigm.compatibleTemplatePackIds')
+  assert.ok(templateGovernance.dynamicEncyclopedia.childTemplates.some(template => template.id === 'dtp_dynamic_encyclopedia_summary_card'))
+  assert.ok(templateGovernance.dynamicEncyclopedia.interactionParadigms.some(paradigm =>
+    paradigm.id === 'ip_timeline_story'
+    && paradigm.mappingStatus === 'mapped'
+    && paradigm.compatibleTemplatePackIds.includes('dtp_dynamic_encyclopedia_timeline_card'),
+  ))
+  assert.ok(templateGovernance.dynamicEncyclopedia.categoryMappings.some(mapping =>
+    mapping.interactionParadigmIds.includes('ip_entity_summary')
+    && mapping.templatePackIds.includes('dtp_dynamic_encyclopedia_summary_card'),
+  ))
   assert.equal(templateGovernance.registryTotals['scene-template'] >= 1, true)
   assert.equal(templateGovernance.registryTotals['visual-profile'] >= 1, true)
   assert.equal(templateGovernance.registryTotals['color-palette'] >= 1, true)
@@ -330,7 +364,11 @@ Reusable smoke test template.
     automationMode: 'auto',
   })
   assert.equal(entryGuidance.productMode, 'dynamic_encyclopedia_card')
+  assert.equal(entryGuidance.classification.primaryCategory, '机构组织')
   assert.equal(entryGuidance.classification.secondaryCategory, '企业')
+  assert.equal(entryGuidance.classification.tertiaryCategory, '知识服务')
+  assert.equal(entryGuidance.classification.confidence > 0.8, true)
+  assert.ok(entryGuidance.classification.signals.includes('搜索'))
   assert.equal(entryGuidance.democaseReferences[0]?.caseId, 'demo_baidu_baike_company')
   assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
   assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
@@ -340,6 +378,14 @@ Reusable smoke test template.
   assert.equal(entryGuidance.interactionParadigm.id, 'ip_entity_summary')
   assert.ok(entryGuidance.templateRequirements.businessContext.guidanceId.startsWith('eg_'))
   assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_entity_summary')
+  assert.equal(entryGuidance.templateRequirements.businessContext.entryTertiaryCategory, '知识服务')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l1, '机构组织')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l2, '企业')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l3, '知识服务')
+  assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigm.id, 'ip_entity_summary')
+  assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates.length, 2)
+  assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates[0]?.selected, true)
+  assert.equal(entryGuidance.templateRequirements.businessContext.reviewMode, 'auto')
   assert.equal(entryGuidance.status, 'draft')
   assert.equal(entryGuidance.requiresConfirmation, false)
   assert.equal(entryGuidance.confirmedAt, null)
@@ -357,6 +403,7 @@ Reusable smoke test template.
   assert.equal(lowConfidenceGuidance.status, 'needs_confirmation')
   assert.equal(lowConfidenceGuidance.requiresConfirmation, true)
   assert.equal(lowConfidenceGuidance.classification.confidence < 0.6, true)
+  assert.equal(lowConfidenceGuidance.classification.tertiaryCategory, '通用')
   assert.equal(lowConfidenceGuidance.democaseReferences.length, 0)
   assert.equal(lowConfidenceGuidance.interactionParadigm.id, 'ip_entity_summary')
   const confirmedLowConfidenceGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
@@ -365,6 +412,7 @@ Reusable smoke test template.
       classificationOverride: {
         primaryCategory: '作品',
         secondaryCategory: '游戏',
+        tertiaryCategory: '电子游戏',
       },
       selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
       automationMode: 'off',
@@ -374,6 +422,7 @@ Reusable smoke test template.
   assert.equal(confirmedLowConfidenceGuidance.requiresConfirmation, false)
   assert.equal(confirmedLowConfidenceGuidance.classification.primaryCategory, '作品')
   assert.equal(confirmedLowConfidenceGuidance.classification.secondaryCategory, '游戏')
+  assert.equal(confirmedLowConfidenceGuidance.classification.tertiaryCategory, '电子游戏')
   assert.equal(confirmedLowConfidenceGuidance.interactionParadigm.id, 'ip_timeline_story')
   assert.deepEqual(confirmedLowConfidenceGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
   assert.equal(confirmedLowConfidenceGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_standard')
@@ -410,6 +459,11 @@ Reusable smoke test template.
   assert.equal(confirmedEntryGuidance.interactionParadigm.id, 'ip_timeline_story')
   assert.deepEqual(confirmedEntryGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
   assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_timeline_story')
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.entryTertiaryCategory, '知识服务')
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.classification.l3, '知识服务')
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.interactionParadigm.id, 'ip_timeline_story')
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.childTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
+  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.reviewMode, 'semi_auto')
   assert.equal(confirmedEntryGuidance.capabilityRequirements.automation?.maxRepairAttempts, 1)
 
   const guidedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
@@ -418,8 +472,11 @@ Reusable smoke test template.
     sourceMode: 'new_html',
     productMode: confirmedEntryGuidance.productMode,
     variationCount: 1,
-    capabilityRequirements: confirmedEntryGuidance.capabilityRequirements,
-    templateRequirements: confirmedEntryGuidance.templateRequirements,
+    templateRequirements: {
+      businessContext: {
+        guidanceId: confirmedEntryGuidance.guidanceId,
+      },
+    },
   })
   const guidedSnapshot = await waitForJob(guidedJob.job.id)
   assert.equal(guidedSnapshot.job.productMode, 'dynamic_encyclopedia_card')
@@ -445,7 +502,24 @@ Reusable smoke test template.
   assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.action, 'confirm_repair')
   assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.artifactId, guidedArtifactId)
   const storedGuidedJob = await harness.service.store.getJobById(guidedJob.job.id)
-  assert.equal((storedGuidedJob?.templateRequirements.businessContext as { interactionParadigmId?: string } | undefined)?.interactionParadigmId, 'ip_timeline_story')
+  const storedGuidedBusinessContext = storedGuidedJob?.templateRequirements.businessContext as {
+    guidanceId?: string
+    interactionParadigmId?: string
+    entryTertiaryCategory?: string
+    classification?: { l1?: string; l2?: string; l3?: string; source?: string }
+    childTemplates?: Array<{ designTemplatePackId?: string; selected?: boolean }>
+    reviewMode?: string
+  } | undefined
+  assert.equal(storedGuidedBusinessContext?.guidanceId, confirmedEntryGuidance.guidanceId)
+  assert.equal(storedGuidedBusinessContext?.interactionParadigmId, 'ip_timeline_story')
+  assert.equal(storedGuidedBusinessContext?.entryTertiaryCategory, '知识服务')
+  assert.equal(storedGuidedBusinessContext?.classification?.l1, '机构组织')
+  assert.equal(storedGuidedBusinessContext?.classification?.l2, '企业')
+  assert.equal(storedGuidedBusinessContext?.classification?.l3, '知识服务')
+  assert.equal(storedGuidedBusinessContext?.classification?.source, 'mock_rules')
+  assert.equal(storedGuidedBusinessContext?.childTemplates?.[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
+  assert.equal(storedGuidedBusinessContext?.childTemplates?.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_timeline_card' && template.selected), true)
+  assert.equal(storedGuidedBusinessContext?.reviewMode, 'semi_auto')
 
   const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,

@@ -65,6 +65,13 @@ export function reviewDynamicEncyclopediaSpec(input: EncyclopediaSpecReviewInput
     message: 'The artifact does not expose recognizable encyclopedia content structure.',
     repairHint: 'Add a compact entry title, neutral summary, key facts, and a source/fact hint section suited to the selected child template.',
   })
+  addFindingIf(findings, /全球第一|行业第一|国内第一|唯一|首个|最佳|最强|顶级|领先全球|革命性|颠覆|震撼|必看|完美|无敌|权威认证/i.test(text), {
+    id: 'encyclopedia.neutral_tone_risk',
+    source: 'static_rule',
+    severity: 'warning',
+    message: 'Dynamic encyclopedia copy should avoid promotional or unverifiable superlative language.',
+    repairHint: 'Rewrite marketing-like claims into neutral, attributable facts; keep subjective conclusions out of the card unless the source is shown.',
+  })
 
   if (input.templatePackIds.includes('dtp_dynamic_encyclopedia_timeline_card')) {
     addFindingIf(findings, !/(时间线|发展|历程|阶段|里程碑|年份|上线|发布|成立)/i.test(text), {

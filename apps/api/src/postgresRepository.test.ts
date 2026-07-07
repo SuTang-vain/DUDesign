@@ -244,6 +244,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       context: '需要生成动态百科词条卡片。',
       primaryCategory: '机构组织',
       secondaryCategory: '企业',
+      tertiaryCategory: '知识服务',
       confidence: 0.84,
       signals: ['企业', '人工智能'],
       recommendedTemplateIds: ['dtp_dynamic_encyclopedia_summary_card', 'dtp_dynamic_encyclopedia_timeline_card'],

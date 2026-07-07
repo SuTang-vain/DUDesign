@@ -1520,6 +1520,62 @@ a { color: inherit; text-decoration: none; }
 .var-preview-link:hover::after {
   background: rgba(100, 135, 250, .08);
 }
+.quality-popover {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  max-width: min(78%, 300px);
+  display: grid;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning-soft) 92%, var(--surface));
+  box-shadow: var(--shadow-1);
+  color: var(--warning-on);
+  pointer-events: auto;
+}
+.quality-popover-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.quality-popover-main span,
+.quality-popover small {
+  color: var(--warning-on);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+.quality-popover-main p {
+  margin: 0;
+  color: var(--warning-on-2);
+  font-size: 11px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.quality-popover-actions {
+  display: flex;
+  gap: 6px;
+}
+.quality-popover-actions button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+}
+.quality-popover-actions button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
 
 /* variation code stream(无预览时显示) */
 .var-code {

@@ -5,7 +5,7 @@ import { reviewDynamicEncyclopediaSpec } from './encyclopediaSpecReview.js'
 describe('Dynamic encyclopedia spec review', () => {
   it('reports deterministic findings for unsafe or incomplete encyclopedia cards', () => {
     const report = reviewDynamicEncyclopediaSpec({
-      html: '<!doctype html><html><head><title>Bad</title></head><body><main><h1>百度百科</h1><p>简介</p><script src="https://example.com/app.js"></script></main></body></html>',
+      html: '<!doctype html><html><head><title>Bad</title></head><body><main><h1>百度百科</h1><p>简介：全球第一、最强、革命性知识产品。</p><script src="https://example.com/app.js"></script></main></body></html>',
       templatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
       interactionParadigmId: 'ip_timeline_story',
     })
@@ -15,6 +15,7 @@ describe('Dynamic encyclopedia spec review', () => {
     assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.external_script_blocked'))
     assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.scroll_container_missing'))
     assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.timeline_template_mismatch'))
+    assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.neutral_tone_risk'))
   })
 
   it('passes a self-contained card that follows the scroll and content contract', () => {

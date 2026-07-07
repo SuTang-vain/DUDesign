@@ -2457,16 +2457,17 @@ export class PostgresRepository extends InMemoryStore {
     await this.pool.query(`
       insert into encyclopedia_entry_guidances (
         id, user_id, workspace_id, product_mode, entry_title, raw_input, context,
-        primary_category, secondary_category, confidence, signals, recommended_template_ids,
+        primary_category, secondary_category, tertiary_category, confidence, signals, recommended_template_ids,
         selected_template_ids, interaction_paradigm_id, automation_mode, status, confirmed_at, metadata, created_at, updated_at
       )
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18::jsonb,$19,$20)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21)
       on conflict (id) do update set
         entry_title = excluded.entry_title,
         raw_input = excluded.raw_input,
         context = excluded.context,
         primary_category = excluded.primary_category,
         secondary_category = excluded.secondary_category,
+        tertiary_category = excluded.tertiary_category,
         confidence = excluded.confidence,
         signals = excluded.signals,
         recommended_template_ids = excluded.recommended_template_ids,
@@ -2487,6 +2488,7 @@ export class PostgresRepository extends InMemoryStore {
       guidance.context,
       guidance.primaryCategory,
       guidance.secondaryCategory,
+      guidance.tertiaryCategory,
       guidance.confidence,
       JSON.stringify(guidance.signals),
       JSON.stringify(guidance.recommendedTemplateIds),
@@ -2730,6 +2732,7 @@ function mapEncyclopediaEntryGuidance(row: any): EncyclopediaEntryGuidance {
     context: row.context,
     primaryCategory: row.primary_category,
     secondaryCategory: row.secondary_category,
+    tertiaryCategory: row.tertiary_category ?? '通用',
     confidence: Number(row.confidence),
     signals: stringArray(row.signals),
     recommendedTemplateIds: stringArray(row.recommended_template_ids),

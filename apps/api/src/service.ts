@@ -97,6 +97,8 @@ import {
 } from './automationLoop.js'
 import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
 
+type ReviewMode = 'off' | 'semi_auto' | 'auto'
+
 type AdminTemplateLintFinding = {
   severity: 'error' | 'warning' | 'info'
   code: string
@@ -488,6 +490,7 @@ export class ApplicationService {
       context,
       primaryCategory: classification.primaryCategory,
       secondaryCategory: classification.secondaryCategory,
+      tertiaryCategory: classification.tertiaryCategory,
       confidence: classification.confidence,
       signals: classification.signals,
       recommendedTemplateIds: recommendedTemplates.map(template => template.designTemplatePackId),
@@ -521,6 +524,7 @@ export class ApplicationService {
       classificationOverride?: {
         primaryCategory?: string
         secondaryCategory?: string
+        tertiaryCategory?: string | null
       }
       automationMode?: 'off' | 'semi_auto' | 'auto'
     },
@@ -531,6 +535,7 @@ export class ApplicationService {
     const classificationOverride = normalizeGuidanceClassificationOverride(input.classificationOverride)
     const primaryCategory = classificationOverride?.primaryCategory ?? guidance.primaryCategory
     const secondaryCategory = classificationOverride?.secondaryCategory ?? guidance.secondaryCategory
+    const tertiaryCategory = classificationOverride?.tertiaryCategory ?? guidance.tertiaryCategory
     const democaseMatches = guidanceDemocaseMatches(guidance)
     const recommendedTemplates = classificationOverride
       ? await this.recommendDynamicEncyclopediaTemplates(
@@ -563,6 +568,7 @@ export class ApplicationService {
       ...guidance,
       primaryCategory,
       secondaryCategory,
+      tertiaryCategory,
       confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
       signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
       recommendedTemplateIds: classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds,
@@ -879,24 +885,25 @@ export class ApplicationService {
     const { session, workspace } = context
     await this.requireSessionAccess(session.id, ctx.userId, 'editor')
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
-    const selectedModel = await this.resolveUserModel(ctx.userId, input.modelServiceId ?? null)
-    const capabilitySnapshot = resolveCapabilitySnapshot(input.capabilityRequirements)
-    const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, input)
-    const variationTemplateAssignments = assignDesignTemplatePacks(input.variationCount, designTemplatePacks)
-    const dataIntake = await this.resolveDataIntakeArtifactReference(workspace.id, input.templateRequirements?.dataIntakeArtifactId ?? input.templateRequirements?.dataIntake?.artifactId ?? null)
+    const jobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
+    const selectedModel = await this.resolveUserModel(ctx.userId, jobInput.modelServiceId ?? null)
+    const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements)
+    const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, jobInput)
+    const variationTemplateAssignments = assignDesignTemplatePacks(jobInput.variationCount, designTemplatePacks)
+    const dataIntake = await this.resolveDataIntakeArtifactReference(workspace.id, jobInput.templateRequirements?.dataIntakeArtifactId ?? jobInput.templateRequirements?.dataIntake?.artifactId ?? null)
     const researchContexts = await this.resolveResearchContextArtifactReferences(workspace.id, [
-      ...(input.templateRequirements?.researchContextArtifactIds ?? []),
-      ...(input.templateRequirements?.researchContexts ?? []).map(reference => reference.artifactId),
+      ...(jobInput.templateRequirements?.researchContextArtifactIds ?? []),
+      ...(jobInput.templateRequirements?.researchContexts ?? []).map(reference => reference.artifactId),
     ])
     await this.store.appendMessage({
       sessionId: session.id,
       role: 'user',
-      content: input.prompt,
+      content: jobInput.prompt,
       metadata: {
-        sourceMode: input.sourceMode,
-        productMode: input.productMode ?? 'web_app',
-        sourceArtifactId: input.sourceArtifactId ?? null,
-        variationCount: input.variationCount,
+        sourceMode: jobInput.sourceMode,
+        productMode: jobInput.productMode ?? 'web_app',
+        sourceArtifactId: jobInput.sourceArtifactId ?? null,
+        variationCount: jobInput.variationCount,
         modelServiceId: selectedModel.id,
         capabilitySnapshot,
         designTemplatePackIds: designTemplatePacks.map(template => template.id),
@@ -914,12 +921,12 @@ export class ApplicationService {
     })
     const job = await this.store.createJob({
       session,
-      prompt: input.prompt,
-      sourceMode: input.sourceMode,
-      productMode: input.productMode ?? 'web_app',
-      variationCount: input.variationCount,
+      prompt: jobInput.prompt,
+      sourceMode: jobInput.sourceMode,
+      productMode: jobInput.productMode ?? 'web_app',
+      variationCount: jobInput.variationCount,
       templateRequirements: {
-        ...(input.templateRequirements ?? {}),
+        ...(jobInput.templateRequirements ?? {}),
         capabilitySnapshot,
         capabilityProfileVersion: capabilitySnapshot.profileVersion ?? capabilitySnapshot.schemaVersion,
         designTemplatePackIds: designTemplatePacks.map(template => template.id),
@@ -949,13 +956,13 @@ export class ApplicationService {
       capabilitySnapshot,
       designTemplatePacks,
     })
-    const variations = await this.store.createVariations({ job, count: input.variationCount })
+    const variations = await this.store.createVariations({ job, count: jobInput.variationCount })
 
     await this.queue.enqueueDesignJob({
       jobId: job.id,
       sessionId: session.id,
       variationIds: variations.map(variation => variation.id),
-      sourceArtifactId: input.sourceArtifactId ?? null,
+      sourceArtifactId: jobInput.sourceArtifactId ?? null,
       runtimeSessionId: session.runtimeSessionId,
       modelServiceId: selectedModel.id,
       idempotencyKey: designJobQueueIdempotencyKey(job.id),
@@ -2665,6 +2672,7 @@ export class ApplicationService {
       classification: {
         primaryCategory: guidance.primaryCategory,
         secondaryCategory: guidance.secondaryCategory,
+        tertiaryCategory: guidance.tertiaryCategory,
         confidence: guidance.confidence,
         signals: guidance.signals,
         source: 'mock_rules',
@@ -2698,7 +2706,7 @@ export class ApplicationService {
         deviceTargets: ['desktop', 'mobile'],
         notes: [
           `Dynamic encyclopedia entry: ${guidance.entryTitle}`,
-          `Classification: ${guidance.primaryCategory} / ${guidance.secondaryCategory}`,
+          `Classification: ${guidance.primaryCategory} / ${guidance.secondaryCategory} / ${guidance.tertiaryCategory}`,
           'Use the selected child template recommendation as the generation direction.',
         ].join('\n'),
         businessContext: {
@@ -2706,9 +2714,61 @@ export class ApplicationService {
           entryTitle: guidance.entryTitle,
           entryPrimaryCategory: guidance.primaryCategory,
           entrySecondaryCategory: guidance.secondaryCategory,
+          entryTertiaryCategory: guidance.tertiaryCategory,
+          classification: {
+            l1: guidance.primaryCategory,
+            l2: guidance.secondaryCategory,
+            l3: guidance.tertiaryCategory,
+            confidence: guidance.confidence,
+            signals: guidance.signals,
+            source: 'mock_rules',
+          },
           interactionParadigmId: guidance.interactionParadigmId,
+          interactionParadigm,
           recommendedTemplateIds: guidance.selectedTemplateIds,
+          childTemplates: recommendedTemplates.map(template => ({
+            designTemplatePackId: template.designTemplatePackId,
+            interactionParadigmId: template.interactionParadigmId,
+            selected: template.selected,
+            confidence: template.confidence,
+            reason: template.reason,
+          })),
           automationMode: guidance.automationMode,
+          reviewMode: guidance.automationMode,
+        },
+      },
+    }
+  }
+
+  private async withDynamicEncyclopediaGuidanceSnapshot(
+    ctx: RequestContext,
+    workspaceId: string,
+    input: CreateDesignJobRequest,
+  ): Promise<CreateDesignJobRequest> {
+    const guidanceId = stringValue(input.templateRequirements?.businessContext?.guidanceId)
+    if (!guidanceId) return input
+    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
+    if (guidance.workspaceId !== workspaceId) {
+      throw createHttpError(400, 'ENTRY_GUIDANCE_WORKSPACE_MISMATCH', 'Entry guidance belongs to a different workspace.')
+    }
+    if (guidance.status === 'needs_confirmation') {
+      throw createHttpError(409, 'ENTRY_GUIDANCE_NEEDS_CONFIRMATION', 'Entry guidance requires classification confirmation before creating a design job.')
+    }
+    const guidanceResponse = await this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
+    const templateRequirements = input.templateRequirements ?? {}
+    return {
+      ...input,
+      productMode: guidanceResponse.productMode,
+      capabilityRequirements: input.capabilityRequirements ?? guidanceResponse.capabilityRequirements,
+      templateRequirements: {
+        ...guidanceResponse.templateRequirements,
+        ...templateRequirements,
+        designTemplatePackIds: templateRequirements.designTemplatePackIds ?? guidanceResponse.templateRequirements.designTemplatePackIds,
+        interactionParadigm: templateRequirements.interactionParadigm ?? guidanceResponse.templateRequirements.interactionParadigm,
+        businessContext: {
+          ...guidanceResponse.templateRequirements.businessContext,
+          ...(templateRequirements.businessContext ?? {}),
+          guidanceId: guidanceResponse.guidanceId,
         },
       },
     }
@@ -3786,6 +3846,7 @@ export class ApplicationService {
     const capabilitySnapshot = templateRequirements?.capabilitySnapshot
     const automation = capabilitySnapshot?.automation
     if (!automation) return
+    const reviewMode = reviewModeFromTemplateRequirements(templateRequirements)
 
     const profile = automation.loopProfile
     const attempt = Math.max(0, input.artifact.version - 1)
@@ -3814,6 +3875,7 @@ export class ApplicationService {
         profileId: profile.id,
         maxRepairAttempts: automation.maxRepairAttempts,
         qualityGates: profile.qualityGates,
+        reviewMode,
       },
     }))
     await this.publishDesignEvent(createDesignEvent({
@@ -3827,6 +3889,7 @@ export class ApplicationService {
         gates: profile.qualityGates,
         status: input.quality.status,
         issues: input.quality.issues,
+        reviewMode,
       },
     }))
 
@@ -3837,25 +3900,15 @@ export class ApplicationService {
         originalPrompt: job.prompt,
         templateSummary: automationTemplateSummaryForVariation(variation.index, job.templateRequirements),
       })
-      await this.publishDesignEvent(createDesignEvent({
-        type: 'design.loop_repair_planned',
-        sessionId: input.sessionId,
-        jobId: input.jobId,
-        variationId: input.variationId,
-        payload: {
-          artifactId: input.artifact.id,
-          attempt: attempt + 1,
-          reason: `quality_${input.quality.status}`,
-          promptPreview: prompt.slice(0, 500),
-        },
-      }))
-      await this.enqueueAutomationLoopRepair({
+      await this.planAutomationRepairByReviewMode({
         sessionId: input.sessionId,
         job,
         variation,
         artifact: input.artifact,
         prompt,
         attempt: attempt + 1,
+        reason: `quality_${input.quality.status}`,
+        reviewMode,
       })
       return
     }
@@ -3922,6 +3975,75 @@ export class ApplicationService {
       source: 'automation_loop',
       attempt: input.attempt,
       createdAt: new Date().toISOString(),
+    })
+  }
+
+  private async planAutomationRepairByReviewMode(input: {
+    sessionId: string
+    job: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobById']>>>
+    variation: DesignVariation
+    artifact: Artifact
+    prompt: string
+    attempt: number
+    reason: string
+    reviewMode: ReviewMode
+  }): Promise<void> {
+    if (input.reviewMode === 'off') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_stopped',
+        sessionId: input.sessionId,
+        jobId: input.job.id,
+        variationId: input.variation.id,
+        payload: {
+          artifactId: input.artifact.id,
+          attempts: input.attempt - 1,
+          reason: 'review_disabled',
+          message: 'Review mode is off; artifact quality findings were recorded without repair.',
+          recoverable: true,
+        },
+      }))
+      return
+    }
+
+    await this.publishDesignEvent(createDesignEvent({
+      type: 'design.loop_repair_planned',
+      sessionId: input.sessionId,
+      jobId: input.job.id,
+      variationId: input.variation.id,
+      payload: {
+        artifactId: input.artifact.id,
+        attempt: input.attempt,
+        reason: input.reason,
+        promptPreview: input.prompt.slice(0, 500),
+        reviewMode: input.reviewMode,
+        requiresConfirmation: input.reviewMode === 'semi_auto',
+      },
+    }))
+
+    if (input.reviewMode === 'semi_auto') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_stopped',
+        sessionId: input.sessionId,
+        jobId: input.job.id,
+        variationId: input.variation.id,
+        payload: {
+          artifactId: input.artifact.id,
+          attempts: input.attempt - 1,
+          reason: 'review_pending_confirmation',
+          message: 'Review mode is semi_auto; repair is waiting for user confirmation.',
+          recoverable: true,
+        },
+      }))
+      return
+    }
+
+    await this.enqueueAutomationLoopRepair({
+      sessionId: input.sessionId,
+      job: input.job,
+      variation: input.variation,
+      artifact: input.artifact,
+      prompt: input.prompt,
+      attempt: input.attempt,
     })
   }
 
@@ -4487,6 +4609,11 @@ function automationTemplateSummaryForVariation(variationIndex: number, templateR
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join('\n')
 }
 
+function reviewModeFromTemplateRequirements(requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): ReviewMode {
+  const mode = requirements?.businessContext?.reviewMode
+  return mode === 'off' || mode === 'semi_auto' || mode === 'auto' ? mode : 'auto'
+}
+
 function loopStoppedEventReason(reason: AutomationLoopStopReason | null): Exclude<AutomationLoopStopReason, 'quality_passed'> {
   return reason && reason !== 'quality_passed' ? reason : 'quality_failed'
 }
@@ -4519,9 +4646,36 @@ function isDynamicEncyclopediaBusinessContext(value: unknown): value is NonNulla
     && (!('entryTitle' in record) || typeof record.entryTitle === 'string')
     && (!('entryPrimaryCategory' in record) || typeof record.entryPrimaryCategory === 'string')
     && (!('entrySecondaryCategory' in record) || typeof record.entrySecondaryCategory === 'string')
+    && (!('entryTertiaryCategory' in record) || typeof record.entryTertiaryCategory === 'string')
+    && (!('classification' in record) || isDynamicEncyclopediaClassificationSnapshot(record.classification))
     && (!('interactionParadigmId' in record) || typeof record.interactionParadigmId === 'string')
+    && (!('interactionParadigm' in record) || isInteractionParadigm(record.interactionParadigm))
     && (!('recommendedTemplateIds' in record) || (Array.isArray(record.recommendedTemplateIds) && record.recommendedTemplateIds.every(item => typeof item === 'string')))
+    && (!('childTemplates' in record) || (Array.isArray(record.childTemplates) && record.childTemplates.every(isDynamicEncyclopediaChildTemplateSnapshot)))
     && (!('automationMode' in record) || record.automationMode === 'off' || record.automationMode === 'semi_auto' || record.automationMode === 'auto')
+    && (!('reviewMode' in record) || record.reviewMode === 'off' || record.reviewMode === 'semi_auto' || record.reviewMode === 'auto')
+}
+
+function isDynamicEncyclopediaClassificationSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.l1 === 'string'
+    && typeof record.l2 === 'string'
+    && typeof record.l3 === 'string'
+    && typeof record.confidence === 'number'
+    && Array.isArray(record.signals)
+    && record.signals.every(item => typeof item === 'string')
+    && record.source === 'mock_rules'
+}
+
+function isDynamicEncyclopediaChildTemplateSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.designTemplatePackId === 'string'
+    && typeof record.interactionParadigmId === 'string'
+    && typeof record.selected === 'boolean'
+    && typeof record.confidence === 'number'
+    && typeof record.reason === 'string'
 }
 
 function isDataIntakeArtifactReference(value: unknown): value is DataIntakeArtifactReference {
@@ -5040,6 +5194,7 @@ function normalizeEntryTitle(rawInput: string): string {
 function classifyEncyclopediaEntry(text: string): {
   primaryCategory: string
   secondaryCategory: string
+  tertiaryCategory: string
   confidence: number
   signals: string[]
 } {
@@ -5052,36 +5207,51 @@ function classifyEncyclopediaEntry(text: string): {
   }
 
   if (has(['公司', '企业', '集团', '融资', '上市', '创始人', 'ceo', '产品线'])) {
-    return { primaryCategory: '机构组织', secondaryCategory: '企业', confidence: 0.84, signals: [...new Set(signals)] }
+    return { primaryCategory: '机构组织', secondaryCategory: '企业', tertiaryCategory: organizationTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
   }
   if (has(['大学', '学院', '学校', '校区', '学科'])) {
-    return { primaryCategory: '机构组织', secondaryCategory: '学校', confidence: 0.82, signals: [...new Set(signals)] }
+    return { primaryCategory: '机构组织', secondaryCategory: '学校', tertiaryCategory: normalized.includes('校区') ? '校区院系' : '教育机构', confidence: 0.82, signals: [...new Set(signals)] }
   }
   if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员'])) {
-    return { primaryCategory: '人物', secondaryCategory: normalized.includes('历史') ? '历史人物' : '名人', confidence: 0.8, signals: [...new Set(signals)] }
+    return { primaryCategory: '人物', secondaryCategory: normalized.includes('历史') ? '历史人物' : '名人', tertiaryCategory: personTertiaryCategory(normalized), confidence: 0.8, signals: [...new Set(signals)] }
   }
   if (has(['电影', '电视剧', '综艺', '导演', '主演', '上映', '播出'])) {
-    return { primaryCategory: '作品', secondaryCategory: '影视作品', confidence: 0.83, signals: [...new Set(signals)] }
+    return { primaryCategory: '作品', secondaryCategory: '影视作品', tertiaryCategory: normalized.includes('电视剧') ? '电视剧' : normalized.includes('综艺') ? '综艺节目' : '电影', confidence: 0.83, signals: [...new Set(signals)] }
   }
   if (has(['小说', '文学', '作者', '出版', '章节', '诗歌'])) {
-    return { primaryCategory: '作品', secondaryCategory: '文学著作', confidence: 0.79, signals: [...new Set(signals)] }
+    return { primaryCategory: '作品', secondaryCategory: '文学著作', tertiaryCategory: normalized.includes('诗') ? '诗歌' : '小说著作', confidence: 0.79, signals: [...new Set(signals)] }
   }
   if (has(['游戏', '玩法', '关卡', '角色', '发行', '平台'])) {
-    return { primaryCategory: '作品', secondaryCategory: '游戏', confidence: 0.78, signals: [...new Set(signals)] }
+    return { primaryCategory: '作品', secondaryCategory: '游戏', tertiaryCategory: normalized.includes('角色') ? '角色玩法' : '电子游戏', confidence: 0.78, signals: [...new Set(signals)] }
   }
   if (has(['产品', '设备', '型号', '参数', '发布', '功能'])) {
-    return { primaryCategory: '物品产品', secondaryCategory: '产品设备', confidence: 0.72, signals: [...new Set(signals)] }
+    return { primaryCategory: '物品产品', secondaryCategory: '产品设备', tertiaryCategory: normalized.includes('参数') || normalized.includes('型号') ? '参数型号' : '功能产品', confidence: 0.72, signals: [...new Set(signals)] }
   }
   if (has(['概念', '定义', '理论', '技术', '算法', '协议', '模型'])) {
-    return { primaryCategory: '知识', secondaryCategory: '知识术语', confidence: 0.74, signals: [...new Set(signals)] }
+    return { primaryCategory: '知识', secondaryCategory: '知识术语', tertiaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', confidence: 0.74, signals: [...new Set(signals)] }
   }
-  return { primaryCategory: '知识', secondaryCategory: '知识术语', confidence: 0.52, signals: ['fallback'] }
+  return { primaryCategory: '知识', secondaryCategory: '知识术语', tertiaryCategory: '通用', confidence: 0.52, signals: ['fallback'] }
+}
+
+function organizationTertiaryCategory(normalized: string): string {
+  if (normalized.includes('融资') || normalized.includes('上市')) return '融资上市'
+  if (normalized.includes('产品线') || normalized.includes('产品')) return '产品业务'
+  if (normalized.includes('人工智能') || normalized.includes('知识服务') || normalized.includes('搜索')) return '知识服务'
+  return '企业概况'
+}
+
+function personTertiaryCategory(normalized: string): string {
+  if (normalized.includes('演员') || normalized.includes('导演') || normalized.includes('歌手')) return '文艺人物'
+  if (normalized.includes('科学家') || normalized.includes('学者')) return '学术人物'
+  if (normalized.includes('运动员')) return '体育人物'
+  return '人物概况'
 }
 
 function applyDemocaseClassification(
   classification: {
     primaryCategory: string
     secondaryCategory: string
+    tertiaryCategory: string
     confidence: number
     signals: string[]
   },
@@ -5089,6 +5259,7 @@ function applyDemocaseClassification(
 ): {
   primaryCategory: string
   secondaryCategory: string
+  tertiaryCategory: string
   confidence: number
   signals: string[]
 } {
@@ -5097,6 +5268,7 @@ function applyDemocaseClassification(
   return {
     primaryCategory: bestMatch.primaryCategory,
     secondaryCategory: bestMatch.secondaryCategory,
+    tertiaryCategory: classification.tertiaryCategory,
     confidence: Math.max(classification.confidence, Math.min(0.92, 0.72 + bestMatch.score)),
     signals: [...new Set([...classification.signals.filter(signal => signal !== 'fallback'), ...bestMatch.matchedKeywords])],
   }
@@ -5127,11 +5299,13 @@ function guidanceDemocaseMatches(guidance: EncyclopediaEntryGuidance): Encyclope
 function normalizeGuidanceClassificationOverride(input: unknown): {
   primaryCategory: string
   secondaryCategory: string
+  tertiaryCategory?: string | null
 } | null {
   if (!input || typeof input !== 'object') return null
   const record = input as Record<string, unknown>
   const primaryCategory = typeof record.primaryCategory === 'string' ? record.primaryCategory.trim() : ''
   const secondaryCategory = typeof record.secondaryCategory === 'string' ? record.secondaryCategory.trim() : ''
+  const tertiaryCategory = typeof record.tertiaryCategory === 'string' ? record.tertiaryCategory.trim() : null
   if (!primaryCategory || !secondaryCategory) return null
   const allowedPairs = [
     ['机构组织', '企业'],
@@ -5146,7 +5320,7 @@ function normalizeGuidanceClassificationOverride(input: unknown): {
   ]
   const allowed = allowedPairs.some(([primary, secondary]) => primary === primaryCategory && secondary === secondaryCategory)
   if (!allowed) throw createHttpError(400, 'GUIDANCE_CLASSIFICATION_INVALID', 'Unsupported guidance classification override.')
-  return { primaryCategory, secondaryCategory }
+  return { primaryCategory, secondaryCategory, tertiaryCategory }
 }
 
 function recommendedInteractionParadigmId(primaryCategory: string, secondaryCategory: string): string {

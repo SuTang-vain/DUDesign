@@ -137,6 +137,7 @@ export type DesignLoopStartedEvent = DesignEventEnvelope<
     profileId: string
     maxRepairAttempts: number
     qualityGates: Array<'static' | 'pixel' | 'spec'>
+    reviewMode?: 'off' | 'semi_auto' | 'auto'
   }
 >
 
@@ -148,6 +149,7 @@ export type DesignLoopQualityCheckedEvent = DesignEventEnvelope<
     gates: Array<'static' | 'pixel' | 'spec'>
     status: 'pass' | 'warn' | 'fail'
     issues: string[]
+    reviewMode?: 'off' | 'semi_auto' | 'auto'
   }
 >
 
@@ -158,6 +160,8 @@ export type DesignLoopRepairPlannedEvent = DesignEventEnvelope<
     attempt: number
     reason: string
     promptPreview: string
+    reviewMode?: 'semi_auto' | 'auto'
+    requiresConfirmation?: boolean
   }
 >
 
@@ -189,6 +193,8 @@ export type DesignLoopStoppedEvent = DesignEventEnvelope<
       | 'max_cost_reached'
       | 'max_duration_reached'
       | 'quality_failed'
+      | 'review_disabled'
+      | 'review_pending_confirmation'
       | 'runtime_unavailable'
       | 'runtime_contract_mismatch'
       | 'repeated_failure'

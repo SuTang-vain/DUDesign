@@ -236,23 +236,23 @@
 
 - [x] 新增 `DesignJob.productMode` 顶层字段（12.4：不进 `templateRequirements`），同步 `CreateDesignJobRequest`、job snapshot、Repository、PostgreSQL 和 Runtime Gateway；`DesignSession` 暂保持 source mode 语义。
 - [x] 设计 `EncyclopediaEntryGuidance` 领域对象，保存词条输入、分类结果、推荐模板、democase 引用和用户确认状态。
-- [ ] 新增词条引导 API：
+- [x] 新增词条引导 API：
   - [x] `POST /api/encyclopedia/entry-guidance` mock 初版。
   - [x] `GET /api/encyclopedia/entry-guidance/:id`。
   - [x] `POST /api/encyclopedia/entry-guidance/:id/confirm`。
 - [x] 词条引导向导直连 democase 只读服务（12.1：不经 Runtime Gateway、不走 MCP binding）；初期 mock democase 只读服务，后续替换为真实只读 API。生成期 agent 的 MCP binding 由 capability-distribution / runtime-compatibility 负责。
-- [~] 实现 L1/L2/L3 分类结果、置信度和 low-confidence confirmation 规则；当前 mock 覆盖 L1/L2、confidence、signals 和低置信 `needs_confirmation`，L3 待补。
+- [x] 实现 L1/L2/L3 分类结果、置信度和 low-confidence confirmation 规则；当前 mock 覆盖 L1/L2/L3、confidence、signals、低置信 `needs_confirmation` 和用户确认覆盖。
 - [x] 实现分类 -> 交互范式 -> 动态百科子模板的推荐与 1-3 个候选输出，并写入 guidance / job snapshot。
-- [ ] 创建 design job 时将 guidance、classification、child template、interaction paradigm、review mode 写入 immutable snapshot。
-- [~] 新增百科规范审查器：
+- [x] 创建 design job 时将 guidance、classification、child template、interaction paradigm、review mode 写入 immutable snapshot；支持只传 `guidanceId` 由业务服务层展开完整快照。
+- [x] 新增百科规范审查器：
   - [x] 固定 viewport。
   - [x] iframe/touch/scroll 行为。
   - [x] 外部依赖和静态安全。
   - [x] 必备章节。
-  - [~] 中立语气和模板一致性；当前覆盖结构/模板一致性，事实中立语气深审查留到 Phase 2。
+  - [x] 中立语气静态风险和模板一致性；事实级中立性深审查留到 Phase 2。
   - [x] finding source 限定为 `static_rule` / `template_rule` / `pixel_gate`；`llm_review` 标 Phase 2，MVP 不启用（12.3）。
 - [x] spec review checker 产出的 finding 对接 `qualityGates` 数组契约（12.2），任一 `error` 判 `fail`，`warning` 不阻断。
-- [~] 支持 review mode：`off`、`semi_auto`、`auto`；当前 `semi_auto` 已能生成 1 次确认式修复策略，`auto/off` 的完整后端状态机待收口。
+- [x] 支持 review mode：`off`、`semi_auto`、`auto`；`off` 只记录质量/规范发现不修复，`semi_auto` 生成待确认修复计划，`auto` 自动入队修复。
 - [x] 半自动模式增加 `review_pending_confirmation` 状态和确认修复 API；当前已提供 `POST /api/variations/:id/review-actions` 支持 `confirm_repair` / `skip`，并通过 job snapshot 聚合最后一次 review action。
 - [x] API smoke：词条 -> guidance -> 确认推荐 -> 创建 job -> snapshot 固定业务上下文。
 

@@ -263,6 +263,7 @@ create table if not exists encyclopedia_entry_guidances (
   context text,
   primary_category text not null,
   secondary_category text not null,
+  tertiary_category text not null default '通用',
   confidence numeric not null,
   signals jsonb not null default '[]'::jsonb,
   recommended_template_ids jsonb not null default '[]'::jsonb,
