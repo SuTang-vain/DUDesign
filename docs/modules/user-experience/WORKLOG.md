@@ -1515,7 +1515,7 @@
 
 ### 后续关注
 
-- Activity Stream 使用 `mcpInvocationToUserError()` 展示 provider/tool 降级。
+- 首页生成过程 Activity Stream 使用 `mcpInvocationToUserError()` 展示 provider/tool 降级。
 
 ## 2026-07-06 UX-9 Variation Detail Capability Notices
 
@@ -1525,6 +1525,23 @@
 - Variation 详情页自动读取 `detail.capabilityNotices[0]` 并映射为 `CapabilityNotice`。
 - 返回内容只包含用户端可消费的标准 `McpInvocationResult`，不暴露 admin audit、request 原文、replay key 或 provider secret。
 - API flow smoke 覆盖图片生成内容安全失败后，variation detail 能返回对应 capability notice。
+
+## 2026-07-06 UX-9 Variation Inspect Capability Activity
+
+### 已完成
+
+- Variation Inspect 面板新增 `capability-activity` 区域。
+- 当 `detail.capabilityNotices[0]` 存在时，展示：
+  - MCP result status / notice severity。
+  - provider/tool 来源。
+  - 用户可执行的恢复动作。
+- 没有异常时显示“暂无能力异常记录”，避免空面板。
+- 增加中英文文案：`Capability activity`、`No capability issues recorded`、`Action`、`OK`。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/capability-errors.test.mjs`
 
 ### 验证
 

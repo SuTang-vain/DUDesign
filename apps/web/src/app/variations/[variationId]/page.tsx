@@ -172,6 +172,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const activeCapabilityNotice = useMemo(() => (
     capabilityNotice ?? mcpInvocationToUserError(detail?.capabilityNotices?.[0] ?? null)
   ), [capabilityNotice, detail?.capabilityNotices])
+  const activeCapabilityResult = detail?.capabilityNotices?.[0] ?? null
 
   async function submitRefine(): Promise<void> {
     if (!variationId || !detail?.variation.currentArtifactId || !prompt.trim()) return
@@ -795,6 +796,31 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                   <div className="row"><small>{t('status')}</small><span>{runtimeSummary.status}</span></div>
                   <div className="row"><small>{t('artifactsLabel')}</small><span>{runtimeSummary.artifacts}</span></div>
                   <small style={{ marginTop: 4 }}>{runtimeSummary.detail}</small>
+                </section>
+
+                <section className="activity capability-activity" data-testid="capability-activity">
+                  <div className="eyebrow">{t('capabilityActivity')}</div>
+                  {activeCapabilityNotice ? (
+                    <>
+                      <div className="row">
+                        <span className="t">{activeCapabilityResult?.status ?? activeCapabilityNotice.severity}</span>
+                        <span className="s">{activeCapabilityNotice.title}</span>
+                      </div>
+                      <div className="row">
+                        <span className="t">{activeCapabilityResult?.source.serverName ?? t('capability')}</span>
+                        <span className="s">{activeCapabilityNotice.message}</span>
+                      </div>
+                      <div className="row">
+                        <span className="t">{t('action')}</span>
+                        <span className="s">{activeCapabilityNotice.action}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="row">
+                      <span className="t">{t('ok')}</span>
+                      <span className="s">{t('noCapabilityActivity')}</span>
+                    </div>
+                  )}
                 </section>
 
                 {lockedVersion ? (

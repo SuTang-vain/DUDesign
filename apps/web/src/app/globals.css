@@ -1706,6 +1706,12 @@ a { color: inherit; text-decoration: none; }
 }
 .activity .row .t { color: var(--muted); font-family: var(--mono); font-size: 11px; }
 .activity .row .s { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capability-activity {
+  margin-top: 12px;
+}
+.capability-activity .eyebrow {
+  margin-bottom: 2px;
+}
 
 .runtime-recent {
   display: grid; gap: 4px;

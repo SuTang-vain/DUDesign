@@ -198,4 +198,5 @@
 - [x] Variation 详情页接入 capability notice 展示位，可复用 `UserFacingError`。
 - [x] 图片生成 provider unavailable 对应动作：继续无图、重试图片、切换 provider。
 - [x] 将 variation detail API 扩展为返回最近 capability notice / MCP invocation result，让真实 provider 降级能自动显示在用户端。
-- [ ] Activity Stream 接入 `mcpInvocationToUserError()`，展示工具调用失败和恢复动作。
+- [x] Variation Inspect 面板接入能力活动列表，展示最近 provider/tool 降级、来源和恢复动作。
+- [ ] 首页生成过程 Activity Stream 接入 `mcpInvocationToUserError()`，展示工具调用失败和恢复动作。
