@@ -27,6 +27,7 @@ import type {
   AdminUserSupport,
   AdminUserSupportFilter,
   ApplicationRepository,
+  CapabilityGovernanceOverride,
   CurrentVariationArtifactSnapshot,
   DesignTemplatePackVersion,
   MaybePromise,
@@ -113,6 +114,7 @@ export class InMemoryStore implements ApplicationRepository {
   readonly modelServices = new Map<string, ModelService>()
   readonly userModelAccess = new Map<string, UserModelAccess>()
   readonly userCapabilityPreferences = new Map<string, UserCapabilityPreference>()
+  readonly capabilityGovernanceOverrides = new Map<string, CapabilityGovernanceOverride>()
   readonly designTemplatePacks = new Map<string, DesignTemplatePack>()
   readonly designTemplatePackVersions = new Map<string, DesignTemplatePackVersion>()
   readonly annotationBatches = new Map<string, AnnotationBatch>()
@@ -314,6 +316,35 @@ export class InMemoryStore implements ApplicationRepository {
   saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): MaybePromise<UserCapabilityPreference> {
     this.userCapabilityPreferences.set(userId, preference)
     return preference
+  }
+
+  listCapabilityGovernanceOverrides(): MaybePromise<CapabilityGovernanceOverride[]> {
+    return [...this.capabilityGovernanceOverrides.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  upsertCapabilityGovernanceOverride(input: {
+    pluginId: string
+    status: CapabilityGovernanceOverride['status']
+    reason?: string | null
+    updatedByUserId?: string | null
+    updatedByRole?: CapabilityGovernanceOverride['updatedByRole']
+    metadata?: Record<string, unknown>
+  }): MaybePromise<CapabilityGovernanceOverride> {
+    const existing = this.capabilityGovernanceOverrides.get(input.pluginId)
+    const now = nowIso()
+    const override: CapabilityGovernanceOverride = {
+      pluginId: input.pluginId,
+      status: input.status,
+      reason: input.reason ?? null,
+      updatedByUserId: input.updatedByUserId ?? null,
+      updatedByRole: input.updatedByRole ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    this.capabilityGovernanceOverrides.set(input.pluginId, override)
+    return override
   }
 
   listDesignTemplatePacks(userId: string, _workspaceId?: string | null): MaybePromise<DesignTemplatePack[]> {

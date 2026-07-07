@@ -313,6 +313,7 @@ export class ApplicationService {
   readonly mcpExecutor: McpExecutor
   private readonly backgroundTasks = new Set<Promise<unknown>>()
   private readonly disabledCapabilityPluginIds = new Set<string>()
+  private readonly capabilityGovernanceReady: Promise<void>
 
   constructor(options: {
     store?: ApplicationRepository
@@ -331,6 +332,7 @@ export class ApplicationService {
     })
     this.queue = options.queue ?? new InMemoryDesignJobQueue()
     this.mcpExecutor = options.mcpExecutor ?? new MockMcpExecutor()
+    this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
     }
@@ -431,6 +433,7 @@ export class ApplicationService {
 
   async listCapabilities(ctx: RequestContext) {
     await this.requireUser(ctx.userId)
+    await this.ensureCapabilityGovernanceReady()
     return listCapabilities(this.capabilityGovernanceOptions())
   }
 
@@ -888,6 +891,7 @@ export class ApplicationService {
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
     const jobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
     const selectedModel = await this.resolveUserModel(ctx.userId, jobInput.modelServiceId ?? null)
+    await this.ensureCapabilityGovernanceReady()
     const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements, this.capabilityGovernanceOptions())
     const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, jobInput)
     const variationTemplateAssignments = assignDesignTemplatePacks(jobInput.variationCount, designTemplatePacks)
@@ -2227,6 +2231,7 @@ export class ApplicationService {
 
   async listAdminTemplateGovernance(ctx: RequestContext) {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
+    await this.ensureCapabilityGovernanceReady()
     const templates = await this.store.listDesignTemplatePacks(ctx.userId)
     const entries = templates.map(adminTemplateGovernanceEntry)
     const capabilities = listCapabilities(this.capabilityGovernanceOptions())
@@ -2300,6 +2305,7 @@ export class ApplicationService {
     input: { status?: CapabilityPlugin['status']; reason?: string | null } = {},
   ) {
     await this.requireAdminRole(ctx, ['operator', 'developer'])
+    await this.ensureCapabilityGovernanceReady()
     const basePlugin = listCapabilities().plugins.find(plugin => plugin.id === pluginId)
     if (!basePlugin) throw createHttpError(404, 'CAPABILITY_PLUGIN_NOT_FOUND', `Capability plugin not found: ${pluginId}`)
     const nextStatus = input.status
@@ -2307,11 +2313,20 @@ export class ApplicationService {
       throw createHttpError(400, 'CAPABILITY_PLUGIN_STATUS_INVALID', 'Capability plugin status must be active or disabled.')
     }
     const previousPlugin = listCapabilities(this.capabilityGovernanceOptions()).plugins.find(plugin => plugin.id === pluginId) ?? basePlugin
-    if (nextStatus === 'disabled') {
-      this.disabledCapabilityPluginIds.add(pluginId)
-    } else {
-      this.disabledCapabilityPluginIds.delete(pluginId)
-    }
+    await this.store.upsertCapabilityGovernanceOverride({
+      pluginId,
+      status: nextStatus,
+      reason: input.reason ?? null,
+      updatedByUserId: ctx.userId,
+      updatedByRole: ctx.adminRole ?? null,
+      metadata: {
+        previousStatus: previousPlugin.status,
+        nextStatus,
+        pluginName: basePlugin.name,
+        pluginType: basePlugin.type,
+      },
+    })
+    this.setCapabilityPluginDisabled(pluginId, nextStatus === 'disabled')
     const capabilities = listCapabilities(this.capabilityGovernanceOptions())
     const plugin = capabilities.plugins.find(item => item.id === pluginId)
     if (!plugin) throw createHttpError(404, 'CAPABILITY_PLUGIN_NOT_FOUND', `Capability plugin not found: ${pluginId}`)
@@ -2624,6 +2639,26 @@ export class ApplicationService {
   private capabilityGovernanceOptions() {
     return {
       disabledPluginIds: this.disabledCapabilityPluginIds,
+    }
+  }
+
+  private async loadCapabilityGovernanceOverrides(): Promise<void> {
+    const overrides = await this.store.listCapabilityGovernanceOverrides()
+    this.disabledCapabilityPluginIds.clear()
+    for (const override of overrides) {
+      this.setCapabilityPluginDisabled(override.pluginId, override.status === 'disabled')
+    }
+  }
+
+  private async ensureCapabilityGovernanceReady(): Promise<void> {
+    await this.capabilityGovernanceReady
+  }
+
+  private setCapabilityPluginDisabled(pluginId: string, disabled: boolean): void {
+    if (disabled) {
+      this.disabledCapabilityPluginIds.add(pluginId)
+    } else {
+      this.disabledCapabilityPluginIds.delete(pluginId)
     }
   }
 

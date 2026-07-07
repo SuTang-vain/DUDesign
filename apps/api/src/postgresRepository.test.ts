@@ -156,6 +156,14 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
         negativeRequirements: ['no dark hero'],
       },
     })
+    await repository.upsertCapabilityGovernanceOverride({
+      pluginId: 'plug_static_export_safe',
+      status: 'disabled',
+      reason: 'Postgres smoke disabled plugin override.',
+      updatedByUserId: repository.devUser.id,
+      updatedByRole: 'developer',
+      metadata: { smoke: true },
+    })
     const privateTemplate: DesignTemplatePack = {
       ...officialDesignTemplatePacks[0]!,
       id: 'dtp_private_pg_smoke',
@@ -269,6 +277,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
     try {
       assert.equal(hydrated.sessions.get(session.id)?.runtimeSessionId, 'runtime_pg_smoke')
       assert.equal(hydrated.userCapabilityPreferences.get(repository.devUser.id)?.domainTemplateId, 'tpl_premium_product_page')
+      assert.equal(hydrated.capabilityGovernanceOverrides.get('plug_static_export_safe')?.status, 'disabled')
       assert.equal(hydrated.messages.get(session.id)?.[0]?.id, message.id)
       assert.equal(hydrated.jobs.get(job.id)?.prompt, 'Persist a design job')
 	      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
@@ -326,6 +335,7 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(await hydrated.canUserUseModel(repository.devUser.id, userModels.defaultModelId!), true)
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.colorPaletteId, 'pal_minimal_mono')
       assert.equal((await hydrated.getUserCapabilityPreference(repository.devUser.id))?.skillId, 'sk_accessibility_first')
+      assert.equal((await hydrated.listCapabilityGovernanceOverrides()).find(override => override.pluginId === 'plug_static_export_safe')?.status, 'disabled')
       assert.equal((await hydrated.getMcpInvocationAuditRecord(mcpInvocationAuditRecord.invocationId))?.result.status, 'ok')
       const mcpInvocationAuditRecords = await hydrated.listMcpInvocationAuditRecords({ jobId: job.id })
       assert.equal(mcpInvocationAuditRecords.some(record => record.replayKey === 'mcp-replay:mcpinv_pg_smoke'), true)

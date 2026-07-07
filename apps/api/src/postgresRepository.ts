@@ -22,6 +22,7 @@ import type {
   AdminUserSupport,
   AdminUserSupportFilter,
   ApplyVariationEventInput,
+  CapabilityGovernanceOverride,
   CurrentVariationArtifactSnapshot,
   CreateAnnotationBatchInput,
   CreateArtifactInput,
@@ -184,6 +185,7 @@ export class PostgresRepository extends InMemoryStore {
     this.modelServices.clear()
     this.userModelAccess.clear()
     this.userCapabilityPreferences.clear()
+    this.capabilityGovernanceOverrides.clear()
     this.designTemplatePacks.clear()
     this.designTemplatePackVersions.clear()
     this.annotationBatches.clear()
@@ -223,6 +225,10 @@ export class PostgresRepository extends InMemoryStore {
     }
     for (const row of (await this.pool.query('select * from user_preferences')).rows) {
       this.userCapabilityPreferences.set(row.user_id, mapUserCapabilityPreference(row))
+    }
+    for (const row of (await this.pool.query('select * from capability_governance_overrides order by updated_at desc')).rows) {
+      const override = mapCapabilityGovernanceOverride(row)
+      this.capabilityGovernanceOverrides.set(override.pluginId, override)
     }
     for (const row of (await this.pool.query(`
       select t.*, v.pack
@@ -306,6 +312,39 @@ export class PostgresRepository extends InMemoryStore {
     const preference = mapUserCapabilityPreference(row)
     this.userCapabilityPreferences.set(userId, preference)
     return preference
+  }
+
+  override async listCapabilityGovernanceOverrides(): Promise<CapabilityGovernanceOverride[]> {
+    const rows = (await this.pool.query('select * from capability_governance_overrides order by updated_at desc')).rows
+    const overrides = rows.map(mapCapabilityGovernanceOverride)
+    this.capabilityGovernanceOverrides.clear()
+    for (const override of overrides) this.capabilityGovernanceOverrides.set(override.pluginId, override)
+    return overrides
+  }
+
+  override async upsertCapabilityGovernanceOverride(input: {
+    pluginId: string
+    status: CapabilityGovernanceOverride['status']
+    reason?: string | null
+    updatedByUserId?: string | null
+    updatedByRole?: CapabilityGovernanceOverride['updatedByRole']
+    metadata?: Record<string, unknown>
+  }): Promise<CapabilityGovernanceOverride> {
+    const existing = this.capabilityGovernanceOverrides.get(input.pluginId)
+    const now = nowIso()
+    const override: CapabilityGovernanceOverride = {
+      pluginId: input.pluginId,
+      status: input.status,
+      reason: input.reason ?? null,
+      updatedByUserId: input.updatedByUserId ?? null,
+      updatedByRole: input.updatedByRole ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+    await this.persistCapabilityGovernanceOverride(override)
+    this.capabilityGovernanceOverrides.set(override.pluginId, override)
+    return override
   }
 
   override async listDesignTemplatePacks(userId: string, workspaceId?: string | null): Promise<DesignTemplatePack[]> {
@@ -2385,6 +2424,31 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
+  private async persistCapabilityGovernanceOverride(override: CapabilityGovernanceOverride): Promise<void> {
+    await this.pool.query(`
+      insert into capability_governance_overrides (
+        plugin_id, status, reason, updated_by_user_id, updated_by_role, metadata, created_at, updated_at
+      )
+      values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)
+      on conflict (plugin_id) do update set
+        status = excluded.status,
+        reason = excluded.reason,
+        updated_by_user_id = excluded.updated_by_user_id,
+        updated_by_role = excluded.updated_by_role,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      override.pluginId,
+      override.status,
+      override.reason,
+      override.updatedByUserId,
+      override.updatedByRole,
+      JSON.stringify(override.metadata),
+      override.createdAt,
+      override.updatedAt,
+    ])
+  }
+
   private async persistDesignTemplatePack(template: DesignTemplatePack): Promise<void> {
     const now = nowIso()
     const workspaceId = designTemplateWorkspaceId(template)
@@ -2576,6 +2640,19 @@ function mapUserCapabilityPreference(row: any): UserCapabilityPreference {
     mcpToolId: row.mcp_tool_id ?? null,
     brandStyleReferenceId: row.brand_style_reference_id ?? null,
     advancedConstraints: Object.keys(row.advanced_constraints ?? {}).length > 0 ? row.advanced_constraints : null,
+  }
+}
+
+function mapCapabilityGovernanceOverride(row: any): CapabilityGovernanceOverride {
+  return {
+    pluginId: row.plugin_id,
+    status: row.status,
+    reason: row.reason,
+    updatedByUserId: row.updated_by_user_id,
+    updatedByRole: row.updated_by_role,
+    metadata: row.metadata ?? {},
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   }
 }
 

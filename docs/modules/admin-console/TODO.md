@@ -98,7 +98,7 @@
 - [ ] 支持官方 Design Template Pack 发布、下线、归档和版本 diff。
 - [x] 展示 `DESIGN.md` import/lint 结果、broken reference、危险指令和 preview smoke。
 - [x] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
-- [x] 支持禁用风险 skill 或插件，并写入 audit log。（ADM-M21：服务内治理覆盖层 + Admin PATCH API；后续补数据库持久化治理策略）
+- [x] 支持禁用风险 skill 或插件，并写入 audit log。（ADM-M21/M22：Admin PATCH API + PostgreSQL governance override 持久化）
 - [x] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
 - [~] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。MCP 调用量、成功率、失败原因和时间范围过滤已完成首版；模板/skill/成本/drift 聚合待补。
 - [ ] 支持 capability usage events 查询。

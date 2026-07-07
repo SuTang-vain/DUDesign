@@ -2652,3 +2652,34 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 ### 后续建议
 
 - 真实 MCP server 接入后，按 server-specific error code 细分 unavailable、rate limit、auth expired 和 validation error。
+
+## 2026-07-07 APP-M52 Capability Governance Override Persistence
+
+### 已完成
+
+- 新增 `capability_governance_overrides` PostgreSQL migration，持久化风险插件治理覆盖状态。
+- Repository contract 增加：
+  - `listCapabilityGovernanceOverrides()`
+  - `upsertCapabilityGovernanceOverride()`
+- `InMemoryStore` 与 `PostgresRepository` 均实现上述 contract；PostgreSQL Repository 支持 hydrate 和 SQL-native 查询。
+- `ApplicationService` 构造后异步加载 governance overrides，并在 capabilities listing、job 创建、admin governance 查询前等待加载完成。
+- Admin 插件禁用/启用 API 改为先写 repository override，再更新服务内 disabled plugin set。
+- 增加 service-level smoke：复用同一 repository 创建第二个 service 后，禁用插件状态仍可恢复，并阻止对应 skill 创建 job。
+- 扩展 PostgreSQL Repository integration smoke，覆盖 override 写入、hydrate 和 query method。
+
+### 决策
+
+- `capability_governance_overrides` 只保存当前有效覆盖状态，不替代 immutable audit log。
+- `active` override 允许保留，用于表达管理员明确恢复过某个插件，后续可与配置中心或多环境同步策略对接。
+- `ApplicationService` 不直接读取 PostgreSQL 表，仍只依赖 `ApplicationRepository` contract。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="capability governance persistence|capability plugin registry|DUDesign mock API flow|PostgresRepository integration"`
+
+> 本地未配置 `POSTGRES_TEST_URL`，PostgreSQL integration suite 按既有策略 skip；Repository contract 和 hydrate 断言已随代码路径补入 opt-in smoke。
+
+### 后续建议
+
+- 把 template publish/disable、子模板禁用、审查规则禁用统一抽象为 scoped governance override 前，先钉死 object type、冲突优先级和审计 replay 规则。

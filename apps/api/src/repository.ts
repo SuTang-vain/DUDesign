@@ -81,6 +81,17 @@ export type DesignTemplatePackVersion = {
   createdAt: string
 }
 
+export type CapabilityGovernanceOverride = {
+  pluginId: string
+  status: 'active' | 'disabled'
+  reason: string | null
+  updatedByUserId: string | null
+  updatedByRole: 'support' | 'operator' | 'developer' | null
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
 export type VariationArtifactContext = {
   variation: DesignVariation | null
   artifact: Artifact | null
@@ -459,6 +470,15 @@ export type ApplicationRepository = {
   listUserModelOptions(userId: string): MaybePromise<{ models: UserModelOption[]; defaultModelId: string | null }>
   getUserCapabilityPreference(userId: string): MaybePromise<UserCapabilityPreference | null>
   saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): MaybePromise<UserCapabilityPreference>
+  listCapabilityGovernanceOverrides(): MaybePromise<CapabilityGovernanceOverride[]>
+  upsertCapabilityGovernanceOverride(input: {
+    pluginId: string
+    status: CapabilityGovernanceOverride['status']
+    reason?: string | null
+    updatedByUserId?: string | null
+    updatedByRole?: CapabilityGovernanceOverride['updatedByRole']
+    metadata?: Record<string, unknown>
+  }): MaybePromise<CapabilityGovernanceOverride>
   listDesignTemplatePacks(userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack[]>
   getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null>
   saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack>

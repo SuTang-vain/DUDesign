@@ -161,7 +161,7 @@
 - [x] 展示 automation loop 成功率和成本。
 - [x] 展示模板/插件质量指标。
 - [x] 展示模板/插件使用量、成功率、平均成本、失败原因和最近 drift。
-- [x] 支持禁用风险插件。（服务内治理覆盖层已接入 list capabilities、job snapshot 解析和 Admin PATCH API；持久化覆盖层待补）
+- [x] 支持禁用风险插件。（治理覆盖层已接入 list capabilities、job snapshot 解析、Admin PATCH API，并通过 PostgreSQL governance override 持久化）
 - [x] 记录能力治理审计日志的管理端可见性：展示 audit mode、write audit action 和 drift/audit 汇总；风险插件禁用/启用已写入 `capability.governance.change`。
 
 验收：

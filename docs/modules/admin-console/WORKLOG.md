@@ -822,3 +822,35 @@
 - 将 capability plugin governance override 持久化到 PostgreSQL 或配置表。
 - 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 official Design Template Pack 发布/下线/归档。
 - 扩展禁用对象到动态百科子模板、审查规则和 capability preset。
+
+## 2026-07-07 ADM-M22 Capability Governance Override Persistence
+
+### 已完成
+
+- 风险插件禁用/启用不再只保存在单个 API 进程内存中：
+  - 新增 `capability_governance_overrides` PostgreSQL migration。
+  - `ApplicationRepository` 增加 `listCapabilityGovernanceOverrides()` 与 `upsertCapabilityGovernanceOverride()`。
+  - `InMemoryStore` 与 `PostgresRepository` 均实现同一 contract。
+- `ApplicationService` 启动时加载 governance overrides，并在 `GET /api/capabilities`、`POST /api/design-jobs` 和管理端 capability governance 查询前确保覆盖层已就绪。
+- `PATCH /api/admin/capabilities/plugins/:id` 写入 governance override 后再更新服务内状态，服务重启后禁用状态仍可恢复。
+- 增加 API 单测覆盖：禁用 `plug_static_export_safe` 后，新建 `ApplicationService` 仍能从 repository reload 禁用状态，并拒绝使用对应 skill 创建 job。
+- PostgreSQL Repository integration smoke 覆盖 governance override hydrate 与 SQL-native 查询。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="capability governance persistence|capability plugin registry|DUDesign mock API flow|PostgresRepository integration"`
+
+> 本地未配置 `POSTGRES_TEST_URL`，PostgreSQL integration suite 按既有策略 skip；Repository contract 和 hydrate 断言已随代码路径补入 opt-in smoke。
+
+### 决策
+
+- 当前只持久化插件级 `active | disabled` override，不把官方 registry 本身复制成数据库 source-of-truth。
+- 恢复 active 也保留一条 override 记录，便于后续审计和配置中心同步。
+- 审计日志仍由 Admin API 负责写入；governance override 表只表示当前有效治理状态。
+
+### 下一步
+
+- 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 official Design Template Pack 发布/下线/归档。
+- 扩展禁用对象到动态百科子模板、审查规则和 capability preset。
+- 如后续引入多环境配置中心，可将 override 表作为 API 层 cache/source 的一部分，而不是让前端直接读取配置中心。

@@ -2175,3 +2175,29 @@
 - 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 draft/publish/disable，并记录 `capability.governance.change`。
 - 增加 `PATCH /api/admin/capabilities/plugins/:id`，支持风险插件禁用、可见性和权限调整，并记录审计。
 - 将 template contribution candidate 的 diff / preview smoke / risk review 接入同一治理面板。
+
+## 2026-07-07 CAP-6.1 Risk Plugin Governance Persistence
+
+### 已完成
+
+- 风险插件治理从“服务内即时覆盖”升级为“Repository contract + PostgreSQL override 表”：
+  - capability registry 输出继续由官方 registry + governance override 合成。
+  - job snapshot 解析继续在业务服务层拦截 disabled plugin，不进入 runtime。
+  - Admin PATCH API 负责写入 override 和审计日志。
+- 新增 `capability_governance_overrides`：
+  - `plugin_id` 为当前有效治理对象。
+  - `status` 表示 `active` 或 `disabled`。
+  - `reason`、`updated_by_user_id`、`updated_by_role` 和 `metadata` 为后续治理面板、配置同步、审计回放保留上下文。
+- Capability Distribution TODO 已更新：风险插件禁用的持久化覆盖层完成。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api run test -- --test-name-pattern="capability governance persistence|capability plugin registry|DUDesign mock API flow|PostgresRepository integration"`
+
+> 本地未配置 `POSTGRES_TEST_URL`，PostgreSQL integration suite 按既有策略 skip；Repository contract 和 hydrate 断言已随代码路径补入 opt-in smoke。
+
+### 后续关注
+
+- 插件级 governance override 已完成；子模板、审查规则、capability preset 仍需要单独设计 scope 和冲突优先级。
+- 后续 capability usage events 可统计被禁用插件的命中/拒绝次数，帮助管理员判断禁用影响面。
