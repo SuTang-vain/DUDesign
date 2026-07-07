@@ -2725,3 +2725,9 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 第 1 层用户端补登录/注册页：邮箱密码、Continue with Google、Continue with GitHub、登出、未登录跳转。
 - staging 配置真实 OAuth client，并增加 opt-in provider smoke。
 - 上线前补 rate limit、登录失败节流、CSRF/CORS allowlist 和密码重置。
+
+### 2026-07-07 追加进展
+
+- OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。
+- API CORS 从 `Access-Control-Allow-Origin: *` 调整为按请求 `Origin` 回显，并增加 `Access-Control-Allow-Credentials: true`，支持 web 端跨端口/跨子域携带 `dudesign_session`。
+- Auth flow 测试增加 credential CORS 断言和 OAuth callback redirect 断言。

@@ -18,8 +18,12 @@ import type {
   ExportVariationResponse,
   ImportDesignTemplatePackRequest,
   ListDesignTemplatePacksResponse,
+  LoginUserRequest,
+  OAuthProvider,
+  OAuthStartResponse,
   RefineVariationRequest,
   RefineVariationResponse,
+  RegisterUserRequest,
   RestoreVariationVersionResponse,
   ReviewVariationActionRequest,
   ReviewVariationActionResponse,
@@ -132,7 +136,23 @@ function runtimeApiBase(): string {
 }
 
 export async function getBootstrap(): Promise<BootstrapResponse> {
-  return getJson('/api/dev/bootstrap')
+  return getJson('/api/auth/me')
+}
+
+export async function loginUser(input: LoginUserRequest): Promise<BootstrapResponse> {
+  return postJson('/api/auth/login', input)
+}
+
+export async function registerUser(input: RegisterUserRequest): Promise<BootstrapResponse> {
+  return postJson('/api/auth/register', input)
+}
+
+export async function logoutUser(): Promise<{ ok: true }> {
+  return postJson('/api/auth/logout', {})
+}
+
+export async function startOAuthLogin(provider: OAuthProvider): Promise<OAuthStartResponse> {
+  return getJson(`/api/auth/oauth/${provider}/start`)
 }
 
 export async function listModels(): Promise<ModelsResponse> {
@@ -247,7 +267,7 @@ export async function exportVariation(variationId: string): Promise<ExportVariat
 }
 
 export async function downloadArtifact(path: string): Promise<Blob> {
-  const res = await fetch(apiUrl(path), { cache: 'no-store' })
+  const res = await fetch(apiUrl(path), { cache: 'no-store', credentials: 'include' })
   if (!res.ok) throw await apiError(res)
   return res.blob()
 }
@@ -304,7 +324,7 @@ export function subscribeToJob(
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(apiUrl(path), { cache: 'no-store' })
+  const res = await fetch(apiUrl(path), { cache: 'no-store', credentials: 'include' })
   if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>
 }
@@ -313,6 +333,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(apiUrl(path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await apiError(res)
@@ -323,6 +344,7 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(apiUrl(path), {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await apiError(res)

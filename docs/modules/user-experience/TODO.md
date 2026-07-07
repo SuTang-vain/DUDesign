@@ -24,6 +24,11 @@
 
 ## Phase UX-1：登录后工作台与会话列表
 
+- [x] 新增 `/login` 登录/注册页。
+- [x] 登录页支持邮箱密码登录、邮箱密码注册。
+- [x] 登录页支持 Google/GitHub OAuth provider 入口。
+- [x] API client 切换到 `/api/auth/me` 获取当前用户 bootstrap，并对私有 API 使用 `credentials: include`。
+- [x] 未登录访问工作台时跳转到 `/login`。
 - [x] 实现登录后工作台页面。
 - [x] 展示最近会话。
 - [x] 支持创建新会话。

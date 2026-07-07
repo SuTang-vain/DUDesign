@@ -12,6 +12,7 @@ const defaultHost = process.env.HOST ?? '127.0.0.1'
 export function createApiServer(service = new ApplicationService()): http.Server {
   return http.createServer(async (req, res) => {
     try {
+      applyCorsHeaders(req, res)
       await handleRequest(req, res, service)
     } catch (error) {
       sendError(res, error)
@@ -88,6 +89,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     assertOAuthState(req.headers, provider, url.searchParams.get('state'))
     const result = await service.completeOAuthLogin(provider, url.searchParams.get('code') ?? '', requestMeta(req))
     res.setHeader('set-cookie', [result.cookie, clearOAuthStateCookie()])
+    const redirectTo = oauthRedirectTarget(url.searchParams.get('redirectTo'))
+    if (redirectTo) {
+      sendRedirect(res, redirectTo)
+      return
+    }
     sendJson(res, 200, result.body)
     return
   }
@@ -652,19 +658,21 @@ async function readJson(req: http.IncomingMessage): Promise<any> {
 function sendJson(res: http.ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
   })
   res.end(JSON.stringify(payload, null, 2))
+}
+
+function sendRedirect(res: http.ServerResponse, location: string): void {
+  res.writeHead(302, {
+    location,
+    'cache-control': 'no-store',
+  })
+  res.end()
 }
 
 function sendHtml(res: http.ServerResponse, status: number, html: string): void {
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
     'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'none'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
   })
   res.end(html)
@@ -678,9 +686,6 @@ function sendAsset(
 ): void {
   res.writeHead(status, {
     'content-type': asset.contentType,
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
     'cache-control': cacheControl,
   })
   res.end(Buffer.from(asset.body))
@@ -695,9 +700,6 @@ function sendDownload(
     'content-type': download.contentType,
     'content-disposition': `attachment; filename="${download.filename.replaceAll(/["\\\r\n]/g, '_')}"`,
     'content-length': String(download.body.byteLength),
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
     'cache-control': 'private, max-age=60',
   })
   res.end(Buffer.from(download.body))
@@ -705,12 +707,20 @@ function sendDownload(
 
 function sendCorsPreflight(res: http.ServerResponse): void {
   res.writeHead(204, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
-    'access-control-allow-headers': 'content-type',
     'access-control-max-age': '600',
   })
   res.end()
+}
+
+function applyCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin
+  if (origin) {
+    res.setHeader('access-control-allow-origin', origin)
+    res.setHeader('access-control-allow-credentials', 'true')
+    res.setHeader('vary', 'Origin')
+  }
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,OPTIONS')
+  res.setHeader('access-control-allow-headers', 'content-type')
 }
 
 function sendError(res: http.ServerResponse, error: unknown): void {
@@ -729,6 +739,12 @@ function routeError(status: number, code: string, message: string): Error & { st
   error.status = status
   error.code = code
   return error
+}
+
+function oauthRedirectTarget(value: string | null): string | null {
+  if (!value) return null
+  if (value.startsWith('/') && !value.startsWith('//')) return value
+  return null
 }
 
 function parseOptionalInteger(value: string | null): number | null {

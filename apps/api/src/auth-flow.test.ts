@@ -148,8 +148,12 @@ describe('session cookie authentication flow', () => {
     }) as typeof fetch
     harness = await startApiFlowHarness(new ApplicationService())
 
-    const startResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/start`)
+    const startResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/start`, {
+      headers: { origin: 'http://localhost:3001' },
+    })
     assert.equal(startResponse.status, 200)
+    assert.equal(startResponse.headers.get('access-control-allow-origin'), 'http://localhost:3001')
+    assert.equal(startResponse.headers.get('access-control-allow-credentials'), 'true')
     const oauthCookie = startResponse.headers.get('set-cookie') ?? ''
     assert.match(oauthCookie, /dudesign_oauth_state=google\./)
     const startBody = await startResponse.json() as { authorizationUrl: string }
@@ -159,18 +163,17 @@ describe('session cookie authentication flow', () => {
     const state = authorizationUrl.searchParams.get('state')
     assert.ok(state)
 
-    const callbackResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/callback?code=oauth_code&state=${encodeURIComponent(state)}`, {
+    const callbackResponse = await fetch(`${harness.baseUrl}/api/auth/oauth/google/callback?code=oauth_code&state=${encodeURIComponent(state)}&redirectTo=%2F`, {
       headers: { cookie: oauthCookie },
+      redirect: 'manual',
     })
-    assert.equal(callbackResponse.status, 200)
+    assert.equal(callbackResponse.status, 302)
+    assert.equal(callbackResponse.headers.get('location'), '/')
     const sessionCookie = callbackResponse.headers.get('set-cookie') ?? ''
     assert.match(sessionCookie, /dudesign_session=/)
-    const signedIn = await callbackResponse.json() as AuthUserResponse
-    assert.equal(signedIn.user.email, 'oauth-designer@example.com')
-    assert.equal(signedIn.user.name, 'OAuth Designer')
 
     const identity = await harness.service.store.getAuthIdentityByProvider('oauth_google', 'google-sub-1')
-    assert.equal(identity?.userId, signedIn.user.id)
+    assert.ok(identity?.userId)
   })
 
   let currentSetCookie = ''

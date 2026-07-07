@@ -168,6 +168,10 @@ export default function HomePage(): React.JSX.Element {
           })
       })
       .catch(err => {
+        if (err instanceof Error && err.message.includes('AUTH_REQUIRED')) {
+          window.location.href = '/login'
+          return
+        }
         setError((err as Error).message)
         setStatus('error')
       })

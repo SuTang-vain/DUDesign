@@ -1563,3 +1563,31 @@
 - `npm run typecheck`
 - `npm --workspace @dudesign/api run test -- --test-name-pattern="DUDesign mock API flow"`
 - `node --test apps/web/test/capability-errors.test.mjs`
+
+## 2026-07-07 UX-10 Auth Entry UI
+
+### 已完成
+
+- 新增用户端 `/login` 页面：
+  - 邮箱密码登录。
+  - 邮箱密码注册。
+  - Continue with Google。
+  - Continue with GitHub。
+- Web API client 从 dev bootstrap 切到真实 session endpoint：
+  - `getBootstrap()` 调用 `/api/auth/me`。
+  - 新增 `loginUser()`、`registerUser()`、`logoutUser()`、`startOAuthLogin()`。
+  - 私有 API fetch 统一使用 `credentials: include`，让 `dudesign_session` cookie 生效。
+- 首页 bootstrap 失败且错误包含 `AUTH_REQUIRED` 时跳转 `/login`。
+- OAuth provider start 后，登录页将 callback `redirect_uri` 增加 `redirectTo=/`，配合后端完成 provider 回跳后的 app 首页跳转。
+- 新增静态测试 `apps/web/test/auth-ui.test.mjs`，守住登录入口和 session credential fetch contract。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/auth-ui.test.mjs apps/web/test/capability-errors.test.mjs`
+
+### 后续关注
+
+- 补真实浏览器 E2E：注册 -> 进入工作台 -> 登出 -> 未登录跳转。
+- 补真实 provider staging smoke：Google/GitHub OAuth client 配置后，从 `/login` 完成完整授权回跳。
+- 登录页后续可接入忘记密码、邮箱验证和登录失败节流提示。
