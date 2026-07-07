@@ -25,11 +25,19 @@ test('template governance shows capability policy, skill, MCP, and automation me
   await expect(page.getByTestId('mcp-policy-governance-panel')).toContainText('policy_only')
   await expect(page.getByTestId('automation-loop-governance-panel')).toContainText('Encyclopedia Spec Review')
   await expect(page.getByTestId('automation-loop-governance-panel')).toContainText('pixel gate')
+
+  await page.getByTestId('toggle-plugin-plug_static_export_safe').click()
+  await expect(page.getByText('Disabled Static Export Safe')).toBeVisible()
+  await expect(page.getByTestId('skill-governance-panel')).toContainText('disabled')
+  await expect(page.getByTestId('toggle-plugin-plug_static_export_safe')).toHaveText('Enable plugin')
 })
 
 async function mockAdminApi(page: Page): Promise<void> {
+  let staticExportPluginStatus: 'active' | 'disabled' = 'active'
+
   await page.route('**/api/admin/**', async route => {
     const url = new URL(route.request().url())
+    const method = route.request().method()
 
     if (url.pathname === '/api/admin/runtime/health') return json(route, runtimeHealth())
     if (url.pathname === '/api/admin/audit-logs') return json(route, { auditLogs: [] })
@@ -39,7 +47,28 @@ async function mockAdminApi(page: Page): Promise<void> {
     if (url.pathname === '/api/admin/mcp/summary') return json(route, emptyMcpSummary())
     if (url.pathname === '/api/admin/models') return json(route, { models: [] })
     if (url.pathname === '/api/admin/users/usr_dev/models') return json(route, { userId: 'usr_dev', access: [] })
-    if (url.pathname === '/api/admin/capabilities/templates') return json(route, capabilityGovernance())
+    if (url.pathname === '/api/admin/capabilities/templates') return json(route, capabilityGovernance({ staticExportPluginStatus }))
+    if (method === 'PATCH' && url.pathname === '/api/admin/capabilities/plugins/plug_static_export_safe') {
+      const body = route.request().postDataJSON() as { status: 'active' | 'disabled' }
+      staticExportPluginStatus = body.status
+      return json(route, {
+        plugin: {
+          id: 'plug_static_export_safe',
+          name: 'Static Export Safe',
+          status: staticExportPluginStatus,
+          safetyLevel: staticExportPluginStatus === 'disabled' ? 'disabled' : 'safe',
+        },
+        affectedSkills: ['sk_static_export_safe'],
+        affectedMcpToolBindings: [],
+        audit: {
+          id: 'aud_capability_disable',
+          action: 'capability.governance.change',
+          targetType: 'capability_plugin',
+          targetId: 'plug_static_export_safe',
+          createdAt: checkedAt,
+        },
+      })
+    }
     if (url.pathname === '/api/admin/jobs') return json(route, { jobs: [] })
     if (url.pathname === '/api/admin/artifacts') return json(route, { artifacts: [] })
     if (url.pathname === '/api/admin/support/users') return json(route, { users: [] })
@@ -55,7 +84,11 @@ async function mockAdminApi(page: Page): Promise<void> {
   })
 }
 
-function capabilityGovernance() {
+function capabilityGovernance({
+  staticExportPluginStatus,
+}: {
+  staticExportPluginStatus: 'active' | 'disabled'
+}) {
   return {
     templates: [
       {
@@ -123,8 +156,8 @@ function capabilityGovernance() {
         pluginId: 'plug_static_export_safe',
         pluginName: 'Static Export Safe',
         schemaVersion: '2026-07-01.dudesign-skill.v1',
-        status: 'active',
-        safetyLevel: 'safe',
+        status: staticExportPluginStatus,
+        safetyLevel: staticExportPluginStatus === 'disabled' ? 'disabled' : 'safe',
         category: 'quality',
         promptBlockCount: 1,
         ruleCount: 3,
@@ -134,7 +167,7 @@ function capabilityGovernance() {
         visibility: 'official',
         policyMode: 'prompt_block_only',
         usage: usageMetrics({ usageCount: 4, successRate: 1 }),
-        requiredActions: [],
+        requiredActions: staticExportPluginStatus === 'disabled' ? ['Skill is disabled; keep hidden from generation defaults.'] : [],
       },
     ],
     mcpPluginGovernance: [
@@ -195,7 +228,7 @@ function capabilityGovernance() {
       templatesWithWarnings: 0,
       templatesBlocked: 0,
       riskyPlugins: 2,
-      disabledPlugins: 0,
+      disabledPlugins: staticExportPluginStatus === 'disabled' ? 1 : 0,
       policyOnlyMcpTools: 1,
       realMcpTools: 1,
       automationLoopsWithPixelGate: 1,
@@ -214,10 +247,10 @@ function capabilityGovernance() {
     governance: {
       canEditRegistry: true,
       canPublish: true,
-      writeMode: 'planned',
+      writeMode: 'enabled',
       auditMode: 'visible',
       writeAuditAction: 'capability.governance.change',
-      message: 'Template publish/disable actions are planned.',
+      message: 'Risk plugin disable/enable is active and audited. Template publish/version actions remain planned.',
     },
   }
 }

@@ -666,6 +666,24 @@ export async function getAdminTemplateGovernance(role: AdminRole): Promise<Admin
   return getJson('/api/admin/capabilities/templates', role)
 }
 
+export async function updateCapabilityPluginGovernance(
+  role: AdminRole,
+  pluginId: string,
+  input: { status: 'active' | 'disabled'; reason?: string | null },
+): Promise<{
+  plugin: {
+    id: string
+    status: 'active' | 'archived' | 'disabled'
+    safetyLevel: 'safe' | 'review_required' | 'disabled'
+    name: string
+  }
+  affectedSkills: string[]
+  affectedMcpToolBindings: string[]
+  audit: AuditLog
+}> {
+  return patchJson(`/api/admin/capabilities/plugins/${encodeURIComponent(pluginId)}`, role, input)
+}
+
 export async function updateAdminModel(
   role: AdminRole,
   modelServiceId: string,

@@ -24,6 +24,7 @@ import {
   revokeArtifactShares,
   syncAdminModels,
   updateAdminModel,
+  updateCapabilityPluginGovernance,
   updateUserModelAccess,
   type AdminArtifact,
   type AdminJob,
@@ -234,6 +235,39 @@ export default function AdminHomePage(): React.JSX.Element {
     }
   }
 
+  async function refreshAuditLogs(): Promise<void> {
+    if (role === 'support') {
+      setAuditLogs([])
+      return
+    }
+    const audits = await getAuditLogs(role)
+    setAuditLogs(audits.auditLogs)
+  }
+
+  async function setCapabilityPluginStatus(
+    pluginId: string,
+    pluginName: string,
+    status: 'active' | 'disabled',
+  ): Promise<void> {
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await updateCapabilityPluginGovernance(role, pluginId, {
+        status,
+        reason: status === 'disabled'
+          ? 'Risk plugin disabled from admin capability governance.'
+          : 'Risk plugin re-enabled from admin capability governance.',
+      })
+      setNotice(`${status === 'disabled' ? 'Disabled' : 'Enabled'} ${pluginName}`)
+      await Promise.all([refreshTemplateGovernance(), refreshAuditLogs()])
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function syncModels(): Promise<void> {
     setLoading(true)
     setError(null)
@@ -388,7 +422,7 @@ export default function AdminHomePage(): React.JSX.Element {
       }
       await Promise.all([
         refreshArtifacts(),
-        role === 'support' ? Promise.resolve() : getAuditLogs(role).then(data => setAuditLogs(data.auditLogs)),
+        refreshAuditLogs(),
       ])
     } catch (err) {
       setError((err as Error).message)
@@ -672,6 +706,20 @@ export default function AdminHomePage(): React.JSX.Element {
                           ))}
                         </div>
                       ) : null}
+                      <div className="row-actions">
+                        <button
+                          className={skill.status === 'disabled' ? 'secondary-button' : 'danger-button'}
+                          data-testid={`toggle-plugin-${skill.pluginId}`}
+                          disabled={loading || !templateGovernance.governance.canPublish}
+                          onClick={() => void setCapabilityPluginStatus(
+                            skill.pluginId,
+                            skill.pluginName,
+                            skill.status === 'disabled' ? 'active' : 'disabled',
+                          )}
+                        >
+                          {skill.status === 'disabled' ? 'Enable plugin' : 'Disable plugin'}
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -704,6 +752,20 @@ export default function AdminHomePage(): React.JSX.Element {
                           ))}
                         </div>
                       ) : null}
+                      <div className="row-actions">
+                        <button
+                          className={tool.status === 'disabled' ? 'secondary-button' : 'danger-button'}
+                          data-testid={`toggle-plugin-${tool.pluginId}`}
+                          disabled={loading || !templateGovernance.governance.canPublish}
+                          onClick={() => void setCapabilityPluginStatus(
+                            tool.pluginId,
+                            tool.pluginName,
+                            tool.status === 'disabled' ? 'active' : 'disabled',
+                          )}
+                        >
+                          {tool.status === 'disabled' ? 'Enable plugin' : 'Disable plugin'}
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>

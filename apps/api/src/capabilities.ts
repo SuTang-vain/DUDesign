@@ -18,6 +18,10 @@ import type {
 
 export const CAPABILITY_SCHEMA_VERSION = '2026-07-01.dudesign-capabilities.v2'
 
+export type CapabilityGovernanceOptions = {
+  disabledPluginIds?: Iterable<string>
+}
+
 const domainTemplates: DomainTemplate[] = [
   {
     id: 'tpl_fintech_trust',
@@ -932,7 +936,16 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
   },
 ]
 
-export function listCapabilities(): ListCapabilitiesResponse {
+export function listCapabilities(options: CapabilityGovernanceOptions = {}): ListCapabilitiesResponse {
+  const disabledPluginIds = new Set(options.disabledPluginIds ?? [])
+  const governedPlugins = capabilityPlugins.map(plugin => disabledPluginIds.has(plugin.id)
+    ? {
+        ...plugin,
+        status: 'disabled' as const,
+        safetyLevel: 'disabled' as const,
+      }
+    : plugin)
+
   return {
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
     domainTemplates,
@@ -940,7 +953,7 @@ export function listCapabilities(): ListCapabilitiesResponse {
     colorPalettes,
     brandStyleReferences,
     interactionParadigms,
-    plugins: capabilityPlugins,
+    plugins: governedPlugins,
     skills: designSkills,
     mcpToolBindings,
     automationLoopProfiles,
@@ -955,8 +968,8 @@ export function listCapabilities(): ListCapabilitiesResponse {
   }
 }
 
-export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefined): CapabilitySnapshot {
-  const capabilities = listCapabilities()
+export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefined, options: CapabilityGovernanceOptions = {}): CapabilitySnapshot {
+  const capabilities = listCapabilities(options)
   const domainTemplateId = input?.template?.domainTemplateId ?? capabilities.defaults.domainTemplateId
   const aestheticProfileId = input?.template?.aestheticProfileId ?? capabilities.defaults.aestheticProfileId
   const requestedPaletteId = input?.template?.colorPaletteId ?? capabilities.defaults.colorPaletteId
@@ -974,7 +987,7 @@ export function resolveCapabilitySnapshot(input: CapabilityRequirements | undefi
   const maxRepairAttempts = input?.automation?.maxRepairAttempts
   const maxCostCents = input?.automation?.maxCostCents
   const maxDurationMs = input?.automation?.maxDurationMs
-  const pluginSnapshot = resolvePluginSnapshot(input, domainTemplate.category)
+  const pluginSnapshot = resolvePluginSnapshot(input, domainTemplate.category, capabilities)
 
   return {
     schemaVersion: CAPABILITY_SCHEMA_VERSION,
@@ -1013,16 +1026,20 @@ function findById<T extends { id: string }>(items: T[], id: string, code: string
   return item
 }
 
-function resolvePluginSnapshot(input: CapabilityRequirements | undefined, templateCategory: string): CapabilityPluginSnapshot {
+function resolvePluginSnapshot(
+  input: CapabilityRequirements | undefined,
+  templateCategory: string,
+  capabilities: ListCapabilitiesResponse,
+): CapabilityPluginSnapshot {
   const skillIds = [...new Set(input?.plugins?.skillIds ?? [])]
   const mcpToolIds = [...new Set(input?.plugins?.mcpToolIds ?? [])]
-  const selectedSkills = skillIds.map(skillId => findById(designSkills, skillId, 'DESIGN_SKILL_NOT_FOUND'))
-  const selectedMcpBindings = mcpToolIds.map(toolId => findById(mcpToolBindings, toolId, 'MCP_TOOL_NOT_FOUND'))
+  const selectedSkills = skillIds.map(skillId => findById(capabilities.skills, skillId, 'DESIGN_SKILL_NOT_FOUND'))
+  const selectedMcpBindings = mcpToolIds.map(toolId => findById(capabilities.mcpToolBindings, toolId, 'MCP_TOOL_NOT_FOUND'))
   const selectedPluginIds = new Set([
     ...selectedSkills.map(skill => skill.pluginId),
     ...selectedMcpBindings.map(binding => binding.pluginId),
   ])
-  const selectedPlugins = [...selectedPluginIds].map(pluginId => findById(capabilityPlugins, pluginId, 'CAPABILITY_PLUGIN_NOT_FOUND'))
+  const selectedPlugins = [...selectedPluginIds].map(pluginId => findById(capabilities.plugins, pluginId, 'CAPABILITY_PLUGIN_NOT_FOUND'))
 
   for (const plugin of selectedPlugins) {
     if (plugin.status !== 'active' || plugin.safetyLevel === 'disabled') {

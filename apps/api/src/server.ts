@@ -166,6 +166,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const adminCapabilityPluginMatch = url.pathname.match(/^\/api\/admin\/capabilities\/plugins\/([^/]+)$/)
+  if (method === 'PATCH' && adminCapabilityPluginMatch) {
+    sendJson(res, 200, await service.updateAdminCapabilityPluginGovernance(
+      ctx,
+      decodeURIComponent(adminCapabilityPluginMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
   const adminModelMatch = url.pathname.match(/^\/api\/admin\/models\/([^/]+)$/)
   if (method === 'PATCH' && adminModelMatch) {
     sendJson(res, 200, await service.updateAdminModel(ctx, decodeURIComponent(adminModelMatch[1]!), await readJson(req)))

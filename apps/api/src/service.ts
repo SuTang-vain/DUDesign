@@ -312,6 +312,7 @@ export class ApplicationService {
   readonly queue: DesignJobQueue
   readonly mcpExecutor: McpExecutor
   private readonly backgroundTasks = new Set<Promise<unknown>>()
+  private readonly disabledCapabilityPluginIds = new Set<string>()
 
   constructor(options: {
     store?: ApplicationRepository
@@ -430,7 +431,7 @@ export class ApplicationService {
 
   async listCapabilities(ctx: RequestContext) {
     await this.requireUser(ctx.userId)
-    return listCapabilities()
+    return listCapabilities(this.capabilityGovernanceOptions())
   }
 
   async createEncyclopediaEntryGuidance(
@@ -887,7 +888,7 @@ export class ApplicationService {
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
     const jobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
     const selectedModel = await this.resolveUserModel(ctx.userId, jobInput.modelServiceId ?? null)
-    const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements)
+    const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements, this.capabilityGovernanceOptions())
     const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, jobInput)
     const variationTemplateAssignments = assignDesignTemplatePacks(jobInput.variationCount, designTemplatePacks)
     const dataIntake = await this.resolveDataIntakeArtifactReference(workspace.id, jobInput.templateRequirements?.dataIntakeArtifactId ?? jobInput.templateRequirements?.dataIntake?.artifactId ?? null)
@@ -2228,7 +2229,7 @@ export class ApplicationService {
     await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
     const templates = await this.store.listDesignTemplatePacks(ctx.userId)
     const entries = templates.map(adminTemplateGovernanceEntry)
-    const capabilities = listCapabilities()
+    const capabilities = listCapabilities(this.capabilityGovernanceOptions())
     const registryAssets = adminCapabilityRegistryAssets(capabilities, entries)
     const usageEvents = this.store.listUsageEvents({ limit: 5000 })
     const auditLogs = ctx.adminRole === 'support' ? [] : this.store.listAuditLogs({ limit: 500 })
@@ -2284,12 +2285,65 @@ export class ApplicationService {
       governance: {
         canEditRegistry: ctx.adminRole === 'developer',
         canPublish: ctx.adminRole === 'operator' || ctx.adminRole === 'developer',
-        writeMode: 'planned' as const,
+        writeMode: 'enabled' as const,
         auditMode: ctx.adminRole === 'support' ? 'restricted' as const : 'visible' as const,
         writeAuditAction: 'capability.governance.change',
-        message: 'Template publish/disable actions are planned; current CAP-6 surface is read-only governance with lint, prompt coverage, policy, metrics, and audit readiness.',
+        message: 'Risk plugin disable/enable is active and audited. Template publish/version actions remain planned.',
       },
       quality: adminCapabilityQualitySummary(entries, skillGovernance, mcpPluginGovernance, automationLoopGovernance, auditLogs),
+    }
+  }
+
+  async updateAdminCapabilityPluginGovernance(
+    ctx: RequestContext,
+    pluginId: string,
+    input: { status?: CapabilityPlugin['status']; reason?: string | null } = {},
+  ) {
+    await this.requireAdminRole(ctx, ['operator', 'developer'])
+    const basePlugin = listCapabilities().plugins.find(plugin => plugin.id === pluginId)
+    if (!basePlugin) throw createHttpError(404, 'CAPABILITY_PLUGIN_NOT_FOUND', `Capability plugin not found: ${pluginId}`)
+    const nextStatus = input.status
+    if (nextStatus !== 'active' && nextStatus !== 'disabled') {
+      throw createHttpError(400, 'CAPABILITY_PLUGIN_STATUS_INVALID', 'Capability plugin status must be active or disabled.')
+    }
+    const previousPlugin = listCapabilities(this.capabilityGovernanceOptions()).plugins.find(plugin => plugin.id === pluginId) ?? basePlugin
+    if (nextStatus === 'disabled') {
+      this.disabledCapabilityPluginIds.add(pluginId)
+    } else {
+      this.disabledCapabilityPluginIds.delete(pluginId)
+    }
+    const capabilities = listCapabilities(this.capabilityGovernanceOptions())
+    const plugin = capabilities.plugins.find(item => item.id === pluginId)
+    if (!plugin) throw createHttpError(404, 'CAPABILITY_PLUGIN_NOT_FOUND', `Capability plugin not found: ${pluginId}`)
+    const affectedSkills = capabilities.skills.filter(skill => skill.pluginId === pluginId).map(skill => skill.id)
+    const affectedMcpToolBindings = capabilities.mcpToolBindings.filter(binding => binding.pluginId === pluginId).map(binding => binding.id)
+    const audit = await this.store.createAuditLog({
+      requestId: ctx.requestId,
+      operatorUserId: ctx.userId,
+      operatorRole: ctx.adminRole!,
+      action: 'capability.governance.change',
+      targetType: 'capability_plugin',
+      targetId: pluginId,
+      reason: input.reason ?? null,
+      metadata: {
+        previousStatus: previousPlugin.status,
+        nextStatus: plugin.status,
+        previousSafetyLevel: previousPlugin.safetyLevel,
+        nextSafetyLevel: plugin.safetyLevel,
+        pluginName: basePlugin.name,
+        pluginType: basePlugin.type,
+        affectedSkills,
+        affectedMcpToolBindings,
+        effect: plugin.status === 'disabled'
+          ? 'selected jobs using this plugin will be rejected before runtime dispatch'
+          : 'selected jobs using this plugin may resolve again',
+      },
+    })
+    return {
+      plugin,
+      affectedSkills,
+      affectedMcpToolBindings,
+      audit,
     }
   }
 
@@ -2565,6 +2619,12 @@ export class ApplicationService {
     if (!user) throw createHttpError(401, 'UNAUTHENTICATED', `Unknown user: ${userId}`)
     if (user.status !== 'active') throw createHttpError(403, 'USER_DISABLED', `User disabled: ${userId}`)
     return user
+  }
+
+  private capabilityGovernanceOptions() {
+    return {
+      disabledPluginIds: this.disabledCapabilityPluginIds,
+    }
   }
 
   private async createAuthSessionForUser(userId: string, meta: { userAgent?: string | null; ip?: string | null }) {

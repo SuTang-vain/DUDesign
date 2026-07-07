@@ -103,7 +103,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
 
   async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${baseUrl}${path}`, init)
-    assert.equal(response.ok, true, `${path} failed with ${response.status}`)
+    if (!response.ok) assert.fail(`${path} failed with ${response.status}: ${await response.text()}`)
     return response.json() as Promise<T>
   }
 
@@ -124,7 +124,22 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       },
       body: JSON.stringify(body),
     })
-    assert.equal(response.ok, true, `${path} failed with ${response.status}`)
+    if (!response.ok) assert.fail(`${path} failed with ${response.status}: ${await response.text()}`)
+    return response.json() as Promise<T>
+  }
+
+  async function patchJson<T>(path: string, body: unknown, init?: Omit<RequestInit, 'body' | 'method'>): Promise<T> {
+    const headers = init?.headers as Record<string, string> | undefined
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) assert.fail(`${path} failed with ${response.status}: ${await response.text()}`)
     return response.json() as Promise<T>
   }
 
@@ -139,7 +154,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       },
       body: JSON.stringify(body),
     })
-    assert.equal(response.ok, true, `${path} failed with ${response.status}`)
+    if (!response.ok) assert.fail(`${path} failed with ${response.status}: ${await response.text()}`)
     return response.json() as Promise<T>
   }
 
@@ -246,7 +261,7 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     }
     registryAssets: Array<{ id: string; type: string; status: string }>
     registryTotals: Record<string, number>
-    governance: { writeMode: string }
+    governance: { writeMode: string; writeAuditAction: string }
   }>('/api/admin/capabilities/templates', {
     headers: { 'x-dudesign-admin-role': 'operator' },
   })
@@ -290,7 +305,46 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
   assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'aes_trustworthy_saas' && asset.type === 'visual-profile'))
   assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'pal_blue_white_trust' && asset.type === 'color-palette'))
   assert.ok(templateGovernance.registryAssets.some(asset => asset.id === 'brand_apple_inspired' && asset.type === 'brand-reference'))
-  assert.equal(templateGovernance.governance.writeMode, 'planned')
+  assert.equal(templateGovernance.governance.writeMode, 'enabled')
+  assert.equal(templateGovernance.governance.writeAuditAction, 'capability.governance.change')
+
+  const governanceSession = await postJson<CreateSessionResponse>('/api/sessions', {
+    workspaceId: bootstrap.workspace.id,
+    title: 'Disabled plugin governance smoke',
+  })
+  const disabledPlugin = await patchJson<{
+    plugin: { id: string; status: string; safetyLevel: string }
+    affectedSkills: string[]
+  }>('/api/admin/capabilities/plugins/plug_static_export_safe', {
+    status: 'disabled',
+    reason: 'API smoke verifies disabled risk plugin rejection.',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'developer' },
+  })
+  assert.equal(disabledPlugin.plugin.status, 'disabled')
+  assert.equal(disabledPlugin.plugin.safetyLevel, 'disabled')
+  assert.deepEqual(disabledPlugin.affectedSkills, ['sk_static_export_safe'])
+  const disabledCapabilities = await getJson<{ plugins: Array<{ id: string; status: string }> }>('/api/capabilities')
+  assert.ok(disabledCapabilities.plugins.some(plugin => plugin.id === 'plug_static_export_safe' && plugin.status === 'disabled'))
+  await assert.rejects(
+    () => postJson('/api/design-jobs', {
+      sessionId: governanceSession.session.id,
+      prompt: 'Generate a page while disabled governance should block this skill.',
+      variationCount: 1,
+      capabilityRequirements: {
+        plugins: { skillIds: ['sk_static_export_safe'] },
+      },
+    }),
+    /CAPABILITY_PLUGIN_DISABLED/,
+  )
+  const reenabledPlugin = await patchJson<{ plugin: { id: string; status: string } }>('/api/admin/capabilities/plugins/plug_static_export_safe', {
+    status: 'active',
+    reason: 'API smoke restores plugin after disabled governance check.',
+  }, {
+    headers: { 'x-dudesign-admin-role': 'developer' },
+  })
+  assert.equal(reenabledPlugin.plugin.status, 'active')
+
   const importedTemplate = await postJson<SaveDesignTemplatePackResponse>('/api/design-templates/import-design-md', {
     name: 'Smoke Private Template',
     designMd: `---

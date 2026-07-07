@@ -98,7 +98,7 @@
 - [ ] 支持官方 Design Template Pack 发布、下线、归档和版本 diff。
 - [x] 展示 `DESIGN.md` import/lint 结果、broken reference、危险指令和 preview smoke。
 - [x] 展示官方 safe skill 列表、适用场景、规则摘要、负向约束和安全等级。
-- [ ] 支持禁用风险 skill 或插件，并写入 audit log。
+- [x] 支持禁用风险 skill 或插件，并写入 audit log。（ADM-M21：服务内治理覆盖层 + Admin PATCH API；后续补数据库持久化治理策略）
 - [x] 展示 MCP tool policy：allowed tool、scope、auth requirement、audit level、`policy_only` / real-call 灰度状态。
 - [~] 展示模板/skill/MCP 使用量、成功率、失败原因、平均成本和最近 drift。MCP 调用量、成功率、失败原因和时间范围过滤已完成首版；模板/skill/成本/drift 聚合待补。
 - [ ] 支持 capability usage events 查询。
@@ -114,7 +114,7 @@
   - [ ] 当前 variation 实际分配 child template。
   - [ ] job 级候选 template ids。
   - [ ] 标记疑似审查上下文错误，例如非 timeline variation 触发 timeline mismatch。
-- [ ] 支持禁用风险子模板、词条引导 skill、democase MCP binding 或审查规则，并写入 audit log。
+- [~] 支持禁用风险子模板、词条引导 skill、democase MCP binding 或审查规则，并写入 audit log。（官方 skill/MCP plugin 禁用已完成；子模板和审查规则禁用待补）
 
 验收：
 

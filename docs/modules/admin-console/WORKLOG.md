@@ -789,3 +789,36 @@
 - 实现 capability usage events 查询 API，支持按 capability type、target id、时间范围过滤。
 - 推进官方 Design Template Pack 发布/下线/归档和版本 diff 写操作，并写入 `capability.governance.change` audit log。
 - 增加风险 skill/plugin 禁用 API，验证禁用后用户端创建 job 被拒绝。
+
+## 2026-07-07 ADM-M21 Risk Plugin Disable Governance Loop
+
+### 已完成
+
+- 新增 `PATCH /api/admin/capabilities/plugins/:id`：
+  - 支持将官方 capability plugin 置为 `disabled` 或恢复为 `active`。
+  - 写入 `capability.governance.change` audit log。
+  - 返回受影响的 skill 与 MCP binding 列表。
+- `GET /api/capabilities` 和 `POST /api/design-jobs` 统一读取服务内治理覆盖层：
+  - 被禁用插件在 capability registry 中显示为 `status=disabled`、`safetyLevel=disabled`。
+  - 用户端如果选择被禁用 skill/MCP binding 创建 job，会在 snapshot 解析阶段返回 `CAPABILITY_PLUGIN_DISABLED`，不会进入 runtime dispatch。
+- 管理端 Templates / Capability Governance 卡片新增 `Disable plugin` / `Enable plugin` 动作。
+- API flow smoke 覆盖：禁用 `plug_static_export_safe` -> 创建 job 被拒绝 -> 恢复 active。
+- 管理端浏览器 smoke 覆盖：点击禁用按钮 -> notice 展示 -> 卡片状态变为 disabled -> 按钮切为 enable。
+
+### 验证
+
+- 待本轮执行：`npm run typecheck`
+- 待本轮执行：`npm --workspace @dudesign/api run test -- --test-name-pattern="capability plugin registry|DUDesign mock API flow"`
+- 待本轮执行：`npm --workspace @dudesign/admin run test:e2e -- capability-governance.spec.ts`
+
+### 决策
+
+- ADM-M21 先完成同一 API 进程内的治理闭环，保证管理端开关能即时影响用户端创建任务。
+- 禁用状态后续需要进入数据库/配置中心持久化，避免服务重启后治理覆盖丢失。
+- 模板发布、下线、归档和版本 diff 写操作继续保持 planned，不与本次风险插件禁用混在一起。
+
+### 下一步
+
+- 将 capability plugin governance override 持久化到 PostgreSQL 或配置表。
+- 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 official Design Template Pack 发布/下线/归档。
+- 扩展禁用对象到动态百科子模板、审查规则和 capability preset。

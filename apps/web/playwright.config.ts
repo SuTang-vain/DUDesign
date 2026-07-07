@@ -13,12 +13,20 @@ export default defineConfig({
   },
   webServer: process.env.DUDESIGN_WEB_URL
     ? undefined
-    : {
-        command: 'npm --workspace @dudesign/web run dev',
-        url: 'http://localhost:3001',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
-      },
+    : [
+        {
+          command: 'npm --workspace @dudesign/api run dev',
+          url: 'http://127.0.0.1:4000/api/dev/bootstrap',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
+        {
+          command: 'npm --workspace @dudesign/web run dev',
+          url: 'http://localhost:3001',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
+      ],
   projects: [
     {
       name: 'chromium',

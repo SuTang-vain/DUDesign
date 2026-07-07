@@ -325,6 +325,21 @@ describe('capability plugin registry', () => {
     )
   })
 
+  it('applies runtime governance disabled plugin overrides', () => {
+    const capabilities = listCapabilities({ disabledPluginIds: ['plug_static_export_safe'] })
+    const plugin = capabilities.plugins.find(item => item.id === 'plug_static_export_safe')
+    assert.equal(plugin?.status, 'disabled')
+    assert.equal(plugin?.safetyLevel, 'disabled')
+
+    assert.throws(
+      () => resolveCapabilitySnapshot(
+        { plugins: { skillIds: ['sk_static_export_safe'] } },
+        { disabledPluginIds: ['plug_static_export_safe'] },
+      ),
+      /Capability plugin is not active: plug_static_export_safe/,
+    )
+  })
+
   it('rejects MCP bindings outside the selected template category', () => {
     assert.throws(
       () => resolveCapabilitySnapshot({
