@@ -95,6 +95,7 @@
 - [x] 默认隐藏 raw assistant delta，仅在 debug/详情模式中展示。
 - [x] 支持单个 variation 先完成先预览。
 - [x] 支持 job 失败和部分失败状态。
+- [x] 结果墙质量提示支持紧凑展示，详细问题通过 tooltip/title 保留。
 
 验收：
 

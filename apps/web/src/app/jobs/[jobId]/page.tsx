@@ -281,10 +281,13 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
               </div>
               <div className="var-preview" data-testid="variation-card-preview-frame-container">
                 {quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
-                  <section className={`quality-popover ${quality.status}`} data-testid="variation-quality-banner">
+                  <section
+                    className={`quality-popover ${quality.status}`}
+                    data-testid="variation-quality-banner"
+                    title={formatQualityIssue(quality.issues[0])}
+                  >
                     <div className="quality-popover-main">
                       <span>{quality.status === 'fail' ? '检查失败' : isInfrastructureQualityWarning(quality.issues[0]) ? '检查暂不可用' : '需要确认'}</span>
-                      <p>{formatQualityIssue(quality.issues[0])}</p>
                     </div>
                     {semiAutoReview ? (
                       reviewDecision === 'repair_queued' ? (

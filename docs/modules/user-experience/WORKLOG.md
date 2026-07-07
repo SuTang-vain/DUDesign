@@ -17,6 +17,19 @@
 - `npm run typecheck`
 - `node --test apps/web/test/auth-ui.test.mjs apps/web/test/capability-errors.test.mjs`
 
+## 2026-07-07 UX-M56 Compact Quality Notice
+
+### 已完成
+
+- 结果墙 variation 质量提示从多行说明压缩为 pill 样式状态条。
+- 详细质量问题保留在 `title` 属性中，减少 preview 卡片遮挡。
+- 更新浏览器 E2E，继续验证质量问题文本不会丢失。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/web run test:e2e -- mock-product-flow.spec.ts --grep "result wall surfaces artifact preview visibility issues"`
+
 ## 2026-07-07 UX-M54 Session Auth Browser E2E
 
 ### 已完成
