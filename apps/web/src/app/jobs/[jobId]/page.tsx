@@ -586,6 +586,22 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         summary: 'Preview is ready',
         detail: event.payload.previewUrl,
       }
+    case 'design.runtime_warning': {
+      const warning = toUserFacingError({
+        code: event.payload.code,
+        message: event.payload.message,
+        recoverable: event.payload.severity !== 'error',
+        scope: 'runtime',
+        context: event.payload.context,
+      })
+      return {
+        variationId: event.variationId,
+        variationLabel,
+        stage: event.payload.severity === 'error' ? 'failed' : 'warning',
+        summary: warning.title,
+        detail: `${warning.message} · ${warning.action}`,
+      }
+    }
     case 'design.variation_completed':
       return {
         variationId: event.variationId,

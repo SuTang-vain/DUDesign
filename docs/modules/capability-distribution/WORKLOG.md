@@ -2137,4 +2137,4 @@
 - 已补充重试图片 / 切换 provider 的用户端动作文案。
 - Application Service 已在 variation detail 中返回 recent MCP invocation result；Variation 页面会自动显示真实 provider 降级。
 - Variation Inspect 面板已使用 `mcpInvocationToUserError()` 展示 provider/tool 降级活动。
-- 下一步保留：首页生成过程 Activity Stream 继续接入 provider/tool 降级。
+- 首页生成过程 Activity Stream 已通过 `design.runtime_warning.context` 接入 provider/tool 降级。

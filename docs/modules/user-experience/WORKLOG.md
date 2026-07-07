@@ -1513,6 +1513,21 @@
 - `npm run typecheck`
 - `node --test apps/web/test/capability-errors.test.mjs`
 
+## 2026-07-06 UX-9 Job Activity Capability Warnings
+
+### 已完成
+
+- `design.runtime_warning` 事件契约新增可选 `context` 字段，用于携带 MCP/tool/provider 上下文。
+- Job 页 Activity Stream 对 `design.runtime_warning` 使用 `toUserFacingError()` 归一化：
+  - `MCP_UNAVAILABLE + image-generation` 展示为图片生成暂不可用。
+  - stream line detail 展示用户恢复动作，例如继续无图、稍后重试或切换 provider。
+- Runtime card 会把 warning/error 事件纳入 variation 最新状态，用户无需进入单变体即可看到能力降级。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/capability-errors.test.mjs`
+
 ### 后续关注
 
 - 首页生成过程 Activity Stream 使用 `mcpInvocationToUserError()` 展示 provider/tool 降级。

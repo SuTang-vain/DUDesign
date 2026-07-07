@@ -127,6 +127,7 @@ export type DesignRuntimeWarningEvent = DesignEventEnvelope<
     severity: 'info' | 'warn' | 'error'
     code: string
     message: string
+    context?: Record<string, unknown>
   }
 >
 
