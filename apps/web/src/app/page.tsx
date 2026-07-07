@@ -101,6 +101,8 @@ export default function HomePage(): React.JSX.Element {
   const [status, setStatus] = useState<'idle' | 'loading' | 'submitting' | 'error'>('loading')
   const [resumeId, setResumeId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
+  const [sessionQuery, setSessionQuery] = useState('')
+  const [showOlderSessions, setShowOlderSessions] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const [contextPanel, setContextPanel] = useState<ContextPanel | null>('files')
@@ -610,6 +612,10 @@ export default function HomePage(): React.JSX.Element {
   const headingWord = t('design')
   const headingLine = t('whatShallWeDesign')
   const journeyLine = t('startJourney')
+  const visibleSessions = useMemo(() => filterSessions(sessions, sessionQuery), [sessions, sessionQuery])
+  const recentSessions = visibleSessions.slice(0, 5)
+  const olderSessions = visibleSessions.slice(5)
+  const searchingSessions = sessionQuery.trim().length > 0
 
   return (
     <main className="home-shell">
@@ -627,8 +633,20 @@ export default function HomePage(): React.JSX.Element {
 
         <label className="side-search">
           <Icon name="search" size={16} />
-          <input placeholder={t('searchSessions')} aria-label={t('searchSessions')} />
-          <span className="kbd">⌘K</span>
+          <input
+            placeholder={t('searchSessions')}
+            aria-label={t('searchSessions')}
+            value={sessionQuery}
+            onChange={event => {
+              setSessionQuery(event.target.value)
+              if (event.target.value.trim()) setShowOlderSessions(true)
+            }}
+          />
+          {sessionQuery ? (
+            <button className="search-clear" type="button" aria-label="Clear search" onClick={() => setSessionQuery('')}>×</button>
+          ) : (
+            <span className="kbd">⌘K</span>
+          )}
         </label>
 
         <button className="side-new" type="button" onClick={() => handlePromptChange('')}>
@@ -636,18 +654,20 @@ export default function HomePage(): React.JSX.Element {
         </button>
 
         <SessionGroup
-          title={t('recent')}
-          sessions={sessions.slice(0, 5)}
+          title={searchingSessions ? t('searchResults') : t('recent')}
+          sessions={recentSessions}
           resumeId={resumeId}
           onResume={resume}
-          emptyText={t('createFirstDesignSession')}
+          emptyText={searchingSessions ? t('noMatchingSessions') : t('createFirstDesignSession')}
         />
         <SessionGroup
           title={t('earlier')}
-          sessions={sessions.slice(5, 10)}
+          sessions={olderSessions}
           resumeId={resumeId}
           onResume={resume}
           emptyText={t('olderSessionsWillAppear')}
+          collapsed={!searchingSessions && !showOlderSessions}
+          onToggle={() => setShowOlderSessions(value => !value)}
         />
       </aside>
 
@@ -1316,22 +1336,39 @@ function SessionGroup(props: {
   sessions: SessionSnapshot[]
   resumeId: string | null
   emptyText?: string
+  collapsed?: boolean
+  onToggle?: () => void
   onResume: (session: SessionSnapshot) => Promise<void>
 }): React.JSX.Element {
+  const { t } = useLanguage()
+  const collapsed = Boolean(props.collapsed && props.sessions.length > 0)
   return (
     <section className="side-section">
-      <h3>{props.title}</h3>
+      <div className="side-section-head">
+        <h3>{props.title}</h3>
+        {props.onToggle && props.sessions.length > 0 ? (
+          <button type="button" onClick={props.onToggle}>
+            {collapsed ? t('showOlderSessions') : t('hideOlderSessions')}
+            <span>{props.sessions.length}</span>
+          </button>
+        ) : null}
+      </div>
       {props.sessions.length === 0 ? <p className="side-empty">{props.emptyText ?? 'Create your first design session.'}</p> : null}
-      {props.sessions.map(session => (
-        <button key={session.id} className={`side-session${props.resumeId === session.id ? ' active' : ''}`} type="button" onClick={() => void props.onResume(session)}>
-          <span className="thumb" aria-hidden>{session.mode === 'new_html' ? 'N' : 'H'}</span>
-          <span className="meta">
-            <strong>{session.title}</strong>
-            <small>{formatRelativeTime(session.updatedAt)} · {props.resumeId === session.id ? 'resuming' : session.mode === 'new_html' ? 'new html' : 'existing html'}</small>
-          </span>
-          <span className="menu" aria-hidden><Icon name="moreHorizontal" size={16} /></span>
+      {collapsed ? (
+        <button className="side-session-fold" type="button" onClick={props.onToggle}>
+          <span>{props.sessions.length}</span>
+          {t('showOlderSessions')}
         </button>
-      ))}
+      ) : props.sessions.map(session => (
+          <button key={session.id} className={`side-session${props.resumeId === session.id ? ' active' : ''}`} type="button" onClick={() => void props.onResume(session)}>
+            <span className="thumb" aria-hidden>{session.mode === 'new_html' ? 'N' : 'H'}</span>
+            <span className="meta">
+              <strong>{session.title}</strong>
+              <small>{formatRelativeTime(session.updatedAt)} · {props.resumeId === session.id ? 'resuming' : session.mode === 'new_html' ? 'new html' : 'existing html'}</small>
+            </span>
+            <span className="menu" aria-hidden><Icon name="moreHorizontal" size={16} /></span>
+          </button>
+        ))}
     </section>
   )
 }
@@ -1523,6 +1560,21 @@ function formatRelativeTime(value: string): string {
   const hours = Math.round(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.round(hours / 24)}d ago`
+}
+
+function filterSessions(sessions: SessionSnapshot[], query: string): SessionSnapshot[] {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return sessions
+  return sessions.filter(session => {
+    const haystack = [
+      session.title,
+      session.lastPrompt ?? '',
+      session.mode,
+      session.status,
+      session.id,
+    ].join(' ').toLowerCase()
+    return haystack.includes(normalized)
+  })
 }
 
 function isAuthRequiredError(err: unknown): boolean {

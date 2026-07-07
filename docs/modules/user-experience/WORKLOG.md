@@ -3,6 +3,20 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-07 UX-M55 Session Sidebar Polish
+
+### 已完成
+
+- 登录后工作台会话侧栏支持按标题、最近 prompt、模式、状态和 session id 搜索。
+- 搜索时自动展开更早会话，并提供清空搜索按钮。
+- 更早会话默认可折叠，减少首页首屏噪音。
+- 补齐中英文文案：搜索结果、无匹配会话、展开/收起更早会话。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/auth-ui.test.mjs apps/web/test/capability-errors.test.mjs`
+
 ## 2026-07-07 UX-M54 Session Auth Browser E2E
 
 ### 已完成

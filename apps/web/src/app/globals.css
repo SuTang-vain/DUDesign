@@ -471,6 +471,20 @@ a { color: inherit; text-decoration: none; }
   color: var(--text); font-size: 13px;
 }
 .side-search .kbd { height: 18px; padding: 0 5px; font-size: 10px; }
+.side-search .search-clear {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--pill);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+.side-search .search-clear:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
 
 .side-new {
   width: 100%;
@@ -493,7 +507,14 @@ a { color: inherit; text-decoration: none; }
   color: var(--on-grad); font-weight: 800;
 }
 
-.side-section { margin-bottom: 22px; }
+.side-section { margin-bottom: 16px; }
+.side-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+}
 .side-section h3 {
   margin: 0 0 8px;
   color: var(--muted);
@@ -501,6 +522,29 @@ a { color: inherit; text-decoration: none; }
   font-weight: 700;
   letter-spacing: .1em;
   text-transform: uppercase;
+}
+.side-section-head h3 { margin: 0; }
+.side-section-head button {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.side-section-head button:hover { color: var(--text); }
+.side-section-head button span {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 10px;
 }
 .side-session {
   width: 100%;
@@ -542,6 +586,36 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .side-session .menu { color: var(--faint); font-size: 16px; line-height: 1; }
+.side-session-fold {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.side-session-fold:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.side-session-fold span {
+  min-width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pill);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+}
 .side-empty {
   margin: 0;
   color: var(--muted);
