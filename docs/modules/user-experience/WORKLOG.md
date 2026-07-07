@@ -3,6 +3,26 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-07 UX-M57 OAuth Unconfigured Login Guard
+
+### 已完成
+
+- 登录页启动后读取 `GET /api/auth/oauth/providers`，恢复 Google/GitHub provider 配置状态。
+- 未配置的 OAuth provider 按钮置为 disabled，并通过按钮 title 说明需要管理员配置。
+- 当两个 provider 都未配置时，在登录页提示用户先使用邮箱密码登录/注册。
+- 点击 OAuth provider 前增加本地 guard，避免用户进入 `/api/auth/oauth/:provider/start` 后才看到 503。
+
+### 验证
+
+- `npm run typecheck`
+- `node --test apps/web/test/auth-ui.test.mjs`
+- 远端 staging `/login` 渲染 Google/GitHub disabled 状态，`/api/auth/oauth/providers` 返回当前 provider 配置事实。
+
+### 后续关注
+
+- 真实 OAuth client 配置完成后，补浏览器 E2E：Google/GitHub callback 成功后进入工作台。
+- 后续可在登录页增加“联系管理员配置 OAuth”的帮助入口，但 MVP 先保持邮箱密码为可用主路径。
+
 ## 2026-07-07 UX-M55 Session Sidebar Polish
 
 ### 已完成

@@ -169,6 +169,31 @@ BABELO_BASE_URL=http://babel-o:xxxx
 BABELO_API_KEY=...
 ```
 
+OAuth provider 配置：
+
+```bash
+DUDESIGN_OAUTH_GITHUB_CLIENT_ID=
+DUDESIGN_OAUTH_GITHUB_CLIENT_SECRET=
+DUDESIGN_OAUTH_GITHUB_REDIRECT_URI=
+DUDESIGN_OAUTH_GOOGLE_CLIENT_ID=
+DUDESIGN_OAUTH_GOOGLE_CLIENT_SECRET=
+DUDESIGN_OAUTH_GOOGLE_REDIRECT_URI=
+```
+
+建议回调地址：
+
+```text
+https://<domain>/api/auth/oauth/github/callback
+https://<domain>/api/auth/oauth/google/callback
+```
+
+注意：
+
+- `GET /api/auth/oauth/providers` 会返回 provider 是否已完成配置，用户端据此禁用未配置按钮。
+- provider 必须同时配置 client id、client secret、redirect uri 才视为可用。
+- 当前 staging 若只使用公网 IP + HTTP，适合作为基础链路测试，不建议作为 Google/GitHub OAuth 的正式回调地址。
+- 配置真实 provider 前，用户登录主路径保持邮箱密码。
+
 ## 6. 数据库策略
 
 Staging 使用独立 PostgreSQL 数据库：
@@ -337,6 +362,7 @@ API：
 
 ```text
 [ ] `/api/dev/bootstrap`
+[ ] `/api/auth/oauth/providers`
 [ ] `/api/sessions`
 [ ] `/api/design-jobs`
 [ ] `/api/design-jobs/:id/stream`

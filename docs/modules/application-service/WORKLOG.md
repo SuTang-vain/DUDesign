@@ -3,6 +3,27 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-07 APP-M55 OAuth Provider Configuration Discovery
+
+### 已完成
+
+- 新增 `GET /api/auth/oauth/providers`，返回 Google/GitHub provider 是否已完成服务端配置。
+- `oauth.ts` 增加统一配置判断：provider 需要同时具备 client id、client secret 和 redirect uri 才视为 configured。
+- contracts 增加 `OAuthProvidersResponse`，避免用户端硬编码 provider 状态结构。
+- staging compose 显式透传 `DUDESIGN_OAUTH_*` 六个变量到 API 容器，避免 `.env` 已填写但 API 进程读不到。
+- provider 状态接口不返回 secret，只返回 `{ provider, configured }`。
+
+### 验证
+
+- `npm run typecheck`
+- `npm --workspace @dudesign/api test -- auth-flow.test.ts`
+- 远端 staging `GET /api/auth/oauth/providers` 返回 Google/GitHub 均为 `configured:false`，符合当前未配置真实 OAuth client 的现状。
+
+### 后续关注
+
+- 配置正式域名和 HTTPS 后，再在 GitHub/Google 控制台创建 OAuth app，并把 redirect uri 写入 staging env。
+- provider smoke 需要覆盖 start、callback、session cookie 签发和登录后 `/api/auth/me` bootstrap。
+
 ## 2026-07-07 APP-M54 Auth Bootstrap Contract
 
 ### 已完成

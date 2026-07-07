@@ -1,11 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { loginUser, registerUser, startOAuthLogin } from '@/lib/api'
+import { getOAuthProviders, loginUser, registerUser, startOAuthLogin } from '@/lib/api'
 import { Logo } from '@/components/Logo'
 import { Icon } from '@/components/Icon'
 
 type AuthMode = 'login' | 'register'
+type OAuthProvider = 'google' | 'github'
+type OAuthProviderState = Record<OAuthProvider, boolean>
+
+const defaultOAuthProviders: OAuthProviderState = { google: false, github: false }
 
 export default function LoginPage(): React.JSX.Element {
   const [mode, setMode] = useState<AuthMode>('login')
@@ -15,12 +19,25 @@ export default function LoginPage(): React.JSX.Element {
   const [status, setStatus] = useState<'idle' | 'submitting'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderState>(defaultOAuthProviders)
+  const [oauthLoaded, setOAuthLoaded] = useState(false)
 
   useEffect(() => {
     setIsHydrated(true)
     const params = new URLSearchParams(window.location.search)
     const errorCode = params.get('error')
     if (errorCode) setError(errorCode)
+    void getOAuthProviders()
+      .then(response => {
+        setOAuthProviders({
+          google: response.providers.some(provider => provider.provider === 'google' && provider.configured),
+          github: response.providers.some(provider => provider.provider === 'github' && provider.configured),
+        })
+      })
+      .catch(() => {
+        setOAuthProviders(defaultOAuthProviders)
+      })
+      .finally(() => setOAuthLoaded(true))
   }, [])
 
   async function submit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -41,7 +58,11 @@ export default function LoginPage(): React.JSX.Element {
     }
   }
 
-  async function continueWithProvider(provider: 'google' | 'github'): Promise<void> {
+  async function continueWithProvider(provider: OAuthProvider): Promise<void> {
+    if (!oauthProviders[provider]) {
+      setError(`${providerLabel(provider)} sign-in needs administrator configuration. Use email and password for now.`)
+      return
+    }
     setStatus('submitting')
     setError(null)
     try {
@@ -72,14 +93,17 @@ export default function LoginPage(): React.JSX.Element {
         </div>
 
         <div className="auth-oauth">
-          <button type="button" onClick={() => void continueWithProvider('google')} disabled={status === 'submitting'}>
+          <button type="button" onClick={() => void continueWithProvider('google')} disabled={status === 'submitting' || !oauthProviders.google} title={oauthButtonTitle('google', oauthProviders.google)}>
             <Icon name="sparkles" size={16} />
             Continue with Google
           </button>
-          <button type="button" onClick={() => void continueWithProvider('github')} disabled={status === 'submitting'}>
+          <button type="button" onClick={() => void continueWithProvider('github')} disabled={status === 'submitting' || !oauthProviders.github} title={oauthButtonTitle('github', oauthProviders.github)}>
             <Icon name="plug" size={16} />
             Continue with GitHub
           </button>
+          {oauthLoaded && !oauthProviders.google && !oauthProviders.github ? (
+            <p className="auth-oauth-note">OAuth sign-in is not configured yet. Continue with email and password.</p>
+          ) : null}
         </div>
 
         <div className="auth-divider"><span>or</span></div>
@@ -114,6 +138,14 @@ export default function LoginPage(): React.JSX.Element {
       </section>
     </main>
   )
+}
+
+function providerLabel(provider: OAuthProvider): string {
+  return provider === 'google' ? 'Google' : 'GitHub'
+}
+
+function oauthButtonTitle(provider: OAuthProvider, configured: boolean): string {
+  return configured ? `Continue with ${providerLabel(provider)}` : `${providerLabel(provider)} OAuth needs administrator configuration.`
 }
 
 function withOAuthRedirect(authorizationUrl: string, redirectTo: string): string {

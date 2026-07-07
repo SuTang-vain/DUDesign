@@ -81,6 +81,7 @@ import {
   createOAuthAuthorizationUrl,
   createOAuthStateCookie,
   exchangeOAuthCodeForProfile,
+  isOAuthProviderConfigured,
   oauthConfig,
   oauthIdentityProvider,
   type OAuthProvider,
@@ -419,6 +420,15 @@ export class ApplicationService {
         workspaces: [workspace],
         models: await this.store.listUserModelOptions(user.id),
       },
+    }
+  }
+
+  async listOAuthProviders() {
+    return {
+      providers: (['google', 'github'] as OAuthProvider[]).map(provider => ({
+        provider,
+        configured: isOAuthProviderConfigured(provider),
+      })),
     }
   }
 

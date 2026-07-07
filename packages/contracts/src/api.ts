@@ -885,6 +885,15 @@ export type LoginUserRequest = {
 
 export type OAuthProvider = 'google' | 'github'
 
+export type OAuthProviderStatus = {
+  provider: OAuthProvider
+  configured: boolean
+}
+
+export type OAuthProvidersResponse = {
+  providers: OAuthProviderStatus[]
+}
+
 export type OAuthStartResponse = {
   provider: OAuthProvider
   authorizationUrl: string

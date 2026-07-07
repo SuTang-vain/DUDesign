@@ -65,6 +65,15 @@ export function oauthConfig(provider: OAuthProvider, env: NodeJS.ProcessEnv = pr
       }
 }
 
+export function isOAuthProviderConfigured(provider: OAuthProvider, env: NodeJS.ProcessEnv = process.env): boolean {
+  const prefix = provider === 'google' ? 'GOOGLE' : 'GITHUB'
+  return Boolean(
+    env[`DUDESIGN_OAUTH_${prefix}_CLIENT_ID`]?.trim()
+    && env[`DUDESIGN_OAUTH_${prefix}_CLIENT_SECRET`]?.trim()
+    && env[`DUDESIGN_OAUTH_${prefix}_REDIRECT_URI`]?.trim(),
+  )
+}
+
 export function createOAuthStateCookie(provider: OAuthProvider, state: string, options: { maxAgeSeconds?: number; secure?: boolean } = {}): string {
   const maxAgeSeconds = options.maxAgeSeconds ?? 10 * 60
   const parts = [

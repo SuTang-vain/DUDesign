@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import type { AuthUserResponse, CreateSessionResponse, LogoutResponse } from '@dudesign/contracts'
+import type { AuthUserResponse, CreateSessionResponse, LogoutResponse, OAuthProvidersResponse } from '@dudesign/contracts'
 import { ApplicationService } from './service.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
@@ -126,6 +126,22 @@ describe('session cookie authentication flow', () => {
     assert.equal(synced.audit.action, 'model.sync')
     assert.equal(synced.audit.operatorUserId, registered.user.id)
     assert.equal(synced.audit.operatorRole, 'operator')
+  })
+
+  it('reports OAuth provider configuration before starting external login', async () => {
+    delete process.env.DUDESIGN_OAUTH_GOOGLE_CLIENT_ID
+    delete process.env.DUDESIGN_OAUTH_GOOGLE_CLIENT_SECRET
+    delete process.env.DUDESIGN_OAUTH_GOOGLE_REDIRECT_URI
+    process.env.DUDESIGN_OAUTH_GITHUB_CLIENT_ID = 'github-client'
+    process.env.DUDESIGN_OAUTH_GITHUB_CLIENT_SECRET = 'github-secret'
+    process.env.DUDESIGN_OAUTH_GITHUB_REDIRECT_URI = 'http://localhost/api/auth/oauth/github/callback'
+    harness = await startApiFlowHarness(new ApplicationService())
+
+    const response = await getJson<OAuthProvidersResponse>('/api/auth/oauth/providers')
+    assert.deepEqual(response.providers, [
+      { provider: 'google', configured: false },
+      { provider: 'github', configured: true },
+    ])
   })
 
   it('completes Google OAuth and signs a DUDesign session cookie', async () => {

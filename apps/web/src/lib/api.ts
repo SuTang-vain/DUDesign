@@ -20,6 +20,7 @@ import type {
   ListDesignTemplatePacksResponse,
   LoginUserRequest,
   OAuthProvider,
+  OAuthProvidersResponse,
   OAuthStartResponse,
   RefineVariationRequest,
   RefineVariationResponse,
@@ -153,6 +154,10 @@ export async function logoutUser(): Promise<{ ok: true }> {
 
 export async function startOAuthLogin(provider: OAuthProvider): Promise<OAuthStartResponse> {
   return getJson(`/api/auth/oauth/${provider}/start`)
+}
+
+export async function getOAuthProviders(): Promise<OAuthProvidersResponse> {
+  return getJson('/api/auth/oauth/providers')
 }
 
 export async function listModels(): Promise<ModelsResponse> {

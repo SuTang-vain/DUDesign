@@ -94,10 +94,11 @@
 - [~] MU-5 OAuth Provider Login。
   - [x] 新增 Google/GitHub OAuth provider contract。
   - [x] 新增 `GET /api/auth/oauth/:provider/start` 和 `GET /api/auth/oauth/:provider/callback`。
+  - [x] 新增 `GET /api/auth/oauth/providers`，供用户端判断 provider 是否已配置。
   - [x] OAuth callback 通过 provider subject 登录、通过 verified email 绑定已有用户，或创建新用户和个人 workspace。
   - [x] OAuth 成功后继续签发 DUDesign 自有 `dudesign_session`，不把 provider access token 作为业务登录态。
   - [x] OAuth state 使用 HttpOnly cookie 校验，降低 callback CSRF 风险。
-  - [ ] 用户端登录页接入 Google/GitHub 登录按钮和 callback 成功跳转。
+  - [x] 用户端登录页接入 Google/GitHub 登录按钮和未配置禁用态。
   - [ ] staging 配置真实 Google/GitHub OAuth client 并跑 provider smoke。
 - [x] MU-2 Workspace Membership Guard。
   - [x] 用户注册时创建个人 hosted workspace。

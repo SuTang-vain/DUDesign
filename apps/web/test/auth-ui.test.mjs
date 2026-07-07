@@ -14,6 +14,8 @@ describe('auth UI source contract', () => {
     assert.match(source, /registerUser/)
     assert.match(source, /Continue with Google/)
     assert.match(source, /Continue with GitHub/)
+    assert.match(source, /getOAuthProviders/)
+    assert.match(source, /OAuth sign-in is not configured yet/)
     assert.match(source, /withOAuthRedirect/)
   })
 

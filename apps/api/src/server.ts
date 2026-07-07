@@ -70,6 +70,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  if (method === 'GET' && url.pathname === '/api/auth/oauth/providers') {
+    sendJson(res, 200, await service.listOAuthProviders())
+    return
+  }
+
   const oauthStartMatch = url.pathname.match(/^\/api\/auth\/oauth\/([^/]+)\/start$/)
   if (method === 'GET' && oauthStartMatch) {
     const provider = oauthProviderFromPath(decodeURIComponent(oauthStartMatch[1]!))
