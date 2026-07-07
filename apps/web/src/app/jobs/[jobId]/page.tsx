@@ -626,21 +626,6 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
           detail: failure.message,
         }
       }
-    case 'design.runtime_warning':
-      {
-        const warning = toUserFacingError({
-          code: event.payload.code,
-          message: event.payload.message,
-          scope: 'runtime',
-        })
-        return {
-          variationId: event.variationId,
-          variationLabel,
-          stage: 'warning',
-          summary: warning.title,
-          detail: warning.message,
-        }
-      }
     case 'design.loop_started':
       return {
         variationId: event.variationId,
