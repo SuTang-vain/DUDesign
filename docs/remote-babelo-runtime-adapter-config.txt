@@ -1,0 +1,263 @@
+DUDesign 双服务器复用当前服务器 Babel-O 配置说明
+====================================================
+
+适用场景
+--------
+
+另一台服务器也部署了 DUDesign 后端，但是无法在那台服务器本地运行 Babel-O。
+因此另一台服务器的 DUDesign API 需要远程调用“当前服务器”中已经运行的 Babel-O runtime 能力。
+
+推荐调用链路
+------------
+
+另一台服务器 DUDesign API
+  -> 当前服务器 DUDesign runtime-adapter
+  -> 当前服务器 Babel-O Nexus
+
+不要让另一台服务器直接调用 raw Babel-O Nexus，除非你非常确定它实现了 DUDesign runtime contract。
+本项目中 DUDesign API 读取的是 BABELO_BASE_URL，期望它指向 DUDesign runtime-adapter，而不是 raw Nexus。
+
+当前服务器实际组件
+------------------
+
+当前服务器上已经运行：
+
+- DUDesign runtime-adapter: 127.0.0.1:4100
+- Babel-O Nexus: 127.0.0.1:3300
+
+runtime-adapter 健康检查：
+
+curl http://127.0.0.1:4100/v1/health
+
+raw Babel-O Nexus 健康检查：
+
+curl -H "authorization: Bearer <BABELO_NEXUS_API_KEY>" http://127.0.0.1:3300/health
+
+重要安全说明
+------------
+
+当前 runtime-adapter 主要作为 DUDesign 内部服务使用。
+代码中 DUDesign API 支持向 BABELO_BASE_URL 发送 BABELO_API_KEY / BABELO_AUTH_HEADER，
+但是当前 runtime-adapter 服务本身尚未实现入站 API key 校验。
+
+因此不要直接把 4100 端口裸露到公网。
+
+推荐安全顺序：
+
+1. 首选 SSH tunnel。
+2. 其次使用 VPN / 私有内网。
+3. 如果必须公网访问，先通过 Nginx 暴露一个受保护路径，并增加鉴权、IP allowlist、HTTPS。
+
+
+方案 A：SSH Tunnel 推荐
+----------------------
+
+在“另一台服务器”上建立到当前服务器的 SSH 隧道：
+
+ssh -N -L 14100:127.0.0.1:4100 ubuntu@<runtime-server-host>
+
+如果需要后台保持：
+
+nohup ssh -N -L 14100:127.0.0.1:4100 ubuntu@<runtime-server-host> > /tmp/dudesign-babelo-tunnel.log 2>&1 &
+
+然后另一台服务器的 DUDesign API 环境变量配置为：
+
+DUDESIGN_RUNTIME_PROVIDER=babel-o
+BABELO_BASE_URL=http://127.0.0.1:14100
+BABELO_API_KEY=
+BABELO_AUTH_HEADER=
+BABELO_TIMEOUT_MS=30000
+BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+BABELO_STREAM_RECONNECT_ATTEMPTS=0
+BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+说明：
+
+- BABELO_BASE_URL 指向 SSH tunnel 本地端口。
+- 不需要让 4100 暴露公网。
+- DUDESIGN_RUNTIME_VARIATION_CONCURRENCY 建议先设为 1，确认稳定后再提高。
+
+验证：
+
+curl http://127.0.0.1:14100/v1/health
+curl http://127.0.0.1:14100/v1/contract
+
+
+方案 B：私有内网 / VPN
+---------------------
+
+如果两台服务器在同一个私有网络，或已经通过 VPN 互通，可以让当前服务器仅在私网地址上暴露 runtime-adapter。
+
+另一台服务器配置：
+
+DUDESIGN_RUNTIME_PROVIDER=babel-o
+BABELO_BASE_URL=http://<current-server-private-ip>:4100
+BABELO_API_KEY=
+BABELO_AUTH_HEADER=
+BABELO_TIMEOUT_MS=30000
+BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+BABELO_STREAM_RECONNECT_ATTEMPTS=0
+BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+当前服务器防火墙规则应只允许另一台服务器私网 IP 访问 4100。
+
+
+方案 C：公网 Nginx 反代，不推荐裸用
+-----------------------------------
+
+只有在无法使用 SSH tunnel / VPN 时才考虑公网反代。
+
+建议路径：
+
+https://<runtime-domain>/dudesign-runtime/
+
+Nginx 示例：
+
+location /dudesign-runtime/ {
+    allow <other-server-public-ip>;
+    deny all;
+
+    proxy_pass http://127.0.0.1:4100/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+另一台服务器配置：
+
+DUDESIGN_RUNTIME_PROVIDER=babel-o
+BABELO_BASE_URL=https://<runtime-domain>/dudesign-runtime
+BABELO_API_KEY=
+BABELO_AUTH_HEADER=
+BABELO_TIMEOUT_MS=30000
+BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+BABELO_STREAM_RECONNECT_ATTEMPTS=0
+BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+注意：
+
+- 必须使用 HTTPS。
+- 必须加 IP allowlist。
+- 当前 runtime-adapter 暂无入站 API key 校验，不能只依赖 BABELO_API_KEY。
+- 如果后续实现 runtime-adapter 入站鉴权，再配置 BABELO_API_KEY / BABELO_AUTH_HEADER。
+
+
+另一台服务器 DUDesign 后端完整 .env 示例
+----------------------------------------
+
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=4000
+
+DUDESIGN_REPOSITORY=postgres
+DATABASE_URL=postgresql://<user>:<password>@<postgres-host>:5432/<db>
+DUDESIGN_ARTIFACT_ROOT=/app/.dudesign/artifacts
+
+DUDESIGN_RUNTIME_PROVIDER=babel-o
+BABELO_BASE_URL=http://127.0.0.1:14100
+BABELO_API_KEY=
+BABELO_AUTH_HEADER=
+BABELO_TIMEOUT_MS=30000
+BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+BABELO_STREAM_RECONNECT_ATTEMPTS=0
+BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+如果另一台服务器也使用 Redis queue：
+
+DUDESIGN_QUEUE=redis
+REDIS_URL=redis://<redis-host>:6379
+
+
+另一台服务器启动后验证
+----------------------
+
+1. 先验证 tunnel / runtime-adapter：
+
+curl http://127.0.0.1:14100/v1/health
+curl http://127.0.0.1:14100/v1/contract
+
+预期：
+
+- status: compatible
+- contractVersion: 2026-06-26.dudesign-runtime.v1
+- runtime: babel-o
+
+2. 再验证另一台服务器自己的 DUDesign API：
+
+curl -H "x-dudesign-admin-role: support" http://127.0.0.1:4000/api/admin/runtime/health
+
+预期：
+
+- runtime.status 为 compatible
+- contract.status 为 compatible
+- runtime.runtimeVersion 显示当前 Babel-O 版本
+
+3. 最后通过另一台服务器 Web 页面发起一次生成任务。
+
+
+常见错误
+--------
+
+1. RUNTIME_UNAVAILABLE
+
+可能原因：
+
+- SSH tunnel 没启动。
+- BABELO_BASE_URL 写错。
+- 当前服务器 runtime-adapter 没启动。
+- 当前服务器防火墙或安全组不允许访问。
+
+2. RUNTIME_CONTRACT_MISMATCH
+
+可能原因：
+
+- 另一台服务器 DUDesign 代码版本和当前服务器 runtime-adapter contract 不一致。
+- BABELO_CONTRACT_VERSION 配错。
+
+处理：
+
+- 两台服务器尽量部署同一个 DUDesign commit。
+- 确认 contractVersion 为 2026-06-26.dudesign-runtime.v1。
+
+3. 生成任务能开始但长时间无结果
+
+可能原因：
+
+- BABELO_STREAM_IDLE_TIMEOUT_MS 太短。
+- SSH tunnel 不稳定。
+- Babel-O Nexus 执行超时。
+
+建议：
+
+- BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+- BABELO_TIMEOUT_MS=30000
+- DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+4. 多台 DUDesign 后端共用同一个 runtime-adapter 时任务互相影响
+
+注意：
+
+- runtime-adapter 会为每个 DUDesign session/job/variation 创建 runtime session 和 workspaceRoot。
+- 仍建议不同环境使用不同 workspace 前缀、不同数据库和不同 artifact store。
+- 如果后续要生产化多租户共享 runtime，需要补 runtime-adapter 入站鉴权、配额、审计和限流。
+
+
+当前推荐结论
+------------
+
+当前阶段采用方案 A：
+
+另一台服务器通过 SSH tunnel 访问当前服务器 runtime-adapter。
+
+最终关键配置只有：
+
+DUDESIGN_RUNTIME_PROVIDER=babel-o
+BABELO_BASE_URL=http://127.0.0.1:14100
+BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1

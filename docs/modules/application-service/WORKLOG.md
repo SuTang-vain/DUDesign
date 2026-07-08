@@ -3,6 +3,34 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-08 APP-M56 Dynamic Encyclopedia Vertical Spec Review Pipeline Smoke
+
+### 已完成
+
+- 增加 API 集成测试，覆盖动态百科垂类 `classificationVector` 从 job businessContext 进入 artifact quality/spec review 的完整链路。
+- 新增受控 runtime fixture，模拟四类垂类卡片生成典型风险文案：
+  - `encyclopedia-film-resource-risk`：电影播放/下载/网盘类风险。
+  - `encyclopedia-tv-episode-risk`：电视剧分集剧情、集数和结局/伏笔高幻觉风险。
+  - `encyclopedia-history-relation-risk`：历史人物关系缺来源风险。
+  - `encyclopedia-cultural-origin-risk`：文化类词语出处典故缺来源风险。
+- 断言生成结果：
+  - variation 使用对应垂类模板：电影、电视剧、历史人物、文化类词语。
+  - artifact quality 写入对应 spec finding：`media_resource_link_blocked`、`tv_episode_fabrication_risk`、`history_relation_source_required`、`cultural_origin_source_required`。
+  - `design.loop_quality_checked` 输出 `warn` 状态和风险 issue。
+  - `semi_auto` review mode 产出 `design.loop_repair_planned` 且 `requiresConfirmation=true`。
+  - repair prompt preview 携带结构化 finding id，便于后续用户确认后进入自动修复。
+
+### 验证
+
+- `npm --workspace @dudesign/api exec tsc -b`
+- `node --test apps/api/dist/designJobEvents.test.js`
+- `node apps/api/dist/apiFlowSmoke.js`
+
+### 后续关注
+
+- 管理端后续需要展示垂类 spec rule 的命中率、误伤率和是否已从 warning 升级为 error。
+- 真实 BabeL-O / staging 生成抽检需要覆盖四类垂类模板，验证 runtime prompt 注入后的实际产物是否稳定避开这些风险。
+
 ## 2026-07-07 APP-M55 OAuth Provider Configuration Discovery
 
 ### 已完成

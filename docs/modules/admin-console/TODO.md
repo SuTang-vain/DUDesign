@@ -144,3 +144,13 @@
 
 - 管理端写操作不会绕过业务层。
 - 权限不足时不可执行治理动作。
+
+## v0.4 硬性归束（2026-07-08 落地）
+
+- [x] `AdminCapabilityQualitySummary.hardConstraints` 字段：动态百科模板的硬性归束合规统计
+  - `templates.total` / `compliant` / `chineseFirstMissing` / `englishUiMissing`
+- [ ] Admin UI 渲染 hardConstraints 摘要（roadmap Stage 7 收尾）
+- [ ] Admin UI 渲染 per-template findings 中的 `dynamic-card-chinese-first` / `dynamic-card-english-ui-blocked` 警告
+
+验收：
+- Admin GET `/api/admin/capabilities/templates` 返回的 `quality.hardConstraints` 包含正确统计

@@ -1,0 +1,279 @@
+DUDesign Remote Babel-O Runtime Configuration
+============================================
+
+Scenario
+--------
+
+Another server also deploys DUDesign backend, but cannot run Babel-O locally.
+That backend should call the current server's DUDesign runtime-adapter over HTTP.
+
+Recommended call path:
+
+  Other server DUDesign API
+    -> current server runtime-adapter
+    -> current server babel-o-nexus
+    -> Babel-O workspace/files
+
+Do not let browser frontend call Babel-O directly.
+Do not point the other backend to raw babel-o-nexus unless you intentionally
+take over the DUDesign runtime contract yourself.
+
+
+Terminology
+-----------
+
+Server B:
+  The current server that can run Babel-O.
+  Use a private host/IP, SSH target, or protected runtime domain.
+
+Server A:
+  The other server that runs DUDesign backend but cannot run Babel-O locally.
+
+
+Current Server B: Expose runtime-adapter safely
+------------------------------------------------
+
+Current deployment already runs:
+
+  runtime-adapter: 127.0.0.1:4100
+  babel-o-nexus:   127.0.0.1:3300
+
+The runtime-adapter exposes DUDesign-compatible endpoints:
+
+  GET  /v1/health
+  GET  /v1/contract
+  GET  /v1/models
+  POST /v1/sessions
+  POST /v1/sessions/:sessionId/resume
+  POST /v1/agents
+  POST /v1/agents/refine
+  POST /v1/agents/cancel
+  GET  /v1/stream
+
+Recommended exposure options, from safest to least safe:
+
+1. Private network or VPC private IP
+
+   Bind runtime-adapter to a private interface only.
+   Server A config:
+
+     BABELO_BASE_URL=http://<server-b-private-ip>:4100
+
+2. SSH tunnel
+
+   Keep Server B runtime-adapter bound to 127.0.0.1.
+   On Server A, create a tunnel:
+
+     ssh -N -L 4100:127.0.0.1:4100 ubuntu@<runtime-server-host>
+
+   Server A config:
+
+     BABELO_BASE_URL=http://127.0.0.1:4100
+
+3. HTTPS reverse proxy with IP allowlist and auth
+
+   Expose runtime-adapter through Nginx on Server B:
+
+     https://runtime.<your-domain>
+
+   Only allow Server A's public IP.
+   Add an auth layer at Nginx or add adapter-level auth before production use.
+
+   Server A config:
+
+     BABELO_BASE_URL=https://runtime.<your-domain>
+
+
+Important Security Notes
+------------------------
+
+Do not expose raw babel-o-nexus publicly:
+
+  http://<runtime-server-host>:3300
+
+Do not expose runtime-adapter publicly without at least:
+
+  - HTTPS
+  - IP allowlist for Server A
+  - authentication
+  - firewall/security group restriction
+
+Current DUDesign runtime-adapter itself does not enforce inbound API auth.
+The API key below is used by DUDesign API when calling runtime endpoints, but
+runtime-adapter will need proxy-level auth or adapter-level auth if exposed to
+the public internet.
+
+
+Server A: DUDesign backend environment variables
+------------------------------------------------
+
+Minimal required config:
+
+  DUDESIGN_RUNTIME_PROVIDER=babel-o
+  BABELO_BASE_URL=http://<server-b-runtime-adapter-host>:4100
+
+Recommended config:
+
+  DUDESIGN_RUNTIME_PROVIDER=babel-o
+  BABELO_BASE_URL=http://<server-b-runtime-adapter-host>:4100
+  BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+  BABELO_TIMEOUT_MS=30000
+  BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+  BABELO_STREAM_RECONNECT_ATTEMPTS=0
+  DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+If the runtime-adapter endpoint is protected by Bearer auth:
+
+  BABELO_API_KEY=<runtime-adapter-access-token>
+  BABELO_AUTH_HEADER=
+
+When BABELO_AUTH_HEADER is empty, DUDesign sends:
+
+  Authorization: Bearer <BABELO_API_KEY>
+
+If the runtime-adapter endpoint is protected by x-api-key:
+
+  BABELO_API_KEY=<runtime-adapter-access-token>
+  BABELO_AUTH_HEADER=x-api-key
+
+Then DUDesign sends:
+
+  x-api-key: <BABELO_API_KEY>
+
+
+Server A: docker compose example
+--------------------------------
+
+In Server A's DUDesign staging env:
+
+  DUDESIGN_RUNTIME_PROVIDER=babel-o
+  BABELO_BASE_URL=http://<server-b-private-ip>:4100
+  BABELO_API_KEY=
+  BABELO_AUTH_HEADER=
+  BABELO_CONTRACT_VERSION=2026-06-26.dudesign-runtime.v1
+  BABELO_TIMEOUT_MS=30000
+  BABELO_STREAM_IDLE_TIMEOUT_MS=600000
+  BABELO_STREAM_RECONNECT_ATTEMPTS=0
+  DUDESIGN_RUNTIME_VARIATION_CONCURRENCY=1
+
+Then restart Server A DUDesign API/worker:
+
+  docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build api
+
+If Server A uses a separate worker process, restart worker too.
+
+
+Server B: current staging values for reference
+----------------------------------------------
+
+Current Server B container network uses:
+
+  API BABELO_BASE_URL=http://runtime-adapter:4100
+  runtime-adapter BABELO_NEXUS_BASE_URL=http://babel-o-nexus:3000
+  runtime-adapter BABELO_NEXUS_API_KEY=<internal-nexus-api-key>
+  babel-o-nexus NEXUS_API_KEY=<internal-nexus-api-key>
+
+These internal Nexus values are not what Server A should use.
+Server A should use Server B runtime-adapter URL, not babel-o-nexus URL.
+
+
+Verification from Server A
+--------------------------
+
+Run from Server A:
+
+  curl -fsS http://<server-b-runtime-adapter-host>:4100/v1/health
+  curl -fsS http://<server-b-runtime-adapter-host>:4100/v1/contract
+
+Expected health shape:
+
+  {
+    "runtime": "babel-o",
+    "runtimeVersion": "0.4.0",
+    "contractVersion": "2026-06-26.dudesign-runtime.v1",
+    "status": "compatible"
+  }
+
+If using Bearer auth:
+
+  curl -fsS \
+    -H "Authorization: Bearer <runtime-adapter-access-token>" \
+    https://runtime.<your-domain>/v1/health
+
+If using x-api-key:
+
+  curl -fsS \
+    -H "x-api-key: <runtime-adapter-access-token>" \
+    https://runtime.<your-domain>/v1/health
+
+
+Verification through Server A DUDesign API
+------------------------------------------
+
+After Server A backend is restarted:
+
+  curl -fsS \
+    -H "x-dudesign-admin-role: support" \
+    http://<server-a-api-host>:4000/api/admin/runtime/health
+
+Expected:
+
+  runtime.status = compatible
+  contract.status = compatible
+  runtime.runtime = babel-o
+
+Then create a real design job from Server A's Web/API and confirm variations
+are generated by Babel-O instead of mock runtime.
+
+
+Common Failure Modes
+--------------------
+
+1. RUNTIME_UNAVAILABLE
+
+   Server A cannot reach BABELO_BASE_URL.
+   Check firewall, security group, reverse proxy, tunnel, and port binding.
+
+2. RUNTIME_CONTRACT_MISMATCH
+
+   Runtime-adapter contract version differs from Server A's expected version.
+   Check BABELO_CONTRACT_VERSION and ensure both DUDesign deployments use
+   compatible versions.
+
+3. Stream opens but no artifact appears
+
+   Check runtime-adapter workspace volume and Babel-O Nexus write permissions
+   on Server B.
+
+4. Resume fails across servers
+
+   The runtime session state is stored on Server B runtime-adapter/Nexus.
+   Server A must keep using the same Server B runtime-adapter for existing
+   sessions, or provide an explicit migration strategy.
+
+5. Browser frontend cannot generate
+
+   The browser should call Server A DUDesign API only.
+   Server A API should call Server B runtime-adapter.
+   Do not put BABELO_BASE_URL in frontend env.
+
+
+Recommended Production Direction
+--------------------------------
+
+For production-like remote testing:
+
+  Server A DUDesign API/worker
+    -> private/VPN/allowlisted HTTPS
+    -> Server B runtime-adapter
+    -> local Server B babel-o-nexus
+
+Keep public user traffic separate:
+
+  Browser
+    -> Server A Web/API
+
+Keep runtime traffic server-side only:
+
+  Server A API/worker
+    -> Server B runtime-adapter

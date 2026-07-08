@@ -222,6 +222,13 @@
   - [x] 从 `variationTemplateAssignments` 解析当前 variation 的 `designTemplatePackId`。
   - [x] timeline 规则只应用于实际分配 `dtp_dynamic_encyclopedia_timeline_card` 的 variation，避免 summary/data operations 变体被误伤。
   - [x] 增加回归测试：同一 job 包含 summary/timeline/data templates 时，非 timeline variation 不触发 `encyclopedia.timeline_template_mismatch`。
+- [x] 动态百科垂类 `classificationVector` 进入 artifact quality/spec review 集成门禁。
+  - [x] 电影、电视剧、历史人物、文化类词语垂类 job snapshot 携带 `classificationVector`。
+  - [x] `dtp_de_film_cast_role_network` 变体生成播放/下载风险文案时，artifact quality 写入 `encyclopedia.media_resource_link_blocked`。
+  - [x] `dtp_de_tv_episode_chain` 变体生成分集剧情/集数/剧透高风险文案时，artifact quality 写入 `encyclopedia.tv_episode_fabrication_risk`。
+  - [x] `dtp_de_history_person_relationship` 变体生成无来源人物关系文案时，artifact quality 写入 `encyclopedia.history_relation_source_required`。
+  - [x] `dtp_de_cultural_phrase_origin_story` 变体生成无来源出处典故文案时，artifact quality 写入 `encyclopedia.cultural_origin_source_required`。
+  - [x] `semi_auto` review mode 产出待确认修复计划，repair prompt 携带结构化 finding id。
 - [x] API 集成 smoke：session -> job -> SSE replay -> variation detail -> refine -> annotation -> preview -> export -> share。
 - [x] API 集成 smoke 覆盖 artifact snapshot、ZIP export、share 不漂移、历史版本 restore。
 - [x] API workspace 默认测试串行执行，避免多 HTTP harness、异步 screenshot 和队列 worker 并发串扰。
@@ -305,3 +312,22 @@
 - 应用服务不直接依赖内存 Map。
 - 业务服务重启后，session resume、artifact preview、share link 和 cost summary 可恢复。
 - 业务服务重启后，官方模板、用户私有模板、模板版本和 job capability snapshot 可恢复。
+
+## v0.4 硬性归束（2026-07-08 落地）
+
+- [x] EncyclopediaSpecReview 重写：15 条规则 + `ENFORCEMENT` 两阶段表
+  - 4 条 Stage 1 warning：中文优先、英文 UI 短语、过度英文短语、不支持书写系统
+  - 4 条 Stage 1 warning：禁内部滚动（no-scroll-frame 必填、overflow:auto 阻断、scroll-container 类阻断、替换旧的 scroll_container_missing）
+- [x] 新增 `apps/api/src/entryLanguage.ts`：字符区块扫描 + 语言类词条启发式识别
+  - 三种信号叠加：中文/英文语言学关键词、特定外语名、纯外语脚本 + 正文含语言学语义
+- [x] `EncyclopediaEntryGuidance` domain 模型 + DB 迁移 0016：`is_language_category` + `entry_content_language`
+- [x] `createEncyclopediaEntryGuidance` 调用 `detectEntryLanguage`；`resolveArtifactQualityGateForJob` 透传给 spec review
+- [x] `businessContext` 写入 `isLanguageCategory` + `entryContentLanguage`
+- [x] Lint 规则 `lintDynamicEncyclopediaTemplatePack` 改造：禁 scroll-container / 必填 no-scroll-frame / 必填溢出策略组件
+- [x] 新增 `lintDynamicEncyclopediaChildTemplate` 子函数：5 个子模板专属校验
+- [x] `adminCapabilityQualitySummary` 加 `hardConstraints` 字段供 admin 面板读取
+- [x] `designJobEvents.test.ts` 修 fixture HTML（`.scroll-container` → `.no-scroll-frame` + `.tab-bar`）
+
+验收：
+- 全部 132 个测试通过
+- Stage 1 warning 阶段：先观察真实分布，1-2 周后再升 error

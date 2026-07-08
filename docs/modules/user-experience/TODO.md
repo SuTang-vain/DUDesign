@@ -210,3 +210,13 @@
 - [x] 将 variation detail API 扩展为返回最近 capability notice / MCP invocation result，让真实 provider 降级能自动显示在用户端。
 - [x] Variation Inspect 面板接入能力活动列表，展示最近 provider/tool 降级、来源和恢复动作。
 - [x] 首页生成过程 Activity Stream 接入 `mcpInvocationToUserError()`，展示工具调用失败和恢复动作。
+
+## v0.4 硬性归束（2026-07-08 落地）
+
+- [x] entryGuidance 卡片加"中文优先 / 语言类"标签 + 语种徽章
+- [x] 5 个新翻译键（en + zh）：`languageCategoryBadge` / `languageCategoryHint` / `chineseFirstBadge` / `chineseFirstHint` / `nonLanguageEntry`
+- [x] E2E `mock-product-flow.spec.ts` 断言 `entry-guidance-chinese-first` 标签可见 + `entry-guidance-content-language` 文本
+
+验收：
+- 词条引导完成后，用户能在卡片上看到"中文优先"或"语言类"标识
+- 标识提示会解释约束含义（中文优先：默认简体中文 / 语言类：豁免外语正文约束）

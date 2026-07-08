@@ -3,6 +3,85 @@
 > 模块：Capability Distribution System
 > 维护方式：按日期追加。记录模板、插件、自动化 loop、能力编译策略和跨层治理决策。
 
+## 2026-07-08 CAP-M8.9 Dynamic Encyclopedia Vertical Template Roadmap
+
+### 已完成
+
+- 新增垂类模板迭代规划文档：`docs/dynamic-encyclopedia-vertical-template-roadmap.md`。
+- 将 Obsidian Vault `BaiDu/动态百科/04_垂类模板与内容` 中的需求沉淀为 DUDesign 内部规划：
+  - 历史人物：关系图谱、事件因果链、人物列表/排名。
+  - 电影作品：演员-角色网络、系列/IP 导航、剧情脉络、相似推荐。
+  - 电视剧作品：角色关系、分集剧情链、伏笔/回收、系列导航。
+  - 文化类词语：关联词图谱、出处典故、词义辨析。
+- 注册首批高优垂类子模板：
+  - `dtp_de_history_person_relationship`。
+  - `dtp_de_history_person_event_chain`。
+  - `dtp_de_film_cast_role_network`。
+  - `dtp_de_film_series_navigation`。
+  - `dtp_de_tv_character_relation`。
+  - `dtp_de_tv_episode_chain`。
+  - `dtp_de_cultural_phrase_relation_graph`。
+  - `dtp_de_cultural_phrase_origin_story`。
+- 扩展 `InteractionParadigm`：
+  - `ip_causal_event_chain`。
+  - `ip_series_navigation`。
+- 扩展 democase mock 和 application-service guidance 规则，让历史人物、电影、电视剧、文化类词语可以自动推荐垂类模板。
+- 用户端低置信度分类确认选项更新为新的高优垂类集合。
+- 单测/API smoke 增加垂类模板 registry、交互范式映射和 guidance 推荐断言。
+
+### 决策
+
+- 当前仍复用 `primaryCategory` / `secondaryCategory` / `tertiaryCategory` 持久化字段，不新增数据库迁移。
+- 新分类值开始向动态百科文档里的 L1/L2 体系靠拢，例如 `影视作品 / 电影`、`影视作品 / 电视剧`、`知识术语 / 文化类词语`。
+- 垂类模板仍作为 `dtp_dynamic_encyclopedia_card` 的 child template，不引入新的模板层级实体。
+- 交互范式关联仍以 `InteractionParadigm.compatibleTemplatePackIds` 为唯一事实来源。
+
+### 后续关注
+
+- 为 guidance metadata 增加结构化 `classificationVector`，表达 L1/L2/L3+、推荐模块优先级和分类信号。
+- 扩展 `encyclopediaSpecReview` 的垂类规则：
+  - 影视禁止盗版播放/下载/网盘/磁力入口。
+  - 影视剧情、分集、评分、票房不得幻觉。
+  - 历史人物关系和事件链不得编造。
+  - 文化词语典故缺可靠出处时隐藏，不硬拼。
+- Runtime Gateway 需要把垂类模板 rationale 和业务上下文编译进 BabeL-O prompt，并保持内核解耦。
+
+## 2026-07-08 CAP-M8.10 Dynamic Encyclopedia Classification Vector and Vertical Spec Rules
+
+### 已完成
+
+- 新增 `EncyclopediaClassificationVector` contract：
+  - `l1` / `l2` / `l3`。
+  - `recommendedModulePriorities`。
+  - `preferredTemplateIds`。
+  - `riskFlags`。
+- Application Service 在创建/确认 entry guidance 时写入 `metadata.classificationVector`。
+- `toEncyclopediaEntryGuidanceResponse` 将 `classificationVector` 输出到 `templateRequirements.businessContext`，旧 guidance 没有 metadata 时会按当前字段动态补齐。
+- `resolveArtifactQualityGateForJob` 将 `classificationVector` 传入动态百科 spec review。
+- 扩展垂类 spec review（Stage 1 warning）：
+  - 影视卡片禁止播放、下载、网盘、磁力、泄露、盗版资源入口。
+  - 影视评分、票房、上映/播出等事实需要来源或不确定性表达。
+  - 电视剧集数、分集剧情、伏笔、结局等高幻觉风险内容需要来源/缺失说明。
+  - 历史人物关系需要来源/不确定性表达。
+  - 历史人物事件链模板需要“起因/经过/结果/影响”结构。
+  - 文化词语出处典故需要来源或“暂无可靠出处”。
+  - 文化词语关联词需要关系类型标签。
+- 测试覆盖：
+  - `classificationVector` 进入 API smoke 的 businessContext。
+  - 影视、电视剧、历史人物、文化词语四类 spec review warning。
+
+### 决策
+
+- 垂类规则先以 warning 生效，继续观察真实生成分布，避免上线初期阻断过多任务。
+- `classificationVector` 暂存在 guidance metadata 和 job businessContext，不新增数据库字段。
+- spec review 继续保持确定性静态规则，不引入 LLM 审查，避免自动修复链路不可复现。
+
+### 后续关注
+
+- 管理端治理面板需要展示垂类 spec rule 的命中率、误伤率和升级状态。
+- Runtime Gateway 应把 `classificationVector.recommendedModulePriorities` 与 `riskFlags` 注入 BabeL-O prompt。
+- 后续可把高置信垂类规则从 warning 升级为 error，纳入自动修复硬门禁。
+
 ## 2026-07-03 CAP-M8 Dynamic Encyclopedia Card Planning
 
 ### 已完成

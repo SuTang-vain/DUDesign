@@ -175,16 +175,39 @@
 - [x] 将词条引导 skill 编译为受控 prompt block。
 - [x] 将 democase MCP binding 编译为只读 tool policy，初期可保持 `policy_only` 或 mock result（12.1：只服务生成期 agent；12.6：scope 显式 `readonly_context`，通过 `isMvpSafePluginPolicy`）。词条引导向导的分类查询不经此 binding。
 - [x] 将父模板包、子模板和交互范式编译为分层 prompt context。
+- [x] 将动态百科 `classificationVector` 编译为 BabeL-O prompt context：L1/L2/L3、推荐模块优先级、preferred template、risk flags、selected child templates。
 - [x] 将百科规范 repair context 编译为 refine prompt block。
 - [x] 增加 golden replay：
   - [x] 词条引导 skill prompt block。
   - [x] democase MCP tool policy。
   - [x] 动态百科子模板 prompt context。
   - [x] 父模板包、子模板和交互范式分层 prompt context。
+  - [x] 动态百科 classification vector prompt context。
   - [x] spec review repair context golden replay。
 - [x] 增加 BabeL-O staging smoke：动态百科卡片模式端到端生成。
+  - [x] 默认单 case 覆盖 entry guidance -> job -> runtime -> artifact quality -> preview/export。
+  - [x] Opt-in 四垂类矩阵 smoke：设置 `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX=1` 后顺序覆盖电影、电视剧、历史人物、文化类词语。
 
 验收：
 
 - Babel-O 只消费 DUDesign 标准化上下文和 tool policy，不直接读取 DUDesign 数据库或 democase 数据库。
 - Runtime event drift 不影响动态百科业务层的 guidance、snapshot 和 review report。
+
+## v0.4 硬性归束（2026-07-08 落地）
+
+- [x] 父包 `dtp_dynamic_encyclopedia_card` 重写：components 替换 `scroll-container` 为 `no-scroll-frame` + `tab-bar` + `page-switcher` + `modal-overlay`
+- [x] 5 个子模板（summary/timeline/relation/compare/expandable）改造：
+  - summary — facts ≤ 4 + "更多事实" tab
+  - timeline — 每页 3-4 节点 + `.page-switcher` 底部分页
+  - relation — `maxNodes: 6` + "查看更多关系" → `.modal-overlay`
+  - compare — `maxColumns: 2` + 移动端 `.tab-bar`（每对象一个 tab）
+  - expandable — accordion + `maxExpandedHeight: 280` 兜底
+- [x] `sk_enc...ance` skill prompt block 升级 v2：
+  - rules: 默认简体中文 + 禁英文 UI 短语 + 禁滚动 + tab/page-switcher/modal
+  - promptBlocks: 溢出策略指引
+  - negativeRules: 禁 overflow / 禁 .scroll-container / 禁英文 UI 短语 / 禁翻译专有名词
+  - qualityChecklist: 5 条新增（尺寸/结构/滚动约束/中文优先/短语禁词）
+- [x] democase 4 条 summary 字段汉化
+
+验收：
+- runtime prompt 注入后，LLM 不会引入英文 UI 短语或内部滚动容器

@@ -3,6 +3,35 @@
 > 模块：Runtime Compatibility Layer
 > 维护方式：按日期追加。记录 BabeL-O 适配、协议漂移、contract 测试和升级治理。
 
+## 2026-07-08 RTC-M46 Dynamic Encyclopedia Vertical Matrix Staging Smoke
+
+### 已完成
+
+- 扩展 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`：
+  - 默认仍只跑一条低成本动态百科真实 BabeL-O smoke。
+  - 新增 `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX=1` opt-in 模式，顺序跑四个垂类 case。
+- 四垂类 case 覆盖：
+  - 电影：`dtp_de_film_cast_role_network`，校验分类为 `影视作品 / 电影`，并断言不触发播放/下载、评分/票房来源类禁用 finding。
+  - 电视剧：`dtp_de_tv_episode_chain`，校验分类为 `影视作品 / 电视剧`，并断言不触发分集剧情幻觉、剧透控制、影视资源入口类禁用 finding。
+  - 历史人物：`dtp_de_history_person_relationship`，校验分类为 `名人 / 历史人物`，并断言不触发人物关系缺来源 finding。
+  - 文化类词语：`dtp_de_cultural_phrase_origin_story`，校验分类为 `知识术语 / 文化类词语`，并断言不触发出处典故缺来源、关联词关系类型缺失 finding。
+- 单 case 支持可配置：
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TEMPLATE_ID`。
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_EXPECTED_PRIMARY_CATEGORY`。
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_EXPECTED_SECONDARY_CATEGORY`。
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_FORBIDDEN_FINDING_IDS`。
+- `deploy/staging/staging.env.example` 增加动态百科垂类矩阵 smoke 配置项。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+
+### 后续关注
+
+- 部署到 staging 后执行：
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX=1 deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+- 若真实 BabeL-O 仍触发 forbidden finding，需要把对应垂类 risk flags 或子模板 prompt 进一步收紧，而不是放宽业务 spec review。
+
 ## 2026-07-03 RTC-M8.1 Product Mode Runtime Pass-through
 
 ### 已完成
@@ -2027,3 +2056,35 @@
 ### 下一步
 
 - 接入真实 democase MCP server 后，用 `DUDESIGN_STAGING_MCP_REAL_SMOKE=1` 跑一次远端验证，并记录 provider 侧 result schema 差异。
+
+## 2026-07-08 RTC-M45 Dynamic Encyclopedia Classification Vector Prompt Context
+
+### 已完成
+
+- Runtime Gateway `SpawnVariationAgentsInput.templateRequirements.businessContext` 扩展动态百科上下文：
+  - `entryTertiaryCategory`。
+  - `classification`。
+  - `classificationVector`。
+  - `isLanguageCategory` / `entryContentLanguage`。
+  - `childTemplates`。
+  - `reviewMode`。
+- `BabelORuntimeClient` 的 dynamic encyclopedia business context prompt block 现在输出：
+  - L1/L2/L3 分类。
+  - 分类置信度和 signals。
+  - `classificationVector.recommendedModulePriorities`。
+  - `classificationVector.preferredTemplateIds`。
+  - `classificationVector.riskFlags`。
+  - 已选 child template、交互范式、置信度与推荐原因。
+  - 面向 runtime 的风险处理指令：先处理垂类风险，再写 HTML。
+- 更新 Runtime Gateway golden replay，固定 classification vector prompt 结构。
+
+### 决策
+
+- Runtime Gateway 不重新分类词条，只消费 Application Service 固化后的 `classificationVector`。
+- `riskFlags` 作为生成前约束进入 prompt，spec review 仍作为生成后确定性门禁。
+- BabeL-O 仍只看到标准化 prompt context，不读取 DUDesign guidance 表、模板数据库或 democase 数据库。
+
+### 后续关注
+
+- 真实 BabeL-O staging smoke 需要观察垂类 risk flags 是否减少影视资源入口、历史关系幻觉和文化典故硬拼。
+- 若 prompt 长度膨胀明显，可把 child template reason 做摘要化或只注入 selected child templates。

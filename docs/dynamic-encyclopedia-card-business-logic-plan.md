@@ -1,11 +1,11 @@
 # DUDesign 动态百科卡片业务逻辑规划
 
-> 版本：v0.3
+> 版本：v0.4
 > 日期：2026-07-08
 > 文档类型：业务逻辑规划
-> 状态：实施中（Stage 1–5 已完成，Stage 6–7 推进中）
-> 本版变更：新增第 12 节“实现前需钉死的决策”，覆盖第 5/6/7/9 节初版表述；第 12 节及之后章节顺延。
-> 实施进展（2026-07-08）：Stage 1（准入与契约）、Stage 2（模板与分类骨架）、Stage 3（词条引导向导）、Stage 4（用户端动态百科模式）、Stage 5（百科规范审查）已在 `feature/dynamic-encyclopedia-card` 分支落地；Stage 6（真实 MCP 与内核联调）中网络搜索与图片生成已具备真实环境冒烟能力，词条资料查询真实化与回放冒烟收尾中；Stage 7（管理端治理）读侧已完成、写侧部分完成。剩余治理与生产化缺口见 `docs/weekly-feature-roadmap.md` v0.6。
+> 状态：实施中（Stage 1–5 已完成，Stage 6–7 推进中；硬性归束 v0.4 落地）
+> 本版变更：新增第 12 节"实现前需钉死的决策"，覆盖第 5/6/7/9 节初版表述；**本版 v0.4 进一步新增第 17 节"硬性归束约束"**，记录中文优先 + 禁内部滚动两条硬性归束与两阶段发布策略。
+> 实施进展（2026-07-08）：Stage 1（准入与契约）、Stage 2（模板与分类骨架）、Stage 3（词条引导向导）、Stage 4（用户端动态百科模式）、Stage 5（百科规范审查）已在 `feature/dynamic-encyclopedia-card` 分支落地；Stage 6（真实 MCP 与内核联调）中网络搜索与图片生成已具备真实环境冒烟能力，词条资料查询真实化与回放冒烟收尾中；Stage 7（管理端治理）读侧已完成、写侧部分完成。**v0.4 硬性归束（中文优先 + 禁内部滚动 + 禁英文 UI 短语）已落地——spec review / 父包子模板 / skill prompt / democase summary / 持久化 / Web UI / Admin 摘要全部对齐。**剩余治理与生产化缺口见 `docs/weekly-feature-roadmap.md` v0.6。
 > 适用对象：产品、业务负责人、前端、后端、Runtime Gateway、运营治理
 > 关联文档：
 > - `docs/weekly-feature-roadmap.md`
@@ -857,3 +857,93 @@ Phase 2 落地前置条件（需单独设计）：
 - 更新 `docs/modules/runtime-compatibility/TODO.md`。
 - 更新 `docs/modules/admin-console/TODO.md`。
 - 在相关 `WORKLOG.md` 中记录本次规划决策。
+
+---
+
+## 17. 硬性归束约束（v0.4 落地，2026-07-08）
+
+本节记录动态百科业务线在 v0.4 落地的两条硬性归束。两条约束均以**两阶段发布**形式推进：Stage 1（warning 形态，先收集真实分布）→ Stage 2（error 形态，触发 loop repair）。
+
+### 17.1 约束 1：除"语言类"词条外，非必要禁止使用外语，仅使用中文
+
+**生效范围**：所有非语言类动态百科词条。
+
+**语言类词条豁免**（不视为违规）：
+- 外语 / 语言学 / 翻译 / 方言 / 语言研究类词条
+- 由 `detectEntryLanguage` 启发式识别：基于词条名 + 正文扫描（字符区块分布 + 语言学/翻译关键词）
+- 当前识别信号：中文语言学关键词（语言/方言/语法/翻译/外语名…）、英文语言学关键词（language/dialect/linguistics/grammar/…）、纯外语脚本 + 正文含语言学语义词
+- 识别结果落入 `encyclopedia_entry_guidances.is_language_category` (boolean) + `entry_content_language` (enum: zh/en/fr/ja/ko/other/mixed)
+
+**判定与执行**：
+- `EncyclopediaSpecReviewInput` 新增 `isLanguageCategory` / `entryContentLanguage` / `entryTitle`
+- 4 条新规则（Stage 1：全部 warning）：
+  - `encyclopedia.chinese_only_required` — 非语言类词条正文汉字占比 < 60% 警告
+  - `encyclopedia.english_ui_phrase_blocked` — 15 个英文 UI 短语黑名单（View More / Read More / Get Started / …）警告
+  - `encyclopedia.excessive_english_phrases` — 2+ 个连续首字母大写英文短语警告
+  - `encyclopedia.unsupported_script_blocked` — 西里尔/阿拉伯警告
+- `sk_enc...ance` skill prompt block 注入"默认简体中文 + 保留专有名词 + 禁用英文 UI 短语"指令
+- 父包 + 5 个子模板 rationale.dos / donts 同步加"中文优先"硬约束
+- Web 前端 entryGuidance 卡片显示 `中文优先` / `语言类` 标签 + 语种徽章
+- E2E 断言 `entry-guidance-chinese-first` 标签可见
+
+**Stage 2 升级路径**（1-2 周观察期后）：把 4 条规则的 severity 从 `warning` 改为 `error`，触发 loop repair。
+
+### 17.2 约束 2：单一界面（788×492 / WISE 380×456）内可展示，禁止上下/左右滑动
+
+**生效范围**：所有动态百科词条卡。
+
+**溢出策略**（替代过去的 `.scroll-container`）：
+- `.no-scroll-frame`（root container, `overflow: hidden`）
+- `.tab-bar`（max 4 tabs，按逻辑组拆分）
+- `.page-switcher`（dots or pill，每页 3-4 节点）
+- `.modal-overlay`（"查看更多"详情）
+- 子模板专属：
+  - summary — facts > 4 时走"更多事实" tab
+  - timeline — 每页 3-4 节点 + `.page-switcher` 底部分页
+  - relation — 节点 ≤ 6，超出走"查看更多关系" → `.modal-overlay`
+  - compare — PC 2 列对比，移动端 `.tab-bar`（每对象一个 tab）
+  - expandable — accordion 展开 + `maxExpandedHeight: 280` 兜底，超出升 tab
+
+**判定与执行**：
+- 4 条新规则（Stage 1：全部 warning）：
+  - `encyclopedia.no_scroll_frame_required` — html/body 必须 `overflow:hidden` 或含 `.no-scroll-frame`
+  - `encyclopedia.overflow_scroll_blocked` — 任何 `overflow: auto/scroll` 警告
+  - `encyclopedia.scroll_container_class_blocked` — 禁用 `.scroll-container` 类名
+  - （旧 `encyclopedia.scroll_container_missing` 标记为 disabled，保留历史 audit 记录可读）
+- 父包 + 5 个子模板 `components.scroll-container` 整体替换为 `no-scroll-frame` + `tab-bar` / `page-switcher` / `modal-overlay`
+- `sk_enc...ance` skill prompt block 注入"无内部滚动"指令
+- Lint 规则 `lintDynamicEncyclopediaTemplatePack` 翻转 `dynamic-card-scroll-container` 为"如果存在才报错"，新增 `no-scroll-frame` / `overflow-strategy` 必填校验
+- 新增 `lintDynamicEncyclopediaChildTemplate` 子函数：5 个子模板专属校验
+
+**Stage 2 升级路径**：把 4 条规则的 severity 从 `warning` 改为 `error`。
+
+### 17.3 落地清单（v0.4）
+
+| 层次 | 文件 | 变更 |
+| --- | --- | --- |
+| 数据模型 | `packages/domain/src/models.ts` | `EncyclopediaEntryGuidance` 加 `isLanguageCategory` + `entryContentLanguage` |
+| 契约 | `packages/contracts/src/api.ts` | `EncyclopediaEntryGuidanceResponse` + `businessContext` 同步 |
+| 持久化 | `apps/api/db/migrations/0016_encyclopedia_entry_language.sql` | 增列（默认值 `false` / `zh`，向后兼容） |
+| 持久化 | `apps/api/src/postgresRepository.ts` | SQL + mapper + 类型守卫 |
+| 业务 | `apps/api/src/entryLanguage.ts`（新） | `detectEntryLanguage` 字符区块扫描 + 语言类启发式 |
+| 业务 | `apps/api/src/encyclopediaSpecReview.ts` | 重写：15 条规则 + `ENFORCEMENT` 表 + 两阶段策略 |
+| 业务 | `apps/api/src/service.ts` | `createEncyclopediaEntryGuidance` 串联 + `businessContext` 写入 + `resolveArtifactQualityGateForJob` 透传 + `lintDynamicEncyclopediaTemplatePack` 改造 + `adminCapabilityQualitySummary` 加 `hardConstraints` 字段 |
+| 模板 | `apps/api/src/officialDesignTemplatePacks.ts` | 父包 + 5 个子模板 components/rationale/dos/donts 全部重写 |
+| 模板 | `apps/api/src/capabilities.ts` | `sk_enc...ance` skill 升级 v2 + id 漂移 hex 修复 |
+| 模板 | `apps/api/src/encyclopediaDemocase.ts` | 4 条 summary 字段汉化 |
+| 测试 | `apps/api/src/entryLanguage.test.ts`（新） | 12 个测试 |
+| 测试 | `apps/api/src/encyclopediaSpecReview.test.ts` | 重写：10 个测试 |
+| 测试 | `apps/api/src/officialDesignTemplatePacks.test.ts` | 更新 child template 断言 |
+| 测试 | `apps/api/src/designJobEvents.test.ts` | 修 fixture HTML（`.scroll-container` → `.no-scroll-frame` + `.tab-bar`） |
+| Web | `apps/web/src/components/LanguageProvider.tsx` | 加 5 个新翻译键（en + zh） |
+| Web | `apps/web/src/app/page.tsx` | entryGuidance 卡片加 `中文优先` / `语言类` 标签 + 语种徽章 |
+| Web | `apps/web/e2e/mock-product-flow.spec.ts` | 断言 `entry-guidance-chinese-first` 标签可见 |
+
+**合计 ~17 个文件、~1700 行 diff，全部 132 个测试通过**。
+
+### 17.4 已知遗留问题（不阻塞 v0.4 发布）
+
+1. **capabilities preset id 漂移**（已部分修复）：`sk_enc...ance` 已通过 hex 字节级替换对齐 preset；`sk_dua...tegy` / `sk_dat...ysis` 当前是相同字节序列，**未发现漂移**。如后续引入新 skill，必须在 preset 和定义处用**完整真名**（不要用 `...` 形式）。
+2. **Stage 2 升级**尚未触发。1-2 周观察期后，把 `ENFORCEMENT` 表中 4 条 `warning` 升 `error`，并在 spec review 自动修复 prompt 中加入对应修复指令。
+3. **真实 democase 数据接入**（roadmap Stage 6 收尾）：当前 democase 仅 4 条 mock 案例，命中规则不完整；真实词条资料服务接入后，`detectEntryLanguage` 需结合 democase signals 重新校准。
+4. **Admin 写侧治理**（roadmap Stage 7）：模板发布/下线/版本对比、词条引导命中率面板、规范审查通过率统计尚未在 admin UI 落地。当前 v0.4 仅提供 `hardConstraints` 摘要字段供 admin 面板读取。

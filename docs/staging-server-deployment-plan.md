@@ -298,6 +298,17 @@ deploy/staging/scripts/smoke-babelo-prompt-remote.sh
 
 `DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT` 可设为 `1..6`。常规 smoke 默认仍为 1，避免每次部署都触发高成本真实内核并发生成。
 
+真实 BabeL-O 动态百科四垂类矩阵 smoke（opt-in，高成本，建议在动态百科 runtime prompt 或 spec review 改动后运行）：
+
+```bash
+DUDESIGN_STAGING_REMOTE=tyy \
+DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX=1 \
+DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TIMEOUT_SECONDS=720 \
+deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh
+```
+
+该矩阵会顺序验证电影、电视剧、历史人物、文化类词语四类真实生成，并断言不触发对应垂类 forbidden spec finding。
+
 真实 BabeL-O staging/prod 默认采用：
 
 ```env

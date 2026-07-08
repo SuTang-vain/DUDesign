@@ -225,6 +225,21 @@
   - [x] 自动修复 prompt 中的 selected template 应使用当前 variation 实际分配模板，避免把 timeline 规则错误应用到 summary/compare/data 等非 timeline 变体。
 - [x] 定义动态百科 Capability Preset：自动选择词条引导、动态百科模板包和自动审查。
 - [x] 将分类、子模板、交互范式、review mode 写入 capability/job snapshot，保证 resume 不漂移；当前 confirmed guidance 已持久化 selected child template、interaction paradigm 和 review mode，并通过 create job 写入 `templateRequirements.businessContext`。
+- [x] 沉淀动态百科垂类模板迭代规划：`docs/dynamic-encyclopedia-vertical-template-roadmap.md`。
+- [x] 注册首批高优垂类子模板：
+  - [x] 历史人物关系图谱 `dtp_de_history_person_relationship`。
+  - [x] 历史人物事件因果链 `dtp_de_history_person_event_chain`。
+  - [x] 电影演员-角色网络 `dtp_de_film_cast_role_network`。
+  - [x] 电影系列/IP 导航 `dtp_de_film_series_navigation`。
+  - [x] 电视剧角色关系 `dtp_de_tv_character_relation`。
+  - [x] 电视剧分集剧情链 `dtp_de_tv_episode_chain`。
+  - [x] 文化词语关联图谱 `dtp_de_cultural_phrase_relation_graph`。
+  - [x] 文化词语出处典故 `dtp_de_cultural_phrase_origin_story`。
+- [x] 扩展 `InteractionParadigm` 映射：`ip_causal_event_chain`、`ip_series_navigation`，并把垂类子模板接入 `compatibleTemplatePackIds`。
+- [x] 扩展 entry guidance mock 分类与 democase，让历史人物、电影、电视剧、文化类词语可以自动推荐垂类子模板。
+- [x] 将 `metadata.classificationVector` 明确写入 guidance 持久化，表达 L1/L2/L3+、推荐模块优先级和分类信号。
+- [x] 扩展 spec review（Stage 1 warning）：影视禁止盗版资源入口、剧情/集数不得幻觉；历史关系/事件不得编造；文化典故缺可靠出处时隐藏。
+- [ ] 将垂类 spec review 从 Stage 1 warning 升级策略沉淀到管理端治理面板，支持按规则查看命中率与误伤率。
 
 验收：
 
@@ -325,3 +340,13 @@
 验收：
 
 - 用户可以把自定义模板提交给平台审核，但不会绕过官方模板治理和版权/安全门禁。
+
+## v0.4 硬性归束（2026-07-08 落地）
+
+- [x] `loop_encyclopedia_spec_review` 自动引入 spec gate（4 条新规则全部以 warning 生效）
+- [x] `loop_standard` / `loop_fast` / `loop_deep_repair` 行为不变
+- [x] Stage 1→Stage 2 升级路径：`ENFORCEMENT` 表中规则 severity 从 `'warning'` 改为 `'error'`
+- [ ] 1-2 周后根据真实分布触发 Stage 2 升级
+
+验收：
+- 全部现有 loop profile 行为不变（仅 spec review 增加了 8 条新 finding 收集）
