@@ -43,13 +43,15 @@ type ContextPanel = 'files' | 'loop' | 'plugins'
 const entryClassificationOptions = [
   { primaryCategory: '机构组织', secondaryCategory: '企业', label: '企业' },
   { primaryCategory: '机构组织', secondaryCategory: '学校', label: '学校' },
-  { primaryCategory: '人物', secondaryCategory: '名人', label: '名人' },
-  { primaryCategory: '人物', secondaryCategory: '历史人物', label: '历史人物' },
-  { primaryCategory: '作品', secondaryCategory: '影视作品', label: '影视作品' },
-  { primaryCategory: '作品', secondaryCategory: '文学著作', label: '文学著作' },
-  { primaryCategory: '作品', secondaryCategory: '游戏', label: '游戏' },
+  { primaryCategory: '名人', secondaryCategory: '娱乐明星', label: '名人' },
+  { primaryCategory: '名人', secondaryCategory: '历史人物', label: '历史人物' },
+  { primaryCategory: '影视作品', secondaryCategory: '电影', label: '电影' },
+  { primaryCategory: '影视作品', secondaryCategory: '电视剧', label: '电视剧' },
+  { primaryCategory: '文学著作', secondaryCategory: '小说著作', label: '文学著作' },
+  { primaryCategory: '游戏', secondaryCategory: '电子游戏', label: '游戏' },
   { primaryCategory: '物品产品', secondaryCategory: '产品设备', label: '产品设备' },
-  { primaryCategory: '知识', secondaryCategory: '知识术语', label: '知识术语' },
+  { primaryCategory: '知识术语', secondaryCategory: '文化类词语', label: '文化词语' },
+  { primaryCategory: '知识术语', secondaryCategory: '概念定义', label: '知识术语' },
 ]
 const floatingMenuGlassStyle: React.CSSProperties = {
   backdropFilter: 'blur(18px) saturate(160%)',
@@ -269,6 +271,8 @@ export default function HomePage(): React.JSX.Element {
     }
     if (domainTemplateId === 'tpl_dynamic_encyclopedia_entry') {
       setDomainTemplateId(capabilities?.defaults.domainTemplateId ?? '')
+      setAestheticProfileId(capabilities?.defaults.aestheticProfileId ?? '')
+      setColorPaletteId(capabilities?.defaults.colorPaletteId ?? '')
       setSelectedTemplatePackIds([])
       setSelectedSkillIds([])
       setSelectedMcpToolIds([])
@@ -358,6 +362,13 @@ export default function HomePage(): React.JSX.Element {
   const selectedPalette = availablePalettes.find(palette => palette.id === colorPaletteId)
     ?? capabilities?.colorPalettes.find(palette => palette.id === colorPaletteId)
   const selectedLoop = capabilities?.automationLoopProfiles.find(profile => profile.id === loopProfileId)
+  const dynamicEncyclopediaPreset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+  const summaryDomain = productMode === 'dynamic_encyclopedia_card'
+    ? capabilities?.domainTemplates.find(template => template.id === (dynamicEncyclopediaPreset?.domainTemplateId ?? 'tpl_dynamic_encyclopedia_entry')) ?? selectedDomain
+    : selectedDomain
+  const summaryLoop = productMode === 'dynamic_encyclopedia_card'
+    ? capabilities?.automationLoopProfiles.find(profile => profile.id === (dynamicEncyclopediaPreset?.loopProfileId ?? 'loop_encyclopedia_spec_review')) ?? selectedLoop
+    : selectedLoop
   const pluginsById = new Map((capabilities?.plugins ?? []).map(plugin => [plugin.id, plugin]))
   const selectedSkillSummary = (capabilities?.skills ?? [])
     .filter(skill => selectedSkillIds.includes(skill.id))
@@ -1113,6 +1124,29 @@ export default function HomePage(): React.JSX.Element {
                 <span className="eyebrow">{t('entryGuidance')}</span>
                 <strong>{entryGuidance.classification.primaryCategory} / {entryGuidance.classification.secondaryCategory}</strong>
                 <small>{t('confidence')} {Math.round(entryGuidance.classification.confidence * 100)}% · {c18n.interactionParadigmName(entryGuidance.interactionParadigm.id, entryGuidance.interactionParadigm.name)}</small>
+                {/* 硬性归束（v0.4）：显示词条语言分类与"中文优先"约束 */}
+                <div className="entry-guidance-language-tags" data-testid="entry-guidance-language-tags">
+                  {entryGuidance.isLanguageCategory ? (
+                    <span
+                      className="entry-guidance-tag is-language-category"
+                      data-testid="entry-guidance-language-category"
+                      title={t('languageCategoryHint')}
+                    >
+                      {t('languageCategoryBadge')}
+                    </span>
+                  ) : (
+                    <span
+                      className="entry-guidance-tag is-chinese-first"
+                      data-testid="entry-guidance-chinese-first"
+                      title={t('chineseFirstHint')}
+                    >
+                      {t('chineseFirstBadge')}
+                    </span>
+                  )}
+                  <span className="entry-guidance-tag entry-content-language" data-testid="entry-guidance-content-language">
+                    {entryGuidance.entryContentLanguage}
+                  </span>
+                </div>
               </div>
               {entryGuidance.requiresConfirmation ? (
                 <div className="entry-guidance-classifications" data-testid="entry-guidance-classification-options">
@@ -1219,7 +1253,7 @@ export default function HomePage(): React.JSX.Element {
 
           {capabilities ? (
             <div className="cap-strip" data-testid="capability-summary">
-              <span className="chip"><span className="k">{t('scene')}</span>{selectedDomain ? c18n.domainName(selectedDomain.id, selectedDomain.name) : t('domain')}</span>
+              <span className="chip"><span className="k">{t('scene')}</span>{summaryDomain ? c18n.domainName(summaryDomain.id, summaryDomain.name) : t('domain')}</span>
               {visualMode === 'pack' ? (
                 <span className="chip"><span className="k">{t('templateLibrary')}</span>{selectedTemplatePackIds.length
                   ? `${selectedTemplatePackIds.length} ${t('templatesCount')}${autoDistributePacks && selectedTemplatePackIds.length > 1 ? ` · ${t('autoDistribute')}` : ''}`
@@ -1233,7 +1267,7 @@ export default function HomePage(): React.JSX.Element {
               {selectedPluginSummary.length ? (
                 <span className="chip"><span className="k">{t('plugins')}</span>{selectedPluginSummary.slice(0, 2).join(' · ')}{selectedPluginSummary.length > 2 ? ` +${selectedPluginSummary.length - 2}` : ''}</span>
               ) : null}
-              <span className="chip"><span className="k">{t('loop')}</span>{selectedLoop ? c18n.loopName(selectedLoop.id, selectedLoop.name) : t('loop')}</span>
+              <span className="chip"><span className="k">{t('loop')}</span>{summaryLoop ? c18n.loopName(summaryLoop.id, summaryLoop.name) : t('loop')}</span>
             </div>
           ) : null}
 

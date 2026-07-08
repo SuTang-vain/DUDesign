@@ -402,6 +402,9 @@ test('dynamic encyclopedia mode guides entry classification before creating a jo
   expect(guidancePayload.interactionParadigm.id).toBe('ip_entity_summary')
 
   await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
+  // 硬性归束（v0.4）：百度百科词条命中 democase + 大量中文 → 非语言类 + 中文优先
+  await expect(page.getByTestId('entry-guidance-chinese-first')).toBeVisible()
+  await expect(page.getByTestId('entry-guidance-content-language')).toContainText('zh')
   await page.getByTestId('generate-button').click()
   await expect(page).toHaveURL(/\/jobs\/job_/)
 
