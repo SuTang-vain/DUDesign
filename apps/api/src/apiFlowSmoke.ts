@@ -436,6 +436,11 @@ Reusable smoke test template.
   assert.equal(entryGuidance.templateRequirements.businessContext.classification.l1, '机构组织')
   assert.equal(entryGuidance.templateRequirements.businessContext.classification.l2, '企业')
   assert.equal(entryGuidance.templateRequirements.businessContext.classification.l3, '知识服务')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l1, '机构组织')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l2, '企业')
+  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l3, '知识服务')
+  assert.ok(entryGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('summary_facts'))
+  assert.ok(entryGuidance.templateRequirements.businessContext.classificationVector.preferredTemplateIds.includes('dtp_dynamic_encyclopedia_summary_card'))
   assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigm.id, 'ip_entity_summary')
   assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates.length, 2)
   assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates[0]?.selected, true)
@@ -500,6 +505,60 @@ Reusable smoke test template.
   assert.equal(compareGuidance.interactionParadigm.id, 'ip_fact_compare')
   assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_compare_card'))
   assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_expandable_card'))
+
+  const historyPersonGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '李白 历史人物 关系、诗歌作品和重要人生事件',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(historyPersonGuidance.classification.primaryCategory, '名人')
+  assert.equal(historyPersonGuidance.classification.secondaryCategory, '历史人物')
+  assert.equal(historyPersonGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_history_person_relationship')
+  assert.ok(historyPersonGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_history_person_event_chain'))
+  assert.equal(historyPersonGuidance.interactionParadigm.id, 'ip_relation_map')
+
+  const filmGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '电影《飞驰人生3》主演、角色、系列电影和相似电影推荐',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(filmGuidance.classification.primaryCategory, '影视作品')
+  assert.equal(filmGuidance.classification.secondaryCategory, '电影')
+  assert.ok(filmGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('cast_role_network'))
+  assert.ok(filmGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('no_piracy_or_playback_resources'))
+  assert.equal(filmGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_film_cast_role_network')
+  assert.ok(filmGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_film_series_navigation'))
+  assert.equal(filmGuidance.interactionParadigm.id, 'ip_relation_map')
+
+  const tvGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '电视剧《庆余年》角色关系、分集剧情、伏笔和系列季播导航',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(tvGuidance.classification.primaryCategory, '影视作品')
+  assert.equal(tvGuidance.classification.secondaryCategory, '电视剧')
+  assert.ok(tvGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('episode_causal_chain'))
+  assert.ok(tvGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('spoiler_control_required'))
+  assert.equal(tvGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_tv_character_relation')
+  assert.ok(tvGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_tv_episode_chain'))
+  assert.equal(tvGuidance.interactionParadigm.id, 'ip_relation_map')
+
+  const culturalPhraseGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '成语“悬梁刺股”的意思、出处典故、近义词反义词和关联词语',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(culturalPhraseGuidance.classification.primaryCategory, '知识术语')
+  assert.equal(culturalPhraseGuidance.classification.secondaryCategory, '文化类词语')
+  assert.ok(culturalPhraseGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('related_phrase_graph'))
+  assert.ok(culturalPhraseGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('origin_source_required'))
+  assert.equal(culturalPhraseGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_cultural_phrase_relation_graph')
+  assert.ok(culturalPhraseGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_cultural_phrase_origin_story'))
+  assert.equal(culturalPhraseGuidance.interactionParadigm.id, 'ip_relation_map')
 
   const confirmedEntryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
     `/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}/confirm`,

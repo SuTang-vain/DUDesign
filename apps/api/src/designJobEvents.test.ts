@@ -547,6 +547,166 @@ describe('Design job event persistence and partial failures', () => {
     await harness.close()
     harness = null
   })
+
+  it('carries vertical classification vectors into dynamic encyclopedia spec review findings', async () => {
+    const cases: Array<{
+      mode: ControlledRuntimeMode
+      title: string
+      prompt: string
+      templatePackId: string
+      entryTitle: string
+      classificationVector: VerticalClassificationVectorInput
+      expectedFindingId: string
+      issuePattern: RegExp
+    }> = [
+      {
+        mode: 'encyclopedia-film-resource-risk',
+        title: 'Film vertical classification spec review',
+        prompt: '电影《飞驰人生3》主演、角色、系列电影和相似电影推荐',
+        templatePackId: 'dtp_de_film_cast_role_network',
+        entryTitle: '飞驰人生3',
+        classificationVector: {
+          l1: '影视作品',
+          l2: '电影',
+          l3: '系列电影',
+          signals: ['电影', '主演', '角色', '系列电影'],
+          recommendedModulePriorities: ['cast_role_network', 'series_navigation', 'summary_facts'],
+          preferredTemplateIds: ['dtp_de_film_cast_role_network', 'dtp_de_film_series_navigation'],
+          riskFlags: ['media_resource_link_blocked', 'no_piracy_or_playback_resources', 'plot_hallucination_risk'],
+        },
+        expectedFindingId: 'encyclopedia.media_resource_link_blocked',
+        issuePattern: /playback, download|播放|下载|resource/i,
+      },
+      {
+        mode: 'encyclopedia-tv-episode-risk',
+        title: 'TV vertical classification spec review',
+        prompt: '电视剧《庆余年》角色关系、分集剧情、伏笔和系列季播导航',
+        templatePackId: 'dtp_de_tv_episode_chain',
+        entryTitle: '庆余年',
+        classificationVector: {
+          l1: '影视作品',
+          l2: '电视剧',
+          l3: '古装历史剧',
+          signals: ['电视剧', '角色关系', '分集剧情', '伏笔'],
+          recommendedModulePriorities: ['episode_causal_chain', 'spoiler_control', 'character_relation'],
+          preferredTemplateIds: ['dtp_de_tv_episode_chain', 'dtp_de_tv_character_relation'],
+          riskFlags: ['episode_count_hallucination_risk', 'spoiler_control_required'],
+        },
+        expectedFindingId: 'encyclopedia.tv_episode_fabrication_risk',
+        issuePattern: /episode counts|episode plot|集数|分集剧情/i,
+      },
+      {
+        mode: 'encyclopedia-history-relation-risk',
+        title: 'History-person vertical classification spec review',
+        prompt: '苏轼人物关系、师承、政治阵营与重要事件链',
+        templatePackId: 'dtp_de_history_person_relationship',
+        entryTitle: '苏轼',
+        classificationVector: {
+          l1: '名人',
+          l2: '历史人物',
+          l3: '文人学者',
+          signals: ['人物关系', '师承', '政治阵营', '重要事件'],
+          recommendedModulePriorities: ['relationship_graph', 'event_causal_chain', 'summary_facts'],
+          preferredTemplateIds: ['dtp_de_history_person_relationship', 'dtp_de_history_person_event_chain'],
+          riskFlags: ['relationship_hallucination_risk', 'event_causality_source_required'],
+        },
+        expectedFindingId: 'encyclopedia.history_relation_source_required',
+        issuePattern: /Historical-person relationship|relationship claims|人物关系|关系/i,
+      },
+      {
+        mode: 'encyclopedia-cultural-origin-risk',
+        title: 'Cultural phrase vertical classification spec review',
+        prompt: '成语“悬梁刺股”的意思、出处典故、近义词反义词和关联词语',
+        templatePackId: 'dtp_de_cultural_phrase_origin_story',
+        entryTitle: '悬梁刺股',
+        classificationVector: {
+          l1: '知识术语',
+          l2: '文化类词语',
+          l3: '出处典故',
+          signals: ['成语', '出处典故', '近义词', '关联词语'],
+          recommendedModulePriorities: ['origin_story', 'related_phrase_graph', 'meaning_compare'],
+          preferredTemplateIds: ['dtp_de_cultural_phrase_origin_story', 'dtp_de_cultural_phrase_relation_graph'],
+          riskFlags: ['origin_source_required', 'related_phrase_type_required'],
+        },
+        expectedFindingId: 'encyclopedia.cultural_origin_source_required',
+        issuePattern: /Cultural phrase origin|source text|出处|典故/i,
+      },
+    ]
+
+    for (const testCase of cases) {
+      harness = await startApiFlowHarness(new ApplicationService({
+        runtime: new ControlledRuntimeGateway(testCase.mode),
+        queue: new NoopScreenshotQueue(),
+      }))
+      const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+      const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+        workspaceId: bootstrap.workspace.id,
+        mode: 'new_html',
+        title: testCase.title,
+      })
+      const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+        sessionId: session.session.id,
+        prompt: testCase.prompt,
+        sourceMode: 'new_html',
+        productMode: 'dynamic_encyclopedia_card',
+        variationCount: 1,
+        capabilityRequirements: {
+          template: {
+            designTemplatePackIds: [testCase.templatePackId],
+          },
+          automation: {
+            loopProfileId: 'loop_standard',
+            maxRepairAttempts: 1,
+          },
+        },
+        templateRequirements: {
+          designTemplatePackIds: [testCase.templatePackId],
+          businessContext: {
+            reviewMode: 'semi_auto',
+            entryTitle: testCase.entryTitle,
+            classificationVector: {
+              schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1',
+              confidence: 0.86,
+              source: 'mock_rules',
+              ...testCase.classificationVector,
+            },
+          },
+        },
+      })
+      await waitForJob(harness, job.job.id, 'completed')
+      await harness.service.flushBackgroundTasks()
+
+      const snapshot = await getJson<DesignJobSnapshotResponse>(harness, `/api/design-jobs/${job.job.id}`)
+      assert.equal(snapshot.variations[0]?.designTemplatePack?.id, testCase.templatePackId)
+      const htmlArtifact = snapshot.artifacts.find(artifact => artifact.kind === 'html')
+      assert.ok(htmlArtifact)
+      assert.equal(htmlArtifact.quality?.status, 'warn', testCase.title)
+      assert.equal(
+        htmlArtifact.quality?.specFindings?.some(finding => finding.id === testCase.expectedFindingId),
+        true,
+        testCase.title,
+      )
+
+      const events = await harness.service.store.listDesignEvents(job.job.id)
+      const qualityChecked = events.find(event => event.type === 'design.loop_quality_checked')
+      const repairPlanned = events.find(event => event.type === 'design.loop_repair_planned')
+      const stopped = events.find(event => event.type === 'design.loop_stopped')
+      assert.equal(qualityChecked?.payload.status, 'warn', testCase.title)
+      assert.equal(
+        Array.isArray(qualityChecked?.payload.issues)
+          && qualityChecked.payload.issues.some(issue => testCase.issuePattern.test(String(issue))),
+        true,
+        testCase.title,
+      )
+      assert.equal(repairPlanned?.payload.reviewMode, 'semi_auto', testCase.title)
+      assert.equal(repairPlanned?.payload.requiresConfirmation, true, testCase.title)
+      assert.match(repairPlanned?.payload.promptPreview ?? '', new RegExp(escapeRegExp(testCase.expectedFindingId)))
+      assert.equal(stopped?.payload.reason, 'review_pending_confirmation', testCase.title)
+
+      await harness.close()
+      harness = null
+    }
+  })
 })
 
 class NoopScreenshotQueue extends InMemoryDesignJobQueue {
@@ -567,8 +727,31 @@ class NoopScreenshotQueue extends InMemoryDesignJobQueue {
   }
 }
 
+type ControlledRuntimeMode =
+  | 'all-complete'
+  | 'partial-failure'
+  | 'late-streaming-after-complete'
+  | 'quality-failure'
+  | 'quality-failure-still-fails'
+  | 'quality-failure-runtime-unavailable'
+  | 'encyclopedia-summary-with-timeline-candidate'
+  | 'encyclopedia-film-resource-risk'
+  | 'encyclopedia-tv-episode-risk'
+  | 'encyclopedia-history-relation-risk'
+  | 'encyclopedia-cultural-origin-risk'
+
+type VerticalClassificationVectorInput = {
+  l1: string
+  l2: string
+  l3: string
+  signals: string[]
+  recommendedModulePriorities: string[]
+  preferredTemplateIds: string[]
+  riskFlags: string[]
+}
+
 class ControlledRuntimeGateway implements RuntimeGateway {
-  constructor(private readonly mode: 'all-complete' | 'partial-failure' | 'late-streaming-after-complete' | 'quality-failure' | 'quality-failure-still-fails' | 'quality-failure-runtime-unavailable' | 'encyclopedia-summary-with-timeline-candidate') {}
+  constructor(private readonly mode: ControlledRuntimeMode) {}
 
   async getRuntimeHealth() {
     return {
@@ -703,12 +886,20 @@ class ControlledRuntimeGateway implements RuntimeGateway {
     <style>
       html, body { height: 100%; margin: 0; overflow: hidden; }
       body { font-family: Inter, "PingFang SC", system-ui, sans-serif; color: #1E1F24; background: #F8F8F8; }
-      .scroll-container { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; padding: 24px; }
+      /* 硬性归束（v0.4）：no-scroll-frame + tab-bar 取代 .scroll-container */
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .tab-bar { display: flex; gap: 8px; border-bottom: 1px solid #B7B9C1; padding-bottom: 8px; margin-bottom: 12px; }
+      .tab-bar button { background: none; border: none; padding: 4px 8px; color: #1E1F24; font: inherit; }
+      .tab-bar button[aria-selected="true"] { color: #6487FA; border-bottom: 2px solid #6487FA; }
       .fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     </style>
   </head>
   <body>
-    <main class="scroll-container">
+    <main class="no-scroll-frame">
+      <nav class="tab-bar" role="tablist">
+        <button type="button" role="tab" aria-selected="true">概览</button>
+        <button type="button" role="tab" aria-selected="false">时间线</button>
+      </nav>
       <h1>牛顿摆</h1>
       <section aria-label="百科概览">百科概览：牛顿摆是一种演示动量守恒和能量传递的教学装置。</section>
       <section class="fact-grid" aria-label="关键事实">
@@ -721,8 +912,117 @@ class ControlledRuntimeGateway implements RuntimeGateway {
   </body>
 </html>`
     }
+    if (this.mode === 'encyclopedia-film-resource-risk') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>飞驰人生3 角色关系卡</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: "PingFang SC", system-ui, sans-serif; color: #16181D; background: #FAFAFA; }
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .node { border: 1px solid #D6DAE3; padding: 12px; border-radius: 8px; background: #FFFFFF; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <h1>飞驰人生3</h1>
+      <section aria-label="百科概览">百科概览：这是一张围绕主演、角色关系和系列电影脉络组织的动态百科卡。</section>
+      <section class="role-grid" aria-label="角色关系">
+        <article class="node"><strong>主演</strong><p>角色关系需要根据公开资料核验。</p></article>
+        <article class="node"><strong>系列电影</strong><p>与前作关系待补充可靠来源。</p></article>
+        <article class="node"><strong>相似电影</strong><p>相似题材可以按类型、人物目标和叙事结构比较。</p></article>
+        <article class="node"><strong>观看资源</strong><p>提供在线观看、免费下载、网盘和播放地址入口。</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
+    if (this.mode === 'encyclopedia-tv-episode-risk') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>庆余年分集剧情链</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: "PingFang SC", system-ui, sans-serif; color: #16181D; background: #FAFAFA; }
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .episode-chain { display: grid; gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <h1>庆余年</h1>
+      <section aria-label="百科概览">百科概览：围绕角色关系、分集剧情和伏笔回收组织的电视剧动态百科卡。</section>
+      <section class="episode-chain" aria-label="分集剧情链">
+        <article><strong>第 38 集</strong><p>主角揭开结局真相，伏笔完成回收。</p></article>
+        <article><strong>集数</strong><p>全剧节点按关键冲突展开。</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
+    if (this.mode === 'encyclopedia-history-relation-risk') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>苏轼人物关系图</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: "PingFang SC", system-ui, sans-serif; color: #16181D; background: #FAFAFA; }
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .relation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <h1>苏轼</h1>
+      <section aria-label="百科概览">百科概览：这是一张展示历史人物关系、师承与政治阵营的动态百科卡。</section>
+      <section class="relation-grid" aria-label="人物关系">
+        <article><strong>父</strong><p>苏洵</p></article>
+        <article><strong>弟</strong><p>苏辙</p></article>
+        <article><strong>师承</strong><p>欧阳修</p></article>
+        <article><strong>对手</strong><p>王安石</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
+    if (this.mode === 'encyclopedia-cultural-origin-risk') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>悬梁刺股出处典故</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: "PingFang SC", system-ui, sans-serif; color: #16181D; background: #FAFAFA; }
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .story { display: grid; gap: 12px; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <h1>悬梁刺股</h1>
+      <section aria-label="百科概览">百科概览：这是一张说明成语意思、出处典故和关联词语的动态百科卡。</section>
+      <section class="story" aria-label="出处典故">
+        <article><strong>出处典故</strong><p>故事讲述古人勤学苦读，寓意刻苦学习。</p></article>
+        <article><strong>近义词</strong><p>凿壁偷光、闻鸡起舞。</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
     return '<!doctype html><html><body><main><h1>Completed variation</h1><p>This completed variation has enough visible content to pass the static quality gate.</p></main></body></html>'
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 async function waitForJob(

@@ -334,6 +334,12 @@ export type DesignTemplatePack = {
   previewArtifactId: ID | null
   lintStatus: DesignTemplatePackLintStatus
   createdByUserId: ID | null
+  /**
+   * 成熟 HTML 示例（few-shot），供 LLM 借鉴风格/结构。
+   * 必须满足 v0.4 硬性归束：no-scroll-frame + 至少一个溢出策略组件 + 中文优先 + 禁英文 UI 短语。
+   * LLM **不应复制**示例的具体文案/词条名/事实，只借鉴布局/排版/视觉密度。
+   */
+  htmlExamples?: string[]
 }
 
 export type DesignTemplatePackLintFinding = {
@@ -649,6 +655,25 @@ export type ConfirmEncyclopediaEntryGuidanceRequest = {
   automationMode?: 'off' | 'semi_auto' | 'auto'
 }
 
+/**
+ * 词条正文预期语种。用于百科规范审查的"中文优先"豁免判断。
+ * 与 domain 层 EncyclopediaEntryGuidance.entryContentLanguage 保持一致。
+ */
+export type EntryContentLanguage = 'zh' | 'en' | 'fr' | 'ja' | 'ko' | 'other' | 'mixed'
+
+export type EncyclopediaClassificationVector = {
+  schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1'
+  l1: string
+  l2: string
+  l3: string
+  confidence: number
+  signals: string[]
+  source: 'mock_rules'
+  recommendedModulePriorities: string[]
+  preferredTemplateIds: ID[]
+  riskFlags: string[]
+}
+
 export type EncyclopediaEntryGuidanceResponse = {
   guidanceId: ID
   productMode: Extract<ProductMode, 'dynamic_encyclopedia_card'>
@@ -660,6 +685,16 @@ export type EncyclopediaEntryGuidanceResponse = {
     rawInput: string
     context: string | null
   }
+  /**
+   * 是否为语言类词条（外语/语言学/翻译/方言/语言研究）。
+   * true 时百科规范审查豁免"中文优先"硬约束，允许外语正文。
+   */
+  isLanguageCategory: boolean
+  /**
+   * 词条正文预期语种。基于 `entryLanguage` 启发式 + democase 信号推断。
+   * 仅用于 spec review 与未来 i18n 适配，不影响生成。
+   */
+  entryContentLanguage: EntryContentLanguage
   classification: {
     primaryCategory: string
     secondaryCategory: string
@@ -693,6 +728,8 @@ export type EncyclopediaEntryGuidanceResponse = {
       entryPrimaryCategory: string
       entrySecondaryCategory: string
       entryTertiaryCategory: string
+      isLanguageCategory: boolean
+      entryContentLanguage: EntryContentLanguage
       classification: {
         l1: string
         l2: string
@@ -701,6 +738,7 @@ export type EncyclopediaEntryGuidanceResponse = {
         signals: string[]
         source: 'mock_rules'
       }
+      classificationVector: EncyclopediaClassificationVector
       interactionParadigmId: ID
       interactionParadigm: InteractionParadigm
       recommendedTemplateIds: ID[]

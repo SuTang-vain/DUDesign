@@ -16,6 +16,7 @@ import type {
   DataIntakeField,
   DataIntakeInputSource,
   DataIntakeRecommendation,
+  EncyclopediaClassificationVector,
   EncyclopediaEntryGuidanceResponse,
   ExecuteMcpInvocationResponse,
   ImageGenerationArtifact,
@@ -50,7 +51,7 @@ import {
   type RuntimeGateway,
   type RuntimeModels,
 } from '@dudesign/runtime-gateway'
-import type { Artifact, DesignVariation, DesignVariationStatus, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
+import type { Artifact, DesignVariation, DesignVariationStatus, EntryContentLanguage, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
 import type { EncyclopediaEntryGuidance } from '@dudesign/domain'
 import { createHash } from 'node:crypto'
 import { join, posix } from 'node:path'
@@ -106,6 +107,7 @@ import {
   type AutomationLoopStopReason,
 } from './automationLoop.js'
 import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
+import { detectEntryLanguage } from './entryLanguage.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
 
@@ -259,6 +261,16 @@ type AdminCapabilityQualitySummary = {
   automationLoopsWithPixelGate: number
   auditLogCount: number
   recentDriftCount: number
+  // 硬性归束（v0.4）摘要
+  hardConstraints: {
+    /** 模板包在硬性归束（no-scroll-frame / 溢出策略 / 中文优先 / 英文 UI 短语）上的合规统计 */
+    templates: {
+      total: number
+      compliant: number
+      chineseFirstMissing: number
+      englishUiMissing: number
+    }
+  }
   previewSmoke: {
     status: 'not_configured' | 'available'
     passedCount: number
@@ -534,6 +546,14 @@ export class ApplicationService {
     const interactionParadigmId = democaseMatches[0]?.interactionParadigmId
       ?? recommendedTemplates.find(template => selectedTemplateIds.includes(template.designTemplatePackId))?.interactionParadigmId
       ?? recommendedInteractionParadigmId(classification.primaryCategory, classification.secondaryCategory)
+    const classificationVector = buildEncyclopediaClassificationVector(
+      classification,
+      recommendedTemplates.map(template => template.designTemplatePackId),
+    )
+
+    // 词条语言识别（在 guidance 落地前完成，结果会进入 businessContext，
+    // 供后续 spec review 的"中文优先"硬约束使用）。
+    const languageDetection = detectEntryLanguage(title, context)
 
     const now = new Date().toISOString()
     const requiresConfirmation = classification.confidence < LOW_CONFIDENCE_GUIDANCE_THRESHOLD
@@ -554,11 +574,15 @@ export class ApplicationService {
       selectedTemplateIds,
       interactionParadigmId,
       automationMode,
+      isLanguageCategory: languageDetection.isLanguageCategory,
+      entryContentLanguage: languageDetection.entryContentLanguage,
       status: requiresConfirmation ? 'needs_confirmation' : 'draft',
       confirmedAt: null,
       metadata: {
         classificationSource: 'mock_rules',
+        classificationVector,
         requiresConfirmation,
+        languageDetection, // 保留字符区块分布与触发信号，便于 admin 面板与 audit
         democaseReferences: democaseMatches,
       },
       createdAt: now,
@@ -620,6 +644,13 @@ export class ApplicationService {
       .map(templateId => interactionParadigmIdForTemplatePack(templateId))
       .find((id): id is string => Boolean(id))
       ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory)
+    const classificationVector = buildEncyclopediaClassificationVector({
+      primaryCategory,
+      secondaryCategory,
+      tertiaryCategory,
+      confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
+      signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
+    }, classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds)
     const now = new Date().toISOString()
     const confirmed = await this.store.saveEncyclopediaEntryGuidance({
       ...guidance,
@@ -636,6 +667,7 @@ export class ApplicationService {
       confirmedAt: now,
       metadata: {
         ...guidance.metadata,
+        classificationVector,
         classificationOverride: classificationOverride ?? null,
       },
       updatedAt: now,
@@ -2842,6 +2874,7 @@ export class ApplicationService {
     guidance: EncyclopediaEntryGuidance,
   ): Promise<EncyclopediaEntryGuidanceResponse> {
     const recommendedTemplates = await this.enrichDynamicEncyclopediaTemplateRecommendations(userId, guidance)
+    const classificationVector = guidanceClassificationVector(guidance)
     const interactionParadigm = listCapabilities().interactionParadigms.find(candidate => candidate.id === guidance.interactionParadigmId)
       ?? listCapabilities().interactionParadigms.find(candidate => candidate.id === 'ip_entity_summary')
     if (!interactionParadigm) throw createHttpError(500, 'INTERACTION_PARADIGM_NOT_FOUND', 'Default interaction paradigm is missing.')
@@ -2856,6 +2889,8 @@ export class ApplicationService {
         rawInput: guidance.rawInput,
         context: guidance.context,
       },
+      isLanguageCategory: guidance.isLanguageCategory,
+      entryContentLanguage: guidance.entryContentLanguage,
       classification: {
         primaryCategory: guidance.primaryCategory,
         secondaryCategory: guidance.secondaryCategory,
@@ -2902,6 +2937,8 @@ export class ApplicationService {
           entryPrimaryCategory: guidance.primaryCategory,
           entrySecondaryCategory: guidance.secondaryCategory,
           entryTertiaryCategory: guidance.tertiaryCategory,
+          isLanguageCategory: guidance.isLanguageCategory,
+          entryContentLanguage: guidance.entryContentLanguage,
           classification: {
             l1: guidance.primaryCategory,
             l2: guidance.secondaryCategory,
@@ -2910,6 +2947,7 @@ export class ApplicationService {
             signals: guidance.signals,
             source: 'mock_rules',
           },
+          classificationVector,
           interactionParadigmId: guidance.interactionParadigmId,
           interactionParadigm,
           recommendedTemplateIds: guidance.selectedTemplateIds,
@@ -4279,6 +4317,12 @@ export class ApplicationService {
       html,
       templatePackIds: profileGate.designTemplatePackIds,
       interactionParadigmId: profileGate.interactionParadigmId,
+      ...(profileGate.entryContext ? {
+        entryTitle: profileGate.entryContext.entryTitle,
+        isLanguageCategory: profileGate.entryContext.isLanguageCategory,
+        entryContentLanguage: profileGate.entryContext.entryContentLanguage,
+        classificationVector: profileGate.entryContext.classificationVector,
+      } : {}),
     })
     if (specReview.status === 'pass') return baseQuality
     const specIssues = specReview.findings.map(finding => `${finding.message} ${finding.repairHint}`)
@@ -4297,6 +4341,16 @@ export class ApplicationService {
     qualityGates: Array<'static' | 'pixel' | 'spec'>
     designTemplatePackIds: string[]
     interactionParadigmId: string | null
+    /**
+     * 词条上下文（用于百科规范审查的"中文优先"判断）。
+     * 仅当 productMode === 'dynamic_encyclopedia_card' 时有意义。
+     */
+    entryContext: {
+      entryTitle: string
+      isLanguageCategory: boolean
+      entryContentLanguage: EntryContentLanguage
+      classificationVector: EncyclopediaClassificationVector | null
+    } | null
   } | null> {
     const job = await this.store.getJobById(jobId)
     if (!job) return null
@@ -4313,12 +4367,28 @@ export class ApplicationService {
         ...(job.productMode === 'dynamic_encyclopedia_card' ? ['spec' as const] : []),
       ]),
     ]
+    const entryContext: {
+      entryTitle: string
+      isLanguageCategory: boolean
+      entryContentLanguage: EntryContentLanguage
+      classificationVector: EncyclopediaClassificationVector | null
+    } | null = job.productMode === 'dynamic_encyclopedia_card' && businessContext
+      ? {
+          entryTitle: typeof businessContext.entryTitle === 'string' ? businessContext.entryTitle : '',
+          isLanguageCategory: businessContext.isLanguageCategory === true,
+          entryContentLanguage: isEntryContentLanguage(businessContext.entryContentLanguage) ? businessContext.entryContentLanguage : 'zh',
+          classificationVector: isEncyclopediaClassificationVector(businessContext.classificationVector)
+            ? businessContext.classificationVector
+            : null,
+        }
+      : null
     return {
       qualityGates,
       designTemplatePackIds: assignedTemplatePackId ? [assignedTemplatePackId] : requirements?.designTemplatePackIds ?? [],
       interactionParadigmId: typeof businessContext?.interactionParadigmId === 'string'
         ? businessContext.interactionParadigmId
         : null,
+      entryContext,
     }
   }
 
@@ -5393,6 +5463,18 @@ function classifyEncyclopediaEntry(text: string): {
     return matched.length > 0
   }
 
+  if (has(['电影', '影片', '院线', '上映', '票房', '导演', '主演', '演员表', '系列电影', '续集', '前传', '翻拍', '同ip', '同IP', '相似电影'])) {
+    return { primaryCategory: '影视作品', secondaryCategory: '电影', tertiaryCategory: filmTertiaryCategory(normalized), confidence: 0.86, signals: [...new Set(signals)] }
+  }
+  if (has(['电视剧', '剧集', '连续剧', '播出', '集数', '季数', '分集剧情', '角色关系', '角色是谁', '伏笔', '追剧'])) {
+    return { primaryCategory: '影视作品', secondaryCategory: '电视剧', tertiaryCategory: tvTertiaryCategory(normalized), confidence: 0.86, signals: [...new Set(signals)] }
+  }
+  if (has(['历史人物', '皇帝', '帝王', '君臣', '血缘', '家族关系', '师承', '对手', '朝代', '变法', '战役'])) {
+    return { primaryCategory: '名人', secondaryCategory: '历史人物', tertiaryCategory: historyPersonTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
+  }
+  if (has(['成语', '词语', '释义', '意思', '含义', '读音', '拼音', '出处', '典故', '寓言', '近义词', '反义词', '辨析', '造句'])) {
+    return { primaryCategory: '知识术语', secondaryCategory: '文化类词语', tertiaryCategory: culturalPhraseTertiaryCategory(normalized), confidence: 0.82, signals: [...new Set(signals)] }
+  }
   if (has(['公司', '企业', '集团', '融资', '上市', '创始人', 'ceo', '产品线'])) {
     return { primaryCategory: '机构组织', secondaryCategory: '企业', tertiaryCategory: organizationTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
   }
@@ -5400,24 +5482,21 @@ function classifyEncyclopediaEntry(text: string): {
     return { primaryCategory: '机构组织', secondaryCategory: '学校', tertiaryCategory: normalized.includes('校区') ? '校区院系' : '教育机构', confidence: 0.82, signals: [...new Set(signals)] }
   }
   if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员'])) {
-    return { primaryCategory: '人物', secondaryCategory: normalized.includes('历史') ? '历史人物' : '名人', tertiaryCategory: personTertiaryCategory(normalized), confidence: 0.8, signals: [...new Set(signals)] }
-  }
-  if (has(['电影', '电视剧', '综艺', '导演', '主演', '上映', '播出'])) {
-    return { primaryCategory: '作品', secondaryCategory: '影视作品', tertiaryCategory: normalized.includes('电视剧') ? '电视剧' : normalized.includes('综艺') ? '综艺节目' : '电影', confidence: 0.83, signals: [...new Set(signals)] }
+    return { primaryCategory: '名人', secondaryCategory: normalized.includes('历史') ? '历史人物' : '娱乐明星', tertiaryCategory: personTertiaryCategory(normalized), confidence: 0.8, signals: [...new Set(signals)] }
   }
   if (has(['小说', '文学', '作者', '出版', '章节', '诗歌'])) {
-    return { primaryCategory: '作品', secondaryCategory: '文学著作', tertiaryCategory: normalized.includes('诗') ? '诗歌' : '小说著作', confidence: 0.79, signals: [...new Set(signals)] }
+    return { primaryCategory: '文学著作', secondaryCategory: normalized.includes('诗') ? '诗歌' : '小说著作', tertiaryCategory: normalized.includes('诗') ? '诗歌作品' : '小说作品', confidence: 0.79, signals: [...new Set(signals)] }
   }
   if (has(['游戏', '玩法', '关卡', '角色', '发行', '平台'])) {
-    return { primaryCategory: '作品', secondaryCategory: '游戏', tertiaryCategory: normalized.includes('角色') ? '角色玩法' : '电子游戏', confidence: 0.78, signals: [...new Set(signals)] }
+    return { primaryCategory: '游戏', secondaryCategory: '电子游戏', tertiaryCategory: normalized.includes('角色') ? '角色玩法' : '发行平台', confidence: 0.78, signals: [...new Set(signals)] }
   }
   if (has(['产品', '设备', '型号', '参数', '发布', '功能'])) {
     return { primaryCategory: '物品产品', secondaryCategory: '产品设备', tertiaryCategory: normalized.includes('参数') || normalized.includes('型号') ? '参数型号' : '功能产品', confidence: 0.72, signals: [...new Set(signals)] }
   }
   if (has(['概念', '定义', '理论', '技术', '算法', '协议', '模型'])) {
-    return { primaryCategory: '知识', secondaryCategory: '知识术语', tertiaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', confidence: 0.74, signals: [...new Set(signals)] }
+    return { primaryCategory: '知识术语', secondaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', tertiaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', confidence: 0.74, signals: [...new Set(signals)] }
   }
-  return { primaryCategory: '知识', secondaryCategory: '知识术语', tertiaryCategory: '通用', confidence: 0.52, signals: ['fallback'] }
+  return { primaryCategory: '知识术语', secondaryCategory: '概念定义', tertiaryCategory: '通用', confidence: 0.52, signals: ['fallback'] }
 }
 
 function organizationTertiaryCategory(normalized: string): string {
@@ -5432,6 +5511,40 @@ function personTertiaryCategory(normalized: string): string {
   if (normalized.includes('科学家') || normalized.includes('学者')) return '学术人物'
   if (normalized.includes('运动员')) return '体育人物'
   return '人物概况'
+}
+
+function historyPersonTertiaryCategory(normalized: string): string {
+  if (normalized.includes('皇帝') || normalized.includes('帝王') || normalized.includes('君主')) return '帝王君主'
+  if (normalized.includes('将军') || normalized.includes('战役') || normalized.includes('名将')) return '将相军事'
+  if (normalized.includes('诗') || normalized.includes('文学') || normalized.includes('词')) return '文人学者'
+  if (normalized.includes('女性') || normalized.includes('皇后') || normalized.includes('公主')) return '女性历史人物'
+  return '历史人物概况'
+}
+
+function filmTertiaryCategory(normalized: string): string {
+  if (normalized.includes('悬疑') || normalized.includes('犯罪') || normalized.includes('惊悚')) return '悬疑犯罪片'
+  if (normalized.includes('科幻') || normalized.includes('奇幻')) return '科幻奇幻片'
+  if (normalized.includes('动作') || normalized.includes('战争')) return '动作战争片'
+  if (normalized.includes('爱情') || normalized.includes('剧情') || normalized.includes('文艺')) return '爱情剧情片'
+  if (normalized.includes('动画') || normalized.includes('喜剧')) return '喜剧动画片'
+  return '电影作品概况'
+}
+
+function tvTertiaryCategory(normalized: string): string {
+  if (normalized.includes('悬疑') || normalized.includes('刑侦') || normalized.includes('犯罪')) return '悬疑刑侦剧'
+  if (normalized.includes('古装') || normalized.includes('历史') || normalized.includes('权谋')) return '古装历史剧'
+  if (normalized.includes('都市') || normalized.includes('情感')) return '都市情感剧'
+  if (normalized.includes('科幻') || normalized.includes('奇幻')) return '科幻奇幻剧'
+  if (normalized.includes('季') || normalized.includes('系列')) return '系列季播剧'
+  return '电视剧作品概况'
+}
+
+function culturalPhraseTertiaryCategory(normalized: string): string {
+  if (normalized.includes('典故') || normalized.includes('故事') || normalized.includes('寓言') || normalized.includes('出处')) return '出处典故'
+  if (normalized.includes('近义词') || normalized.includes('反义词') || normalized.includes('关联')) return '关联词语'
+  if (normalized.includes('辨析') || normalized.includes('区别') || normalized.includes('易混')) return '词义辨析'
+  if (normalized.includes('读音') || normalized.includes('拼音')) return '读音字形'
+  return '文化词语概况'
 }
 
 function applyDemocaseClassification(
@@ -5459,6 +5572,101 @@ function applyDemocaseClassification(
     confidence: Math.max(classification.confidence, Math.min(0.92, 0.72 + bestMatch.score)),
     signals: [...new Set([...classification.signals.filter(signal => signal !== 'fallback'), ...bestMatch.matchedKeywords])],
   }
+}
+
+function buildEncyclopediaClassificationVector(
+  classification: {
+    primaryCategory: string
+    secondaryCategory: string
+    tertiaryCategory: string
+    confidence: number
+    signals: string[]
+  },
+  preferredTemplateIds: string[],
+): EncyclopediaClassificationVector {
+  const categoryText = `${classification.primaryCategory} ${classification.secondaryCategory} ${classification.tertiaryCategory}`
+  return {
+    schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1',
+    l1: classification.primaryCategory,
+    l2: classification.secondaryCategory,
+    l3: classification.tertiaryCategory,
+    confidence: classification.confidence,
+    signals: [...new Set(classification.signals)],
+    source: 'mock_rules',
+    recommendedModulePriorities: encyclopediaModulePriorities(categoryText),
+    preferredTemplateIds: [...new Set(preferredTemplateIds)],
+    riskFlags: encyclopediaClassificationRiskFlags(categoryText),
+  }
+}
+
+function guidanceClassificationVector(guidance: EncyclopediaEntryGuidance): EncyclopediaClassificationVector {
+  const value = guidance.metadata.classificationVector
+  if (isEncyclopediaClassificationVector(value)) return value
+  return buildEncyclopediaClassificationVector({
+    primaryCategory: guidance.primaryCategory,
+    secondaryCategory: guidance.secondaryCategory,
+    tertiaryCategory: guidance.tertiaryCategory,
+    confidence: guidance.confidence,
+    signals: guidance.signals,
+  }, guidance.recommendedTemplateIds)
+}
+
+function isEncyclopediaClassificationVector(value: unknown): value is EncyclopediaClassificationVector {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return record.schemaVersion === '2026-07-08.dudesign-encyclopedia-classification-vector.v1'
+    && typeof record.l1 === 'string'
+    && typeof record.l2 === 'string'
+    && typeof record.l3 === 'string'
+    && typeof record.confidence === 'number'
+    && Array.isArray(record.signals)
+    && record.signals.every(item => typeof item === 'string')
+    && record.source === 'mock_rules'
+    && Array.isArray(record.recommendedModulePriorities)
+    && record.recommendedModulePriorities.every(item => typeof item === 'string')
+    && Array.isArray(record.preferredTemplateIds)
+    && record.preferredTemplateIds.every(item => typeof item === 'string')
+    && Array.isArray(record.riskFlags)
+    && record.riskFlags.every(item => typeof item === 'string')
+}
+
+function encyclopediaModulePriorities(categoryText: string): string[] {
+  if (categoryText.includes('历史人物')) {
+    return ['relationship_graph', 'event_causal_chain', 'ranking_list', 'works_reference']
+  }
+  if (categoryText.includes('电影')) {
+    return ['cast_role_network', 'series_navigation', 'similar_recommendation', 'plot_chain', 'rating_box_office_summary']
+  }
+  if (categoryText.includes('电视剧')) {
+    return ['character_relation_graph', 'episode_causal_chain', 'series_navigation', 'role_quick_answer', 'spoiler_control']
+  }
+  if (categoryText.includes('文化类词语')) {
+    return ['related_phrase_graph', 'origin_story', 'meaning_compare', 'usage_examples', 'quick_choice']
+  }
+  if (categoryText.includes('产品') || categoryText.includes('设备')) {
+    return ['summary_facts', 'spec_compare', 'version_difference']
+  }
+  if (categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('学校')) {
+    return ['summary_facts', 'timeline_milestones', 'relation_navigation']
+  }
+  return ['summary_facts', 'key_facts', 'expandable_details']
+}
+
+function encyclopediaClassificationRiskFlags(categoryText: string): string[] {
+  const flags: string[] = []
+  if (categoryText.includes('影视作品') || categoryText.includes('电影') || categoryText.includes('电视剧')) {
+    flags.push('media_resource_link_blocked', 'no_piracy_or_playback_resources', 'plot_hallucination_risk')
+  }
+  if (categoryText.includes('电视剧')) {
+    flags.push('episode_count_hallucination_risk', 'spoiler_control_required')
+  }
+  if (categoryText.includes('历史人物')) {
+    flags.push('relationship_hallucination_risk', 'event_causality_source_required')
+  }
+  if (categoryText.includes('文化类词语')) {
+    flags.push('origin_source_required', 'related_phrase_type_required')
+  }
+  return flags
 }
 
 function guidanceDemocaseReferences(guidance: EncyclopediaEntryGuidance): EncyclopediaEntryGuidanceResponse['democaseReferences'] {
@@ -5499,11 +5707,21 @@ function normalizeGuidanceClassificationOverride(input: unknown): {
     ['机构组织', '学校'],
     ['人物', '名人'],
     ['人物', '历史人物'],
+    ['名人', '娱乐明星'],
+    ['名人', '历史人物'],
     ['作品', '影视作品'],
     ['作品', '文学著作'],
     ['作品', '游戏'],
+    ['影视作品', '电影'],
+    ['影视作品', '电视剧'],
+    ['文学著作', '诗歌'],
+    ['文学著作', '小说著作'],
+    ['游戏', '电子游戏'],
     ['物品产品', '产品设备'],
     ['知识', '知识术语'],
+    ['知识术语', '文化类词语'],
+    ['知识术语', '概念定义'],
+    ['知识术语', '技术模型'],
   ]
   const allowed = allowedPairs.some(([primary, secondary]) => primary === primaryCategory && secondary === secondaryCategory)
   if (!allowed) throw createHttpError(400, 'GUIDANCE_CLASSIFICATION_INVALID', 'Unsupported guidance classification override.')
@@ -5512,6 +5730,12 @@ function normalizeGuidanceClassificationOverride(input: unknown): {
 
 function recommendedInteractionParadigmId(primaryCategory: string, secondaryCategory: string): string {
   const categoryText = `${primaryCategory} ${secondaryCategory}`
+  if (categoryText.includes('电影') && (categoryText.includes('系列') || categoryText.includes('影视作品'))) {
+    return 'ip_series_navigation'
+  }
+  if (categoryText.includes('电视剧') || categoryText.includes('事件链') || categoryText.includes('因果')) {
+    return 'ip_causal_event_chain'
+  }
   if (categoryText.includes('对比') || categoryText.includes('辨析') || categoryText.includes('产品') || categoryText.includes('设备')) {
     return 'ip_fact_compare'
   }
@@ -5530,6 +5754,34 @@ function recommendedInteractionParadigmId(primaryCategory: string, secondaryCate
 }
 
 function dynamicEncyclopediaRuleTemplateIds(categoryText: string): string[] {
+  if (categoryText.includes('历史人物')) {
+    return [
+      'dtp_de_history_person_relationship',
+      'dtp_de_history_person_event_chain',
+      'dtp_dynamic_encyclopedia_summary_card',
+    ]
+  }
+  if (categoryText.includes('电影')) {
+    return [
+      'dtp_de_film_cast_role_network',
+      'dtp_de_film_series_navigation',
+      'dtp_dynamic_encyclopedia_summary_card',
+    ]
+  }
+  if (categoryText.includes('电视剧')) {
+    return [
+      'dtp_de_tv_character_relation',
+      'dtp_de_tv_episode_chain',
+      'dtp_dynamic_encyclopedia_summary_card',
+    ]
+  }
+  if (categoryText.includes('文化类词语') || categoryText.includes('成语') || categoryText.includes('典故')) {
+    return [
+      'dtp_de_cultural_phrase_relation_graph',
+      'dtp_de_cultural_phrase_origin_story',
+      'dtp_dynamic_encyclopedia_compare_card',
+    ]
+  }
   if (categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('事件') || categoryText.includes('时间')) {
     return [
       'dtp_dynamic_encyclopedia_timeline_card',
@@ -5566,6 +5818,54 @@ function dynamicEncyclopediaRuleTemplateIds(categoryText: string): string[] {
 }
 
 function dynamicEncyclopediaTemplateRecommendation(templatePackId: string, categoryText: string): { reason: string; confidence: number } {
+  if (templatePackId === 'dtp_de_history_person_relationship') {
+    return {
+      reason: '历史人物的最大延伸需求是亲属、君臣、师承、对手等人物关系，适合用关系图谱承接。',
+      confidence: categoryText.includes('历史人物') ? 0.9 : 0.76,
+    }
+  }
+  if (templatePackId === 'dtp_de_history_person_event_chain') {
+    return {
+      reason: '历史人物适合补充事件因果链，展示起因、经过、结果和影响。',
+      confidence: categoryText.includes('历史人物') ? 0.82 : 0.7,
+    }
+  }
+  if (templatePackId === 'dtp_de_film_cast_role_network') {
+    return {
+      reason: '电影用户最强延伸路径是演员/角色和人物关联，适合用演员-角色网络组织。',
+      confidence: categoryText.includes('电影') ? 0.9 : 0.72,
+    }
+  }
+  if (templatePackId === 'dtp_de_film_series_navigation') {
+    return {
+      reason: '电影存在续集、前传、同 IP 或相似推荐需求，适合用系列导航承接。',
+      confidence: categoryText.includes('电影') ? 0.84 : 0.7,
+    }
+  }
+  if (templatePackId === 'dtp_de_tv_character_relation') {
+    return {
+      reason: '电视剧深度浏览常围绕角色身份、人物关系、阵营和情感线展开，适合用角色关系图谱。',
+      confidence: categoryText.includes('电视剧') ? 0.9 : 0.72,
+    }
+  }
+  if (templatePackId === 'dtp_de_tv_episode_chain') {
+    return {
+      reason: '电视剧具备分集剧情、伏笔回收和因果链需求，适合用分集剧情关系链组织。',
+      confidence: categoryText.includes('电视剧') ? 0.84 : 0.7,
+    }
+  }
+  if (templatePackId === 'dtp_de_cultural_phrase_relation_graph') {
+    return {
+      reason: '文化词语最大的二次需求是关联词跳转，适合用近义、反义、同源和易混词关系图谱承接。',
+      confidence: categoryText.includes('文化类词语') ? 0.9 : 0.72,
+    }
+  }
+  if (templatePackId === 'dtp_de_cultural_phrase_origin_story') {
+    return {
+      reason: '文化词语的高价值增量是出处、典故和故事深化，适合用起因-经过-结果-寓意结构。',
+      confidence: categoryText.includes('文化类词语') ? 0.84 : 0.7,
+    }
+  }
   if (templatePackId.includes('timeline')) {
     return {
       reason: '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。',
@@ -6302,6 +6602,18 @@ function adminCapabilityQualitySummary(
   auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
 ): AdminCapabilityQualitySummary {
   const failedPreviewCount = templates.filter(template => template.requiredActions.some(action => action.toLowerCase().includes('preview'))).length
+  // 硬性归束（v0.4）：统计 dynamic encyclopedia 模板的硬性归束合规情况。
+  const encyclopediaTemplates = templates.filter(template =>
+    template.id === 'dtp_dynamic_encyclopedia_card'
+    || template.id.startsWith('dtp_dynamic_encyclopedia_'),
+  )
+  const hardConstraintsCompliant = encyclopediaTemplates.filter(template => {
+    const findingCodes = new Set(template.findings.map(f => f.code))
+    return !findingCodes.has('dynamic-card-chinese-first')
+      && !findingCodes.has('dynamic-card-english-ui-blocked')
+      && !findingCodes.has('dynamic-card-child-english-ui')
+      && template.lintStatus !== 'failed'
+  }).length
   return {
     templatesWithWarnings: templates.filter(template => template.lintStatus === 'warning').length,
     templatesBlocked: templates.filter(template => template.governanceStatus === 'disabled' || template.lintStatus === 'failed').length,
@@ -6312,6 +6624,18 @@ function adminCapabilityQualitySummary(
     automationLoopsWithPixelGate: loops.filter(loop => loop.quality.pixelGate).length,
     auditLogCount: auditLogs.length,
     recentDriftCount: [...skills, ...mcpTools, ...loops].reduce((sum, item) => sum + item.usage.recentDriftCount, 0),
+    hardConstraints: {
+      templates: {
+        total: encyclopediaTemplates.length,
+        compliant: hardConstraintsCompliant,
+        chineseFirstMissing: encyclopediaTemplates.filter(template =>
+          template.findings.some(f => f.code === 'dynamic-card-chinese-first'),
+        ).length,
+        englishUiMissing: encyclopediaTemplates.filter(template =>
+          template.findings.some(f => f.code === 'dynamic-card-english-ui-blocked' || f.code === 'dynamic-card-child-english-ui'),
+        ).length,
+      },
+    },
     previewSmoke: {
       status: templates.length > 0 ? 'available' : 'not_configured',
       passedCount: templates.filter(template => template.lintStatus === 'passed').length,
@@ -6465,21 +6789,61 @@ function lintDynamicEncyclopediaTemplatePack(pack: DesignTemplatePack, findings:
   const sectionsText = Object.values(pack.rationale.sections).join('\n')
   const pcFrame = components['pc-card-frame']
   const wiseFrame = components['wise-standard-frame']
-  const scrollContainer = components['scroll-container']
   if (!componentNumber(pcFrame, 'width', 788) || !componentNumber(pcFrame, 'height', 492)) {
     findings.push({ severity: 'error', code: 'dynamic-card-pc-size', message: 'Dynamic encyclopedia PC frame must be exactly 788x492.' })
   }
   if (!componentNumber(wiseFrame, 'width', 380) || !componentNumber(wiseFrame, 'height', 456)) {
     findings.push({ severity: 'error', code: 'dynamic-card-wise-size', message: 'Dynamic encyclopedia WISE standard frame must be exactly 380x456.' })
   }
-  if (!componentString(scrollContainer, 'overflowY', 'auto')) {
-    findings.push({ severity: 'error', code: 'dynamic-card-scroll-container', message: 'Dynamic encyclopedia template must define an explicit overflow-y:auto scroll container.' })
+  // 硬性归束（v0.4）：scroll-container 已被 no-scroll-frame + tab-bar / page-switcher / modal 取代。
+  // 模板禁止声明 overflow:auto/scroll 组件；如果还存在 scroll-container 也算违规。
+  if (components['scroll-container'] && componentString(components['scroll-container'], 'overflowY', 'auto')) {
+    findings.push({ severity: 'error', code: 'dynamic-card-scroll-container', message: 'Dynamic encyclopedia template must not define an overflow:auto scroll container. Use .no-scroll-frame + tab-bar / page-switcher / modal instead.' })
   }
-  if (!/touchmove/i.test(sectionsText) || !/iframe/i.test(sectionsText)) {
-    findings.push({ severity: 'error', code: 'dynamic-card-touch-constraints', message: 'Dynamic encyclopedia template must include iframe/touchmove compatibility constraints.' })
+  if (!componentString(components['no-scroll-frame'], 'overflow', 'hidden')) {
+    findings.push({ severity: 'error', code: 'dynamic-card-no-scroll-frame', message: 'Dynamic encyclopedia template must define .no-scroll-frame with overflow:hidden.' })
+  }
+  const hasOverflowStrategy = Boolean(components['tab-bar'] ?? components['page-switcher'] ?? components['modal-overlay'])
+  if (!hasOverflowStrategy) {
+    findings.push({ severity: 'error', code: 'dynamic-card-overflow-strategy', message: 'Dynamic encyclopedia template must declare at least one overflow strategy component (tab-bar / page-switcher / modal-overlay).' })
+  }
+  // iframe 兼容性约束保留（iframe / touch / mobile gesture 仍需提及）。
+  if (!/touchmove|touch-action/i.test(sectionsText) || !/iframe/i.test(sectionsText)) {
+    findings.push({ severity: 'error', code: 'dynamic-card-touch-constraints', message: 'Dynamic encyclopedia template must include iframe + touch gesture compatibility constraints.' })
   }
   if (!/summary-card/i.test(sectionsText) || !/timeline-card/i.test(sectionsText) || !/relation-card/i.test(sectionsText)) {
     findings.push({ severity: 'warning', code: 'dynamic-card-child-drafts', message: 'Dynamic encyclopedia template package should list summary, timeline, relation, comparison, and expandable child drafts.' })
+  }
+  // 硬性归束（v0.4）：dos/donts 必须包含"中文优先"和"英文 UI 短语"阻断
+  const dosJoined = pack.rationale.dos.join(' \n ')
+  const dontsJoined = pack.rationale.donts.join(' \n ')
+  if (!/Simplified Chinese|中文/.test(dosJoined)) {
+    findings.push({ severity: 'warning', code: 'dynamic-card-chinese-first', message: 'Dynamic encyclopedia template should explicitly default to Simplified Chinese.' })
+  }
+  if (!/English UI phrases|英文 UI 短语/i.test(dontsJoined)) {
+    findings.push({ severity: 'warning', code: 'dynamic-card-english-ui-blocked', message: 'Dynamic encyclopedia template should block English UI phrases in non-language-category entries.' })
+  }
+  if (pack.templateRole === 'parent_pack') return
+  // 以下是子模板专属规则（父包已通过上面大部分校验）。
+  lintDynamicEncyclopediaChildTemplate(pack, findings)
+}
+
+function lintDynamicEncyclopediaChildTemplate(pack: DesignTemplatePack, findings: AdminTemplateLintFinding[]): void {
+  // 子模板必须显式声明至少一个溢出策略组件（独立于父包）。
+  const components = pack.designTokens.components
+  if (!componentString(components['no-scroll-frame'], 'overflow', 'hidden')) {
+    findings.push({ severity: 'error', code: 'dynamic-card-child-no-scroll-frame', message: `${pack.id} must declare .no-scroll-frame with overflow:hidden.` })
+  }
+  const hasOverflowStrategy = Boolean(components['tab-bar'] ?? components['page-switcher'] ?? components['modal-overlay'])
+  if (!hasOverflowStrategy) {
+    findings.push({ severity: 'error', code: 'dynamic-card-child-overflow-strategy', message: `${pack.id} must declare at least one overflow strategy component (tab-bar / page-switcher / modal-overlay).` })
+  }
+  if (components['scroll-container']) {
+    findings.push({ severity: 'error', code: 'dynamic-card-child-legacy-scroll', message: `${pack.id} must not define the legacy .scroll-container component.` })
+  }
+  const dontsJoined = pack.rationale.donts.join(' \n ')
+  if (!/English UI phrases|英文 UI 短语/i.test(dontsJoined)) {
+    findings.push({ severity: 'warning', code: 'dynamic-card-child-english-ui', message: `${pack.id} should block English UI phrases in non-language-category entries.` })
   }
 }
 
@@ -6669,6 +7033,14 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceMemberRole, number> = {
 
 function roleAllows(actual: WorkspaceMemberRole, required: WorkspaceMemberRole): boolean {
   return WORKSPACE_ROLE_RANK[actual] >= WORKSPACE_ROLE_RANK[required]
+}
+
+const ENTRY_CONTENT_LANGUAGES: ReadonlySet<EntryContentLanguage> = new Set<EntryContentLanguage>([
+  'zh', 'en', 'fr', 'ja', 'ko', 'other', 'mixed',
+])
+
+function isEntryContentLanguage(value: unknown): value is EntryContentLanguage {
+  return typeof value === 'string' && ENTRY_CONTENT_LANGUAGES.has(value as EntryContentLanguage)
 }
 
 function isTerminalVariationStatus(status: DesignVariationStatus): boolean {

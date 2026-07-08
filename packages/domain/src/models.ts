@@ -180,6 +180,12 @@ export type Artifact = {
 
 export type EncyclopediaEntryGuidanceStatus = 'draft' | 'needs_confirmation' | 'confirmed'
 
+/**
+ * 词条正文预期语种。用于百科规范审查时的"中文优先"豁免判断。
+ * 'other' 表示不在已知语种白名单内的字符（如少数民族文字、转写方案等）。
+ */
+export type EntryContentLanguage = 'zh' | 'en' | 'fr' | 'ja' | 'ko' | 'other' | 'mixed'
+
 export type EncyclopediaEntryGuidance = {
   id: ID
   userId: ID
@@ -197,6 +203,16 @@ export type EncyclopediaEntryGuidance = {
   selectedTemplateIds: ID[]
   interactionParadigmId: ID
   automationMode: 'off' | 'semi_auto' | 'auto'
+  /**
+   * 是否为"语言类"词条（外语/语言学/翻译/方言/语言研究类）。
+   * 此类词条允许正文使用外语，不受"中文优先"硬约束限制。
+   * 由 `detectEntryLanguage` 启发式 + democase 信号共同决定。
+   */
+  isLanguageCategory: boolean
+  /**
+   * 词条正文预期语种。仅用于 spec review 与未来 i18n 适配，不影响生成。
+   */
+  entryContentLanguage: EntryContentLanguage
   status: EncyclopediaEntryGuidanceStatus
   confirmedAt: ISODateTime | null
   metadata: Record<string, unknown>

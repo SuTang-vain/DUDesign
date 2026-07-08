@@ -2522,9 +2522,11 @@ export class PostgresRepository extends InMemoryStore {
       insert into encyclopedia_entry_guidances (
         id, user_id, workspace_id, product_mode, entry_title, raw_input, context,
         primary_category, secondary_category, tertiary_category, confidence, signals, recommended_template_ids,
-        selected_template_ids, interaction_paradigm_id, automation_mode, status, confirmed_at, metadata, created_at, updated_at
+        selected_template_ids, interaction_paradigm_id, automation_mode,
+        is_language_category, entry_content_language,
+        status, confirmed_at, metadata, created_at, updated_at
       )
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19::jsonb,$20,$21)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19,$20,$21::jsonb,$22,$23)
       on conflict (id) do update set
         entry_title = excluded.entry_title,
         raw_input = excluded.raw_input,
@@ -2538,6 +2540,8 @@ export class PostgresRepository extends InMemoryStore {
         selected_template_ids = excluded.selected_template_ids,
         interaction_paradigm_id = excluded.interaction_paradigm_id,
         automation_mode = excluded.automation_mode,
+        is_language_category = excluded.is_language_category,
+        entry_content_language = excluded.entry_content_language,
         status = excluded.status,
         confirmed_at = excluded.confirmed_at,
         metadata = excluded.metadata,
@@ -2559,6 +2563,8 @@ export class PostgresRepository extends InMemoryStore {
       JSON.stringify(guidance.selectedTemplateIds),
       guidance.interactionParadigmId,
       guidance.automationMode,
+      guidance.isLanguageCategory,
+      guidance.entryContentLanguage,
       guidance.status,
       guidance.confirmedAt,
       JSON.stringify(guidance.metadata),
@@ -2816,12 +2822,22 @@ function mapEncyclopediaEntryGuidance(row: any): EncyclopediaEntryGuidance {
     selectedTemplateIds: stringArray(row.selected_template_ids),
     interactionParadigmId: row.interaction_paradigm_id ?? 'ip_entity_summary',
     automationMode: row.automation_mode,
+    // New columns added in 0016; older rows fall back to the historical
+    // defaults (Chinese, not language category).
+    isLanguageCategory: row.is_language_category === true,
+    entryContentLanguage: isEntryContentLanguage(row.entry_content_language) ? row.entry_content_language : 'zh',
     status: row.status,
     confirmedAt: row.confirmed_at ? toIso(row.confirmed_at) : null,
     metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
+}
+
+const ENTRY_CONTENT_LANGUAGES = new Set(['zh', 'en', 'fr', 'ja', 'ko', 'other', 'mixed'])
+
+function isEntryContentLanguage(value: unknown): value is EncyclopediaEntryGuidance['entryContentLanguage'] {
+  return typeof value === 'string' && ENTRY_CONTENT_LANGUAGES.has(value)
 }
 
 function mapJob(row: any): DesignJob {

@@ -259,6 +259,8 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
       interactionParadigmId: 'ip_timeline_story',
       automationMode: 'semi_auto',
+      isLanguageCategory: false,
+      entryContentLanguage: 'zh',
       status: 'confirmed',
       confirmedAt: new Date().toISOString(),
       metadata: { classificationSource: 'mock_rules' },
