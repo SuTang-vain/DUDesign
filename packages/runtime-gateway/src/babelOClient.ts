@@ -655,8 +655,19 @@ function designTemplatePackPromptBlock(
     sections ? `- Template sections and constraints: ${sections}` : undefined,
     pack.rationale.dos.length ? `- Do: ${pack.rationale.dos.join(' ')}` : undefined,
     pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
+    pack.htmlExamples?.length ? htmlExamplesPromptBlock(pack.htmlExamples) : undefined,
     '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
   ].filter((line): line is string => Boolean(line)).join('\n')
+}
+
+function htmlExamplesPromptBlock(htmlExamples: string[]): string {
+  if (htmlExamples.length === 0) return ''
+  const blocks = htmlExamples.map((html, index) => `### 参考实现 #${index + 1}\n\`\`\`html\n${html}\n\`\`\``).join('\n\n')
+  return [
+    '- Reference HTML examples (style/structure only — do NOT copy entry-specific text, names, or facts; adapt to the new entry while preserving the visual rhythm):',
+    blocks,
+    '- Treat the example(s) as a structural skeleton, not a content template. Replace all entry-specific values (names, dates, facts, summaries) with values that match the new user prompt and template requirements.',
+  ].join('\n')
 }
 
 function parentTemplatePackForAssignment(
@@ -695,18 +706,65 @@ function interactionParadigmPromptBlock(paradigm: NonNullable<SpawnVariationAgen
 
 function dynamicEncyclopediaBusinessContextPromptBlock(context: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext']): string {
   if (!context) return ''
+  const vector = context.classificationVector
+  const classification = context.classification
+  const selectedChildren = context.childTemplates
+    ?.filter(item => item.selected === true)
+    .map(item => [
+      item.designTemplatePackId,
+      item.interactionParadigmId ? `paradigm=${item.interactionParadigmId}` : undefined,
+      typeof item.confidence === 'number' ? `confidence=${item.confidence.toFixed(2)}` : undefined,
+      item.reason ? `reason=${item.reason}` : undefined,
+    ].filter(Boolean).join(' | '))
+    ?? []
   const lines = [
     '- Dynamic encyclopedia business context:',
     context.guidanceId ? `  guidanceId=${context.guidanceId}` : undefined,
     context.entryTitle ? `  entryTitle=${context.entryTitle}` : undefined,
-    context.entryPrimaryCategory || context.entrySecondaryCategory
-      ? `  entryCategory=${[context.entryPrimaryCategory, context.entrySecondaryCategory].filter(Boolean).join('/')}`
+    context.entryPrimaryCategory || context.entrySecondaryCategory || context.entryTertiaryCategory
+      ? `  entryCategory=${[context.entryPrimaryCategory, context.entrySecondaryCategory, context.entryTertiaryCategory].filter(Boolean).join('/')}`
       : undefined,
+    classification ? `  classification=${[classification.l1, classification.l2, classification.l3].filter(Boolean).join('/')} confidence=${typeof classification.confidence === 'number' ? classification.confidence.toFixed(2) : 'unknown'} source=${classification.source ?? 'unknown'}` : undefined,
+    classification?.signals?.length ? `  classificationSignals=${classification.signals.join(', ')}` : undefined,
+    vector ? `  classificationVector=${vector.l1}/${vector.l2}/${vector.l3} confidence=${vector.confidence.toFixed(2)} source=${vector.source}` : undefined,
+    vector?.recommendedModulePriorities.length ? `  recommendedModulePriorities=${vector.recommendedModulePriorities.join(', ')}` : undefined,
+    vector?.preferredTemplateIds.length ? `  preferredTemplateIds=${vector.preferredTemplateIds.join(', ')}` : undefined,
+    vector?.riskFlags.length ? `  verticalRiskFlags=${vector.riskFlags.join(', ')}` : undefined,
+    selectedChildren.length ? `  selectedChildTemplates=${selectedChildren.join(' || ')}` : undefined,
+    typeof context.isLanguageCategory === 'boolean' ? `  isLanguageCategory=${context.isLanguageCategory}` : undefined,
+    context.entryContentLanguage ? `  entryContentLanguage=${context.entryContentLanguage}` : undefined,
     context.interactionParadigmId ? `  interactionParadigmId=${context.interactionParadigmId}` : undefined,
     context.recommendedTemplateIds?.length ? `  recommendedTemplateIds=${context.recommendedTemplateIds.join(', ')}` : undefined,
     context.automationMode ? `  automationMode=${context.automationMode}` : undefined,
+    context.reviewMode ? `  reviewMode=${context.reviewMode}` : undefined,
+    vector?.riskFlags.length ? `  runtimeInstruction=${dynamicEncyclopediaRiskInstruction(vector.riskFlags)}` : undefined,
   ].filter((line): line is string => Boolean(line))
   return lines.length > 1 ? lines.join('\n') : ''
+}
+
+function dynamicEncyclopediaRiskInstruction(riskFlags: string[]): string {
+  const instructions = [
+    'Resolve vertical risk flags before writing HTML: remove unsafe resource paths, mark missing facts as 资料不足, and keep high-risk claims source-aware.',
+  ]
+  if (riskFlags.includes('episode_count_hallucination_risk')) {
+    instructions.push('For TV episode chains, every episode count, episode node, plot point, foreshadowing/reveal, or ending explanation must include visible wording like 资料不足 / 待核实 / 据公开资料 / 来源；if the supplied context lacks data, replace exact episode nodes with phased nodes labeled 资料不足 instead of inventing details.')
+  }
+  if (riskFlags.includes('media_resource_link_blocked') || riskFlags.includes('no_piracy_or_playback_resources')) {
+    instructions.push('For film/TV cards, never create or mention resource-entry modules, links, buttons, labels, tabs, hints, or copy. Do not write banned resource words in visible UI, even inside a negative safety disclaimer. Replace that space with lawful encyclopedia modules like 角色关系 / 剧情结构 / 系列导航 / 来源提示.')
+  }
+  if (riskFlags.includes('spoiler_control_required')) {
+    instructions.push('For spoiler-heavy TV content, put endings/truth/reversal details behind a local reveal control with a visible 剧透提示 / 隐藏结局 label.')
+  }
+  if (riskFlags.includes('relationship_hallucination_risk')) {
+    instructions.push('For historical-person relationship edges, each kinship, mentorship, faction, or rival relation must show 来源 / 待核实 / 资料不足 near the edge label.')
+  }
+  if (riskFlags.includes('origin_source_required')) {
+    instructions.push('For cultural phrase origin stories, show 出自/来源/原文/暂无可靠出处; hide the origin module when no source is available.')
+  }
+  if (riskFlags.includes('related_phrase_type_required')) {
+    instructions.push('For related cultural phrases, label each relation type explicitly: 近义 / 反义 / 同源 / 同类典故 / 人物关联 / 易混词.')
+  }
+  return instructions.join(' ')
 }
 
 function compactJson(value: unknown): string {

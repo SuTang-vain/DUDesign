@@ -282,7 +282,13 @@ const interactionParadigms: InteractionParadigm[] = [
     bestFor: ['名人', '历史人物', '企业', '机构组织', '影视作品', '文学著作', '游戏'],
     avoidFor: ['entries with no related entities or relationship context'],
     requiredDataShape: ['current entity', 'related entities', 'relationship labels', 'short relation notes'],
-    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_relation_card'],
+    compatibleTemplatePackIds: [
+      'dtp_dynamic_encyclopedia_relation_card',
+      'dtp_de_history_person_relationship',
+      'dtp_de_film_cast_role_network',
+      'dtp_de_tv_character_relation',
+      'dtp_de_cultural_phrase_relation_graph',
+    ],
   },
   {
     id: 'ip_fact_compare',
@@ -302,7 +308,34 @@ const interactionParadigms: InteractionParadigm[] = [
     bestFor: ['知识术语', '历史人物', '影视作品', '文学著作', '文化活动', '机构组织'],
     avoidFor: ['entries that fit in a short summary without layered sections'],
     requiredDataShape: ['section titles', 'short summaries', 'expanded details', 'source notes'],
-    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_expandable_card'],
+    compatibleTemplatePackIds: [
+      'dtp_dynamic_encyclopedia_expandable_card',
+      'dtp_de_cultural_phrase_origin_story',
+    ],
+  },
+  {
+    id: 'ip_causal_event_chain',
+    name: 'Causal Event Chain',
+    category: 'encyclopedia',
+    description: 'A compact cause-process-result-impact interaction for historical events, episode chains, plot chains, and origin stories.',
+    bestFor: ['历史人物', '影视作品', '电视剧', '文化类词语', '事件'],
+    avoidFor: ['entries without ordered events or causality signals'],
+    requiredDataShape: ['ordered event nodes', 'cause/result labels', 'participants or roles', 'source notes'],
+    compatibleTemplatePackIds: [
+      'dtp_de_history_person_event_chain',
+      'dtp_de_tv_episode_chain',
+      'dtp_de_cultural_phrase_origin_story',
+    ],
+  },
+  {
+    id: 'ip_series_navigation',
+    name: 'Series Navigation',
+    category: 'encyclopedia',
+    description: 'A bounded navigation interaction for film or TV series, sequels, prequels, same-IP works, versions, and similar recommendations.',
+    bestFor: ['影视作品', '电影', '电视剧', '游戏', '文学著作'],
+    avoidFor: ['entries with no related works or recommendation context'],
+    requiredDataShape: ['current work', 'related works', 'relationship type', 'release year or status', 'reason'],
+    compatibleTemplatePackIds: ['dtp_de_film_series_navigation'],
   },
 ]
 
@@ -800,27 +833,41 @@ const designSkills: DesignSkill[] = [
   {
     id: 'sk_encyclopedia_entry_guidance',
     pluginId: 'plug_encyclopedia_entry_guidance',
-    schemaVersion: '2026-07-03.dudesign-skill.v1',
+    schemaVersion: '2026-07-08.dudesign-skill.v2',
     rules: [
       'Treat the user input as an encyclopedia entry title, entry content, or both.',
       'Classify the entry into the closest encyclopedia category before choosing a card structure.',
       'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
       'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
       'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
+      // 硬性归束（v0.4）— 中文优先
+      'Default body content to Simplified Chinese. Preserve proper nouns, foreign entry titles, and language-category entries (foreign language / linguistics / translation / dialect) in their original script.',
+      'Never insert English UI phrases (View More / Read More / Get Started / Learn More / Sign Up / Subscribe / Try Now / Discover / Explore Now / Click Here / See More / Find Out More / Buy Now / Add to Cart / Continue Reading) in non-language-category entries. Use Chinese equivalents (查看更多 / 阅读更多 / 开始使用 / 了解详情 / 注册 / 订阅 / 立即试用 / 发现 / 立即探索 / 点击此处 / 查看更多 / 了解更多 / 立即购买 / 加入购物车 / 继续阅读).',
+      // 硬性归束（v0.4）— 单一界面交付，禁内部滚动
+      'Deliver the card as a single-screen artifact (PC 788×492 / WISE 380×456). Body, html, and any root container must set height: 100% and overflow: hidden.',
+      'Never use overflow: auto / scroll, the .scroll-container class, or any internal scroll container. For overflow content use a .tab-bar (max 4 tabs), .page-switcher (dots/pill), or .modal-overlay.',
     ],
     promptBlocks: [
       'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
       'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
+      // 硬性归束（v0.4）— 溢出策略指引
+      'Overflow strategy: when content density exceeds the canvas, split across .tab-bar (one tab per logical group, max 4), paginate with .page-switcher (e.g. 3–4 milestones per page), or open a .modal-overlay for "查看更多" details. Never wrap content in an overflow:auto container.',
     ],
     negativeRules: [
       'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
       'Do not turn democase examples into facts about the current entry.',
       'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
+      // 硬性归束（v0.4）
+      'Do not use overflow: auto / scroll on any container. Do not use the .scroll-container class.',
+      'Do not insert English UI phrases (View More / Read More / Get Started / etc.) in non-language-category entries.',
+      'Do not translate proper nouns, foreign entry titles, or language-category entries into Chinese.',
     ],
     qualityChecklist: [
-      'The card fits the required dynamic encyclopedia viewport constraints.',
+      'The card fits the required dynamic encyclopedia viewport constraints (PC 788×492 / WISE 380×456).',
       'The structure matches the selected subtemplate and entry category.',
-      'Long content is contained in explicit scroll containers.',
+      'No internal scroll containers; overflow content is routed through .tab-bar / .page-switcher / .modal-overlay.',
+      'Body content is Simplified Chinese by default; proper nouns and language-category entries are preserved in their original script.',
+      'No English UI phrases (View More / Read More / Get Started / etc.) in non-language-category entries.',
       'Claims remain neutral and traceable to the provided entry context.',
     ],
     allowedTemplateCategories: ['encyclopedia'],
