@@ -2900,3 +2900,45 @@
 
 - 如果后续仍觉得 deploy 慢，再继续拆 `web build` 与 `admin build`，避免 API / runtime-adapter 镜像重复运行两个 Next build。
 - 可进一步考虑预构建并推送 `dudesign-api-chromium-base` 到镜像仓库，减少新服务器首次部署时间。
+
+## 2026-07-10 Staging Next Build Stage Split
+
+### 背景
+
+- staging Dockerfile 原先只有一个 `build` stage：
+  - 先执行全仓 TypeScript build。
+  - 再执行 `npm --workspace @dudesign/web run build`。
+  - 再执行 `npm --workspace @dudesign/admin run build`。
+- API、runtime-adapter、web、admin target 都继承同一个 `build` stage，导致构建 API / runtime-adapter 镜像时也被迫等待 Web/Admin Next build。
+
+### 修复
+
+- 将 staging Dockerfile 拆分为：
+  - `build`：只执行全仓 TypeScript build。
+  - `web-build`：只执行 Web Next build。
+  - `admin-build`：只执行 Admin Next build。
+  - `runtime` / `runtime-chromium` / `runtime-playwright`：从 `build` 复制产物，用于 API 和 runtime-adapter。
+  - `web-runtime`：从 `web-build` 复制产物。
+  - `admin-runtime`：从 `admin-build` 复制产物。
+- API 和 runtime-adapter target 不再依赖 Web/Admin Next build。
+
+### 验证
+
+- 远端部署 `db39716f` 后基础 smoke 通过：
+  - `local-web:200`
+  - `local-api:200`
+  - `local-admin:200`
+  - `local-runtime-health:200`
+  - `babelo-prompt-smoke:completed job=job_770b6348beef4974 variations=1`
+  - `mcp-http-smoke:mock-completed`
+- 远端 no-op API target build 验证：
+  - 命令：`docker compose --profile babel-o-multilane -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env build api`
+  - 日志中无 `next build`、`@dudesign/web run build`、`@dudesign/admin run build`。
+  - `chromium-base`：`CACHED`。
+  - `runtime-chromium`：`CACHED`。
+  - `build 3/3 RUN npx tsc ...`：`CACHED`。
+
+### 后续
+
+- 下一步可继续优化镜像导出/解包耗时：当前 API / runtime-adapter / web / admin 都复制完整 `/app`，导致导出层偏大。
+- 可考虑生产镜像裁剪：只复制目标 workspace 运行所需包、`dist` / `.next` / `node_modules`，减少镜像体积和 unpack 时间。
