@@ -2860,3 +2860,43 @@
 - Job stream terminal event 语义幂等。
 - 前端和管理端可继续以 `design.job_completed` 作为一次性关闭信号。
 - Runtime Adapter 后续升级即使保留自身 completed event，也不会影响 DUDesign 应用层最终状态。
+
+## 2026-07-10 Staging API Chromium Base Layer Cache
+
+### 背景
+
+- staging `api-system-chromium` target 需要安装系统 Chromium 和中文字体，用于远端 Playwright pixel gate / interaction smoke。
+- 原 Dockerfile 中 `runtime-chromium` 继承自已经 `COPY --from=build /app ./` 的 `runtime` stage。
+- 因此每次源码或构建产物变化都会使 `runtime` 父层失效，导致 Chromium `apt-get install` 层重复执行，单次部署额外增加约 2 分钟以上。
+
+### 修复
+
+- 将 `deploy/staging/Dockerfile` 拆成更稳定的运行时层：
+  - `runtime-base`：只包含 Node 基础镜像、工作目录、`NODE_ENV` 和 artifact 目录。
+  - `runtime`：从 `runtime-base` 复制应用构建产物。
+  - `chromium-base`：从 `runtime-base` 安装 Chromium / emoji 字体 / 中文字体。
+  - `runtime-chromium`：从 `chromium-base` 复制应用构建产物。
+- 这样 Chromium 系统依赖层只受 Node base image、APT mirror、apt package list 影响，不再受 DUDesign 应用源码变化影响。
+
+### 验证
+
+- 首次部署 `b77742f6` 时，远端按预期构建了一次新的 `chromium-base`。
+- 随后在同一远端 release 执行：
+  - `docker compose --profile babel-o-multilane -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env build api`
+- 验证日志显示：
+  - `#19 [chromium-base 1/1] ... apt-get install ...`
+  - `#19 CACHED`
+  - `#25 [runtime-chromium 1/1] COPY --from=build /app ./`
+  - `#25 CACHED`
+- 基础 staging smoke 仍通过：
+  - `local-web:200`
+  - `local-api:200`
+  - `local-admin:200`
+  - `local-runtime-health:200`
+  - `babelo-prompt-smoke:completed job=job_cbf268cf58bc4d54 variations=1`
+  - `mcp-http-smoke:mock-completed`
+
+### 下一步
+
+- 如果后续仍觉得 deploy 慢，再继续拆 `web build` 与 `admin build`，避免 API / runtime-adapter 镜像重复运行两个 Next build。
+- 可进一步考虑预构建并推送 `dudesign-api-chromium-base` 到镜像仓库，减少新服务器首次部署时间。
