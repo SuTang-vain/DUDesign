@@ -14,12 +14,18 @@ RUN npm ci
 FROM deps AS build
 WORKDIR /app
 COPY . .
+RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api apps/web apps/admin
+
+FROM build AS web-build
+ARG NEXT_PUBLIC_DUDESIGN_API_URL=
+ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
+RUN npm --workspace @dudesign/web run build
+
+FROM build AS admin-build
 ARG NEXT_PUBLIC_DUDESIGN_API_URL=
 ARG NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH=
 ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
 ENV NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH=$NEXT_PUBLIC_DUDESIGN_ADMIN_BASE_PATH
-RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api apps/web apps/admin
-RUN npm --workspace @dudesign/web run build
 RUN npm --workspace @dudesign/admin run build
 
 FROM node:22-bookworm-slim AS runtime-base
@@ -29,6 +35,12 @@ RUN mkdir -p /app/.dudesign/artifacts
 
 FROM runtime-base AS runtime
 COPY --from=build /app ./
+
+FROM runtime-base AS web-runtime
+COPY --from=web-build /app ./
+
+FROM runtime-base AS admin-runtime
+COPY --from=admin-build /app ./
 
 FROM runtime-base AS chromium-base
 ARG APT_MIRROR=
@@ -71,10 +83,10 @@ FROM runtime AS runtime-adapter
 EXPOSE 4100
 CMD ["npm", "--workspace", "@dudesign/runtime-adapter", "run", "start"]
 
-FROM runtime AS web
+FROM web-runtime AS web
 EXPOSE 3001
 CMD ["npm", "--workspace", "@dudesign/web", "run", "start"]
 
-FROM runtime AS admin
+FROM admin-runtime AS admin
 EXPOSE 3002
 CMD ["npm", "--workspace", "@dudesign/admin", "run", "start"]
