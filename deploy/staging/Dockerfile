@@ -22,13 +22,15 @@ RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packag
 RUN npm --workspace @dudesign/web run build
 RUN npm --workspace @dudesign/admin run build
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime-base
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app ./
 RUN mkdir -p /app/.dudesign/artifacts
 
-FROM runtime AS runtime-chromium
+FROM runtime-base AS runtime
+COPY --from=build /app ./
+
+FROM runtime-base AS chromium-base
 ARG APT_MIRROR=
 RUN if [ -n "$APT_MIRROR" ]; then \
       sed -i "s#http://deb.debian.org/debian#$APT_MIRROR#g; s#http://security.debian.org/debian-security#$APT_MIRROR-security#g" /etc/apt/sources.list.d/debian.sources; \
@@ -40,6 +42,9 @@ RUN if [ -n "$APT_MIRROR" ]; then \
       fonts-noto-color-emoji \
       fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
+
+FROM chromium-base AS runtime-chromium
+COPY --from=build /app ./
 
 FROM mcr.microsoft.com/playwright:v1.61.1-noble AS runtime-playwright
 WORKDIR /app
