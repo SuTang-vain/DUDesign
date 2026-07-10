@@ -3,11 +3,11 @@ set -euo pipefail
 
 remote="${DUDESIGN_STAGING_REMOTE:-tyy}"
 base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
-timeout_seconds="${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS:-180}"
+timeout_seconds="${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS:-420}"
 variation_count="${DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT:-1}"
 smoke_prompt="${DUDESIGN_STAGING_PROMPT_SMOKE_PROMPT:-Create a tiny valid HTML landing page for DUDesign staging smoke. Write the complete page to index.html. Include the phrase DUDesign staging smoke.}"
 
-ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' SMOKE_PROMPT='$smoke_prompt' VARIATION_COUNT='$variation_count' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' SMOKE_PROMPT='$smoke_prompt' VARIATION_COUNT='$variation_count' LOCAL_TIMEOUT_SET='${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS+x}' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
@@ -20,6 +20,16 @@ fi
 if ! command -v python3 >/dev/null 2>&1; then
   echo 'babelo-prompt-smoke:python3 is required for JSON parsing' >&2
   exit 1
+fi
+
+env_value() {
+  local key="$1"
+  grep -E "^${key}=" deploy/staging/.env | tail -n 1 | cut -d= -f2- || true
+}
+
+if [ -z "${LOCAL_TIMEOUT_SET:-}" ]; then
+  remote_timeout_seconds="$(env_value DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS)"
+  SMOKE_TIMEOUT_SECONDS="${remote_timeout_seconds:-$SMOKE_TIMEOUT_SECONDS}"
 fi
 
 case "$VARIATION_COUNT" in

@@ -193,6 +193,81 @@
 - Babel-O 只消费 DUDesign 标准化上下文和 tool policy，不直接读取 DUDesign 数据库或 democase 数据库。
 - Runtime event drift 不影响动态百科业务层的 guidance、snapshot 和 review report。
 
+## Phase RTC-9：Runtime Lane Pool 与多线路并行调度
+
+> 规划详见 `docs/modules/runtime-compatibility/runtime-lane-pool-plan.md`。
+> 目标：将当前“单 BabeL-O Nexus 内并行 child session”升级为“多 Runtime Lane 可调度并行”，降低复杂生成任务的单线路 timeout 风险。
+
+- [x] 完成 Runtime Lane Pool 规划准入文档。
+- [x] 修正 Runtime Adapter timeout 配置链路，避免 hard watchdog 继续被硬编码为 300000ms。
+- [x] 定义 `RuntimeLane` / `RuntimeLaneRegistry` / `RuntimeLaneLease` contract。
+- [x] 支持静态 lane registry 环境变量配置，默认兼容单 lane。
+- [x] 实现 lane health / contract status 探测。
+- [x] 实现 least-inflight + round-robin 调度策略。
+- [x] 为每个 variation 记录 lane assignment 标准事件。
+- [x] 将 variation lane assignment metadata 持久化到 Application Service / PostgreSQL：
+  - [x] `runtime_lane_id`。
+  - [x] `runtime_backend_id`（字段预留）。
+  - [x] `runtime_lease_id`。
+  - [x] `runtime_attempt`。
+  - [x] `runtime_last_error_code`。
+- [x] 支持 lane drain，drain 后不再接收新任务。
+- [x] 支持 lane unavailable / stream idle timeout 的换 lane retry：
+  - [x] lane unavailable / 5xx 可换 lane retry。
+  - [x] 换 lane retry 输出标准 `runtime_lane_retry_started` / `runtime_lane_retry_exhausted` 事件。
+  - [x] 换 lane retry 创建新 runtime child session，不复用不确定状态旧 session。
+  - [x] raw Nexus execute idle / long-hang 由 Adapter 自身 watchdog 触发换 lane retry。
+- [x] docker compose staging 增加 2-3 个独立 BabeL-O Nexus backend。
+- [x] refine follow-up 绑定原 variation runtime lane，避免多 lane workspace 漂移。
+- [x] 增加 multi-lane fake Nexus integration test。
+- [x] `execute.success=false` 且无 artifact 时触发 runtime lane retry，避免单条 BabeL-O lane 的软失败直接打断 variation。
+- [x] 动态百科显式选择模板时循环显式模板，不自动补入其它动态子模板，避免 multi-variation smoke 因垂类模板漂移变脆。
+- [x] Runtime Adapter spawn 阶段只规划 lane，不提前占用 lane lease；stream 消费时再 acquire lease，避免未消费 stream 把 lane 容量锁死。
+- [x] retry 换 lane 时复用 lane acquire 等待窗口，不再只做一次瞬时 acquire。
+- [x] staging 暴露 `RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS` / `RUNTIME_ADAPTER_LANE_ACQUIRE_POLL_MS` 配置。
+- [x] 远端 `babel-o-multilane` 部署后基础 smoke 通过，`lane-a`、`lane-b`、`lane-c` 均 healthy，真实 BabeL-O 单 variation 可完成。
+- [x] staging 真实动态百科 3 variation 已证明能分配/重试到多条 lane：
+  - [x] `job_01d1ef141ead45ee` 中 variation 使用过 `lane-a`、`lane-b`、`lane-c`。
+  - [x] 至少一个 variation 在 retry 后生成 artifact 并通过 quality gate。
+- [x] 增加 staging 真实动态百科 3 variation multi-lane smoke。
+  - [x] 部署 `success=false lane retry`、`explicit dynamic template loop`、deferred lease 与 waiting retry acquire 后重新复测。
+  - [x] 将 staging retry acquire timeout 从 120s 提升到 300s 后重新复测，避免复杂动态百科生成在可用 lane 即将释放前被误判 exhausted。
+  - [x] 复测确认 3 个 variation 均 completed 并生成 artifact；当前剩余失败来自 artifact quality gate，而非 lane 调度。
+  - [x] 修复 `touch-action:none` 注释被误判为全局触控禁用的问题。
+  - [x] 调整 pixel white-screen gate，避免极简白底但有可见内容的动态百科卡片被误判为空白白屏。
+  - [x] 将 quality gate 修复部署到 staging 后重新运行动态百科 3 variation multi-lane smoke。
+  - [x] 复测确认至少两条 variation 有 completed artifact 且 quality pass/warn；剩余失败回到 raw BabeL-O `EXECUTION_FAILED`。
+  - [x] 增加 raw BabeL-O `execute.success=false` 失败 detail 采集，避免只显示 “without a detailed runtime error”。
+  - [x] 部署 transcript fallback detail 采集后复测；最新 3 variation 均 completed，未复现 timeline `EXECUTION_FAILED`。
+  - [x] 最新复测 artifact quality 达到 2 pass + 1 warn，说明 quality gate 不再误杀动态百科结果。
+  - [x] 将 multi-lane smoke 验收拆成两档：
+    - 调度通路：job 事件中至少使用/重试过两条 lane。
+    - 完成分布：completed artifacts 至少来自两条 lane；如果未满足，标记 lane 完成率风险而不是混同为生成失败。
+  - [x] 部署拆分后的 smoke 断言并完成远端复测：
+    - `job_d88f73b483994681`：3 variation completed。
+    - smoke 输出 `dynamic-encyclopedia-smoke:multilane-warning completed_lanes=lane-a completion_lane_required=0` 后通过。
+  - [x] 为 staging smoke 增加 lane event 诊断输出，避免只看最终 variation metadata 丢失历史 lane 使用轨迹。
+  - [x] 初步分析 lane-b / lane-c 动态百科完成率偏低：
+    - 调度路径正常，最新 smoke 初始分配覆盖 `lane-a,lane-b,lane-c`。
+    - `lane-b` / `lane-c` 主要因 `runtime_execution_failed` 触发 retry，最终回流到 `lane-a` 完成。
+  - [x] 深入排查 lane-b / lane-c 真实执行失败原因：
+    - 根因是 `BABELO_NEXUS_CONFIG_FILE=/data/config.json` 指向每条 Nexus lane 各自独立的 `/data` volume。
+    - `lane-a` 有 MiniMax provider config，`lane-b` / `lane-c` 缺少 `/data/config.json`，因此回落到 `local/coding-runtime` 并快速 `runtime_execution_failed`。
+    - 已增加 `sync-babelo-lane-config-remote.sh`，部署时将 lane-a provider config 同步到 lane-b/c 并重启 runtime services。
+    - 基础 smoke 已增加 raw BabeL-O lane config drift 检查。
+  - [x] 修复 API 到 Runtime Adapter stream connect 窗口偏短：
+    - staging `BABELO_TIMEOUT_MS` 从 30000 提升到 120000。
+    - 最新动态百科 smoke `job_18caa8d5963e4e35` 中 `lane-a` / `lane-b` / `lane-c` 各自 completed 1 个 variation。
+  - [x] 确认 multi-lane 动态百科 smoke 已以全部 variation completed 作为 hard gate，避免 job 级 `completed` 掩盖 failed variation。
+  - [x] 治理重复 `design.job_completed` 事件，确保 job stream 只输出一次 terminal event。
+
+验收：
+
+- 3 variation job 在多条 lane 可用时能分配到至少两条不同 lane。
+- 单 lane timeout 不影响其他 lane 已完成 variation 的 artifact preview/export/share。
+- Application Service 和用户前端仍只消费 DUDesign 标准 runtime event。
+- BabeL-O 升级仍只影响 Runtime Adapter / Gateway contract tests。
+
 ## v0.4 硬性归束（2026-07-08 落地）
 
 - [x] 父包 `dtp_dynamic_encyclopedia_card` 重写：components 替换 `scroll-container` 为 `no-scroll-frame` + `tab-bar` + `page-switcher` + `modal-overlay`
@@ -208,6 +283,11 @@
   - negativeRules: 禁 overflow / 禁 .scroll-container / 禁英文 UI 短语 / 禁翻译专有名词
   - qualityChecklist: 5 条新增（尺寸/结构/滚动约束/中文优先/短语禁词）
 - [x] democase 4 条 summary 字段汉化
+- [x] Runtime prompt 允许受控 self-contained inline JS，用于 tab、page-switcher、accordion、modal 等本地交互；禁止外部脚本、网络 API 和未打包资源。
+- [x] private variation preview 放开受控脚本执行，share preview 继续禁脚本只读展示。
+- [x] 增加浏览器级 smoke，验证动态百科 tab 控件在 private preview 中可真实点击切换。
+- [x] 动态百科 staging smoke 增加 opt-in 浏览器交互断言：`DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_INTERACTION_SMOKE=1` 时在 API 容器内打开真实 preview 并验证 tab 可点击切换。
 
 验收：
-- runtime prompt 注入后，LLM 不会引入英文 UI 短语或内部滚动容器
+- runtime prompt 注入后，LLM 不会引入英文 UI 短语或内部滚动容器。
+- 动态百科卡片中可见 tab、分页、展开、弹层控件不能只是静态装饰，必须在 private preview 中执行本地交互。

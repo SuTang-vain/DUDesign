@@ -75,18 +75,28 @@ services:
       BABELO_NEXUS_BASE_URL: ${BABELO_NEXUS_BASE_URL:-http://babel-o-nexus:3000}
       BABELO_NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
       BABELO_NEXUS_AUTH_HEADER: ${BABELO_NEXUS_AUTH_HEADER:-}
+      DUDESIGN_RUNTIME_LANE_MODE: ${DUDESIGN_RUNTIME_LANE_MODE:-single}
+      DUDESIGN_RUNTIME_LANES_JSON: ${DUDESIGN_RUNTIME_LANES_JSON:-}
       RUNTIME_ADAPTER_STATE_FILE: ${RUNTIME_ADAPTER_STATE_FILE:-/app/.dudesign/runtime-adapter/state.json}
       RUNTIME_ADAPTER_WORKSPACE_BASE: ${RUNTIME_ADAPTER_WORKSPACE_BASE:-/workspace}
       RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS: ${RUNTIME_ADAPTER_EXECUTE_RETRY_ATTEMPTS:-2}
       RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS: ${RUNTIME_ADAPTER_EXECUTE_RETRY_BASE_DELAY_MS:-750}
+      RUNTIME_ADAPTER_LANE_RETRY_ATTEMPTS: ${RUNTIME_ADAPTER_LANE_RETRY_ATTEMPTS:-2}
+      RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS: ${RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS:-30000}
+      RUNTIME_ADAPTER_LANE_ACQUIRE_POLL_MS: ${RUNTIME_ADAPTER_LANE_ACQUIRE_POLL_MS:-250}
+      RUNTIME_ADAPTER_EXECUTE_TIMEOUT_MS: ${RUNTIME_ADAPTER_EXECUTE_TIMEOUT_MS:-300000}
+      RUNTIME_ADAPTER_WATCHDOG_TIMEOUT_MS: ${RUNTIME_ADAPTER_WATCHDOG_TIMEOUT_MS:-600000}
     depends_on:
       babel-o-nexus:
         condition: service_started
     profiles:
       - babel-o
+      - babel-o-multilane
     volumes:
       - runtime-adapter-state:/app/.dudesign/runtime-adapter
       - babel-o-workspace:/workspace
+      - babel-o-workspace-b:/runtime-workspaces/lane-b
+      - babel-o-workspace-c:/runtime-workspaces/lane-c
     ports:
       - "127.0.0.1:${RUNTIME_ADAPTER_PORT:-4100}:4100"
 
@@ -108,11 +118,60 @@ services:
       BABEL_O_CONFIG_FILE: ${BABELO_NEXUS_CONFIG_FILE:-}
     profiles:
       - babel-o
+      - babel-o-multilane
     volumes:
       - babel-o-workspace:/workspace
       - babel-o-data:/data
     ports:
       - "127.0.0.1:${BABELO_NEXUS_PORT:-3300}:3000"
+
+  babel-o-nexus-b:
+    build:
+      context: ${BABELO_NEXUS_CONTEXT:-../../BABEL/BabeL-O}
+      dockerfile: ${BABELO_NEXUS_DOCKERFILE:-/tmp/dudesign-babelo-nexus.Dockerfile}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXUS_HOST: 0.0.0.0
+      NEXUS_PORT: 3000
+      NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
+      BABEL_O_WORKSPACE: /runtime-workspaces/lane-b
+      NEXUS_STORAGE_PATH: /data/nexus.sqlite
+      NEXUS_ALLOWED_TOOLS: ${BABELO_NEXUS_ALLOWED_TOOLS:-Read,ListDir,Glob,Grep,Write,Edit}
+      NEXUS_EXECUTE_TIMEOUT_MS: ${BABELO_NEXUS_EXECUTE_TIMEOUT_MS:-600000}
+      NEXUS_MAX_CONCURRENT_EXECUTIONS: ${BABELO_NEXUS_LANE_MAX_CONCURRENT_EXECUTIONS:-1}
+      BABEL_O_CONFIG_FILE: ${BABELO_NEXUS_CONFIG_FILE:-}
+    profiles:
+      - babel-o-multilane
+    volumes:
+      - babel-o-workspace-b:/runtime-workspaces/lane-b
+      - babel-o-data-b:/data
+    ports:
+      - "127.0.0.1:${BABELO_NEXUS_B_PORT:-3312}:3000"
+
+  babel-o-nexus-c:
+    build:
+      context: ${BABELO_NEXUS_CONTEXT:-../../BABEL/BabeL-O}
+      dockerfile: ${BABELO_NEXUS_DOCKERFILE:-/tmp/dudesign-babelo-nexus.Dockerfile}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXUS_HOST: 0.0.0.0
+      NEXUS_PORT: 3000
+      NEXUS_API_KEY: ${BABELO_NEXUS_API_KEY:-dudesign-staging-babelo-key}
+      BABEL_O_WORKSPACE: /runtime-workspaces/lane-c
+      NEXUS_STORAGE_PATH: /data/nexus.sqlite
+      NEXUS_ALLOWED_TOOLS: ${BABELO_NEXUS_ALLOWED_TOOLS:-Read,ListDir,Glob,Grep,Write,Edit}
+      NEXUS_EXECUTE_TIMEOUT_MS: ${BABELO_NEXUS_EXECUTE_TIMEOUT_MS:-600000}
+      NEXUS_MAX_CONCURRENT_EXECUTIONS: ${BABELO_NEXUS_LANE_MAX_CONCURRENT_EXECUTIONS:-1}
+      BABEL_O_CONFIG_FILE: ${BABELO_NEXUS_CONFIG_FILE:-}
+    profiles:
+      - babel-o-multilane
+    volumes:
+      - babel-o-workspace-c:/runtime-workspaces/lane-c
+      - babel-o-data-c:/data
+    ports:
+      - "127.0.0.1:${BABELO_NEXUS_C_PORT:-3313}:3000"
 
   web:
     build:
@@ -149,4 +208,8 @@ volumes:
   artifact-data:
   runtime-adapter-state:
   babel-o-workspace:
+  babel-o-workspace-b:
+  babel-o-workspace-c:
   babel-o-data:
+  babel-o-data-b:
+  babel-o-data-c:

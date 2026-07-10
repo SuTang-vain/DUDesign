@@ -408,7 +408,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   const variationPreviewMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/preview$/)
   if (method === 'GET' && variationPreviewMatch) {
-    sendHtml(res, 200, await service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!), {
+    sendPreviewHtml(res, 200, await service.getVariationPreview(ctx, decodeURIComponent(variationPreviewMatch[1]!), {
       artifactId: url.searchParams.get('artifactId'),
     }))
     return
@@ -679,6 +679,14 @@ function sendHtml(res: http.ServerResponse, status: number, html: string): void 
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'none'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'",
+  })
+  res.end(html)
+}
+
+function sendPreviewHtml(res: http.ServerResponse, status: number, html: string): void {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'",
   })
   res.end(html)
 }

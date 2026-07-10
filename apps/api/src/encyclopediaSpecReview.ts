@@ -69,6 +69,9 @@ const ENFORCEMENT: Record<string, 'error' | 'warning' | 'disabled'> = {
   'encyclopedia.english_ui_phrase_blocked': 'warning',
   'encyclopedia.excessive_english_phrases': 'warning',
   'encyclopedia.unsupported_script_blocked': 'warning',
+  'encyclopedia.fake_tab_interaction': 'warning',
+  'encyclopedia.fake_page_switcher_interaction': 'warning',
+  'encyclopedia.fake_modal_interaction': 'warning',
 
   // Stage 1 新增（warning 形态）：垂类业务规则
   'encyclopedia.media_resource_link_blocked': 'warning',
@@ -126,14 +129,15 @@ export function reviewDynamicEncyclopediaSpec(input: EncyclopediaSpecReviewInput
     })
   }
 
-  addFindingIf(findings, /touch-action\s*:\s*none/i.test(html), {
+  addFindingIf(findings, hasGlobalTouchActionNone(html), {
     id: 'encyclopedia.global_touch_blocked',
     source: 'template_rule',
     severity: severityOf('encyclopedia.global_touch_blocked'),
     message: 'Dynamic encyclopedia cards must not globally disable touch gestures.',
     repairHint: 'Remove global touch-action:none and use touch-action:pan-x pan-y or local control-specific touch handling only.',
   })
-  addFindingIf(findings, /\bpreventDefault\s*\([^)]*\)|\bstopPropagation\s*\([^)]*\)/i.test(html) && /\btouch(move|start|end)\b/i.test(html), {
+  const scriptSourceForTouchRules = stripCommentsFromScriptBlocks(html)
+  addFindingIf(findings, /\bpreventDefault\s*\([^)]*\)|\bstopPropagation\s*\([^)]*\)/i.test(scriptSourceForTouchRules) && /\btouch(move|start|end)\b/i.test(scriptSourceForTouchRules), {
     id: 'encyclopedia.touch_intercept_risk',
     source: 'template_rule',
     severity: severityOf('encyclopedia.touch_intercept_risk'),
@@ -167,6 +171,7 @@ export function reviewDynamicEncyclopediaSpec(input: EncyclopediaSpecReviewInput
 
   // -------- Stage 1: 新增硬性归束规则（首期 warning 形态） --------
   applyStage1NoScrollRules(findings, html)
+  applyStage1InteractionRules(findings, html)
   applyStage1ChineseOnlyRules(findings, text, body, entryTitle, isLanguageCategory)
   applyStage1VerticalRules(findings, text, input.templatePackIds, input.classificationVector ?? null)
 
@@ -195,6 +200,7 @@ function applyStage1VerticalRules(
   const isTv = categoryText.includes('电视剧') || templatePackIds.some(id => id.startsWith('dtp_de_tv_'))
   const isHistoryPerson = categoryText.includes('历史人物') || templatePackIds.some(id => id.startsWith('dtp_de_history_person_'))
   const isCulturalPhrase = categoryText.includes('文化类词语') || templatePackIds.some(id => id.startsWith('dtp_de_cultural_phrase_'))
+  const isScenicSpot = categoryText.includes('景区景点') || templatePackIds.some(id => id.startsWith('dtp_de_scenic_spot_'))
 
   if (isMedia) {
     addFindingIf(findings, hasMediaResourceEntryIntent(text), {
@@ -263,6 +269,30 @@ function applyStage1VerticalRules(
       repairHint: 'Label every related phrase as 近义 / 反义 / 同源 / 同类典故 / 人物关联 / 易混词, with a short relation note.',
     })
   }
+
+  if (isScenicSpot) {
+    addFindingIf(findings, /(坐标|经纬度|地图|定位|POI|poi)/.test(text) && !/(来源|据|资料|公开信息|待核实|暂无|未知|资料不足|坐标待补充|位置资料不足|示意)/.test(text), {
+      id: 'encyclopedia.scenic_coordinate_source_required',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.scenic_coordinate_source_required'),
+      message: 'Scenic-spot coordinate, map, or POI claims need source, uncertainty, or schematic wording.',
+      repairHint: 'Add source/uncertainty hints such as "坐标待补充 / 位置资料不足 / 示意路线"; do not invent coordinates or live map facts.',
+    })
+    addFindingIf(findings, /(开放时间|营业时间|门票|票价|预约|交通|公交|地铁|停车|客流|拥挤|实时|安全提示)/.test(text) && !/(来源|据|资料|公开信息|待核实|暂无|未知|资料不足|以官方为准|示意)/.test(text), {
+      id: 'encyclopedia.scenic_realtime_fact_source_required',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.scenic_realtime_fact_source_required'),
+      message: 'Scenic-spot opening hours, tickets, transport, safety, and crowding facts are high-change facts and need source or uncertainty wording.',
+      repairHint: 'Add "以官方信息为准 / 待核实 / 暂无可靠资料" and avoid exact current-state claims unless supplied by trusted context.',
+    })
+    addFindingIf(findings, /(导航|购票|订票|酒店|民宿|打车|外链|跳转|立即预订|立即购买|打开地图|路线规划)/.test(text) && !/(不提供|不含|不跳转|非导航|示意|移除|避免)/.test(text), {
+      id: 'encyclopedia.scenic_external_navigation_blocked',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.scenic_external_navigation_blocked'),
+      message: 'Scenic-spot dynamic encyclopedia cards should not depend on outbound navigation, booking, ticketing, hotel, or travel-platform actions.',
+      repairHint: 'Keep the interaction local and schematic; remove outbound booking/navigation CTAs and use static route/POI explanation instead.',
+    })
+  }
 }
 
 function hasMediaResourceEntryIntent(text: string): boolean {
@@ -295,6 +325,40 @@ function applyStage1NoScrollRules(findings: EncyclopediaSpecFinding[], html: str
     severity: severityOf('encyclopedia.scroll_container_class_blocked'),
     message: 'The .scroll-container class is no longer permitted (semantics replaced by tab-bar / page-switcher / modal).',
     repairHint: 'Rename .scroll-container to .no-scroll-frame and switch the content overflow strategy to tabs, pagination, or modal dialogs.',
+  })
+}
+
+// ---------- Stage 1: 真实交互规则 ----------
+function applyStage1InteractionRules(findings: EncyclopediaSpecFinding[], html: string): void {
+  const hasInlineScript = /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i.test(html)
+  const hasTabControl = /role=["']tab["']|class=["'][^"']*tab-bar|data-tab/i.test(html)
+  const hasTabPanel = /role=["']tabpanel["']|class=["'][^"']*tab-panel|aria-controls=["'][^"']+/i.test(html)
+  addFindingIf(findings, hasTabControl && (!hasTabPanel || !hasInlineScript), {
+    id: 'encyclopedia.fake_tab_interaction',
+    source: 'template_rule',
+    severity: severityOf('encyclopedia.fake_tab_interaction'),
+    message: 'Tab controls are visible but do not provide a complete local tab interaction.',
+    repairHint: 'Add role=tabpanel sections and a small inline script that updates aria-selected and panel hidden states when each tab is clicked.',
+  })
+
+  const hasPageSwitcher = /class=["'][^"']*page-switcher|data-page|aria-label=["'][^"']*(分页|页面|page)/i.test(html)
+  const hasPagePanels = /class=["'][^"']*(page-panel|page-slide)|data-page-panel|hidden/i.test(html)
+  addFindingIf(findings, hasPageSwitcher && (!hasPagePanels || !hasInlineScript), {
+    id: 'encyclopedia.fake_page_switcher_interaction',
+    source: 'template_rule',
+    severity: severityOf('encyclopedia.fake_page_switcher_interaction'),
+    message: 'Page switcher controls are visible but do not switch local content.',
+    repairHint: 'Add page panels and a scoped inline script that changes the active page, aria-current state, and hidden panels.',
+  })
+
+  const hasModalTrigger = /class=["'][^"']*(modal-trigger|open-modal)|data-modal|aria-haspopup=["']dialog["']/i.test(html)
+  const hasModalPanel = /class=["'][^"']*modal-overlay|role=["']dialog["']/i.test(html)
+  addFindingIf(findings, hasModalTrigger && (!hasModalPanel || !hasInlineScript), {
+    id: 'encyclopedia.fake_modal_interaction',
+    source: 'template_rule',
+    severity: severityOf('encyclopedia.fake_modal_interaction'),
+    message: 'Modal or reveal controls are visible but do not open a local dialog.',
+    repairHint: 'Add a .modal-overlay or role=dialog panel plus scoped inline open/close handlers. Keep the interaction local and avoid external navigation.',
   })
 }
 
@@ -396,6 +460,47 @@ function stripTags(value: string): string {
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
+}
+
+function hasGlobalTouchActionNone(html: string): boolean {
+  const withoutComments = stripSourceComments(html)
+  const globalStyleAttrPattern = /<(?:html|body)\b[^>]*\bstyle=["'][^"']*touch-action\s*:\s*none[^"']*["']/i
+  if (globalStyleAttrPattern.test(withoutComments)) return true
+
+  for (const styleMatch of withoutComments.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const css = styleMatch[1] ?? ''
+    for (const ruleMatch of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selectors = ruleMatch[1] ?? ''
+      const declarations = ruleMatch[2] ?? ''
+      const targetsGlobalFrame = selectors
+        .split(',')
+        .map(selector => selector.trim().toLowerCase())
+        .some(selector => selector === '*' || selector === ':root' || selector === 'html' || selector === 'body')
+      if (targetsGlobalFrame && /touch-action\s*:\s*none/i.test(declarations)) return true
+    }
+  }
+
+  return false
+}
+
+function stripSourceComments(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_match, script: string) => {
+      const strippedScript = stripLineComments(script)
+      return `<script>${strippedScript}</script>`
+    })
+}
+
+function stripCommentsFromScriptBlocks(html: string): string {
+  return html.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (_match, script: string) => {
+    return `<script>${stripLineComments(script.replace(/\/\*[\s\S]*?\*\//g, ' '))}</script>`
+  })
+}
+
+function stripLineComments(source: string): string {
+  return source.replace(/(^|\n)\s*\/\/[^\n\r]*/g, '$1 ')
 }
 
 function extractProseText(bodyHtml: string): string {

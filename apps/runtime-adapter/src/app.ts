@@ -4,27 +4,61 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
 import { NexusClient, NexusClientError, type NexusExecuteResponse } from './nexusClient.js'
+import { RuntimeLaneRegistry, type RuntimeLane, type RuntimeLaneLease } from './runtimeLane.js'
 import { NoopRuntimeAdapterStateStore, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
 
 export type RuntimeAdapterOptions = {
   nexus: NexusClient
+  runtimeLaneRegistry?: RuntimeLaneRegistry
   runtimeVersion?: string
   workspaceBase?: string
   stateStore?: RuntimeAdapterStateStore
   executeRetryAttempts?: number
   executeRetryBaseDelayMs?: number
+  laneRetryAttempts?: number
+  laneAcquireTimeoutMs?: number
+  laneAcquirePollMs?: number
+  executeTimeoutMs?: number
+  watchdogTimeoutMs?: number
   workspacePollIntervalMs?: number
 }
 
 type RuntimeStream = {
   streamId: string
+  userId?: string
+  workspaceId?: string
+  sessionId?: string
   runtimeSessionId: string
   agentJobId: string
+  mode?: 'spawn' | 'refine'
+  variationIndex?: number
+  memoryNamespace?: string
+  runtimeLaneId: string
+  runtimeBackendId: string
+  runtimeLeaseId?: string
+  runtimeLeasePending?: boolean
   variationId?: string
   workspaceRoot: string
+  workspaceRootInput?: string
   prompt: string
   modelId?: string
   waitStarted: boolean
+}
+
+type RuntimeLaneRetryBehavior = {
+  markPreviousUnavailable: boolean
+}
+
+class RuntimeExecutionFailedError extends NexusClientError {
+  constructor(
+    readonly failure: {
+      code: string
+      message: string
+      detail?: string
+    },
+  ) {
+    super(failure.message, 502, '/v1/execute')
+  }
 }
 
 const REQUIRED_ENDPOINTS = [
@@ -40,7 +74,11 @@ const REQUIRED_ENDPOINTS = [
 
 const OPTIONAL_ENDPOINTS = [
   'GET /v1/models',
+  'POST /v1/lanes/:laneId/drain',
+  'POST /v1/lanes/:laneId/undrain',
 ]
+
+const GENERIC_EXECUTION_FAILED_MESSAGE = 'BabeL-O execution failed without a detailed runtime error.'
 
 const REQUIRED_EVENTS = [
   'session_started',
@@ -48,6 +86,9 @@ const REQUIRED_EVENTS = [
   'file_delta',
   'workspace_dirty',
   'workspace_dirty_detected',
+  'runtime_lane_assigned',
+  'runtime_lane_retry_started',
+  'runtime_lane_retry_exhausted',
   'result',
   'error',
 ]
@@ -60,6 +101,9 @@ const EVENT_MAPPINGS = {
   file_delta: 'design.variation_code_delta',
   workspace_dirty: 'design.variation_artifact_updated',
   workspace_dirty_detected: 'design.variation_artifact_updated',
+  runtime_lane_assigned: 'design.runtime_lane_assigned',
+  runtime_lane_retry_started: 'design.runtime_lane_retry_started',
+  runtime_lane_retry_exhausted: 'design.runtime_lane_retry_exhausted',
   result: 'design.variation_completed',
   error: 'design.variation_failed',
 }
@@ -81,7 +125,13 @@ class RuntimeAdapterApp {
   private readonly stateStore: RuntimeAdapterStateStore
   private readonly executeRetryAttempts: number
   private readonly executeRetryBaseDelayMs: number
+  private readonly laneRetryAttempts: number
+  private readonly laneAcquireTimeoutMs: number
+  private readonly laneAcquirePollMs: number
+  private readonly executeTimeoutMs: number
+  private readonly watchdogTimeoutMs: number
   private readonly workspacePollIntervalMs: number
+  private readonly runtimeLaneRegistry: RuntimeLaneRegistry
   private readonly ready: Promise<void>
   private persistQueue: Promise<void> = Promise.resolve()
   private sequence = 1
@@ -90,7 +140,13 @@ class RuntimeAdapterApp {
     this.stateStore = options.stateStore ?? new NoopRuntimeAdapterStateStore()
     this.executeRetryAttempts = nonNegativeInteger(options.executeRetryAttempts, 2)
     this.executeRetryBaseDelayMs = nonNegativeInteger(options.executeRetryBaseDelayMs, 750)
+    this.laneRetryAttempts = nonNegativeInteger(options.laneRetryAttempts, 1)
+    this.laneAcquireTimeoutMs = positiveInteger(options.laneAcquireTimeoutMs, 30000)
+    this.laneAcquirePollMs = positiveInteger(options.laneAcquirePollMs, 250)
+    this.executeTimeoutMs = positiveInteger(options.executeTimeoutMs, 300000)
+    this.watchdogTimeoutMs = positiveInteger(options.watchdogTimeoutMs, this.executeTimeoutMs)
     this.workspacePollIntervalMs = positiveInteger(options.workspacePollIntervalMs, 250)
+    this.runtimeLaneRegistry = options.runtimeLaneRegistry ?? RuntimeLaneRegistry.single(options.nexus, { maxConcurrent: Number.MAX_SAFE_INTEGER })
     this.ready = this.restoreState()
   }
 
@@ -120,6 +176,16 @@ class RuntimeAdapterApp {
       await this.handleResumeSession(res, decodeURIComponent(resumeMatch[1]!))
       return
     }
+    const laneDrainMatch = url.pathname.match(/^\/v1\/lanes\/([^/]+)\/drain$/)
+    if (method === 'POST' && laneDrainMatch) {
+      this.handleLaneDrain(res, decodeURIComponent(laneDrainMatch[1]!), true)
+      return
+    }
+    const laneUndrainMatch = url.pathname.match(/^\/v1\/lanes\/([^/]+)\/undrain$/)
+    if (method === 'POST' && laneUndrainMatch) {
+      this.handleLaneDrain(res, decodeURIComponent(laneUndrainMatch[1]!), false)
+      return
+    }
     if (method === 'POST' && url.pathname === '/v1/agents') {
       await this.handleSpawnAgent(req, res, 'spawn')
       return
@@ -145,31 +211,43 @@ class RuntimeAdapterApp {
   }
 
   private async handleHealth(res: http.ServerResponse): Promise<void> {
-    const health = await this.options.nexus.health().catch(error => ({
+    const health = await this.primaryNexus().health().catch(error => ({
       status: 'unavailable',
       message: error instanceof Error ? error.message : 'BabeL-O Nexus unavailable.',
     }))
-    const version = await this.options.nexus.version().catch(() => null)
+    const version = await this.primaryNexus().version().catch(() => null)
     sendJson(res, 200, {
       runtime: 'babel-o',
       runtimeVersion: runtimeVersionFrom(version) ?? this.options.runtimeVersion ?? stringField(health, 'version') ?? null,
       contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
       status: stringField(health, 'status') === 'ok' ? 'compatible' : 'unavailable',
       message: stringField(health, 'message') ?? 'DUDesign BabeL-O runtime adapter.',
+      lanes: this.runtimeLaneRegistry.list().map(lane => ({
+        id: lane.id,
+        backendId: lane.backendId,
+        provider: lane.provider,
+        status: lane.status,
+        inflight: lane.inflight,
+        maxConcurrent: lane.maxConcurrent,
+        weight: lane.weight,
+        contractVersion: lane.contractVersion ?? null,
+        lastHealthAt: lane.lastHealthAt ?? null,
+        lastErrorCode: lane.lastErrorCode ?? null,
+      })),
     })
   }
 
   private async handleContract(res: http.ServerResponse): Promise<void> {
-    const version = await this.options.nexus.version().catch(() => null)
+    const version = await this.primaryNexus().version().catch(() => null)
     sendJson(res, 200, contractPayload(runtimeVersionFrom(version) ?? this.options.runtimeVersion))
   }
 
   private async handleModels(res: http.ServerResponse): Promise<void> {
-    const version = await this.options.nexus.version().catch(() => null)
+    const version = await this.primaryNexus().version().catch(() => null)
     try {
       const [config, profiles] = await Promise.all([
-        this.options.nexus.runtimeConfig(),
-        this.options.nexus.runtimeProfiles().catch(() => null),
+        this.primaryNexus().runtimeConfig(),
+        this.primaryNexus().runtimeProfiles().catch(() => null),
       ])
       sendJson(res, 200, runtimeModelsPayload(config, profiles, runtimeVersionFrom(version) ?? this.options.runtimeVersion))
     } catch (error) {
@@ -192,7 +270,7 @@ class RuntimeAdapterApp {
     const body = await readJson(req)
     const sessionId = requiredString(body.sessionId, 'sessionId')
     const workspaceRoot = this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot'))
-    const created = await this.options.nexus.createSession({
+    const created = await this.primaryNexus().createSession({
       userId: requiredString(body.userId, 'userId'),
       workspaceId: requiredString(body.workspaceId, 'workspaceId'),
       sessionId,
@@ -209,7 +287,7 @@ class RuntimeAdapterApp {
   }
 
   private async handleResumeSession(res: http.ServerResponse, runtimeSessionId: string): Promise<void> {
-    const resumed = await this.options.nexus.resumeSession(runtimeSessionId)
+    const resumed = await this.primaryNexus().resumeSession(runtimeSessionId)
     const resolvedRuntimeSessionId = stringField(resumed, 'sessionId') ?? runtimeSessionId
     this.sessions.set(runtimeSessionId, resolvedRuntimeSessionId)
     await this.persistState()
@@ -220,16 +298,36 @@ class RuntimeAdapterApp {
     })
   }
 
+  private handleLaneDrain(res: http.ServerResponse, laneId: string, drain: boolean): void {
+    try {
+      this.runtimeLaneRegistry.markStatus(laneId, drain ? 'draining' : 'healthy', drain ? 'RUNTIME_LANE_DRAINING' : undefined)
+      const lane = this.runtimeLane(laneId)
+      sendJson(res, 200, laneControlPayload(lane, drain ? 'drain_started' : 'drain_cleared'))
+    } catch (error) {
+      sendJson(res, 404, {
+        type: 'error',
+        code: 'RUNTIME_LANE_NOT_FOUND',
+        message: error instanceof Error ? error.message : `Runtime lane not found: ${laneId}`,
+      })
+    }
+  }
+
   private async handleSpawnAgent(
     req: http.IncomingMessage,
     res: http.ServerResponse,
     mode: 'spawn' | 'refine',
   ): Promise<void> {
     const body = await readJson(req)
-    const workspaceRoot = this.runtimeWorkspaceRoot(requiredString(body.workspaceRoot, 'workspaceRoot'))
+    const workspaceRootInput = requiredString(body.workspaceRoot, 'workspaceRoot')
+    const requestedRuntimeLaneId = mode === 'refine' ? stringField(body, 'runtimeLaneId') : undefined
+    const lane = this.planRuntimeLane({ preferredLaneId: requestedRuntimeLaneId })
+    if (!lane) {
+      throw new Error('No runtime lane is available.')
+    }
+    const workspaceRoot = this.runtimeWorkspaceRoot(workspaceRootInput, lane.workspaceRoot)
     await mkdir(workspaceRoot, { recursive: true })
     const runtimeSessionId = mode === 'spawn'
-      ? await this.resolveVariationRuntimeSessionId(body, workspaceRoot)
+      ? await this.resolveVariationRuntimeSessionId(body, workspaceRoot, lane)
       : this.resolveRuntimeSessionId(body)
     const prompt = mode === 'refine'
       ? buildRefinePrompt(body)
@@ -239,10 +337,20 @@ class RuntimeAdapterApp {
     const agentJobId = this.nextId('execute')
     this.streams.set(streamId, {
       streamId,
+      userId: requiredString(body.userId, 'userId'),
+      workspaceId: requiredString(body.workspaceId, 'workspaceId'),
+      sessionId: requiredString(body.sessionId, 'sessionId'),
       runtimeSessionId,
       agentJobId,
+      mode,
+      ...(numberField(body, 'variationIndex') && { variationIndex: numberField(body, 'variationIndex') }),
+      memoryNamespace: stringField(body, 'memoryNamespace') ?? `memory:session:${requiredString(body.sessionId, 'sessionId')}`,
+      runtimeLaneId: lane.id,
+      runtimeBackendId: lane.backendId,
+      runtimeLeasePending: true,
       variationId: stringField(body, 'variationId'),
       workspaceRoot,
+      workspaceRootInput,
       prompt,
       ...(modelContext.modelId && { modelId: modelContext.modelId }),
       waitStarted: false,
@@ -252,6 +360,8 @@ class RuntimeAdapterApp {
       streamId,
       agentJobId,
       runtimeChildSessionId: runtimeSessionId,
+      runtimeLaneId: lane.id,
+      runtimeBackendId: lane.backendId,
     })
   }
 
@@ -264,7 +374,7 @@ class RuntimeAdapterApp {
       const runtimeAgentJobId = stringField(variation, 'runtimeAgentJobId')
       if (!runtimeAgentJobId) continue
       try {
-        await this.options.nexus.cancelAgent(runtimeAgentJobId, stringField(body, 'reason'))
+        await this.primaryNexus().cancelAgent(runtimeAgentJobId, stringField(body, 'reason'))
         cancelledVariationCount += 1
       } catch {
         failedVariationCount += 1
@@ -303,16 +413,31 @@ class RuntimeAdapterApp {
       connection: 'keep-alive',
     })
     try {
+      const lease = await this.acquireRuntimeLane({
+        preferredLaneId: stream.runtimeLaneId,
+        allowDrainingPreferred: Boolean(stream.runtimeLeasePending),
+      })
+      const lane = this.runtimeLane(lease.laneId)
+      stream.runtimeLaneId = lane.id
+      stream.runtimeBackendId = lane.backendId
+      stream.runtimeLeaseId = lease.leaseId
+      stream.runtimeLeasePending = false
+      stream.workspaceRoot = this.runtimeWorkspaceRoot(stream.workspaceRootInput ?? stream.workspaceRoot, lane.workspaceRoot)
+      await mkdir(stream.workspaceRoot, { recursive: true })
+      await this.persistState()
+      writeNdjson(res, {
+        type: 'runtime_lane_assigned',
+        runtimeLaneId: stream.runtimeLaneId,
+        runtimeBackendId: stream.runtimeBackendId,
+        runtimeLeaseId: stream.runtimeLeaseId ?? null,
+        streamId: stream.streamId,
+        agentJobId: stream.agentJobId,
+      })
       writeNdjson(res, { type: 'assistant_delta', delta: 'Starting the BabeL-O design run.' })
       const workspaceWatcher = createWorkspaceCodeDeltaWatcher(stream.workspaceRoot, this.workspacePollIntervalMs, event => writeNdjson(res, event))
       let executed: NexusExecuteResponse
       try {
-        executed = await this.executeWithCapacityRetry({
-          sessionId: stream.runtimeSessionId,
-          prompt: stream.prompt,
-          cwd: stream.workspaceRoot,
-          modelId: stream.modelId,
-        })
+        executed = await this.executeWithLaneRetry(stream, event => writeNdjson(res, event))
       } finally {
         await workspaceWatcher.stop()
       }
@@ -333,11 +458,15 @@ class RuntimeAdapterApp {
         return
       }
       if (executed.success === false) {
-        writeNdjson(res, {
-          type: 'error',
-          code: 'EXECUTION_FAILED',
-          message: 'BabeL-O execution failed.',
-        })
+        const failure = await this.summarizeExecutionFailure(stream, executed.events ?? [])
+        if (!executionEventsIncludeError(executed.events ?? [], failure.code)) {
+          writeNdjson(res, {
+            type: 'error',
+            code: failure.code,
+            message: failure.message,
+            ...(failure.detail && { detail: failure.detail }),
+          })
+        }
         return
       }
       const artifact = await readWorkspaceArtifact(stream.workspaceRoot)
@@ -374,6 +503,13 @@ class RuntimeAdapterApp {
         message: error instanceof Error ? error.message : 'Runtime stream failed.',
       })
     } finally {
+      if (stream.runtimeLeaseId) {
+        this.runtimeLaneRegistry.release({
+          leaseId: stream.runtimeLeaseId,
+          laneId: stream.runtimeLaneId,
+          acquiredAt: new Date(0).toISOString(),
+        })
+      }
       this.streams.delete(stream.streamId)
       await this.persistState()
       res.end()
@@ -386,8 +522,8 @@ class RuntimeAdapterApp {
     return id
   }
 
-  private runtimeWorkspaceRoot(workspaceRoot: string): string {
-    return resolveRuntimeWorkspaceRoot(workspaceRoot, this.options.workspaceBase)
+  private runtimeWorkspaceRoot(workspaceRoot: string, laneWorkspaceRoot?: string): string {
+    return resolveRuntimeWorkspaceRoot(workspaceRoot, laneWorkspaceRoot ?? this.options.workspaceBase)
   }
 
   private resolveRuntimeSessionId(body: Record<string, unknown>): string {
@@ -397,7 +533,7 @@ class RuntimeAdapterApp {
     return this.sessions.get(sessionId) ?? sessionId
   }
 
-  private async resolveVariationRuntimeSessionId(body: Record<string, unknown>, workspaceRoot: string): Promise<string> {
+  private async resolveVariationRuntimeSessionId(body: Record<string, unknown>, workspaceRoot: string, lane: RuntimeLane): Promise<string> {
     const directRuntimeSessionId = stringField(body, 'runtimeSessionId') ?? stringField(body, 'runtimeChildSessionId')
     if (directRuntimeSessionId) return directRuntimeSessionId
     const sessionId = requiredString(body.sessionId, 'sessionId')
@@ -405,7 +541,7 @@ class RuntimeAdapterApp {
     const variationSessionKey = variationIndex ? `${sessionId}:variation:${variationIndex}` : sessionId
     const existing = this.sessions.get(variationSessionKey)
     if (existing) return existing
-    const created = await this.options.nexus.createSession({
+    const created = await lane.nexus.createSession({
       userId: requiredString(body.userId, 'userId'),
       workspaceId: requiredString(body.workspaceId, 'workspaceId'),
       sessionId: variationSessionKey,
@@ -423,15 +559,184 @@ class RuntimeAdapterApp {
     prompt: string
     cwd: string
     modelId?: string
+    runtimeLaneId: string
   }): Promise<NexusExecuteResponse> {
+    const executeInput = {
+      ...input,
+      timeoutMs: this.executeTimeoutMs,
+      watchdogTimeoutMs: this.watchdogTimeoutMs,
+    }
     let attempt = 0
     while (true) {
       try {
-        return await this.options.nexus.execute(input)
+        return await this.runtimeLane(input.runtimeLaneId).nexus.execute(executeInput)
       } catch (error) {
         if (!isCapacityError(error) || attempt >= this.executeRetryAttempts) throw error
         attempt += 1
         await delay(this.executeRetryBaseDelayMs * attempt)
+      }
+    }
+  }
+
+  private async executeWithLaneRetry(stream: RuntimeStream, emit: (event: Record<string, unknown>) => void): Promise<NexusExecuteResponse> {
+    let laneAttempt = 0
+    const attemptedLaneIds = new Set<string>()
+    while (true) {
+      attemptedLaneIds.add(stream.runtimeLaneId)
+      try {
+        const executed = await this.executeWithCapacityRetry({
+          sessionId: stream.runtimeSessionId,
+          prompt: stream.prompt,
+          cwd: stream.workspaceRoot,
+          modelId: stream.modelId,
+          runtimeLaneId: stream.runtimeLaneId,
+        })
+        if (executed.success === false && stream.mode === 'spawn') {
+          throw new RuntimeExecutionFailedError(await this.summarizeExecutionFailure(stream, executed.events ?? []))
+        }
+        return executed
+      } catch (error) {
+        const reason = runtimeLaneRetryReason(error)
+        const retryBehavior = runtimeLaneRetryBehavior(error)
+        if (!reason || stream.mode !== 'spawn' || laneAttempt >= this.laneRetryAttempts) {
+          if (reason) {
+            emit({
+              type: 'runtime_lane_retry_exhausted',
+              previousRuntimeLaneId: stream.runtimeLaneId,
+              previousRuntimeBackendId: stream.runtimeBackendId,
+              reason,
+              attempts: laneAttempt,
+              errorCode: runtimeLaneErrorCode(error),
+              message: error instanceof Error ? error.message : 'Runtime lane retry exhausted.',
+            })
+          }
+          if (error instanceof RuntimeExecutionFailedError) {
+            return failedExecutionResponse(stream.runtimeSessionId, error.failure)
+          }
+          throw error
+        }
+
+        const previousLaneId = stream.runtimeLaneId
+        const previousBackendId = stream.runtimeBackendId
+        if (retryBehavior.markPreviousUnavailable) {
+          this.runtimeLaneRegistry.markStatus(previousLaneId, 'unavailable', runtimeLaneErrorCode(error))
+        }
+        if (stream.runtimeLeaseId) {
+          this.runtimeLaneRegistry.release({
+            leaseId: stream.runtimeLeaseId,
+            laneId: previousLaneId,
+            acquiredAt: new Date(0).toISOString(),
+          })
+          stream.runtimeLeaseId = undefined
+        }
+
+        let nextLease
+        try {
+          nextLease = await this.acquireRuntimeLane({ excludeLaneIds: [...attemptedLaneIds] })
+        } catch (acquireError) {
+          emit({
+            type: 'runtime_lane_retry_exhausted',
+            previousRuntimeLaneId: previousLaneId,
+            previousRuntimeBackendId: previousBackendId,
+            reason,
+            attempts: laneAttempt,
+            errorCode: 'RUNTIME_LANE_UNAVAILABLE',
+            message: acquireError instanceof Error ? acquireError.message : 'No runtime lane is available for retry.',
+          })
+          if (error instanceof RuntimeExecutionFailedError) {
+            return failedExecutionResponse(stream.runtimeSessionId, error.failure)
+          }
+          throw error
+        }
+        const nextLane = this.runtimeLane(nextLease.laneId)
+        laneAttempt += 1
+        const nextWorkspaceRoot = this.runtimeWorkspaceRoot(stream.workspaceRootInput ?? stream.workspaceRoot, nextLane.workspaceRoot)
+        await mkdir(nextWorkspaceRoot, { recursive: true })
+        stream.runtimeLaneId = nextLane.id
+        stream.runtimeBackendId = nextLane.backendId
+        stream.runtimeLeaseId = nextLease.leaseId
+        stream.workspaceRoot = nextWorkspaceRoot
+        stream.runtimeSessionId = await this.createRetryRuntimeSession(stream, nextLane, laneAttempt)
+        await this.persistState()
+
+        emit({
+          type: 'runtime_lane_retry_started',
+          previousRuntimeLaneId: previousLaneId,
+          previousRuntimeBackendId: previousBackendId,
+          nextRuntimeLaneId: nextLane.id,
+          nextRuntimeBackendId: nextLane.backendId,
+          reason,
+          attempt: laneAttempt,
+          maxAttempts: this.laneRetryAttempts,
+        })
+        emit({
+          type: 'runtime_lane_assigned',
+          runtimeLaneId: stream.runtimeLaneId,
+          runtimeBackendId: stream.runtimeBackendId,
+          runtimeLeaseId: stream.runtimeLeaseId ?? null,
+          streamId: stream.streamId,
+          agentJobId: stream.agentJobId,
+        })
+      }
+    }
+  }
+
+  private async createRetryRuntimeSession(stream: RuntimeStream, lane: RuntimeLane, attempt: number): Promise<string> {
+    if (!stream.userId || !stream.workspaceId || !stream.sessionId) {
+      throw new Error('Runtime lane retry cannot create a new session without stream identity context.')
+    }
+    const retrySessionId = stream.variationIndex
+      ? `${stream.sessionId}:variation:${stream.variationIndex}:lane-retry:${attempt}`
+      : `${stream.sessionId}:lane-retry:${attempt}`
+    const created = await lane.nexus.createSession({
+      userId: stream.userId,
+      workspaceId: stream.workspaceId,
+      sessionId: retrySessionId,
+      workspaceRoot: stream.workspaceRoot,
+      memoryNamespace: stream.memoryNamespace ?? `memory:session:${stream.sessionId}`,
+    })
+    return requiredString(created.sessionId, 'sessionId')
+  }
+
+  private async summarizeExecutionFailure(
+    stream: RuntimeStream,
+    executeEvents: Array<Record<string, unknown>>,
+  ): Promise<{
+    code: string
+    message: string
+    detail?: string
+  }> {
+    const directSummary = summarizeExecutionFailureEvents(executeEvents)
+    if (directSummary.detail || directSummary.message !== GENERIC_EXECUTION_FAILED_MESSAGE) return directSummary
+
+    try {
+      const transcript = await this.runtimeLane(stream.runtimeLaneId).nexus.getAgentTranscript(stream.agentJobId)
+      const transcriptEvents = transcript.events ?? []
+      const transcriptSummary = summarizeExecutionFailureEvents([...executeEvents, ...transcriptEvents])
+      if (transcriptSummary.detail || transcriptSummary.message !== GENERIC_EXECUTION_FAILED_MESSAGE) return transcriptSummary
+    } catch {
+      // Best-effort diagnostic enrichment only. The original execute failure remains authoritative.
+    }
+
+    return directSummary
+  }
+
+  private planRuntimeLane(options: { preferredLaneId?: string } = {}): RuntimeLane | undefined {
+    return this.runtimeLaneRegistry.plan(options)
+  }
+
+  private async acquireRuntimeLane(options: {
+    excludeLaneIds?: string[]
+    preferredLaneId?: string
+    allowDrainingPreferred?: boolean
+  } = {}): Promise<RuntimeLaneLease> {
+    const deadline = Date.now() + this.laneAcquireTimeoutMs
+    while (true) {
+      try {
+        return this.runtimeLaneRegistry.acquire(options)
+      } catch (error) {
+        if (Date.now() >= deadline) throw error
+        await delay(this.laneAcquirePollMs)
       }
     }
   }
@@ -445,6 +750,9 @@ class RuntimeAdapterApp {
       this.streams.set(stream.streamId, {
         ...stream,
         prompt: stream.prompt ?? 'Continue the DUDesign runtime task and write the final page to index.html.',
+        mode: stream.mode ?? 'spawn',
+        runtimeLaneId: stream.runtimeLaneId ?? this.runtimeLaneRegistry.primary().id,
+        runtimeBackendId: stream.runtimeBackendId ?? this.runtimeLane(stream.runtimeLaneId ?? this.runtimeLaneRegistry.primary().id).backendId,
         waitStarted: false,
       })
     }
@@ -460,10 +768,21 @@ class RuntimeAdapterApp {
           streamId,
           {
             streamId: stream.streamId,
+            ...(stream.userId && { userId: stream.userId }),
+            ...(stream.workspaceId && { workspaceId: stream.workspaceId }),
+            ...(stream.sessionId && { sessionId: stream.sessionId }),
             runtimeSessionId: stream.runtimeSessionId,
             agentJobId: stream.agentJobId,
+            ...(stream.mode && { mode: stream.mode }),
+            ...(stream.variationIndex && { variationIndex: stream.variationIndex }),
+            ...(stream.memoryNamespace && { memoryNamespace: stream.memoryNamespace }),
+            runtimeLaneId: stream.runtimeLaneId,
+            runtimeBackendId: stream.runtimeBackendId,
+            ...(stream.runtimeLeaseId && { runtimeLeaseId: stream.runtimeLeaseId }),
+            ...(stream.runtimeLeasePending && { runtimeLeasePending: stream.runtimeLeasePending }),
             ...(stream.variationId && { variationId: stream.variationId }),
             workspaceRoot: stream.workspaceRoot,
+            ...(stream.workspaceRootInput && { workspaceRootInput: stream.workspaceRootInput }),
             prompt: stream.prompt,
             ...(stream.modelId && { modelId: stream.modelId }),
           },
@@ -474,6 +793,18 @@ class RuntimeAdapterApp {
     } satisfies RuntimeAdapterStateSnapshot
     this.persistQueue = this.persistQueue.then(() => this.stateStore.save(snapshot))
     await this.persistQueue
+  }
+
+  private primaryNexus(): NexusClient {
+    return this.runtimeLaneRegistry.primary().nexus
+  }
+
+  private runtimeLane(laneId: string): RuntimeLane {
+    const lane = this.runtimeLaneRegistry.get(laneId)
+    if (!lane) {
+      throw new Error(`Runtime lane not found: ${laneId}`)
+    }
+    return lane
   }
 }
 
@@ -489,6 +820,57 @@ function nextSequenceFromStreams(streams: Map<string, RuntimeStream>): number {
 
 function isCapacityError(error: unknown): boolean {
   return error instanceof NexusClientError && error.status === 429
+}
+
+function runtimeLaneRetryReason(error: unknown): string | null {
+  if (error instanceof RuntimeExecutionFailedError) return 'runtime_execution_failed'
+  if (!(error instanceof NexusClientError)) return null
+  if (error.status === 429) return 'runtime_capacity'
+  if (error.status === 408) return 'runtime_request_timeout'
+  if (error.status >= 500 && error.status <= 599) return 'runtime_lane_unavailable'
+  return null
+}
+
+function runtimeLaneRetryBehavior(error: unknown): RuntimeLaneRetryBehavior {
+  return {
+    markPreviousUnavailable: !(error instanceof RuntimeExecutionFailedError),
+  }
+}
+
+function runtimeLaneErrorCode(error: unknown): string {
+  if (error instanceof RuntimeExecutionFailedError) return error.failure.code
+  if (error instanceof NexusClientError) {
+    if (error.status === 429) return 'RUNTIME_CAPACITY_EXHAUSTED'
+    if (error.status === 408) return 'RUNTIME_REQUEST_TIMEOUT'
+    if (error.status >= 500 && error.status <= 599) return 'RUNTIME_LANE_UNAVAILABLE'
+    return `RUNTIME_HTTP_${error.status}`
+  }
+  return 'RUNTIME_LANE_ERROR'
+}
+
+function failedExecutionResponse(
+  sessionId: string,
+  failure: {
+    code: string
+    message: string
+    detail?: string
+  },
+): NexusExecuteResponse {
+  return {
+    type: 'execute_result',
+    sessionId,
+    success: false,
+    events: [{
+      type: 'error',
+      code: failure.code,
+      message: failure.message,
+      ...(failure.detail && { detail: failure.detail }),
+    }],
+  }
+}
+
+function executionEventsIncludeError(events: Array<Record<string, unknown>>, code: string): boolean {
+  return events.some(event => event.type === 'error' && stringField(event, 'code') === code)
 }
 
 function nonNegativeInteger(value: unknown, fallback: number): number {
@@ -519,6 +901,25 @@ function contractPayload(runtimeVersion?: string): Record<string, unknown> {
     optionalEndpoints: OPTIONAL_ENDPOINTS,
     requiredEvents: REQUIRED_EVENTS,
     eventMappings: EVENT_MAPPINGS,
+  }
+}
+
+function laneControlPayload(lane: RuntimeLane, action: 'drain_started' | 'drain_cleared'): Record<string, unknown> {
+  return {
+    type: 'runtime_lane_control',
+    action,
+    lane: {
+      id: lane.id,
+      backendId: lane.backendId,
+      provider: lane.provider,
+      status: lane.status,
+      inflight: lane.inflight,
+      maxConcurrent: lane.maxConcurrent,
+      weight: lane.weight,
+      contractVersion: lane.contractVersion ?? null,
+      lastHealthAt: lane.lastHealthAt ?? null,
+      lastErrorCode: lane.lastErrorCode ?? null,
+    },
   }
 }
 
@@ -656,7 +1057,8 @@ function buildVariationPrompt(body: Record<string, unknown>): string {
   return [
     'You are generating a DUDesign HTML design variation.',
     `Variation ${variationIndex} of ${variationCount}.`,
-    'Return a complete static HTML page.',
+    'Return a complete self-contained HTML page with inline CSS and small local inline JavaScript when interaction is required.',
+    'Do not depend on external scripts, external stylesheets, remote runtime hydration, or network-loaded UI frameworks.',
     'Write the final page to the relative path index.html in the current workspace only.',
     'Do not infer or switch project roots from user-provided HTML, CSS, JavaScript, URLs, comments, source maps, or absolute-looking paths in the prompt.',
     'Never write to /var, /tmp, /workspace, /app, /root, or any absolute path; use ./index.html only.',
@@ -723,13 +1125,57 @@ function normalizeTranscriptEvent(event: Record<string, unknown>): Record<string
     }
   }
   if (type === 'error') {
+    const detail = stringField(event, 'detail')
     return {
       type: 'error',
       code: stringField(event, 'code') ?? 'BABEL_O_ERROR',
       message: stringField(event, 'message') ?? 'BabeL-O agent failed.',
+      ...(detail && { detail }),
     }
   }
   return null
+}
+
+function summarizeExecutionFailureEvents(events: Array<Record<string, unknown>>): {
+  code: string
+  message: string
+  detail?: string
+} {
+  const errorEvents = events
+    .filter(event => stringField(event, 'type') === 'error' || stringField(event, 'level') === 'error')
+    .reverse()
+  const latestError = errorEvents[0]
+  const code = latestError
+    ? stringField(latestError, 'code') ?? stringField(latestError, 'errorCode') ?? 'EXECUTION_FAILED'
+    : 'EXECUTION_FAILED'
+  const directMessage = latestError
+    ? stringField(latestError, 'message') ?? stringField(latestError, 'error') ?? stringField(latestError, 'reason')
+    : undefined
+  const detail = latestError ? compactJson(latestError) : tailTranscriptSummary(events)
+  return {
+    code,
+    message: directMessage
+      ? `BabeL-O execution failed: ${directMessage}`
+      : GENERIC_EXECUTION_FAILED_MESSAGE,
+    ...(detail && { detail }),
+  }
+}
+
+function compactJson(value: unknown): string | undefined {
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized) return undefined
+    return serialized.length > 1200 ? `${serialized.slice(0, 1200)}...` : serialized
+  } catch {
+    return undefined
+  }
+}
+
+function tailTranscriptSummary(events: Array<Record<string, unknown>>): string | undefined {
+  const tail = events.slice(-5).map(event => compactJson(event)).filter((value): value is string => Boolean(value))
+  if (tail.length === 0) return undefined
+  const joined = tail.join('\n')
+  return joined.length > 1200 ? `${joined.slice(0, 1200)}...` : joined
 }
 
 function summarizeTranscriptDelta(delta: string, type: 'assistant_delta' | 'thinking_delta'): string {

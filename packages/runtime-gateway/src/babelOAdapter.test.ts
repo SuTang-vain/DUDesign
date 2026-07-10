@@ -28,6 +28,36 @@ describe('BabelONexusEventAdapter', () => {
         timestamp: '2026-06-27T00:00:01.000Z',
       },
       {
+        type: 'runtime_lane_assigned',
+        runtimeLaneId: 'lane-a',
+        runtimeBackendId: 'backend-a',
+        runtimeLeaseId: 'lease_1',
+        streamId: 'stream_1',
+        agentJobId: 'execute_1',
+        timestamp: '2026-06-27T00:00:01.500Z',
+      },
+      {
+        type: 'runtime_lane_retry_started',
+        previousRuntimeLaneId: 'lane-a',
+        previousRuntimeBackendId: 'backend-a',
+        nextRuntimeLaneId: 'lane-b',
+        nextRuntimeBackendId: 'backend-b',
+        reason: 'runtime_lane_unavailable',
+        attempt: 1,
+        maxAttempts: 1,
+        timestamp: '2026-06-27T00:00:01.750Z',
+      },
+      {
+        type: 'runtime_lane_retry_exhausted',
+        previousRuntimeLaneId: 'lane-b',
+        previousRuntimeBackendId: 'backend-b',
+        reason: 'runtime_lane_unavailable',
+        attempts: 1,
+        errorCode: 'RUNTIME_LANE_UNAVAILABLE',
+        message: 'No runtime lane is available for retry.',
+        timestamp: '2026-06-27T00:00:01.900Z',
+      },
+      {
         type: 'thinking_delta',
         text: 'Planning the page structure.',
         channel: 'thinking',
@@ -90,6 +120,9 @@ describe('BabelONexusEventAdapter', () => {
     assert.deepEqual(output.map(event => event.type), [
       'design.session_started',
       'design.variation_streaming',
+      'design.runtime_lane_assigned',
+      'design.runtime_lane_retry_started',
+      'design.runtime_lane_retry_exhausted',
       'design.variation_streaming',
       'design.variation_code_delta',
       'design.variation_code_delta',
@@ -100,24 +133,32 @@ describe('BabelONexusEventAdapter', () => {
     ])
     assert.equal(asEvent(output[0], 'design.session_started').payload.runtimeSessionRef, 'runtime_ses_1')
     assert.equal(asEvent(output[1], 'design.variation_streaming').payload.channel, 'assistant')
-    assert.equal(asEvent(output[2], 'design.variation_streaming').payload.channel, 'thinking')
+    assert.equal(asEvent(output[2], 'design.runtime_lane_assigned').payload.runtimeLaneId, 'lane-a')
+    assert.equal(asEvent(output[2], 'design.runtime_lane_assigned').payload.runtimeBackendId, 'backend-a')
+    assert.equal(asEvent(output[2], 'design.runtime_lane_assigned').payload.runtimeLeaseId, 'lease_1')
+    assert.equal(asEvent(output[2], 'design.runtime_lane_assigned').payload.streamId, 'stream_1')
+    assert.equal(asEvent(output[2], 'design.runtime_lane_assigned').payload.agentJobId, 'execute_1')
+    assert.equal(asEvent(output[3], 'design.runtime_lane_retry_started').payload.previousRuntimeLaneId, 'lane-a')
+    assert.equal(asEvent(output[3], 'design.runtime_lane_retry_started').payload.nextRuntimeLaneId, 'lane-b')
+    assert.equal(asEvent(output[4], 'design.runtime_lane_retry_exhausted').payload.errorCode, 'RUNTIME_LANE_UNAVAILABLE')
+    assert.equal(asEvent(output[5], 'design.variation_streaming').payload.channel, 'thinking')
     assert.equal(asEvent(output[1], 'design.variation_streaming').payload.delta, 'Working on the page.')
-    assert.equal(asEvent(output[2], 'design.variation_streaming').payload.delta, 'Planning the page structure.')
-    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.path, 'index.html')
-    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.language, 'html')
-    assert.equal(asEvent(output[3], 'design.variation_code_delta').payload.sequence, 1)
-    assert.equal(asEvent(output[4], 'design.variation_code_delta').payload.path, 'styles.css')
-    assert.equal(asEvent(output[4], 'design.variation_code_delta').payload.language, 'css')
-    assert.equal(asEvent(output[4], 'design.variation_code_delta').payload.sequence, 2)
-    assert.equal(asEvent(output[4], 'design.variation_code_delta').payload.isFinal, true)
-    assert.deepEqual(asEvent(output[5], 'design.variation_artifact_updated').payload.changedPaths, ['index.html', 'styles.css'])
-    assert.equal(asEvent(output[5], 'design.variation_artifact_updated').payload.files?.length, 2)
-    assert.equal(asEvent(output[6], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
-    assert.equal(asEvent(output[7], 'design.variation_completed').payload.artifactId, 'art_runtime_1')
-    assert.equal(asEvent(output[7], 'design.variation_completed').payload.entryPath, 'index.html')
-    assert.match(asEvent(output[7], 'design.variation_completed').payload.html ?? '', /Runtime HTML/)
-    assert.equal(asEvent(output[7], 'design.variation_completed').payload.files?.length, 2)
-    assert.equal(asEvent(output[8], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
+    assert.equal(asEvent(output[5], 'design.variation_streaming').payload.delta, 'Planning the page structure.')
+    assert.equal(asEvent(output[6], 'design.variation_code_delta').payload.path, 'index.html')
+    assert.equal(asEvent(output[6], 'design.variation_code_delta').payload.language, 'html')
+    assert.equal(asEvent(output[6], 'design.variation_code_delta').payload.sequence, 1)
+    assert.equal(asEvent(output[7], 'design.variation_code_delta').payload.path, 'styles.css')
+    assert.equal(asEvent(output[7], 'design.variation_code_delta').payload.language, 'css')
+    assert.equal(asEvent(output[7], 'design.variation_code_delta').payload.sequence, 2)
+    assert.equal(asEvent(output[7], 'design.variation_code_delta').payload.isFinal, true)
+    assert.deepEqual(asEvent(output[8], 'design.variation_artifact_updated').payload.changedPaths, ['index.html', 'styles.css'])
+    assert.equal(asEvent(output[8], 'design.variation_artifact_updated').payload.files?.length, 2)
+    assert.equal(asEvent(output[9], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
+    assert.equal(asEvent(output[10], 'design.variation_completed').payload.artifactId, 'art_runtime_1')
+    assert.equal(asEvent(output[10], 'design.variation_completed').payload.entryPath, 'index.html')
+    assert.match(asEvent(output[10], 'design.variation_completed').payload.html ?? '', /Runtime HTML/)
+    assert.equal(asEvent(output[10], 'design.variation_completed').payload.files?.length, 2)
+    assert.equal(asEvent(output[11], 'design.runtime_warning').payload.code, 'UNKNOWN_RUNTIME_EVENT')
     assert.ok(output.every(event => event.type.startsWith('design.')))
     assert.ok(output.every(event => event.sessionId === context.sessionId))
     assert.ok(output.every(event => event.jobId === context.jobId))

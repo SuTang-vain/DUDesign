@@ -130,6 +130,11 @@ export type ApplyVariationEventInput = {
   screenshotArtifactId?: string | null
   runtimeChildSessionId?: string
   runtimeAgentJobId?: string
+  runtimeLaneId?: string
+  runtimeBackendId?: string
+  runtimeLeaseId?: string
+  runtimeAttempt?: number
+  runtimeLastErrorCode?: string
   inputTokens?: number
   outputTokens?: number
   costCents?: number
@@ -500,6 +505,7 @@ export type ApplicationRepository = {
   saveSession(session: DesignSession): MaybePromise<void>
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage>
   createJob(input: CreateJobInput): MaybePromise<DesignJob>
+  updateJobTemplateRequirements(jobId: string, templateRequirements: Record<string, unknown>): MaybePromise<DesignJob | null>
   createVariations(input: { job: DesignJob; count: number }): MaybePromise<DesignVariation[]>
   listSessions(): MaybePromise<DesignSession[]>
   getSessionSnapshot(sessionId: string): MaybePromise<SessionSnapshot | null>

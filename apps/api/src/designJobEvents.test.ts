@@ -59,7 +59,13 @@ describe('Design job event persistence and partial failures', () => {
       })
       await waitForJob(bootstrapHarness, job.job.id, 'completed')
       await producingService.flushBackgroundTasks()
+      const producedSnapshot = await waitForJob(bootstrapHarness, job.job.id, 'completed')
+      assert.equal(producedSnapshot.variations[0]?.runtimeLaneId, 'lane-controlled-1')
+      assert.equal(producedSnapshot.variations[0]?.runtimeBackendId, 'backend-controlled-1')
+      assert.equal(producedSnapshot.variations[0]?.runtimeLeaseId, 'lease-controlled-1')
+      assert.equal(producedSnapshot.variations[0]?.runtimeAttempt, 1)
       const persistedEvents = await store.listDesignEvents(job.job.id)
+      assert.equal(persistedEvents.some(event => event.type === 'design.runtime_lane_assigned'), true)
       assert.equal(persistedEvents.some(event => event.type === 'design.job_completed'), true)
       assert.equal(persistedEvents.some(event => event.type === 'design.loop_started'), true)
       assert.equal(persistedEvents.some(event => event.type === 'design.loop_quality_checked'), true)
@@ -72,6 +78,7 @@ describe('Design job event persistence and partial failures', () => {
         queue: new NoopScreenshotQueue(),
       }))
       const streamText = await getText(harness, `/api/design-jobs/${job.job.id}/stream`)
+      assert.match(streamText, /design\.runtime_lane_assigned/)
       assert.match(streamText, /design\.variation_streaming/)
       assert.match(streamText, /design\.loop_quality_checked/)
       assert.match(streamText, /design\.loop_completed/)
@@ -138,6 +145,44 @@ describe('Design job event persistence and partial failures', () => {
     const streamText = await getText(harness, `/api/design-jobs/${job.job.id}/stream`)
     assert.match(streamText, /design\.variation_completed/)
     assert.match(streamText, /design\.variation_streaming/)
+    await harness.close()
+    harness = null
+  })
+
+  it('ignores runtime-level job completed events and emits one authoritative terminal event', async () => {
+    const store = new InMemoryStore()
+    harness = await startApiFlowHarness(new ApplicationService({
+      store,
+      runtime: new ControlledRuntimeGateway('runtime-terminal-event'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Runtime terminal event idempotency',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Runtime emits its own job completed event before API finalization.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      templateRequirements: {},
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+    await harness.service.flushBackgroundTasks()
+
+    const persistedEvents = await store.listDesignEvents(job.job.id)
+    const completedEvents = persistedEvents.filter(event => event.type === 'design.job_completed')
+    assert.equal(completedEvents.length, 1)
+    assert.equal(completedEvents[0]?.payload.completedVariationCount, 1)
+    assert.equal(completedEvents[0]?.payload.failedVariationCount, 0)
+
+    const streamText = await getText(harness, `/api/design-jobs/${job.job.id}/stream`)
+    const terminalEventCount = streamText.match(/^event: design\.job_completed$/gm)?.length ?? 0
+    assert.equal(terminalEventCount, 1)
+    assert.doesNotMatch(streamText, /"completedVariationCount":99/)
+    assert.doesNotMatch(streamText, /"failedVariationCount":99/)
     await harness.close()
     harness = null
   })
@@ -309,6 +354,65 @@ describe('Design job event persistence and partial failures', () => {
       `/api/variations/${job.variations[0]!.id}`,
     )
     assert.equal(detail.currentArtifact?.version, 2)
+
+    await harness.close()
+    harness = null
+  })
+
+  it('plans targeted tab interaction repair for semi-auto dynamic encyclopedia review', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('encyclopedia-fake-tab-interaction'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Fake tab repair planning',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: '生成牛顿摆动态百科摘要卡，包含概览和来源两个 tab。',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 1,
+      capabilityRequirements: {
+        template: {
+          designTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
+        },
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {
+        designTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
+        businessContext: {
+          reviewMode: 'semi_auto',
+          entryTitle: '牛顿摆',
+        },
+      },
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+    await harness.service.flushBackgroundTasks()
+
+    const snapshot = await getJson<DesignJobSnapshotResponse>(harness, `/api/design-jobs/${job.job.id}`)
+    const htmlArtifact = snapshot.artifacts.find(artifact => artifact.kind === 'html')
+    assert.ok(htmlArtifact)
+    assert.equal(
+      htmlArtifact.quality?.specFindings?.some(finding => finding.id === 'encyclopedia.fake_tab_interaction'),
+      true,
+    )
+
+    const events = await harness.service.store.listDesignEvents(job.job.id)
+    const repairPlanned = events.find(event => event.type === 'design.loop_repair_planned')
+    const stopped = events.find(event => event.type === 'design.loop_stopped')
+    assert.equal(repairPlanned?.payload.reviewMode, 'semi_auto')
+    assert.equal(repairPlanned?.payload.requiresConfirmation, true)
+    assert.match(repairPlanned?.payload.promptPreview ?? '', /encyclopedia\.fake_tab_interaction/)
+    assert.match(repairPlanned?.payload.promptPreview ?? '', /Required tab interaction repair/)
+    assert.match(repairPlanned?.payload.promptPreview ?? '', /role="tabpanel"/)
+    assert.equal(stopped?.payload.reason, 'review_pending_confirmation')
 
     await harness.close()
     harness = null
@@ -506,10 +610,7 @@ describe('Design job event persistence and partial failures', () => {
       variationCount: 1,
       capabilityRequirements: {
         template: {
-          designTemplatePackIds: [
-            'dtp_dynamic_encyclopedia_summary_card',
-            'dtp_dynamic_encyclopedia_timeline_card',
-          ],
+          designTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
         },
         automation: {
           loopProfileId: 'loop_standard',
@@ -517,10 +618,7 @@ describe('Design job event persistence and partial failures', () => {
         },
       },
       templateRequirements: {
-        designTemplatePackIds: [
-          'dtp_dynamic_encyclopedia_summary_card',
-          'dtp_dynamic_encyclopedia_timeline_card',
-        ],
+        designTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
         businessContext: {
           interactionParadigmId: 'ip_entity_summary',
         },
@@ -531,11 +629,12 @@ describe('Design job event persistence and partial failures', () => {
 
     const snapshot = await getJson<DesignJobSnapshotResponse>(harness, `/api/design-jobs/${job.job.id}`)
     assert.equal(snapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_summary_card')
-    const htmlArtifacts = snapshot.artifacts.filter(artifact => artifact.kind === 'html')
-    assert.equal(htmlArtifacts.length, 1)
-    assert.equal(htmlArtifacts[0]?.quality?.status, 'pass')
+    const htmlArtifact = snapshot.artifacts.find(artifact =>
+      artifact.kind === 'html' && artifact.variationId === snapshot.variations[0]?.id)
+    assert.ok(htmlArtifact)
+    assert.notEqual(htmlArtifact.quality?.status, 'fail')
     assert.equal(
-      htmlArtifacts[0]?.quality?.issues.some(issue => /timeline child template|timeline|时间线|里程碑/i.test(issue)),
+      htmlArtifact.quality?.issues.some(issue => /timeline child template|timeline|时间线|里程碑/i.test(issue)),
       false,
     )
 
@@ -543,6 +642,58 @@ describe('Design job event persistence and partial failures', () => {
     const qualityChecks = events.filter(event => event.type === 'design.loop_quality_checked')
     assert.deepEqual(qualityChecks.map(event => event.payload.status), ['pass'])
     assert.equal(events.some(event => event.type === 'design.loop_repair_planned'), false)
+
+    await harness.close()
+    harness = null
+  })
+
+  it('does not auto-fill dynamic encyclopedia variations with unrelated generic templates', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('all-complete'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Dynamic encyclopedia template isolation',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: '百度百科企业词条动态卡片',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 3,
+      capabilityRequirements: {
+        template: {
+          designTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+        },
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {
+        designTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+        businessContext: {
+          interactionParadigmId: 'ip_timeline_story',
+        },
+      },
+    })
+    await waitForJob(harness, job.job.id, 'completed')
+
+    const snapshot = await getJson<DesignJobSnapshotResponse>(harness, `/api/design-jobs/${job.job.id}`)
+    assert.equal(snapshot.variations.length, 3)
+    assert.deepEqual(
+      snapshot.variations.map(variation => variation.designTemplatePack?.id),
+      [
+        'dtp_dynamic_encyclopedia_timeline_card',
+        'dtp_dynamic_encyclopedia_timeline_card',
+        'dtp_dynamic_encyclopedia_timeline_card',
+      ],
+    )
+    assert.equal(snapshot.job.designTemplatePacks.some(template => template.id === 'dtp_developer_workflow'), false)
+    assert.equal(snapshot.job.designTemplatePacks.some(template => template.id === 'dtp_data_operations'), false)
 
     await harness.close()
     harness = null
@@ -731,9 +882,11 @@ type ControlledRuntimeMode =
   | 'all-complete'
   | 'partial-failure'
   | 'late-streaming-after-complete'
+  | 'runtime-terminal-event'
   | 'quality-failure'
   | 'quality-failure-still-fails'
   | 'quality-failure-runtime-unavailable'
+  | 'encyclopedia-fake-tab-interaction'
   | 'encyclopedia-summary-with-timeline-candidate'
   | 'encyclopedia-film-resource-risk'
   | 'encyclopedia-tv-episode-risk'
@@ -795,6 +948,20 @@ class ControlledRuntimeGateway implements RuntimeGateway {
 
   async *spawnVariationAgents(input: SpawnVariationAgentsInput): AsyncIterable<DesignEvent> {
     yield createDesignEvent({
+      type: 'design.runtime_lane_assigned',
+      sessionId: input.sessionId,
+      jobId: input.jobId,
+      variationId: 'runtime_variation_1',
+      payload: {
+        runtimeLaneId: 'lane-controlled-1',
+        runtimeBackendId: 'backend-controlled-1',
+        runtimeLeaseId: 'lease-controlled-1',
+        streamId: 'stream-controlled-1',
+        agentJobId: 'agent-controlled-1',
+        status: 'assigned',
+      },
+    })
+    yield createDesignEvent({
       type: 'design.variation_streaming',
       sessionId: input.sessionId,
       jobId: input.jobId,
@@ -821,6 +988,17 @@ class ControlledRuntimeGateway implements RuntimeGateway {
         jobId: input.jobId,
         variationId: 'runtime_variation_1',
         payload: { channel: 'system', delta: 'late runtime heartbeat' },
+      })
+    }
+    if (this.mode === 'runtime-terminal-event') {
+      yield createDesignEvent({
+        type: 'design.job_completed',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        payload: {
+          completedVariationCount: 99,
+          failedVariationCount: 99,
+        },
       })
     }
     if (this.mode === 'partial-failure') {
@@ -877,6 +1055,40 @@ class ControlledRuntimeGateway implements RuntimeGateway {
     if (this.mode === 'quality-failure' || this.mode === 'quality-failure-still-fails' || this.mode === 'quality-failure-runtime-unavailable') {
       return '<!doctype html><html><body></body></html>'
     }
+    if (this.mode === 'encyclopedia-fake-tab-interaction') {
+      return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>牛顿摆百科摘要</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { font-family: "PingFang SC", system-ui, sans-serif; color: #1E1F24; background: #F8F8F8; }
+      .no-scroll-frame { width: 100%; height: 100%; overflow: hidden; padding: 24px; box-sizing: border-box; }
+      .tab-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+      .tab-bar button { border: 1px solid #D5DAE6; border-radius: 999px; background: #FFFFFF; padding: 6px 12px; }
+      .tab-bar button[aria-selected="true"] { background: #1E1F24; color: #FFFFFF; }
+      .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <nav class="tab-bar" role="tablist">
+        <button type="button" role="tab" aria-selected="true">概览</button>
+        <button type="button" role="tab" aria-selected="false">来源</button>
+      </nav>
+      <h1>牛顿摆</h1>
+      <p>百科概览：牛顿摆是一种展示动量守恒和能量传递的物理演示装置。</p>
+      <section class="facts" aria-label="关键事实">
+        <article><strong>词条类型</strong><p>物理演示装置</p></article>
+        <article><strong>核心事实</strong><p>用于解释近似弹性碰撞。</p></article>
+        <article><strong>来源提示</strong><p>据公开物理科普资料整理。</p></article>
+        <article><strong>更多事实</strong><p>常见于课堂与科普展品。</p></article>
+      </section>
+    </main>
+  </body>
+</html>`
+    }
     if (this.mode === 'encyclopedia-summary-with-timeline-candidate') {
       return `<!doctype html>
 <html lang="zh-CN">
@@ -897,18 +1109,35 @@ class ControlledRuntimeGateway implements RuntimeGateway {
   <body>
     <main class="no-scroll-frame">
       <nav class="tab-bar" role="tablist">
-        <button type="button" role="tab" aria-selected="true">概览</button>
-        <button type="button" role="tab" aria-selected="false">时间线</button>
+        <button type="button" id="tab-summary" role="tab" aria-selected="true" aria-controls="panel-summary" data-panel="panel-summary">概览</button>
+        <button type="button" id="tab-source" role="tab" aria-selected="false" aria-controls="panel-source" data-panel="panel-source">来源</button>
       </nav>
       <h1>牛顿摆</h1>
-      <section aria-label="百科概览">百科概览：牛顿摆是一种演示动量守恒和能量传递的教学装置。</section>
-      <section class="fact-grid" aria-label="关键事实">
-        <article><strong>类型</strong><p>物理演示装置</p></article>
-        <article><strong>核心概念</strong><p>动量守恒、近似弹性碰撞</p></article>
-        <article><strong>使用场景</strong><p>课堂演示、科普展示</p></article>
-        <article><strong>来源提示</strong><p>信息以通用物理知识为基础。</p></article>
+      <section id="panel-summary" role="tabpanel" aria-labelledby="tab-summary">
+        <section aria-label="百科概览">百科概览：牛顿摆是一种演示动量守恒和能量传递的教学装置。</section>
+        <section class="fact-grid" aria-label="关键事实">
+          <article><strong>类型</strong><p>物理演示装置</p></article>
+          <article><strong>核心概念</strong><p>动量守恒、近似弹性碰撞</p></article>
+          <article><strong>使用场景</strong><p>课堂演示、科普展示</p></article>
+          <article><strong>更多事实</strong><p>常见于课堂与科普展品。</p></article>
+        </section>
+      </section>
+      <section id="panel-source" role="tabpanel" aria-labelledby="tab-source" hidden>
+        <p>来源提示：信息以通用物理知识和公开科普资料为基础。</p>
       </section>
     </main>
+    <script>
+      document.querySelectorAll('[role="tab"]').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          document.querySelectorAll('[role="tab"]').forEach(function(item) {
+            item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
+          });
+          document.querySelectorAll('[role="tabpanel"]').forEach(function(panel) {
+            panel.hidden = panel.id !== tab.dataset.panel;
+          });
+        });
+      });
+    </script>
   </body>
 </html>`
     }

@@ -6,6 +6,7 @@ import { after, before, describe, it } from 'node:test'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
 import { createRuntimeAdapterServer, resolveRuntimeWorkspaceRoot } from './app.js'
 import { NexusClient } from './nexusClient.js'
+import { createRuntimeLaneFromConfig, RuntimeLaneRegistry } from './runtimeLane.js'
 import { FileRuntimeAdapterStateStore } from './stateStore.js'
 
 describe('DUDesign BabeL-O runtime adapter', () => {
@@ -127,7 +128,12 @@ describe('DUDesign BabeL-O runtime adapter', () => {
   })
 
   it('serves DUDesign runtime health and contract over raw Nexus', async () => {
-    const health = await getJson<{ runtimeVersion: string; contractVersion: string; status: string }>('/v1/health')
+    const health = await getJson<{
+      runtimeVersion: string
+      contractVersion: string
+      status: string
+      lanes: Array<{ id: string; provider: string; status: string; inflight: number; maxConcurrent: number }>
+    }>('/v1/health')
     const contract = await getJson<{
       contractVersion: string
       status: string
@@ -139,12 +145,22 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.equal(health.runtimeVersion, '0.3.9')
     assert.equal(health.contractVersion, DUDESIGN_RUNTIME_CONTRACT_VERSION)
     assert.equal(health.status, 'compatible')
+    assert.equal(health.lanes[0]?.id, 'default')
+    assert.equal(health.lanes[0]?.provider, 'babel-o')
+    assert.equal(health.lanes[0]?.status, 'healthy')
+    assert.equal(health.lanes[0]?.inflight, 0)
     assert.equal(contract.contractVersion, DUDESIGN_RUNTIME_CONTRACT_VERSION)
     assert.equal(contract.status, 'compatible')
     assert.ok(contract.requiredEndpoints.includes('POST /v1/agents/refine'))
     assert.ok((contract as { optionalEndpoints?: string[] }).optionalEndpoints?.includes('GET /v1/models'))
     assert.ok(contract.requiredEvents.includes('file_delta'))
+    assert.ok(contract.requiredEvents.includes('runtime_lane_assigned'))
+    assert.ok(contract.requiredEvents.includes('runtime_lane_retry_started'))
+    assert.ok(contract.requiredEvents.includes('runtime_lane_retry_exhausted'))
     assert.equal(contract.eventMappings.file_delta, 'design.variation_code_delta')
+    assert.equal(contract.eventMappings.runtime_lane_assigned, 'design.runtime_lane_assigned')
+    assert.equal(contract.eventMappings.runtime_lane_retry_started, 'design.runtime_lane_retry_started')
+    assert.equal(contract.eventMappings.runtime_lane_retry_exhausted, 'design.runtime_lane_retry_exhausted')
   })
 
   it('serves normalized DUDesign runtime models from raw Nexus runtime config', async () => {
@@ -271,6 +287,8 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.match(spawned.agentJobId, /^execute_/)
     assert.equal(spawned.runtimeChildSessionId, 'nexus_session_2')
     assert.match(stream, /"type":"thinking_delta"/)
+    assert.match(stream, /"type":"runtime_lane_assigned"/)
+    assert.match(stream, /"runtimeLaneId":"default"/)
     assert.match(stream, /"delta":"Planning the page structure\."/)
     assert.match(stream, /"type":"assistant_delta"/)
     assert.match(stream, /"delta":"Finishing the generated page\."/)
@@ -460,6 +478,339 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('assigns streams to runtime lanes and releases leases after consumption', async () => {
+    const laneAWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-a-'))
+    const laneBWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-b-'))
+    await writeFile(join(laneAWorkspaceRoot, 'index.html'), '<!doctype html><h1>Lane A artifact</h1>', 'utf8')
+    await writeFile(join(laneBWorkspaceRoot, 'index.html'), '<!doctype html><h1>Lane B artifact</h1>', 'utf8')
+    const laneANexus = createMockNexus()
+    const laneBNexus = createMockNexus()
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test' }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test' }, laneBNexus),
+    ])
+    const laneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+    }))
+    try {
+      const spawnedA = await postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeBackendId: string; runtimeLeaseId?: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lanes',
+        jobId: 'job_lanes',
+        prompt: 'Build lane A page',
+        sourceMode: 'new_html',
+        variationCount: 2,
+        variationIndex: 1,
+        workspaceRoot: laneAWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const spawnedB = await postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeBackendId: string; runtimeLeaseId?: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lanes',
+        jobId: 'job_lanes',
+        prompt: 'Build lane B page',
+        sourceMode: 'new_html',
+        variationCount: 2,
+        variationIndex: 2,
+        workspaceRoot: laneBWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+
+      assert.equal(spawnedA.runtimeLaneId, 'lane-a')
+      assert.equal(spawnedA.runtimeBackendId, 'backend-a')
+      assert.equal(spawnedB.runtimeLaneId, 'lane-b')
+      assert.equal(spawnedB.runtimeBackendId, 'backend-b')
+      assert.equal(spawnedA.runtimeLeaseId, undefined)
+      assert.equal(spawnedB.runtimeLeaseId, undefined)
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+
+      const streamA = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${spawnedA.streamId}`)
+      const streamB = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${spawnedB.streamId}`)
+
+      assert.match(streamA, /"runtimeBackendId":"backend-a"/)
+      assert.match(streamB, /"runtimeBackendId":"backend-b"/)
+      assert.match(streamA, /Lane A artifact/)
+      assert.match(streamB, /Lane B artifact/)
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+    } finally {
+      await laneHarness.close()
+    }
+  })
+
+  it('does not reserve runtime lane capacity before a stream is consumed', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-deferred-lease-'))
+    await writeFile(join(workspaceRoot, 'index.html'), '<!doctype html><h1>Deferred lease artifact</h1>', 'utf8')
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, createMockNexus()),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 1 }, createMockNexus()),
+    ])
+    const deferredHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+      runtimeLaneRegistry: registry,
+    }))
+    try {
+      const spawned = await Promise.all([1, 2, 3].map(index => postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeLeaseId?: string }>(deferredHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_deferred_lease',
+        jobId: 'job_deferred_lease',
+        prompt: `Build deferred lease page ${index}`,
+        sourceMode: 'new_html',
+        variationCount: 3,
+        variationIndex: index,
+        workspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })))
+
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+      assert.equal(spawned.every(item => item.runtimeLeaseId === undefined), true)
+
+      const stream = await getTextWithBase(deferredHarness.baseUrl, `/v1/stream?streamId=${spawned[0]?.streamId}`)
+      assert.match(stream, /"type":"runtime_lane_assigned"/)
+      assert.match(stream, /"runtimeLeaseId":"lease_/)
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+    } finally {
+      await deferredHarness.close()
+    }
+  })
+
+  it('resolves relative workspaces under each assigned runtime lane root', async () => {
+    const laneARoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-root-a-'))
+    const laneBRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-root-b-'))
+    await mkdir(join(laneARoot, 'runtime-jobs', 'job_lane_root', 'variation_01'), { recursive: true })
+    await mkdir(join(laneBRoot, 'runtime-jobs', 'job_lane_root', 'variation_02'), { recursive: true })
+    await writeFile(
+      join(laneARoot, 'runtime-jobs', 'job_lane_root', 'variation_01', 'index.html'),
+      '<!doctype html><h1>Lane root A artifact</h1>',
+      'utf8',
+    )
+    await writeFile(
+      join(laneBRoot, 'runtime-jobs', 'job_lane_root', 'variation_02', 'index.html'),
+      '<!doctype html><h1>Lane root B artifact</h1>',
+      'utf8',
+    )
+    const sessionWorkspaces: string[] = []
+    const executeCwds: string[] = []
+    const laneANexus = createMockNexus({
+      onSessionBody: body => sessionWorkspaces.push(String(body.cwd)),
+      onExecuteBody: body => executeCwds.push(String(body.cwd)),
+    })
+    const laneBNexus = createMockNexus({
+      onSessionBody: body => sessionWorkspaces.push(String(body.cwd)),
+      onExecuteBody: body => executeCwds.push(String(body.cwd)),
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', workspaceRoot: laneARoot }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', workspaceRoot: laneBRoot }, laneBNexus),
+    ])
+    const laneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+    }))
+    try {
+      const spawnedA = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_roots',
+        jobId: 'job_lane_root',
+        prompt: 'Build lane root A page',
+        sourceMode: 'new_html',
+        variationCount: 2,
+        variationIndex: 1,
+        workspaceRoot: 'runtime-jobs/job_lane_root/variation_01',
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const spawnedB = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_roots',
+        jobId: 'job_lane_root',
+        prompt: 'Build lane root B page',
+        sourceMode: 'new_html',
+        variationCount: 2,
+        variationIndex: 2,
+        workspaceRoot: 'runtime-jobs/job_lane_root/variation_02',
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+
+      assert.equal(spawnedA.runtimeLaneId, 'lane-a')
+      assert.equal(spawnedB.runtimeLaneId, 'lane-b')
+      assert.deepEqual(sessionWorkspaces, [
+        join(laneARoot, 'runtime-jobs', 'job_lane_root', 'variation_01'),
+        join(laneBRoot, 'runtime-jobs', 'job_lane_root', 'variation_02'),
+      ])
+
+      const streamA = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${spawnedA.streamId}`)
+      const streamB = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${spawnedB.streamId}`)
+
+      assert.deepEqual(executeCwds, [
+        join(laneARoot, 'runtime-jobs', 'job_lane_root', 'variation_01'),
+        join(laneBRoot, 'runtime-jobs', 'job_lane_root', 'variation_02'),
+      ])
+      assert.match(streamA, /Lane root A artifact/)
+      assert.match(streamB, /Lane root B artifact/)
+    } finally {
+      await laneHarness.close()
+    }
+  })
+
+  it('keeps refine work on the variation assigned runtime lane root', async () => {
+    const laneARoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-refine-lane-a-'))
+    const laneBRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-refine-lane-b-'))
+    await mkdir(join(laneBRoot, 'runtime-jobs', 'job_refine_lane', 'variation_02'), { recursive: true })
+    await writeFile(
+      join(laneBRoot, 'runtime-jobs', 'job_refine_lane', 'variation_02', 'index.html'),
+      '<!doctype html><h1>Refined on lane B</h1>',
+      'utf8',
+    )
+    const executeCwds: string[] = []
+    const laneANexus = createMockNexus({
+      onExecuteBody: body => executeCwds.push(`lane-a:${String(body.cwd)}`),
+    })
+    const laneBNexus = createMockNexus({
+      onExecuteBody: body => executeCwds.push(`lane-b:${String(body.cwd)}`),
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', workspaceRoot: laneARoot }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', workspaceRoot: laneBRoot }, laneBNexus),
+    ])
+    const laneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeBackendId: string }>(laneHarness.baseUrl, '/v1/agents/refine', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_refine_lane',
+        jobId: 'job_refine_lane',
+        variationId: 'variation_refine_lane',
+        variationIndex: 2,
+        runtimeChildSessionId: 'lane_b_existing_session',
+        runtimeLaneId: 'lane-b',
+        baseArtifactId: 'artifact_1',
+        baseArtifactHtml: '<!doctype html><h1>Base</h1>',
+        prompt: 'Refine on the existing lane',
+        workspaceRoot: 'runtime-jobs/job_refine_lane/variation_02',
+      })
+
+      assert.equal(spawned.runtimeLaneId, 'lane-b')
+      assert.equal(spawned.runtimeBackendId, 'backend-b')
+
+      const stream = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.deepEqual(executeCwds, [
+        `lane-b:${join(laneBRoot, 'runtime-jobs', 'job_refine_lane', 'variation_02')}`,
+      ])
+      assert.match(stream, /Refined on lane B/)
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+    } finally {
+      await laneHarness.close()
+    }
+  })
+
+  it('drains runtime lanes without interrupting active streams', async () => {
+    const laneAWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-drain-a-'))
+    const laneBWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-drain-b-'))
+    const laneAAfterUndrainRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-undrain-a-'))
+    await writeFile(join(laneAWorkspaceRoot, 'index.html'), '<!doctype html><h1>Draining lane A artifact</h1>', 'utf8')
+    await writeFile(join(laneBWorkspaceRoot, 'index.html'), '<!doctype html><h1>Lane B receives new work</h1>', 'utf8')
+    await writeFile(join(laneAAfterUndrainRoot, 'index.html'), '<!doctype html><h1>Lane A accepts work again</h1>', 'utf8')
+    const laneANexus = createMockNexus()
+    const laneBNexus = createMockNexus()
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 2 }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 2 }, laneBNexus),
+    ])
+    const laneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+    }))
+    try {
+      const activeA = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_drain',
+        jobId: 'job_lane_drain',
+        prompt: 'Build lane A page before drain',
+        sourceMode: 'new_html',
+        variationCount: 3,
+        variationIndex: 1,
+        workspaceRoot: laneAWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const drained = await postJsonWithBase<{ action: string; lane: { id: string; status: string; inflight: number } }>(laneHarness.baseUrl, '/v1/lanes/lane-a/drain', {})
+      const afterDrainHealth = await getJsonWithBase<{ lanes: Array<{ id: string; status: string; inflight: number }> }>(laneHarness.baseUrl, '/v1/health')
+      const newWork = await postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeBackendId: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_drain',
+        jobId: 'job_lane_drain',
+        prompt: 'Build lane B page while lane A drains',
+        sourceMode: 'new_html',
+        variationCount: 3,
+        variationIndex: 2,
+        workspaceRoot: laneBWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+
+      assert.equal(activeA.runtimeLaneId, 'lane-a')
+      assert.equal(drained.action, 'drain_started')
+      assert.equal(drained.lane.status, 'draining')
+      assert.equal(drained.lane.inflight, 0)
+      assert.equal(afterDrainHealth.lanes.find(lane => lane.id === 'lane-a')?.status, 'draining')
+      assert.equal(afterDrainHealth.lanes.find(lane => lane.id === 'lane-a')?.inflight, 0)
+      assert.equal(newWork.runtimeLaneId, 'lane-b')
+      assert.equal(newWork.runtimeBackendId, 'backend-b')
+
+      const streamA = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${activeA.streamId}`)
+      const streamB = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${newWork.streamId}`)
+      assert.match(streamA, /Draining lane A artifact/)
+      assert.match(streamB, /Lane B receives new work/)
+      assert.equal(registry.get('lane-a')?.status, 'draining')
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+
+      const undrained = await postJsonWithBase<{ action: string; lane: { id: string; status: string } }>(laneHarness.baseUrl, '/v1/lanes/lane-a/undrain', {})
+      const afterUndrain = await postJsonWithBase<{ streamId: string; runtimeLaneId: string; runtimeBackendId: string }>(laneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_drain',
+        jobId: 'job_lane_drain',
+        prompt: 'Build lane A page after undrain',
+        sourceMode: 'new_html',
+        variationCount: 3,
+        variationIndex: 3,
+        workspaceRoot: laneAAfterUndrainRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      assert.equal(undrained.action, 'drain_cleared')
+      assert.equal(undrained.lane.status, 'healthy')
+      assert.equal(afterUndrain.runtimeLaneId, 'lane-a')
+      assert.equal(afterUndrain.runtimeBackendId, 'backend-a')
+
+      const streamAfterUndrain = await getTextWithBase(laneHarness.baseUrl, `/v1/stream?streamId=${afterUndrain.streamId}`)
+      assert.match(streamAfterUndrain, /Lane A accepts work again/)
+    } finally {
+      await laneHarness.close()
+    }
+  })
+
   it('lets BabeL-O resolve its configured default model for the DUDesign placeholder model', async () => {
     const executeBodies: Array<Record<string, unknown>> = []
     const defaultModelHarness = await startHarness(createRuntimeAdapterServer({
@@ -490,6 +841,39 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       assert.equal(executeBodies[0]?.model, undefined)
     } finally {
       await defaultModelHarness.close()
+    }
+  })
+
+  it('sends separate execute and watchdog timeout values to raw Nexus', async () => {
+    const executeBodies: Array<Record<string, unknown>> = []
+    const timeoutHarness = await startHarness(createRuntimeAdapterServer({
+      executeTimeoutMs: 300000,
+      watchdogTimeoutMs: 600000,
+      nexus: createMockNexus({
+        onExecuteBody: body => executeBodies.push(body),
+      }),
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(timeoutHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_timeout',
+        jobId: 'job_timeout_policy',
+        prompt: 'Build a page with timeout policy',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      await getTextWithBase(timeoutHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(executeBodies.length, 1)
+      assert.equal(executeBodies[0]?.timeoutMs, 300000)
+      assert.equal(executeBodies[0]?.watchdogTimeoutMs, 600000)
+    } finally {
+      await timeoutHarness.close()
     }
   })
 
@@ -555,6 +939,445 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     }
   })
 
+  it('switches to another runtime lane when the assigned lane is unavailable', async () => {
+    const retryWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-retry-'))
+    await writeFile(join(retryWorkspaceRoot, 'index.html'), '<!doctype html><h1>Recovered on lane B</h1>', 'utf8')
+    let laneAExecuteAttempts = 0
+    let laneBExecuteAttempts = 0
+    let laneBSessionCreates = 0
+    const laneANexus = new NexusClient({
+      baseUrl: 'https://lane-a.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_a_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneAExecuteAttempts += 1
+          return jsonResponse({ type: 'error', code: 'LANE_DOWN' }, 503)
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const laneBNexus = new NexusClient({
+      baseUrl: 'https://lane-b.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          laneBSessionCreates += 1
+          return jsonResponse({ type: 'session_created', sessionId: `lane_b_retry_session_${laneBSessionCreates}` }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneBExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_b_retry_session_1',
+            success: true,
+            events: [{ type: 'assistant_delta', delta: 'Recovered on the second lane' }],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 1 }, laneBNexus),
+    ])
+    const retryLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 1,
+      laneAcquireTimeoutMs: 50,
+      laneAcquirePollMs: 10,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(retryLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_retry',
+        jobId: 'job_lane_retry',
+        prompt: 'Build a page after lane retry',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: retryWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(retryLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(spawned.runtimeLaneId, 'lane-a')
+      assert.equal(laneAExecuteAttempts, 1)
+      assert.equal(laneBExecuteAttempts, 1)
+      assert.equal(laneBSessionCreates, 1)
+      assert.equal(registry.get('lane-a')?.status, 'unavailable')
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+      assert.match(stream, /"type":"runtime_lane_retry_started"/)
+      assert.match(stream, /"previousRuntimeLaneId":"lane-a"/)
+      assert.match(stream, /"nextRuntimeLaneId":"lane-b"/)
+      assert.match(stream, /"type":"runtime_lane_assigned"/)
+      assert.match(stream, /"runtimeLaneId":"lane-b"/)
+      assert.match(stream, /Recovered on lane B/)
+      assert.match(stream, /"type":"result"/)
+    } finally {
+      await retryLaneHarness.close()
+    }
+  })
+
+  it('switches lanes when raw Nexus returns an unsuccessful execution result', async () => {
+    const retryWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-execution-failed-'))
+    await writeFile(join(retryWorkspaceRoot, 'index.html'), '<!doctype html><h1>Recovered after execution failure</h1>', 'utf8')
+    let laneAExecuteAttempts = 0
+    let laneBExecuteAttempts = 0
+    const laneANexus = new NexusClient({
+      baseUrl: 'https://lane-a.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_a_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneAExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_a_session',
+            success: false,
+            events: [
+              { type: 'assistant_delta', delta: 'Writing index.html.' },
+              { type: 'error', code: 'EXECUTION_FAILED', message: 'Runtime returned no artifact.' },
+            ],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const laneBNexus = new NexusClient({
+      baseUrl: 'https://lane-b.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_b_execution_retry_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneBExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_b_execution_retry_session',
+            success: true,
+            events: [{ type: 'assistant_delta', delta: 'Recovered after execution failure' }],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 1 }, laneBNexus),
+    ])
+    const retryLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 1,
+      laneAcquireTimeoutMs: 50,
+      laneAcquirePollMs: 10,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(retryLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_execution_retry',
+        jobId: 'job_lane_execution_retry',
+        prompt: 'Build a page after execution failure lane retry',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: retryWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(retryLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(spawned.runtimeLaneId, 'lane-a')
+      assert.equal(laneAExecuteAttempts, 1)
+      assert.equal(laneBExecuteAttempts, 1)
+      assert.equal(registry.get('lane-a')?.status, 'healthy')
+      assert.equal(registry.get('lane-a')?.lastErrorCode, undefined)
+      assert.match(stream, /"type":"runtime_lane_retry_started"/)
+      assert.match(stream, /"reason":"runtime_execution_failed"/)
+      assert.match(stream, /"runtimeLaneId":"lane-b"/)
+      assert.match(stream, /Recovered after execution failure/)
+      assert.match(stream, /"type":"result"/)
+    } finally {
+      await retryLaneHarness.close()
+    }
+  })
+
+  it('waits for a busy alternate runtime lane before retrying execution failure', async () => {
+    const retryWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-retry-wait-'))
+    await writeFile(join(retryWorkspaceRoot, 'index.html'), '<!doctype html><h1>Recovered after waiting for lane B</h1>', 'utf8')
+    let laneAExecuteAttempts = 0
+    let laneBExecuteAttempts = 0
+    const laneANexus = new NexusClient({
+      baseUrl: 'https://lane-a.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_a_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneAExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_a_session',
+            success: false,
+            events: [{ type: 'error', code: 'EXECUTION_FAILED', message: 'Runtime returned no artifact.' }],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const laneBNexus = new NexusClient({
+      baseUrl: 'https://lane-b.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_b_wait_retry_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneBExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_b_wait_retry_session',
+            success: true,
+            events: [{ type: 'assistant_delta', delta: 'Recovered after alternate lane became free' }],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 1 }, laneBNexus),
+    ])
+    const occupiedLease = registry.acquire({ preferredLaneId: 'lane-b' })
+    const retryLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 1,
+      laneAcquireTimeoutMs: 1000,
+      laneAcquirePollMs: 20,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(retryLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_execution_retry_wait',
+        jobId: 'job_lane_execution_retry_wait',
+        prompt: 'Build a page after waiting for lane retry',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: retryWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const streamPromise = getTextWithBase(retryLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+      await delay(80)
+      registry.release(occupiedLease)
+      const stream = await streamPromise
+
+      assert.equal(spawned.runtimeLaneId, 'lane-a')
+      assert.equal(laneAExecuteAttempts, 1)
+      assert.equal(laneBExecuteAttempts, 1)
+      assert.equal(registry.get('lane-a')?.status, 'healthy')
+      assert.equal(registry.get('lane-b')?.inflight, 0)
+      assert.match(stream, /"type":"runtime_lane_retry_started"/)
+      assert.match(stream, /"runtimeLaneId":"lane-b"/)
+      assert.match(stream, /Recovered after waiting for lane B/)
+      assert.match(stream, /"type":"result"/)
+    } finally {
+      registry.release(occupiedLease)
+      await retryLaneHarness.close()
+    }
+  })
+
+  it('waits briefly for a busy runtime lane instead of failing stream consumption immediately', async () => {
+    const busyLaneWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-busy-'))
+    const laneANexus = createMockNexus()
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+    ])
+    const occupiedLease = registry.acquire()
+    const busyLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 0,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(busyLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_busy',
+        jobId: 'job_lane_busy',
+        prompt: 'Build a page after lane frees up',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: busyLaneWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const streamPromise = getTextWithBase(busyLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+      await delay(50)
+      registry.release(occupiedLease)
+      const stream = await streamPromise
+
+      assert.equal(spawned.runtimeLaneId, 'lane-a')
+      assert.match(stream, /"type":"runtime_lane_assigned"/)
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+    } finally {
+      registry.release(occupiedLease)
+      await busyLaneHarness.close()
+    }
+  })
+
+  it('switches lanes when raw Nexus execute hangs past the adapter watchdog', async () => {
+    const retryWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-timeout-retry-'))
+    await writeFile(join(retryWorkspaceRoot, 'index.html'), '<!doctype html><h1>Recovered after execute timeout</h1>', 'utf8')
+    let laneBExecuteAttempts = 0
+    const laneANexus = new NexusClient({
+      baseUrl: 'https://lane-a.example.test',
+      fetch: async (url, init) => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_a_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          await neverUntilAbort(init?.signal)
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const laneBNexus = new NexusClient({
+      baseUrl: 'https://lane-b.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_b_timeout_retry_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          laneBExecuteAttempts += 1
+          return jsonResponse({
+            type: 'execute_result',
+            sessionId: 'lane_b_timeout_retry_session',
+            success: true,
+            events: [{ type: 'assistant_delta', delta: 'Recovered after timeout' }],
+          })
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+      createRuntimeLaneFromConfig({ id: 'lane-b', backendId: 'backend-b', baseUrl: 'https://lane-b.example.test', maxConcurrent: 1 }, laneBNexus),
+    ])
+    const retryLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 1,
+      executeTimeoutMs: 20,
+      watchdogTimeoutMs: 20,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string; runtimeLaneId: string }>(retryLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_timeout_retry',
+        jobId: 'job_lane_timeout_retry',
+        prompt: 'Build a page after execute timeout lane retry',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: retryWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(retryLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(spawned.runtimeLaneId, 'lane-a')
+      assert.equal(laneBExecuteAttempts, 1)
+      assert.equal(registry.get('lane-a')?.status, 'unavailable')
+      assert.equal(registry.get('lane-a')?.lastErrorCode, 'RUNTIME_REQUEST_TIMEOUT')
+      assert.match(stream, /"type":"runtime_lane_retry_started"/)
+      assert.match(stream, /"reason":"runtime_request_timeout"/)
+      assert.match(stream, /"runtimeLaneId":"lane-b"/)
+      assert.match(stream, /Recovered after execute timeout/)
+      assert.match(stream, /"type":"result"/)
+    } finally {
+      await retryLaneHarness.close()
+    }
+  })
+
+  it('reports lane retry exhausted when no alternate runtime lane is available', async () => {
+    const retryWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-lane-retry-exhausted-'))
+    const laneANexus = new NexusClient({
+      baseUrl: 'https://lane-a.example.test',
+      fetch: async url => {
+        const href = String(url)
+        if (href.endsWith('/v1/sessions')) {
+          return jsonResponse({ type: 'session_created', sessionId: 'lane_a_session' }, 201)
+        }
+        if (href.endsWith('/v1/execute')) {
+          return jsonResponse({ type: 'error', code: 'LANE_DOWN' }, 503)
+        }
+        return jsonResponse({ status: 'ok', runtime: 'babel-o', version: '0.3.9' })
+      },
+    })
+    const registry = new RuntimeLaneRegistry([
+      createRuntimeLaneFromConfig({ id: 'lane-a', backendId: 'backend-a', baseUrl: 'https://lane-a.example.test', maxConcurrent: 1 }, laneANexus),
+    ])
+    const retryLaneHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: laneANexus,
+      runtimeLaneRegistry: registry,
+      executeRetryAttempts: 0,
+      laneRetryAttempts: 1,
+      laneAcquireTimeoutMs: 50,
+      laneAcquirePollMs: 10,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(retryLaneHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_lane_retry_exhausted',
+        jobId: 'job_lane_retry_exhausted',
+        prompt: 'Build a page but all lanes fail',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: retryWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(retryLaneHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.equal(registry.get('lane-a')?.status, 'unavailable')
+      assert.equal(registry.get('lane-a')?.inflight, 0)
+      assert.match(stream, /"type":"runtime_lane_retry_exhausted"/)
+      assert.match(stream, /"errorCode":"RUNTIME_LANE_UNAVAILABLE"/)
+      assert.match(stream, /"type":"error"/)
+      assert.match(stream, /"code":"ADAPTER_STREAM_FAILED"/)
+      assert.doesNotMatch(stream, /"type":"result"/)
+    } finally {
+      await retryLaneHarness.close()
+    }
+  })
+
   it('fails the stream when BabeL-O completes without writing an artifact in the DUDesign workspace', async () => {
     const emptyWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-empty-artifact-'))
     const missingArtifactHarness = await startHarness(createRuntimeAdapterServer({
@@ -582,6 +1405,88 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       assert.doesNotMatch(stream, /BabeL-O completed without writing index.html/)
     } finally {
       await missingArtifactHarness.close()
+    }
+  })
+
+  it('includes the latest BabeL-O execution error detail when execute returns success false', async () => {
+    const failedWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-execute-failed-'))
+    const failedHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({
+        executeSuccess: false,
+        executeEvents: [
+          { type: 'thinking_delta', delta: 'Plan the page' },
+          { type: 'error', code: 'MODEL_PROVIDER_AUTH_FAILED', message: 'Model provider rejected the request.' },
+        ],
+      }),
+      laneAcquireTimeoutMs: 50,
+      laneAcquirePollMs: 10,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(failedHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_execute_failed',
+        jobId: 'job_execute_failed',
+        prompt: 'Build a page that fails',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: failedWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(failedHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.match(stream, /"type":"error"/)
+      assert.match(stream, /"code":"MODEL_PROVIDER_AUTH_FAILED"/)
+      assert.match(stream, /BabeL-O execution failed: Model provider rejected the request\./)
+      assert.match(stream, /"detail":/)
+      assert.equal((stream.match(/"type":"error"/g) ?? []).length, 1)
+      assert.doesNotMatch(stream, /"code":"EXECUTION_FAILED","message":"BabeL-O execution failed\."/)
+    } finally {
+      await failedHarness.close()
+    }
+  })
+
+  it('falls back to agent transcript detail when execute failure returns no events', async () => {
+    const failedWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-execute-transcript-'))
+    const failedHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({
+        executeSuccess: false,
+        executeEvents: [],
+        transcriptEvents: [
+          { type: 'thinking_delta', delta: 'Writing index.html.' },
+          { type: 'tool_started', name: 'Write', input: { path: 'index.html' } },
+          { type: 'assistant_delta', delta: 'The runtime stopped after a tool call without returning an explicit error.' },
+        ],
+      }),
+      laneAcquireTimeoutMs: 50,
+      laneAcquirePollMs: 10,
+    }))
+    try {
+      const spawned = await postJsonWithBase<{ streamId: string }>(failedHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_execute_transcript',
+        jobId: 'job_execute_transcript',
+        prompt: 'Build a page that fails without direct execute events',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: failedWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        templateRequirements: {},
+      })
+      const stream = await getTextWithBase(failedHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      assert.match(stream, /"type":"error"/)
+      assert.match(stream, /"code":"EXECUTION_FAILED"/)
+      assert.match(stream, /"detail":/)
+      assert.match(stream, /Writing index\.html/)
+      assert.match(stream, /tool_started/)
+      assert.match(stream, /without returning an explicit error/)
+    } finally {
+      await failedHarness.close()
     }
   })
 
@@ -699,8 +1604,11 @@ describe('DUDesign BabeL-O runtime adapter', () => {
 })
 
 function createMockNexus(options: {
+  onSessionBody?: (body: Record<string, unknown>) => void
   onExecuteBody?: (body: Record<string, unknown>) => void
   executeEvents?: Array<Record<string, unknown>>
+  executeSuccess?: boolean
+  transcriptEvents?: Array<Record<string, unknown>>
   beforeExecuteReturn?: () => Promise<void>
 } = {}): NexusClient {
   let sessionSequence = 0
@@ -716,6 +1624,9 @@ function createMockNexus(options: {
       }
       if (href.endsWith('/v1/sessions')) {
         sessionSequence += 1
+        if (init?.body) {
+          options.onSessionBody?.(JSON.parse(String(init.body)) as Record<string, unknown>)
+        }
         return jsonResponse({
           type: 'session_created',
           sessionId: `nexus_session_${sessionSequence}`,
@@ -729,11 +1640,17 @@ function createMockNexus(options: {
         return jsonResponse({
           type: 'execute_result',
           sessionId: 'nexus_session_1',
-          success: true,
+          success: options.executeSuccess ?? true,
           events: options.executeEvents ?? [
             { type: 'thinking_delta', delta: 'Plan' },
             { type: 'assistant_delta', delta: 'Done' },
           ],
+        })
+      }
+      if (/\/v1\/agents\/[^/]+\/transcript(?:\?|$)/.test(href)) {
+        return jsonResponse({
+          type: 'agent_transcript',
+          events: options.transcriptEvents ?? options.executeEvents ?? [],
         })
       }
       return new Response(JSON.stringify({ type: 'error' }), { status: 404 })
@@ -743,6 +1660,16 @@ function createMockNexus(options: {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function neverUntilAbort(signal: AbortSignal | null | undefined): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+  })
 }
 
 async function getTextWithBase(baseUrl: string, path: string): Promise<string> {

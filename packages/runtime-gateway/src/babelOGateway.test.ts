@@ -221,7 +221,7 @@ describe('BabelORuntimeGateway', () => {
               runtimeChildSessionId: 'rt_child_1',
             })
           }
-          return streamResponse('{"type":"assistant_delta","delta":"hello"}\n{"type":"result","artifactId":"artifact_1"}\n')
+          return streamResponse('{"type":"runtime_lane_assigned","runtimeLaneId":"lane-a","runtimeLeaseId":"lease_1","streamId":"stream_1","agentJobId":"agent_1"}\n{"type":"assistant_delta","delta":"hello"}\n{"type":"result","artifactId":"artifact_1"}\n')
         },
       }),
     })
@@ -251,6 +251,7 @@ describe('BabelORuntimeGateway', () => {
 	      'design.job_started',
 	      'design.variation_queued',
 	      'design.variation_queued',
+	      'design.runtime_lane_assigned',
 	      'design.variation_streaming',
 	      'design.variation_completed',
 	      'design.job_completed',
@@ -258,6 +259,9 @@ describe('BabelORuntimeGateway', () => {
 	    assert.equal(events[1]?.variationId, 'runtime_variation_1')
 	    assert.equal(events[2]?.variationId, 'runtime_variation_1')
 	    assert.equal(events[3]?.variationId, 'runtime_variation_1')
+	    assert.equal(events[3]?.type === 'design.runtime_lane_assigned' ? events[3].payload.runtimeLaneId : null, 'lane-a')
+	    assert.equal(events[3]?.type === 'design.runtime_lane_assigned' ? events[3].payload.runtimeLeaseId : null, 'lease_1')
+	    assert.equal(events[3]?.type === 'design.runtime_lane_assigned' ? events[3].payload.agentJobId : null, 'agent_1')
 	    assert.equal(events[2]?.type === 'design.variation_queued' ? events[2].payload.runtimeChildSessionId : null, 'rt_child_1')
 	    assert.equal(events[2]?.type === 'design.variation_queued' ? events[2].payload.runtimeAgentJobId : null, 'agent_1')
 	  })

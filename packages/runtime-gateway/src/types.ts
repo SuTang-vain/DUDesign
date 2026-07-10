@@ -1,4 +1,4 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, ID, InteractionParadigm, ProductMode, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 
@@ -73,6 +73,21 @@ export type SpawnVariationAgentsInput = {
     capabilitySnapshot?: CapabilitySnapshot
     designTemplatePackIds?: ID[]
     designTemplatePacks?: DesignTemplatePack[]
+    researchContextArtifactIds?: ID[]
+    researchContexts?: ResearchContextArtifactReference[]
+    imageGenerationArtifacts?: Array<{
+      artifactId?: ID
+      storageKey?: string
+      contentHash?: string
+      sizeBytes?: number
+      schemaVersion?: string
+      provider?: string
+      model?: string
+      usageContext?: ImageGenerationUsageContext | string
+      contentSafetyStatus?: string
+      costCents?: number
+      createdAt?: string
+    }>
     interactionParadigm?: InteractionParadigm
     businessContext?: {
       guidanceId?: ID
@@ -120,6 +135,7 @@ export type RefineVariationInput = {
   variationId: ID
   variationIndex?: number
   runtimeChildSessionId: string | null
+  runtimeLaneId?: string | null
   baseArtifactId: ID
   baseArtifactHtml: string
   baseArtifactEntryPath?: string | null

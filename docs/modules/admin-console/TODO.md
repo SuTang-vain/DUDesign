@@ -39,6 +39,10 @@
 - [x] 展示 runtime contract version。
 - [x] 展示 compatible、degraded、unavailable、contract_mismatch 状态。
 - [ ] 展示最近 drift 事件。
+- [ ] 配合 Runtime Lane Pool 展示 lane 列表、inflight/maxConcurrent、contract status 和最近错误。
+- [ ] 支持按 lane 反查最近失败 job/variation。
+- [ ] 支持 operator 对 lane 执行 drain / undrain，并写入 audit log。
+- [ ] 支持 developer 触发单 lane smoke / contract check。
 
 验收：
 

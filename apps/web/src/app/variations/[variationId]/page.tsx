@@ -167,8 +167,15 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const previewUrl = useMemo(() => {
     const url = detail?.variation.previewUrl
     if (!url) return null
-    return `${apiUrl(url)}?v=${previewVersion}`
-  }, [detail?.variation.previewUrl, previewVersion])
+    const selectedHtmlArtifactId = selectedArtifactId && detail?.artifacts.some(artifact => artifact.id === selectedArtifactId && artifact.kind === 'html')
+      ? selectedArtifactId
+      : null
+    const params = new URLSearchParams({ v: String(previewVersion) })
+    if (selectedHtmlArtifactId) {
+      params.set('artifactId', selectedHtmlArtifactId)
+    }
+    return `${apiUrl(url)}?${params.toString()}`
+  }, [detail?.artifacts, detail?.variation.currentArtifactId, detail?.variation.previewUrl, previewVersion, selectedArtifactId])
   const activeCapabilityNotice = useMemo(() => (
     capabilityNotice ?? mcpInvocationToUserError(detail?.capabilityNotices?.[0] ?? null)
   ), [capabilityNotice, detail?.capabilityNotices])
@@ -621,7 +628,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                   data-testid="variation-preview-frame"
                   title={detail?.variation.title ?? 'Variation preview'}
                   src={previewUrl}
-                  sandbox=""
+                  sandbox="allow-scripts"
                 />
                 <div
                   ref={overlayRef}
@@ -850,7 +857,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                   <div className="eyebrow" style={{ marginBottom: 8 }}>{t('versions')}</div>
                   <div className="versions">
                     {detail?.artifacts.map(artifact => (
-                      <div key={artifact.id} className={`ver-row ${artifact.id === selectedArtifactId ? 'active' : ''}`}>
+                      <div key={artifact.id} className={`ver-row ${artifact.id === selectedArtifactId ? 'active' : ''}`} data-artifact-id={artifact.id}>
                         <span className="v">{artifact.kind === 'html' ? `v${artifact.version}` : artifactKindLabel(artifact.kind).slice(0, 3)}</span>
                         <button
                           type="button"

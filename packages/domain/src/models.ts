@@ -149,6 +149,11 @@ export type DesignVariation = {
   title: string | null
   runtimeChildSessionId: string | null
   runtimeAgentJobId: string | null
+  runtimeLaneId: string | null
+  runtimeBackendId: string | null
+  runtimeLeaseId: string | null
+  runtimeAttempt: number
+  runtimeLastErrorCode: string | null
   status: DesignVariationStatus
   currentArtifactId: ID | null
   previewUrl: string | null

@@ -110,6 +110,7 @@ import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './e
 import { detectEntryLanguage } from './entryLanguage.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
+const AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH = 1200
 
 type AdminTemplateLintFinding = {
   severity: 'error' | 'warning' | 'info'
@@ -1478,7 +1479,7 @@ export class ApplicationService {
           artifactId: artifact.id,
           attempt,
           reason: 'review_confirmed',
-          promptPreview: prompt.slice(0, 500),
+          promptPreview: automationRepairPromptPreview(prompt),
         },
       }))
       await this.enqueueAutomationLoopRepair({
@@ -1599,6 +1600,7 @@ export class ApplicationService {
       variationId,
       variationIndex: variation.index,
       runtimeChildSessionId: variation.runtimeChildSessionId,
+      runtimeLaneId: variation.runtimeLaneId,
       baseArtifactId: input.baseArtifactId,
       baseArtifactHtml,
       baseArtifactEntryPath: baseArtifact.entryPath,
@@ -3069,14 +3071,24 @@ export class ApplicationService {
     }
 
     const shouldAutoDistribute = input.capabilityRequirements?.template?.autoDistributeTemplatePacks
-      ?? explicitIds.length === 0
+      ?? (explicitIds.length === 0 || input.productMode !== 'dynamic_encyclopedia_card')
     if (shouldAutoDistribute && resolved.length < input.variationCount) {
       const available = await this.store.listDesignTemplatePacks(userId, workspaceId)
       for (const template of available) {
+        if (!templatePackSupportsProductMode(template, input.productMode)) continue
         if (resolved.some(existing => existing.id === template.id)) continue
         resolved.push(template)
         if (resolved.length >= input.variationCount) break
       }
+    }
+
+    if (
+      input.productMode === 'dynamic_encyclopedia_card'
+      && resolved.length > 0
+      && resolved.length < input.variationCount
+    ) {
+      const dynamicOnly = resolved.filter(template => templatePackSupportsProductMode(template, input.productMode))
+      return dynamicOnly.length > 0 ? dynamicOnly : resolved
     }
 
     return resolved.slice(0, Math.max(input.variationCount, explicitIds.length))
@@ -3096,6 +3108,12 @@ export class ApplicationService {
         .filter((variation): variation is DesignVariation => Boolean(variation))
         .map(variation => [variation.index, variation.id]),
     )
+    const preparedTemplateRequirements = await this.prepareDynamicEncyclopediaGenerationContext({
+      payload,
+      job,
+      variations: variations.filter((variation): variation is DesignVariation => Boolean(variation)),
+      runtimeSessionId: session.runtimeSessionId,
+    })
     await this.runMockJob({
       jobId: job.id,
       sessionId: session.id,
@@ -3106,12 +3124,109 @@ export class ApplicationService {
       productMode: job.productMode,
       sourceArtifactId: payload.sourceArtifactId,
       variationCount: job.variationCount,
-      templateRequirements: normalizeTemplateRequirements(job.templateRequirements),
+      templateRequirements: normalizeTemplateRequirements(preparedTemplateRequirements ?? job.templateRequirements),
       modelServiceId: payload.modelServiceId ?? modelContext.modelServiceId ?? '',
       modelId: modelContext.modelId ?? '',
       modelProvider: modelContext.modelProvider ?? '',
       variationIdsByIndex,
     })
+  }
+
+  private async prepareDynamicEncyclopediaGenerationContext(input: {
+    payload: DesignJobQueuePayload
+    job: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobById']>>>
+    variations: DesignVariation[]
+    runtimeSessionId: string | null
+  }): Promise<Record<string, unknown> | null> {
+    if (input.job.productMode !== 'dynamic_encyclopedia_card') return null
+    const templateRequirements = normalizeTemplateRequirements(input.job.templateRequirements)
+    const capabilitySnapshot = templateRequirements?.capabilitySnapshot
+    const toolIds = new Set(capabilitySnapshot?.plugins.mcpToolIds ?? [])
+    if (!toolIds.has('mcp_agent_reach_search') && !toolIds.has('mcp_image_generation_ark_seedream')) return null
+
+    const ctx: RequestContext = {
+      requestId: createId('req'),
+      userId: input.job.userId,
+      adminRole: null,
+      authMode: 'dev',
+      authSessionTokenHash: null,
+    }
+    const firstVariation = input.variations.find(variation => variation.index === 1) ?? input.variations[0] ?? null
+    const researchContexts = [...(templateRequirements?.researchContexts ?? [])]
+    const researchContextArtifactIds = new Set(templateRequirements?.researchContextArtifactIds ?? [])
+    const imageGenerationArtifacts: Array<Record<string, unknown>> = Array.isArray(input.job.templateRequirements.imageGenerationArtifacts)
+      ? [...input.job.templateRequirements.imageGenerationArtifacts.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>]
+      : []
+
+    if (toolIds.has('mcp_agent_reach_search') && !researchContexts.length) {
+      const executed = await this.executeMcpInvocation(ctx, {
+        userId: input.job.userId,
+        workspaceId: input.job.workspaceId,
+        sessionId: input.job.sessionId,
+        jobId: input.job.id,
+        variationId: firstVariation?.id,
+        runtimeSessionId: input.runtimeSessionId,
+        mcpToolId: 'mcp_agent_reach_search',
+        serverName: 'agent-reach',
+        toolName: 'search',
+        scopes: ['readonly_context'],
+        input: {
+          query: dynamicEncyclopediaResearchQuery(input.job.prompt, templateRequirements),
+          topic: dynamicEncyclopediaEntryTitle(input.job.prompt, templateRequirements),
+          productMode: input.job.productMode,
+        },
+        reason: 'Pre-generation dynamic encyclopedia research context.',
+      })
+      const reference = executed.result.data?.researchContextArtifact
+      if (isResearchContextArtifactReference(reference)) {
+        researchContexts.push(reference)
+        researchContextArtifactIds.add(reference.artifactId)
+      }
+    }
+
+    if (toolIds.has('mcp_image_generation_ark_seedream') && imageGenerationArtifacts.length === 0) {
+      const executed = await this.executeMcpInvocation(ctx, {
+        userId: input.job.userId,
+        workspaceId: input.job.workspaceId,
+        sessionId: input.job.sessionId,
+        jobId: input.job.id,
+        variationId: firstVariation?.id,
+        runtimeSessionId: input.runtimeSessionId,
+        mcpToolId: 'mcp_image_generation_ark_seedream',
+        serverName: 'image-generation',
+        toolName: 'generateArkSeedreamImage',
+        scopes: ['artifact_write', 'readonly_context'],
+        input: {
+          prompt: dynamicEncyclopediaImagePrompt(input.job.prompt, templateRequirements),
+          model: 'doubao-seedream-5-0-260128',
+          size: '2K',
+          watermark: true,
+          usageContext: 'dynamic_encyclopedia_card',
+          variationId: firstVariation?.id ?? null,
+          templatePackId: firstVariation ? assignedTemplatePackIdForVariation(firstVariation.index, templateRequirements?.variationTemplateAssignments ?? []) : null,
+          contentSafety: { policy: 'strict', allowBrandReference: false },
+        },
+        reason: 'Pre-generation dynamic encyclopedia supporting visual asset.',
+      })
+      const reference = executed.result.data?.imageGenerationArtifact
+      if (reference && typeof reference === 'object') {
+        imageGenerationArtifacts.push(reference as Record<string, unknown>)
+      }
+    }
+
+    if (!researchContexts.length && !imageGenerationArtifacts.length) return null
+    const nextTemplateRequirements: Record<string, unknown> = {
+      ...input.job.templateRequirements,
+      ...(researchContexts.length
+        ? {
+            researchContextArtifactIds: [...researchContextArtifactIds],
+            researchContexts,
+          }
+        : {}),
+      ...(imageGenerationArtifacts.length ? { imageGenerationArtifacts } : {}),
+    }
+    await this.store.updateJobTemplateRequirements(input.job.id, nextTemplateRequirements)
+    return nextTemplateRequirements
   }
 
   async processQueuedRefineJob(_payload: RefineJobQueuePayload): Promise<void> {
@@ -3185,6 +3300,7 @@ export class ApplicationService {
         variationId: variation.id,
         variationIndex: variation.index,
         runtimeChildSessionId: variation.runtimeChildSessionId,
+        runtimeLaneId: variation.runtimeLaneId,
         baseArtifactId: baseArtifact.id,
         baseArtifactHtml,
         baseArtifactEntryPath: baseArtifact.entryPath,
@@ -3255,6 +3371,9 @@ export class ApplicationService {
         modelProvider: input.modelProvider,
       })) {
         const normalized = this.rewriteRuntimeVariationId(event, input.variationIdsByIndex)
+        if (normalized.type === 'design.job_completed') {
+          continue
+        }
         await this.applyEventSideEffects(normalized)
         await this.publishDesignEvent(normalized)
       }
@@ -3310,6 +3429,29 @@ export class ApplicationService {
         const current = await this.store.getVariationById(event.variationId)
         if (current && isTerminalVariationStatus(current.status)) break
         await this.store.applyVariationEvent({ variationId: event.variationId, status: 'streaming' })
+        break
+      }
+      case 'design.runtime_lane_assigned': {
+        const current = await this.store.getVariationById(event.variationId)
+        if (current && isTerminalVariationStatus(current.status)) break
+        await this.store.applyVariationEvent({
+          variationId: event.variationId,
+          runtimeLaneId: event.payload.runtimeLaneId,
+          runtimeBackendId: event.payload.runtimeBackendId,
+          runtimeLeaseId: event.payload.runtimeLeaseId,
+          runtimeAttempt: (current?.runtimeAttempt ?? 0) + 1,
+        })
+        break
+      }
+      case 'design.runtime_lane_retry_started': {
+        const current = await this.store.getVariationById(event.variationId)
+        if (current && isTerminalVariationStatus(current.status)) break
+        await this.store.applyVariationEvent({
+          variationId: event.variationId,
+          runtimeLaneId: event.payload.nextRuntimeLaneId,
+          runtimeBackendId: event.payload.nextRuntimeBackendId,
+          runtimeAttempt: (current?.runtimeAttempt ?? 0) + 1,
+        })
         break
       }
       case 'design.variation_artifact_updated':
@@ -3435,6 +3577,7 @@ export class ApplicationService {
           status: 'failed',
           errorCode: event.payload.errorCode,
           errorMessage: event.payload.message,
+          runtimeLastErrorCode: event.payload.errorCode,
         })
         break
       default:
@@ -4239,7 +4382,7 @@ export class ApplicationService {
         artifactId: input.artifact.id,
         attempt: input.attempt,
         reason: input.reason,
-        promptPreview: input.prompt.slice(0, 500),
+        promptPreview: automationRepairPromptPreview(input.prompt),
         reviewMode: input.reviewMode,
         requiresConfirmation: input.reviewMode === 'semi_auto',
       },
@@ -4709,8 +4852,9 @@ export class ApplicationService {
         invocationId: request.invocationId,
         mcpToolId: request.mcpToolId,
         schemaVersion: persisted.schemaVersion,
-        provider: persisted.provider,
-        model: persisted.model,
+          artifactId,
+          provider: persisted.provider,
+          model: persisted.model,
         usageContext: persisted.usageContext,
         contentSafetyStatus: persisted.contentSafety.status,
       },
@@ -4817,6 +4961,9 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
     researchContexts: Array.isArray(value.researchContexts)
       ? value.researchContexts.filter(isResearchContextArtifactReference)
       : undefined,
+    imageGenerationArtifacts: Array.isArray(value.imageGenerationArtifacts)
+      ? value.imageGenerationArtifacts.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      : undefined,
     businessContext: isDynamicEncyclopediaBusinessContext(value.businessContext) ? value.businessContext : undefined,
     variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
       ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
@@ -4837,6 +4984,19 @@ function assignDesignTemplatePacks(
       designTemplatePack: template,
     }
   })
+}
+
+function templatePackSupportsProductMode(
+  template: DesignTemplatePack,
+  productMode: CreateDesignJobRequest['productMode'],
+): boolean {
+  if (!productMode) return true
+  const supportedProductModes = template.supportedProductModes ?? []
+  if (supportedProductModes.length > 0) return supportedProductModes.includes(productMode)
+  if (productMode !== 'dynamic_encyclopedia_card') return true
+  return template.parentPackId === 'dtp_dynamic_encyclopedia_card'
+    || template.id === 'dtp_dynamic_encyclopedia_card'
+    || template.id.startsWith('dtp_de_')
 }
 
 function assignedTemplatePackForVariation(
@@ -4864,6 +5024,10 @@ function automationTemplateSummaryForVariation(variationIndex: number, templateR
     ...templatePack.rationale.dos.slice(0, 3).map(item => `Do: ${item}`),
     ...templatePack.rationale.donts.slice(0, 3).map(item => `Do not: ${item}`),
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join('\n')
+}
+
+function automationRepairPromptPreview(prompt: string): string {
+  return prompt.slice(0, AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH)
 }
 
 function reviewModeFromTemplateRequirements(requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): ReviewMode {
@@ -5475,6 +5639,9 @@ function classifyEncyclopediaEntry(text: string): {
   if (has(['成语', '词语', '释义', '意思', '含义', '读音', '拼音', '出处', '典故', '寓言', '近义词', '反义词', '辨析', '造句'])) {
     return { primaryCategory: '知识术语', secondaryCategory: '文化类词语', tertiaryCategory: culturalPhraseTertiaryCategory(normalized), confidence: 0.82, signals: [...new Set(signals)] }
   }
+  if (has(['景区', '景点', '风景区', '旅游区', '公园', '导览', '路线', '游览', '坐标', '地图', 'poi', 'POI', '必看景点', '推荐路线'])) {
+    return { primaryCategory: '地域建筑', secondaryCategory: '景区景点', tertiaryCategory: scenicSpotTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
+  }
   if (has(['公司', '企业', '集团', '融资', '上市', '创始人', 'ceo', '产品线'])) {
     return { primaryCategory: '机构组织', secondaryCategory: '企业', tertiaryCategory: organizationTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
   }
@@ -5545,6 +5712,14 @@ function culturalPhraseTertiaryCategory(normalized: string): string {
   if (normalized.includes('辨析') || normalized.includes('区别') || normalized.includes('易混')) return '词义辨析'
   if (normalized.includes('读音') || normalized.includes('拼音')) return '读音字形'
   return '文化词语概况'
+}
+
+function scenicSpotTertiaryCategory(normalized: string): string {
+  if (normalized.includes('路线') || normalized.includes('导览') || normalized.includes('游览')) return '导览路线'
+  if (normalized.includes('坐标') || normalized.includes('地图') || normalized.includes('poi')) return '地图坐标'
+  if (normalized.includes('公园')) return '公园景点'
+  if (normalized.includes('风景区') || normalized.includes('旅游区')) return '风景旅游区'
+  return '景区概况'
 }
 
 function applyDemocaseClassification(
@@ -5643,6 +5818,9 @@ function encyclopediaModulePriorities(categoryText: string): string[] {
   if (categoryText.includes('文化类词语')) {
     return ['related_phrase_graph', 'origin_story', 'meaning_compare', 'usage_examples', 'quick_choice']
   }
+  if (categoryText.includes('景区景点')) {
+    return ['route_guide', 'poi_map', 'visit_tips', 'coordinate_status', 'scenic_fact_summary']
+  }
   if (categoryText.includes('产品') || categoryText.includes('设备')) {
     return ['summary_facts', 'spec_compare', 'version_difference']
   }
@@ -5665,6 +5843,9 @@ function encyclopediaClassificationRiskFlags(categoryText: string): string[] {
   }
   if (categoryText.includes('文化类词语')) {
     flags.push('origin_source_required', 'related_phrase_type_required')
+  }
+  if (categoryText.includes('景区景点')) {
+    flags.push('coordinate_source_required', 'travel_realtime_hallucination_risk', 'external_navigation_blocked')
   }
   return flags
 }
@@ -5722,6 +5903,7 @@ function normalizeGuidanceClassificationOverride(input: unknown): {
     ['知识术语', '文化类词语'],
     ['知识术语', '概念定义'],
     ['知识术语', '技术模型'],
+    ['地域建筑', '景区景点'],
   ]
   const allowed = allowedPairs.some(([primary, secondary]) => primary === primaryCategory && secondary === secondaryCategory)
   if (!allowed) throw createHttpError(400, 'GUIDANCE_CLASSIFICATION_INVALID', 'Unsupported guidance classification override.')
@@ -5732,6 +5914,9 @@ function recommendedInteractionParadigmId(primaryCategory: string, secondaryCate
   const categoryText = `${primaryCategory} ${secondaryCategory}`
   if (categoryText.includes('电影') && (categoryText.includes('系列') || categoryText.includes('影视作品'))) {
     return 'ip_series_navigation'
+  }
+  if (categoryText.includes('景区景点') || categoryText.includes('导览') || categoryText.includes('路线')) {
+    return 'ip_route_guide'
   }
   if (categoryText.includes('电视剧') || categoryText.includes('事件链') || categoryText.includes('因果')) {
     return 'ip_causal_event_chain'
@@ -5780,6 +5965,13 @@ function dynamicEncyclopediaRuleTemplateIds(categoryText: string): string[] {
       'dtp_de_cultural_phrase_relation_graph',
       'dtp_de_cultural_phrase_origin_story',
       'dtp_dynamic_encyclopedia_compare_card',
+    ]
+  }
+  if (categoryText.includes('景区景点') || categoryText.includes('景区') || categoryText.includes('景点') || categoryText.includes('导览') || categoryText.includes('路线')) {
+    return [
+      'dtp_de_scenic_spot_route_guide',
+      'dtp_de_scenic_spot_map_poi',
+      'dtp_dynamic_encyclopedia_summary_card',
     ]
   }
   if (categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('事件') || categoryText.includes('时间')) {
@@ -5864,6 +6056,18 @@ function dynamicEncyclopediaTemplateRecommendation(templatePackId: string, categ
     return {
       reason: '文化词语的高价值增量是出处、典故和故事深化，适合用起因-经过-结果-寓意结构。',
       confidence: categoryText.includes('文化类词语') ? 0.84 : 0.7,
+    }
+  }
+  if (templatePackId === 'dtp_de_scenic_spot_route_guide') {
+    return {
+      reason: '景区景点 case 标准强调智能导览、路线推荐和游览顺序，适合用路线导览结构承接。',
+      confidence: categoryText.includes('景区景点') ? 0.9 : 0.72,
+    }
+  }
+  if (templatePackId === 'dtp_de_scenic_spot_map_poi') {
+    return {
+      reason: '景区景点 case 标准包含地图、坐标和 POI 分布信号，适合用景点分布与 POI 概览组织。',
+      confidence: categoryText.includes('景区景点') ? 0.84 : 0.7,
     }
   }
   if (templatePackId.includes('timeline')) {
@@ -6060,9 +6264,42 @@ function dataIntakeSkillRecommendations(input: AnalyzeDataIntakeRequest, text: s
   }]
   if (/动态百科|百科|词条|entry|encyclopedia/i.test(text) || input.democaseIds?.length) {
     recommendations.push({ id: 'sk_encyclopedia_entry_guidance', reason: 'The input maps to encyclopedia entry classification and child-template guidance.', confidence: 0.84 })
-    recommendations.push({ id: 'sk_dual_surface_strategy', reason: 'Dynamic encyclopedia output has PC/WISE and iframe constraints.', confidence: 0.82 })
   }
   return recommendations
+}
+
+function dynamicEncyclopediaEntryTitle(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
+  const businessContext = requirements?.businessContext
+  return businessContext?.entryTitle || inferEntryTitle(prompt) || prompt.slice(0, 40) || '动态百科词条'
+}
+
+function dynamicEncyclopediaResearchQuery(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
+  const title = dynamicEncyclopediaEntryTitle(prompt, requirements)
+  const category = requirements?.businessContext
+    ? [
+        requirements.businessContext.entryPrimaryCategory,
+        requirements.businessContext.entrySecondaryCategory,
+        requirements.businessContext.entryTertiaryCategory,
+      ].filter(Boolean).join(' ')
+    : ''
+  return [title, category, '百科 事实 来源 卡片 规范'].filter(Boolean).join(' ')
+}
+
+function dynamicEncyclopediaImagePrompt(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
+  const title = dynamicEncyclopediaEntryTitle(prompt, requirements)
+  const category = requirements?.businessContext
+    ? [
+        requirements.businessContext.entryPrimaryCategory,
+        requirements.businessContext.entrySecondaryCategory,
+        requirements.businessContext.entryTertiaryCategory,
+      ].filter(Boolean).join(' / ')
+    : '百科词条'
+  return [
+    `原创动态百科卡片辅助视觉，主题为"${title}"，分类为${category}。`,
+    '使用抽象信息图、几何层级、知识节点、柔和光影和现代中文百科气质。',
+    '不要使用品牌 logo、真实人物肖像、影视剧照、版权角色、商标外观或可识别受保护素材。',
+    '画面应适合作为 390x844 或桌面预览中的辅助插画背景，留出文字可读空间。',
+  ].join(' ')
 }
 
 function inferEntryTitle(text: string): string | null {

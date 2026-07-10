@@ -140,6 +140,15 @@
   - [x] SSE 继续通过 persisted events / event bus 聚合状态。
 - [x] 实现 `GET /api/design-jobs/:id/stream`。
 - [x] 实现部分失败状态。
+- [x] 将 `design.runtime_lane_assigned` 标准事件持久化到 job event stream，并支持 SSE replay。
+- [x] 配合 Runtime Lane Pool 记录 variation runtime assignment metadata：
+  - [x] `runtime_lane_id`。
+  - [x] `runtime_backend_id`（schema / repository 预留，后续由 adapter lane metadata 填充）。
+  - [x] `runtime_lease_id`。
+  - [x] `runtime_attempt`。
+  - [x] `runtime_last_error_code`。
+- [ ] 将 retry / exhausted 等后续 lane 标准事件持久化到 job event stream。
+- [ ] 用户 API 默认隐藏 raw lane 拓扑，仅返回可理解的生成状态；Admin API 可读取 lane 排障字段。
 
 验收：
 

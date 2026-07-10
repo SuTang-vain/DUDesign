@@ -1023,6 +1023,19 @@ export type CreateDesignJobRequest = {
     dataIntake?: DataIntakeArtifactReference
     researchContextArtifactIds?: ID[]
     researchContexts?: ResearchContextArtifactReference[]
+    imageGenerationArtifacts?: Array<{
+      artifactId?: ID
+      storageKey?: string
+      contentHash?: string
+      sizeBytes?: number
+      schemaVersion?: string
+      provider?: string
+      model?: string
+      usageContext?: ImageGenerationUsageContext | string
+      contentSafetyStatus?: string
+      costCents?: number
+      createdAt?: string
+    }>
     businessContext?: {
       guidanceId?: ID
       entryTitle?: string
@@ -1146,6 +1159,11 @@ export type DesignJobSnapshotResponse = {
     previewUrl: string | null
     screenshotUrl: string | null
     designTemplatePack: DesignTemplatePack | null
+    runtimeLaneId: string | null
+    runtimeBackendId: string | null
+    runtimeLeaseId: string | null
+    runtimeAttempt: number
+    runtimeLastErrorCode: string | null
     inputTokens: number
     outputTokens: number
     costCents: number

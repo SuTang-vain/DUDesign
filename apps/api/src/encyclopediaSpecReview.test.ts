@@ -75,6 +75,63 @@ describe('Dynamic encyclopedia spec review', () => {
     assert.deepEqual(report.findings, [])
   })
 
+  it('does not flag touch-action:none when it only appears in comments or safety notes', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>百度百科词条</h1>
+        <section>百科概览与关键事实，来源状态待核实。</section>
+        <!-- Safety note: do not use touch-action:none globally. -->
+        <style>
+          /* Avoid touch-action:none on the global frame. */
+          .tab-button { touch-action: pan-x pan-y; }
+        </style>
+        <script>
+          // Allow native touch behavior; no touchmove preventDefault, no touch-action:none.
+          document.body.dataset.ready = 'true';
+        </script>
+      `),
+      templatePackIds: [SUMMARY_TEMPLATE],
+      entryTitle: '百度百科',
+    })
+
+    assert.equal(
+      report.findings.some(finding => finding.id === 'encyclopedia.global_touch_blocked'),
+      false,
+      'comments and safety notes must not trigger global_touch_blocked',
+    )
+    assert.equal(
+      report.findings.some(finding => finding.id === 'encyclopedia.touch_intercept_risk'),
+      false,
+      'comments and safety notes must not trigger touch_intercept_risk',
+    )
+  })
+
+  it('flags touch-action:none when it is applied to the global document frame', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: `<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; touch-action: none; }
+      .no-scroll-frame { width: 788px; height: 492px; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <main class="no-scroll-frame">
+      <h1>百度百科词条</h1>
+      <section>百科概览与关键事实，来源状态待核实。</section>
+    </main>
+  </body>
+</html>`,
+      templatePackIds: [SUMMARY_TEMPLATE],
+      entryTitle: '百度百科',
+    })
+
+    assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.global_touch_blocked'))
+    assert.equal(report.status, 'fail')
+  })
+
   // -------- Stage 1: 禁内部滚动规则 --------
 
   it('warns (Stage 1) when overflow:auto is used', () => {
@@ -293,6 +350,82 @@ describe('Dynamic encyclopedia spec review', () => {
 
     assert.equal(report.status, 'warn')
     assert.ok(report.findings.some(item => item.id === 'encyclopedia.cultural_origin_source_required'))
+  })
+
+  it('warns when scenic spot map or route facts lack source wording', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>中山公园</h1>
+        <section>景区百科概览：智能导览、推荐路线和景点地图。</section>
+        <section>坐标：116.39, 39.91。开放时间 8:00-18:00，门票 10 元。</section>
+      `),
+      templatePackIds: ['dtp_de_scenic_spot_route_guide'],
+      classificationVector: classificationVector('地域建筑', '景区景点', '导览路线'),
+    })
+
+    assert.equal(report.status, 'warn')
+    assert.ok(report.findings.some(item => item.id === 'encyclopedia.scenic_coordinate_source_required'))
+    assert.ok(report.findings.some(item => item.id === 'encyclopedia.scenic_realtime_fact_source_required'))
+  })
+
+  it('blocks scenic spot outbound navigation and booking CTAs', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>瘦西湖</h1>
+        <section>景区百科概览：路线导览和必看景点。</section>
+        <button>打开地图路线规划</button>
+        <button>立即预订酒店</button>
+      `),
+      templatePackIds: ['dtp_de_scenic_spot_map_poi'],
+      classificationVector: classificationVector('地域建筑', '景区景点', '地图坐标'),
+    })
+
+    assert.equal(report.status, 'warn')
+    assert.ok(report.findings.some(item => item.id === 'encyclopedia.scenic_external_navigation_blocked'))
+  })
+
+  it('warns when visible tabs are only static visual states', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>百度百科</h1>
+        <section>百科概览：关键事实和来源状态。</section>
+        <nav class="tab-bar" role="tablist">
+          <button type="button" role="tab" aria-selected="true">概要</button>
+          <button type="button" role="tab" aria-selected="false">来源</button>
+        </nav>
+        <section>关键事实：据公开资料整理。</section>
+      `),
+      templatePackIds: [SUMMARY_TEMPLATE],
+    })
+
+    assert.equal(report.status, 'warn')
+    assert.ok(report.findings.some(item => item.id === 'encyclopedia.fake_tab_interaction'))
+  })
+
+  it('accepts tabs with local panels and inline state switching script', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>百度百科</h1>
+        <section>百科概览：关键事实和来源状态。</section>
+        <nav class="tab-bar" role="tablist">
+          <button type="button" role="tab" aria-selected="true" aria-controls="panel-a">概要</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="panel-b">来源</button>
+        </nav>
+        <section id="panel-a" role="tabpanel">关键事实：据公开资料整理。</section>
+        <section id="panel-b" role="tabpanel" hidden>来源状态：待核实。</section>
+        <script>
+          document.querySelectorAll('[role="tab"]').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+              document.querySelectorAll('[role="tab"]').forEach(function(item) { item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); });
+              document.querySelectorAll('[role="tabpanel"]').forEach(function(panel) { panel.hidden = panel.id !== tab.getAttribute('aria-controls'); });
+            });
+          });
+        </script>
+      `),
+      templatePackIds: [SUMMARY_TEMPLATE],
+    })
+
+    assert.equal(report.findings.some(item => item.id === 'encyclopedia.fake_tab_interaction'), false)
   })
 })
 

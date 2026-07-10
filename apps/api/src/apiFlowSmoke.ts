@@ -424,8 +424,8 @@ Reusable smoke test template.
   assert.equal(entryGuidance.classification.confidence > 0.8, true)
   assert.ok(entryGuidance.classification.signals.includes('搜索'))
   assert.equal(entryGuidance.democaseReferences[0]?.caseId, 'demo_baidu_baike_company')
-  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
-  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
+  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
   assert.equal(entryGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_encyclopedia_spec_review')
   assert.equal(entryGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
   assert.equal(entryGuidance.recommendedTemplates[0]?.interactionParadigmId, 'ip_entity_summary')
@@ -560,6 +560,20 @@ Reusable smoke test template.
   assert.ok(culturalPhraseGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_cultural_phrase_origin_story'))
   assert.equal(culturalPhraseGuidance.interactionParadigm.id, 'ip_relation_map')
 
+  const scenicSpotGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
+    workspaceId: bootstrap.workspace.id,
+    entry: '中山公园景区智能导览、推荐路线、必看景点、坐标和地图 POI',
+    maxTemplateRecommendations: 3,
+    automationMode: 'auto',
+  })
+  assert.equal(scenicSpotGuidance.classification.primaryCategory, '地域建筑')
+  assert.equal(scenicSpotGuidance.classification.secondaryCategory, '景区景点')
+  assert.ok(scenicSpotGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('route_guide'))
+  assert.ok(scenicSpotGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('coordinate_source_required'))
+  assert.equal(scenicSpotGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_scenic_spot_route_guide')
+  assert.ok(scenicSpotGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_scenic_spot_map_poi'))
+  assert.equal(scenicSpotGuidance.interactionParadigm.id, 'ip_route_guide')
+
   const confirmedEntryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
     `/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}/confirm`,
     {
@@ -596,11 +610,20 @@ Reusable smoke test template.
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_dynamic_encyclopedia_entry')
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_encyclopedia_spec_review')
   assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.maxRepairAttempts, 1)
-  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_dual_surface_strategy', 'sk_data_intake_analysis'])
-  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
+  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
   assert.equal(guidedSnapshot.job.designTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
   assert.equal(guidedSnapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_timeline_card')
   assert.equal(guidedSnapshot.variations[0]?.reviewAction, null)
+  const guidedStoredJobAfterGeneration = await harness.service.store.getJobById(guidedJob.job.id)
+  assert.ok((guidedStoredJobAfterGeneration?.templateRequirements.researchContextArtifactIds as string[] | undefined)?.length)
+  assert.equal((guidedStoredJobAfterGeneration?.templateRequirements.researchContexts as Array<{ query?: string }> | undefined)?.[0]?.query?.includes('百度百科'), true)
+  assert.ok((guidedStoredJobAfterGeneration?.templateRequirements.imageGenerationArtifacts as Array<{ artifactId?: string; usageContext?: string; contentSafetyStatus?: string }> | undefined)?.some(
+    artifact => Boolean(artifact.artifactId) && artifact.usageContext === 'dynamic_encyclopedia_card' && artifact.contentSafetyStatus === 'passed',
+  ))
+  const guidedMcpAuditRecords = await harness.service.store.listMcpInvocationAuditRecords({ jobId: guidedJob.job.id })
+  assert.ok(guidedMcpAuditRecords.some(record => record.request.mcpToolId === 'mcp_agent_reach_search' && record.result.status === 'ok'))
+  assert.ok(guidedMcpAuditRecords.some(record => record.request.mcpToolId === 'mcp_image_generation_ark_seedream' && record.result.status === 'ok'))
   const guidedVariationId = guidedSnapshot.variations[0]!.id
   const guidedArtifactId = guidedSnapshot.variations[0]!.currentArtifactId
   assert.ok(guidedArtifactId)

@@ -127,7 +127,7 @@ describe('Automation Loop repair prompt and messages', () => {
     assert.match(prompt, /Body is empty/)
     assert.match(prompt, /Original user goal: Create a landing page/)
     assert.match(prompt, /Premium Product Launch/)
-    assert.match(prompt, /Return a complete static HTML artifact/)
+    assert.match(prompt, /Return a complete self-contained HTML\/CSS\/JS artifact/)
     assert.doesNotMatch(prompt, /npm install|sudo|rm -rf/i)
   })
 
@@ -139,11 +139,11 @@ describe('Automation Loop repair prompt and messages', () => {
       ],
       specFindings: [
         {
-          id: 'encyclopedia.scroll_container_missing',
+          id: 'encyclopedia.no_scroll_frame_required',
           source: 'template_rule',
-          severity: 'error',
-          message: 'Long encyclopedia content must live inside an explicit scroll container.',
-          repairHint: 'Wrap content in .scroll-container with overflow-y:auto.',
+          severity: 'warning',
+          message: 'Dynamic encyclopedia cards must declare a non-scrolling frame.',
+          repairHint: 'Set overflow:hidden and route overflow content through tabs, page switchers, or modal dialogs.',
         },
         {
           id: 'encyclopedia.timeline_template_mismatch',
@@ -163,15 +163,44 @@ describe('Automation Loop repair prompt and messages', () => {
       '- Dynamic encyclopedia spec review failed.',
       '- Timeline child template is missing milestone content.',
       'Structured dynamic encyclopedia spec findings:',
-      '- [error] encyclopedia.scroll_container_missing (template_rule): Long encyclopedia content must live inside an explicit scroll container. Repair hint: Wrap content in .scroll-container with overflow-y:auto.',
+      '- [warning] encyclopedia.no_scroll_frame_required (template_rule): Dynamic encyclopedia cards must declare a non-scrolling frame. Repair hint: Set overflow:hidden and route overflow content through tabs, page switchers, or modal dialogs.',
       '- [error] encyclopedia.timeline_template_mismatch (template_rule): The selected timeline child template needs visible timeline or milestone content. Repair hint: Add a timeline section with dated or phased milestones.',
+      'Required no-scroll frame repair:',
+      '- Preserve a fixed dynamic encyclopedia frame and set overflow:hidden on the outer frame.',
+      '- Remove .scroll-container and overflow:auto/scroll from the card body.',
+      '- Route extra content through tabs, page switchers, accordions, or local modal panels.',
       'Original user goal: 生成百度百科动态百科词条卡片。',
       'Design context to preserve: Dynamic Encyclopedia Timeline Card',
       'Repair only the concrete quality issues above.',
       'Keep the original product goal, visual direction, selected template, and user constraints.',
-      'Return a complete static HTML artifact.',
-      'Do not introduce external scripts, build steps, absolute paths, shell commands, or unbundled network assets.',
+      'Return a complete self-contained HTML/CSS/JS artifact.',
+      'Small inline JavaScript is allowed only for local UI controls such as tabs, page switchers, accordions, modal dialogs, reveal buttons, and local state updates.',
+      'Do not introduce external scripts, build steps, absolute paths, shell commands, remote API calls, or unbundled network assets.',
     ].join('\n'))
+  })
+
+  it('adds targeted repair instructions for fake dynamic encyclopedia interactions', () => {
+    const prompt = buildAutomationRepairPrompt({
+      issues: ['Dynamic encyclopedia tab controls look clickable but do not switch content.'],
+      specFindings: [
+        {
+          id: 'encyclopedia.fake_tab_interaction',
+          source: 'template_rule',
+          severity: 'warning',
+          message: 'Visible tab controls require matching panels and local state switching.',
+          repairHint: 'Add role=tab buttons, role=tabpanel sections, and inline click handlers.',
+        },
+      ],
+      originalPrompt: '生成动态百科卡片。',
+      templateSummary: 'Dynamic Encyclopedia Summary Card',
+    })
+
+    assert.match(prompt, /Required tab interaction repair/)
+    assert.match(prompt, /role="tab"/)
+    assert.match(prompt, /role="tabpanel"/)
+    assert.match(prompt, /switches aria-selected and hidden/)
+    assert.match(prompt, /Small inline JavaScript is allowed/)
+    assert.match(prompt, /Do not introduce external scripts/)
   })
 
   it('maps stop reasons to clear user-facing messages', () => {

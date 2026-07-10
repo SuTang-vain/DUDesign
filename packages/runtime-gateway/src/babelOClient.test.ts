@@ -405,6 +405,7 @@ describe('BabelORuntimeClient', () => {
       variationId: 'variation_1',
       variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
+      runtimeLaneId: 'lane-b',
       baseArtifactId: 'artifact_1',
       baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
       baseArtifactEntryPath: 'index.html',
@@ -429,6 +430,7 @@ describe('BabelORuntimeClient', () => {
       variationId: 'variation_1',
       variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
+      runtimeLaneId: 'lane-b',
       baseArtifactId: 'artifact_1',
       baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
       baseArtifactEntryPath: 'index.html',
@@ -1217,6 +1219,67 @@ describe('BabelORuntimeClient', () => {
       auditLevel: 'usage',
       mode: 'policy_only',
     })
+  })
+
+  it('injects reviewed research and generated image artifacts into the runtime prompt', async () => {
+    let agentBody: Record<string, unknown> = {}
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        agentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return jsonResponse({
+          streamId: 'stream_capability_artifacts',
+          agentJobId: 'agent_job_capability_artifacts',
+          runtimeChildSessionId: 'rt_child_capability_artifacts',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '词条：中山公园',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        researchContexts: [{
+          artifactId: 'rctx_auto',
+          storageKey: 'workspace/artifacts/rctx_auto/capabilities/research/context.json',
+          contentHash: 'sha256:research',
+          sizeBytes: 512,
+          schemaVersion: '2026-07-06.dudesign-research-context.v1',
+          reviewStatus: 'auto_reviewed',
+          query: '中山公园 景区景点 百科 事实 来源 卡片 规范',
+          sourceCount: 2,
+          createdAt: '2026-07-09T00:00:00.000Z',
+        }],
+        imageGenerationArtifacts: [{
+          artifactId: 'img_auto',
+          storageKey: 'workspace/artifacts/img_auto/capabilities/image-generation/image.json',
+          contentHash: 'sha256:image',
+          sizeBytes: 768,
+          schemaVersion: '2026-07-06.dudesign-image-generation-artifact.v1',
+          provider: 'mock',
+          model: 'doubao-seedream-5-0-260128',
+          usageContext: 'dynamic_encyclopedia_card',
+          contentSafetyStatus: 'passed',
+          costCents: 12,
+          createdAt: '2026-07-09T00:00:00.000Z',
+        }],
+      },
+    })
+
+    assert.match(String(agentBody.prompt), /DUDesign reviewed research context artifacts:/)
+    assert.match(String(agentBody.prompt), /rctx_auto: query="中山公园 景区景点 百科 事实 来源 卡片 规范"/)
+    assert.match(String(agentBody.prompt), /DUDesign generated visual asset artifacts:/)
+    assert.match(String(agentBody.prompt), /img_auto: provider=mock, usageContext=dynamic_encyclopedia_card, contentSafety=passed/)
   })
 
 	  it('streams SSE runtime events', async () => {

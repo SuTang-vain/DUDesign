@@ -717,6 +717,18 @@ export class InMemoryStore implements ApplicationRepository {
     return job
   }
 
+  updateJobTemplateRequirements(jobId: string, templateRequirements: Record<string, unknown>): MaybePromise<DesignJob | null> {
+    const job = this.jobs.get(jobId)
+    if (!job) return null
+    const updated: DesignJob = {
+      ...job,
+      templateRequirements,
+      updatedAt: nowIso(),
+    }
+    this.jobs.set(jobId, updated)
+    return updated
+  }
+
   createVariations(input: { job: DesignJob; count: number }): MaybePromise<DesignVariation[]> {
     const now = nowIso()
     const variations: DesignVariation[] = []
@@ -729,6 +741,11 @@ export class InMemoryStore implements ApplicationRepository {
         title: `Variation ${String(index).padStart(2, '0')}`,
         runtimeChildSessionId: null,
         runtimeAgentJobId: null,
+        runtimeLaneId: null,
+        runtimeBackendId: null,
+        runtimeLeaseId: null,
+        runtimeAttempt: 0,
+        runtimeLastErrorCode: null,
         status: 'queued',
         currentArtifactId: null,
         previewUrl: null,
@@ -953,10 +970,15 @@ export class InMemoryStore implements ApplicationRepository {
   applyVariationEvent(input: {
     variationId: string
     status?: DesignVariation['status']
-	    artifactId?: string
-	    previewUrl?: string
+    artifactId?: string
+    previewUrl?: string
     runtimeChildSessionId?: string
     runtimeAgentJobId?: string
+    runtimeLaneId?: string
+    runtimeBackendId?: string
+    runtimeLeaseId?: string
+    runtimeAttempt?: number
+    runtimeLastErrorCode?: string
     screenshotArtifactId?: string | null
     inputTokens?: number
     outputTokens?: number
@@ -969,12 +991,17 @@ export class InMemoryStore implements ApplicationRepository {
     this.variations.set(input.variationId, {
       ...variation,
       status: input.status ?? variation.status,
-	      currentArtifactId: input.artifactId ?? variation.currentArtifactId,
-	      previewUrl: input.previewUrl ?? variation.previewUrl,
-	      screenshotArtifactId: input.screenshotArtifactId ?? variation.screenshotArtifactId,
-	      runtimeChildSessionId: input.runtimeChildSessionId ?? variation.runtimeChildSessionId,
-	      runtimeAgentJobId: input.runtimeAgentJobId ?? variation.runtimeAgentJobId,
-	      inputTokens: input.inputTokens ?? variation.inputTokens,
+      currentArtifactId: input.artifactId ?? variation.currentArtifactId,
+      previewUrl: input.previewUrl ?? variation.previewUrl,
+      screenshotArtifactId: input.screenshotArtifactId ?? variation.screenshotArtifactId,
+      runtimeChildSessionId: input.runtimeChildSessionId ?? variation.runtimeChildSessionId,
+      runtimeAgentJobId: input.runtimeAgentJobId ?? variation.runtimeAgentJobId,
+      runtimeLaneId: input.runtimeLaneId ?? variation.runtimeLaneId,
+      runtimeBackendId: input.runtimeBackendId ?? variation.runtimeBackendId,
+      runtimeLeaseId: input.runtimeLeaseId ?? variation.runtimeLeaseId,
+      runtimeAttempt: input.runtimeAttempt ?? variation.runtimeAttempt,
+      runtimeLastErrorCode: input.runtimeLastErrorCode ?? variation.runtimeLastErrorCode,
+      inputTokens: input.inputTokens ?? variation.inputTokens,
       outputTokens: input.outputTokens ?? variation.outputTokens,
       costCents: input.costCents ?? variation.costCents,
       errorCode: input.errorCode ?? variation.errorCode,

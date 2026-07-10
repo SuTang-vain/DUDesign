@@ -125,7 +125,7 @@ function analyzePngPixelIssues(png: Uint8Array): string[] {
   const issues: string[] = []
   if (transparentRatio > 0.96) issues.push('Rendered screenshot appears blank or fully transparent.')
   if (blackRatio > 0.96) issues.push('Rendered screenshot appears blank black.')
-  if (whiteRatio > 0.96) issues.push('Rendered screenshot appears blank white.')
+  if (whiteRatio > 0.995 && transitionRatio < 0.001) issues.push('Rendered screenshot appears blank white.')
   if (transitionRatio < 0.002) issues.push('Rendered screenshot has extremely low visual variation.')
   return issues
 }

@@ -131,6 +131,43 @@ export type DesignRuntimeWarningEvent = DesignEventEnvelope<
   }
 >
 
+export type DesignRuntimeLaneAssignedEvent = DesignEventEnvelope<
+  'design.runtime_lane_assigned',
+  {
+    runtimeLaneId: string
+    runtimeBackendId?: string
+    runtimeLeaseId?: string
+    streamId?: string
+    agentJobId?: string
+    status?: 'assigned'
+  }
+>
+
+export type DesignRuntimeLaneRetryStartedEvent = DesignEventEnvelope<
+  'design.runtime_lane_retry_started',
+  {
+    previousRuntimeLaneId: string
+    previousRuntimeBackendId?: string
+    nextRuntimeLaneId: string
+    nextRuntimeBackendId?: string
+    reason: string
+    attempt: number
+    maxAttempts: number
+  }
+>
+
+export type DesignRuntimeLaneRetryExhaustedEvent = DesignEventEnvelope<
+  'design.runtime_lane_retry_exhausted',
+  {
+    previousRuntimeLaneId: string
+    previousRuntimeBackendId?: string
+    reason: string
+    attempts: number
+    errorCode: string
+    message: string
+  }
+>
+
 export type DesignLoopStartedEvent = DesignEventEnvelope<
   'design.loop_started',
   {
@@ -224,6 +261,9 @@ export type DesignEvent =
   | DesignVariationFailedEvent
   | DesignPermissionRequiredEvent
   | DesignRuntimeWarningEvent
+  | DesignRuntimeLaneAssignedEvent
+  | DesignRuntimeLaneRetryStartedEvent
+  | DesignRuntimeLaneRetryExhaustedEvent
   | DesignLoopStartedEvent
   | DesignLoopQualityCheckedEvent
   | DesignLoopRepairPlannedEvent

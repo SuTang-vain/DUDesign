@@ -306,6 +306,7 @@ export class BabelORuntimeClient {
         jobId: input.jobId,
         variationId: input.variationId,
         runtimeChildSessionId: input.runtimeChildSessionId,
+        runtimeLaneId: input.runtimeLaneId ?? null,
         baseArtifactId: input.baseArtifactId,
         baseArtifactHtml: input.baseArtifactHtml,
         baseArtifactEntryPath: input.baseArtifactEntryPath ?? null,
@@ -522,6 +523,7 @@ function buildVariationRuntimePrompt(
     '',
     capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
     pluginPromptBlock(input.templateRequirements?.capabilitySnapshot),
+    capabilityArtifactPromptBlock(input.templateRequirements),
     designTemplatePackPromptBlock(input.variationIndex, input.templateRequirements),
     advancedConstraintsPromptBlock(input.templateRequirements?.advancedConstraints),
     input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
@@ -530,8 +532,35 @@ function buildVariationRuntimePrompt(
     `- This is variation ${input.variationIndex} of ${input.variationCount}.`,
     `- Distinct style direction: ${styleDirection}`,
     '- Keep the same product/user goal, but make the visual direction clearly different from sibling variations.',
-    '- Produce a complete static HTML page and avoid depending on assets that are not included in the artifact bundle.',
+    '- Produce a complete self-contained HTML page: inline CSS and small local inline JavaScript are allowed for tabs, page switchers, accordions, modals, reveal controls, and other local UI states.',
+    '- Do not depend on external scripts, package installs, network APIs, or assets that are not included in the artifact bundle.',
+    '- Any visible tab, segmented control, page switcher, accordion, modal trigger, or reveal control must be actually interactive in the preview, with scoped event listeners and accessible state updates.',
   ].join('\n')
+}
+
+function capabilityArtifactPromptBlock(templateRequirements?: SpawnVariationAgentsInput['templateRequirements']): string {
+  if (!templateRequirements) return ''
+  const researchContexts = templateRequirements.researchContexts ?? []
+  const imageArtifacts = templateRequirements.imageGenerationArtifacts ?? []
+  const lines: string[] = []
+  if (researchContexts.length) {
+    lines.push('DUDesign reviewed research context artifacts:')
+    for (const context of researchContexts.slice(0, 3)) {
+      lines.push(`- ${context.artifactId}: query="${context.query}", reviewStatus=${context.reviewStatus}, sources=${context.sourceCount}, hash=${context.contentHash}. Use as cited context only; do not invent unsupported facts.`)
+    }
+  }
+  if (imageArtifacts.length) {
+    lines.push('DUDesign generated visual asset artifacts:')
+    for (const artifact of imageArtifacts.slice(0, 3)) {
+      const record = artifact as Record<string, unknown>
+      const artifactId = typeof record.artifactId === 'string' ? record.artifactId : 'unknown'
+      const provider = typeof record.provider === 'string' ? record.provider : 'unknown'
+      const usageContext = typeof record.usageContext === 'string' ? record.usageContext : 'unknown'
+      const contentSafetyStatus = typeof record.contentSafetyStatus === 'string' ? record.contentSafetyStatus : 'unknown'
+      lines.push(`- ${artifactId}: provider=${provider}, usageContext=${usageContext}, contentSafety=${contentSafetyStatus}. Use only as optional supporting visual context; keep the HTML functional without external provider URLs.`)
+    }
+  }
+  return lines.join('\n')
 }
 
 function capabilityPromptBlock(snapshot: CapabilitySnapshot | undefined): string {
@@ -921,6 +950,9 @@ function isDesignEventType(value: unknown): value is RuntimeContract['eventMappi
     value === 'design.variation_failed' ||
     value === 'design.permission_required' ||
     value === 'design.runtime_warning' ||
+    value === 'design.runtime_lane_assigned' ||
+    value === 'design.runtime_lane_retry_started' ||
+    value === 'design.runtime_lane_retry_exhausted' ||
     value === 'design.job_completed'
   )
 }

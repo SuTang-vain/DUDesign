@@ -66,6 +66,37 @@ export type BabelONexusEvent =
       recoverable?: boolean
       timestamp?: string
     }
+  | {
+      type: 'runtime_lane_assigned'
+      runtimeLaneId?: string
+      runtimeBackendId?: string
+      runtimeLeaseId?: string
+      streamId?: string
+      agentJobId?: string
+      timestamp?: string
+    }
+  | {
+      type: 'runtime_lane_retry_started'
+      previousRuntimeLaneId?: string
+      previousRuntimeBackendId?: string
+      nextRuntimeLaneId?: string
+      nextRuntimeBackendId?: string
+      reason?: string
+      attempt?: number
+      maxAttempts?: number
+      timestamp?: string
+    }
+  | {
+      type: 'runtime_lane_retry_exhausted'
+      previousRuntimeLaneId?: string
+      previousRuntimeBackendId?: string
+      reason?: string
+      attempts?: number
+      errorCode?: string
+      code?: string
+      message?: string
+      timestamp?: string
+    }
 
 export type UnknownBabelONexusEvent = {
   type: string
@@ -173,6 +204,46 @@ export class BabelONexusEventAdapter {
             errorCode: optionalString(raw.errorCode) ?? optionalString(raw.code) ?? 'RUNTIME_ERROR',
             message: optionalString(raw.message) ?? 'Runtime error.',
             recoverable: optionalBoolean(raw.recoverable) ?? false,
+          },
+        })
+      case 'runtime_lane_assigned':
+        return createDesignEvent({
+          ...base,
+          type: 'design.runtime_lane_assigned',
+          payload: {
+            runtimeLaneId: optionalString(raw.runtimeLaneId) ?? 'unknown',
+            runtimeBackendId: optionalString(raw.runtimeBackendId),
+            runtimeLeaseId: optionalString(raw.runtimeLeaseId),
+            streamId: optionalString(raw.streamId),
+            agentJobId: optionalString(raw.agentJobId),
+            status: 'assigned',
+          },
+        })
+      case 'runtime_lane_retry_started':
+        return createDesignEvent({
+          ...base,
+          type: 'design.runtime_lane_retry_started',
+          payload: {
+            previousRuntimeLaneId: optionalString(raw.previousRuntimeLaneId) ?? 'unknown',
+            previousRuntimeBackendId: optionalString(raw.previousRuntimeBackendId),
+            nextRuntimeLaneId: optionalString(raw.nextRuntimeLaneId) ?? 'unknown',
+            nextRuntimeBackendId: optionalString(raw.nextRuntimeBackendId),
+            reason: optionalString(raw.reason) ?? 'runtime_lane_retry',
+            attempt: optionalNumber(raw.attempt) ?? 1,
+            maxAttempts: optionalNumber(raw.maxAttempts) ?? 1,
+          },
+        })
+      case 'runtime_lane_retry_exhausted':
+        return createDesignEvent({
+          ...base,
+          type: 'design.runtime_lane_retry_exhausted',
+          payload: {
+            previousRuntimeLaneId: optionalString(raw.previousRuntimeLaneId) ?? 'unknown',
+            previousRuntimeBackendId: optionalString(raw.previousRuntimeBackendId),
+            reason: optionalString(raw.reason) ?? 'runtime_lane_retry_exhausted',
+            attempts: optionalNumber(raw.attempts) ?? 0,
+            errorCode: optionalString(raw.errorCode) ?? optionalString(raw.code) ?? 'RUNTIME_LANE_RETRY_EXHAUSTED',
+            message: optionalString(raw.message) ?? 'Runtime lane retry was exhausted.',
           },
         })
       default:

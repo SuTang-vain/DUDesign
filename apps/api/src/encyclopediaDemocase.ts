@@ -111,6 +111,17 @@ const democases: EncyclopediaDemocase[] = [
     keywords: ['成语', '词语', '释义', '意思', '含义', '读音', '拼音', '出处', '典故', '故事', '近义词', '反义词', '辨析', '易混词', '造句'],
     summary: '文化类词语优先承接关联词语图谱和出处/典故深化，典故缺可靠来源时不硬拼。',
   },
+  {
+    id: 'demo_scenic_spot_route',
+    title: '景区景点导览',
+    aliases: ['景区导览', '景点路线', '智能导览', '路线推荐', '景点地图'],
+    primaryCategory: '地域建筑',
+    secondaryCategory: '景区景点',
+    interactionParadigmId: 'ip_route_guide',
+    preferredTemplateIds: ['dtp_de_scenic_spot_route_guide', 'dtp_de_scenic_spot_map_poi', 'dtp_dynamic_encyclopedia_summary_card'],
+    keywords: ['景区', '景点', '公园', '风景区', '旅游区', '导览', '路线', '游览', '坐标', '地图', '推荐路线', '必看景点', 'POI', 'poi'],
+    summary: '景区景点词条优先承接智能导览、路线推荐、POI 分布和坐标/位置资料状态，不硬编实时路线或票务信息。',
+  },
 ]
 
 export function lookupEncyclopediaDemocases(query: string, limit = 3): EncyclopediaDemocaseMatch[] {

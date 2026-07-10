@@ -330,7 +330,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 ) : variation.screenshotUrl ? (
                   <div className="shot"><img alt={variation.title ?? `Variation ${variation.index}`} src={apiUrl(variation.screenshotUrl)} /></div>
                 ) : variation.previewUrl ? (
-                  <iframe title={variation.title ?? variation.id} src={apiUrl(variation.previewUrl)} sandbox="" />
+                  <iframe title={variation.title ?? variation.id} src={apiUrl(variation.previewUrl)} sandbox="allow-scripts" />
                 ) : (
                   <div className="ph">
                     {variation.status === 'failed'

@@ -209,6 +209,14 @@
   - [x] 关系图谱卡 `dtp_dynamic_encyclopedia_relation_card`。
   - [x] 对比辨析卡 `dtp_dynamic_encyclopedia_compare_card`。
   - [x] 可展开事实卡 `dtp_dynamic_encyclopedia_expandable_card`。
+- [x] 基于 `/Users/tangyaoyue/DEV/Baidu/case垂类分类` case 标准回灌垂类模板：
+  - [x] 历史人物：强化“如果没有这 N 件事”“史实 / 如果没发生”因果链要求。
+  - [x] 影视：强化“关系图谱 / 剧情因果 / 作品推荐”三视图要求。
+  - [x] 文化类词语：强化“关联词详解 / 出处典故 / 近义反义易混”要求。
+  - [x] 景区景点：新增导览路线和 POI 地图子模板。
+- [x] 注册景区景点动态百科子模板：
+  - [x] 路线导览卡 `dtp_de_scenic_spot_route_guide`。
+  - [x] 地图 POI 卡 `dtp_de_scenic_spot_map_poi`。
 - [ ] 下一批扩展：探索互动卡 `dtp_dynamic_encyclopedia_explore_card`（12.5：不在首批，若提前须同步更新父包 `packageChildren` 文案）。
 - [x] 建模 `InteractionParadigm`，`compatibleTemplatePackIds` 为唯一事实来源，避免把交互范式和视觉模板包混在同一个字段。
 - [x] 注册词条引导插件三件（12.6），沿用 `plug_` / `sk_` / `mcp_` 三段命名：
@@ -239,6 +247,7 @@
 - [x] 扩展 entry guidance mock 分类与 democase，让历史人物、电影、电视剧、文化类词语可以自动推荐垂类子模板。
 - [x] 将 `metadata.classificationVector` 明确写入 guidance 持久化，表达 L1/L2/L3+、推荐模块优先级和分类信号。
 - [x] 扩展 spec review（Stage 1 warning）：影视禁止盗版资源入口、剧情/集数不得幻觉；历史关系/事件不得编造；文化典故缺可靠出处时隐藏。
+- [x] 扩展 spec review（Stage 1 warning）：tab、page-switcher、modal 不得只做静态视觉状态；出现可点击控件时必须具备本地面板、状态切换脚本和可访问性状态更新。
 - [ ] 将垂类 spec review 从 Stage 1 warning 升级策略沉淀到管理端治理面板，支持按规则查看命中率与误伤率。
 
 验收：
@@ -247,6 +256,7 @@
 - “词条引导”被拆为 MCP、skill、业务向导，而不是塞进单一插件。
 - 父模板包、子模板、交互范式有明确边界和版本化路径。
 - `AutomationLoopProfile` 契约改造不破坏现有 `loop_fast`/`standard`/`deep_repair` 行为。
+- 动态百科卡片的 tab、分页、展开、弹层等交互必须在 private preview 中真实可用；share preview 仍保持只读安全边界。
 
 ## Phase CAP-9：外部能力扩展与用户贡献
 

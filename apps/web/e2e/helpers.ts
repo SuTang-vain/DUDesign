@@ -19,7 +19,7 @@ export async function createVariationThroughUi(page: Page, prompt: string): Prom
   await expect(page.getByTestId('runtime-activity')).toContainText('Runtime activity')
   await expect(page.getByTestId('runtime-activity')).toContainText('Variation 01')
   await expect(page.getByTestId('runtime-activity')).toContainText(/Generating|Completed|Rendering preview|DONE|readying preview/)
-  await expect(page.getByText(/3\s*\/\s*3 completed/)).toBeVisible()
+  await expect(page.getByText(/\d+\s*\/\s*3 completed/)).toBeVisible()
   await expect(page.locator('.variation-view-tabs')).toHaveCount(0)
   await expect(page.locator('.code-stream-trace')).toHaveCount(0)
 

@@ -97,30 +97,84 @@ export function buildAutomationRepairPrompt(input: {
     ? input.issues.map(issue => `- ${issue}`).join('\n')
     : '- The artifact did not pass the configured quality gate.'
   const templateSummary = input.templateSummary?.trim()
-  const specFindingList = input.specFindings?.length
+  const specFindings = input.specFindings ?? []
+  const specFindingList = specFindings.length
     ? [
       '',
       'Structured dynamic encyclopedia spec findings:',
-      ...input.specFindings.map(finding =>
+      ...specFindings.map(finding =>
         `- [${finding.severity}] ${finding.id} (${finding.source}): ${finding.message} Repair hint: ${finding.repairHint}`,
       ),
     ]
     : []
+  const targetedInstructions = targetedRepairInstructions(specFindings)
   return [
     'DUDesign automatic repair request.',
     '',
     'The current HTML artifact failed quality checks:',
     issueList,
     ...specFindingList,
+    ...targetedInstructions,
     '',
     `Original user goal: ${input.originalPrompt.trim()}`,
     templateSummary ? `Design context to preserve: ${templateSummary}` : '',
     '',
     'Repair only the concrete quality issues above.',
     'Keep the original product goal, visual direction, selected template, and user constraints.',
-    'Return a complete static HTML artifact.',
-    'Do not introduce external scripts, build steps, absolute paths, shell commands, or unbundled network assets.',
+    'Return a complete self-contained HTML/CSS/JS artifact.',
+    'Small inline JavaScript is allowed only for local UI controls such as tabs, page switchers, accordions, modal dialogs, reveal buttons, and local state updates.',
+    'Do not introduce external scripts, build steps, absolute paths, shell commands, remote API calls, or unbundled network assets.',
   ].filter(line => line.length > 0).join('\n')
+}
+
+function targetedRepairInstructions(findings: AutomationRepairFinding[]): string[] {
+  if (findings.length === 0) return []
+  const instructions: string[] = []
+  const findingIds = new Set(findings.map(finding => finding.id))
+
+  if (findingIds.has('encyclopedia.fake_tab_interaction')) {
+    instructions.push(
+      '',
+      'Required tab interaction repair:',
+      '- Keep visible tab controls only if they are real buttons with role="tab", aria-selected, and aria-controls.',
+      '- Add matching role="tabpanel" sections with stable ids and hidden states.',
+      '- Add scoped inline JavaScript that switches aria-selected and hidden when a tab is clicked.',
+    )
+  }
+
+  if (findingIds.has('encyclopedia.fake_page_switcher_interaction')) {
+    instructions.push(
+      '',
+      'Required page switcher repair:',
+      '- Keep pagination/page-switch controls only if they switch between local page panels.',
+      '- Add hidden states for inactive panels and a scoped inline click handler that updates the active page.',
+      '- Do not rely on scrolling to reveal overflow content.',
+    )
+  }
+
+  if (findingIds.has('encyclopedia.fake_modal_interaction')) {
+    instructions.push(
+      '',
+      'Required modal interaction repair:',
+      '- Keep modal/detail/reveal controls only if they open a local modal or detail panel.',
+      '- Add accessible open/close buttons, aria-expanded or aria-hidden state updates, and focus-safe local handlers.',
+      '- Do not navigate to external pages or call network APIs for modal content.',
+    )
+  }
+
+  if (findingIds.has('encyclopedia.no_scroll_frame_required')
+    || findingIds.has('encyclopedia.overflow_scroll_blocked')
+    || findingIds.has('encyclopedia.scroll_container_class_blocked')) {
+    instructions.push(
+      '',
+      'Required no-scroll frame repair:',
+      '- Preserve a fixed dynamic encyclopedia frame and set overflow:hidden on the outer frame.',
+      '- Remove .scroll-container and overflow:auto/scroll from the card body.',
+      '- Route extra content through tabs, page switchers, accordions, or local modal panels.',
+    )
+  }
+
+  return instructions
 }
 
 function stop(reason: AutomationLoopStopReason): AutomationLoopStopDecision {

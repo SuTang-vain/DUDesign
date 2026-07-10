@@ -93,6 +93,8 @@ describe('officialDesignTemplatePacks', () => {
       'dtp_de_tv_episode_chain',
       'dtp_de_cultural_phrase_relation_graph',
       'dtp_de_cultural_phrase_origin_story',
+      'dtp_de_scenic_spot_route_guide',
+      'dtp_de_scenic_spot_map_poi',
     ]
 
     for (const childId of childIds) {
@@ -128,6 +130,8 @@ describe('officialDesignTemplatePacks', () => {
       ['dtp_de_tv_episode_chain', ['影视作品', '电视剧']],
       ['dtp_de_cultural_phrase_relation_graph', ['知识术语', '文化类词语']],
       ['dtp_de_cultural_phrase_origin_story', ['知识术语', '文化类词语']],
+      ['dtp_de_scenic_spot_route_guide', ['地域建筑', '景区景点']],
+      ['dtp_de_scenic_spot_map_poi', ['地域建筑', '景区景点']],
     ] as const
 
     for (const [templateId, categories] of expected) {
@@ -140,6 +144,34 @@ describe('officialDesignTemplatePacks', () => {
       }
       assert.equal(pack.designTokens.components['no-scroll-frame']?.overflow, 'hidden')
       assert.ok(pack.rationale.sections.businessPriority, `${templateId} should document business priority`)
+    }
+  })
+
+  it('aligns dynamic encyclopedia vertical templates with local case reference standards', () => {
+    const caseExpectations = [
+      ['dtp_de_history_person_event_chain', ['如果没有', '史实', '如果没发生']],
+      ['dtp_de_tv_character_relation', ['关系图谱', '剧情因果', '作品推荐']],
+      ['dtp_de_film_series_navigation', ['同主演', '同题材', '同作者', '同IP']],
+      ['dtp_de_cultural_phrase_relation_graph', ['关联词详解', '近义', '反义', '易混词']],
+      ['dtp_de_scenic_spot_route_guide', ['导览', '路线', '景点', '坐标']],
+      ['dtp_de_scenic_spot_map_poi', ['地图', 'POI', '坐标']],
+    ] as const
+
+    for (const [templateId, markers] of caseExpectations) {
+      const pack = officialDesignTemplatePacks.find(item => item.id === templateId)
+      assert.ok(pack, `${templateId} should exist`)
+      const searchable = [
+        pack.description ?? '',
+        pack.rationale.overview,
+        pack.rationale.layout,
+        pack.rationale.components,
+        ...(pack.rationale.dos ?? []),
+        ...(pack.rationale.donts ?? []),
+        ...Object.values(pack.rationale.sections ?? {}),
+      ].join('\n')
+      for (const marker of markers) {
+        assert.match(searchable, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `${templateId} should include case marker ${marker}`)
+      }
     }
   })
 

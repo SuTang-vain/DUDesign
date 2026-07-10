@@ -27,6 +27,10 @@ cp deploy/staging/babelo-nexus.Dockerfile /tmp/dudesign-babelo-nexus.Dockerfile
 compose_profile_args=''
 if grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$' deploy/staging/.env; then
   compose_profile_args='--profile babel-o'
+  if grep -Eq '^DUDESIGN_RUNTIME_LANE_MODE=static$' deploy/staging/.env \
+    || grep -Eq '^DUDESIGN_RUNTIME_LANES_JSON=.+$' deploy/staging/.env; then
+    compose_profile_args='--profile babel-o-multilane'
+  fi
   babelo_context=\"\$(grep -E '^BABELO_NEXUS_CONTEXT=' deploy/staging/.env | tail -n 1 | cut -d= -f2-)\"
   if [ -n \"\$babelo_context\" ] && [ ! -f \"\$babelo_context/package.json\" ]; then
     echo \"BABELO_NEXUS_CONTEXT does not contain BabeL-O package.json: \$babelo_context\" >&2
@@ -40,5 +44,9 @@ sudo ln -sfn /etc/nginx/sites-available/dudesign-staging /etc/nginx/sites-enable
 sudo nginx -t
 sudo systemctl reload nginx
 "
+
+if ssh "$remote" "cd '$base_dir/dudesign/current' && grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$' deploy/staging/.env && { grep -Eq '^DUDESIGN_RUNTIME_LANE_MODE=static$' deploy/staging/.env || grep -Eq '^DUDESIGN_RUNTIME_LANES_JSON=.+$' deploy/staging/.env; }"; then
+  "$repo_root/deploy/staging/scripts/sync-babelo-lane-config-remote.sh"
+fi
 
 "$repo_root/deploy/staging/scripts/smoke-remote.sh"

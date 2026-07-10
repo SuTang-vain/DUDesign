@@ -172,15 +172,18 @@ export class NexusClient {
     cwd: string
     modelId?: string
     timeoutMs?: number
+    watchdogTimeoutMs?: number
   }): Promise<NexusExecuteResponse> {
+    const timeoutMs = input.timeoutMs ?? 300000
     return this.requestJson('/v1/execute', {
       method: 'POST',
+      timeoutMs: input.watchdogTimeoutMs ?? timeoutMs,
       body: {
         sessionId: input.sessionId,
         prompt: input.prompt,
         cwd: input.cwd,
-        timeoutMs: input.timeoutMs ?? 300000,
-        watchdogTimeoutMs: input.timeoutMs ?? 300000,
+        timeoutMs,
+        watchdogTimeoutMs: input.watchdogTimeoutMs ?? timeoutMs,
         allowedTools: ['*'],
         skipPermissionCheck: true,
         ...(runtimeModelId(input.modelId) && { model: runtimeModelId(input.modelId) }),
@@ -193,21 +196,36 @@ export class NexusClient {
     options: {
       method?: 'GET' | 'POST'
       body?: Record<string, unknown>
+      timeoutMs?: number
     } = {},
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method: options.method ?? 'GET',
-      headers: this.headers(options.body !== undefined),
-      ...(options.body !== undefined && { body: JSON.stringify(options.body) }),
-    })
-    if (!response.ok) {
-      throw new NexusClientError(`BabeL-O Nexus returned HTTP ${response.status} for ${path}.`, response.status, path)
+    const controller = options.timeoutMs ? new AbortController() : undefined
+    const timeout = controller && options.timeoutMs
+      ? setTimeout(() => controller.abort(), options.timeoutMs)
+      : undefined
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: options.method ?? 'GET',
+        headers: this.headers(options.body !== undefined),
+        ...(options.body !== undefined && { body: JSON.stringify(options.body) }),
+        ...(controller && { signal: controller.signal }),
+      })
+      if (!response.ok) {
+        throw new NexusClientError(`BabeL-O Nexus returned HTTP ${response.status} for ${path}.`, response.status, path)
+      }
+      const payload = await response.json()
+      if (!payload || typeof payload !== 'object') {
+        throw new Error(`BabeL-O Nexus returned invalid JSON for ${path}.`)
+      }
+      return payload as T
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new NexusClientError(`BabeL-O Nexus request timed out after ${options.timeoutMs}ms for ${path}.`, 408, path)
+      }
+      throw error
+    } finally {
+      if (timeout) clearTimeout(timeout)
     }
-    const payload = await response.json()
-    if (!payload || typeof payload !== 'object') {
-      throw new Error(`BabeL-O Nexus returned invalid JSON for ${path}.`)
-    }
-    return payload as T
   }
 
   private headers(hasBody = false): HeadersInit {
@@ -227,6 +245,10 @@ export class NexusClient {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
 }
 
 function runtimeModelId(modelId: string | undefined): string | undefined {

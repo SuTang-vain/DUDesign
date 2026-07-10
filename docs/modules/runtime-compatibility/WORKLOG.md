@@ -3,6 +3,64 @@
 > 模块：Runtime Compatibility Layer
 > 维护方式：按日期追加。记录 BabeL-O 适配、协议漂移、contract 测试和升级治理。
 
+## 2026-07-09 RTC-M47 Runtime Lane Pool Planning
+
+### 背景
+
+- 远端真实 BabeL-O 动态百科生成测试出现 partial failure：同一 job 中部分 variation 完成，部分 variation 在 runtime hard watchdog 附近超时。
+- 当前 DUDesign 已支持每个 variation 创建独立 child runtime session，但多个 child session 仍可能集中进入同一个 BabeL-O Nexus 实例。
+- 单纯提高 `DUDESIGN_RUNTIME_VARIATION_CONCURRENCY` 不能解决单 runtime 实例资源竞争，反而可能放大 timeout 风险。
+
+### 已完成
+
+- 新增规划文档：`docs/modules/runtime-compatibility/runtime-lane-pool-plan.md`。
+- 在 Runtime Compatibility TODO 中新增 Phase RTC-9：Runtime Lane Pool 与多线路并行调度。
+- 在 Application Service TODO 中补充 variation runtime assignment metadata、标准事件持久化和用户/Admin API 边界。
+- 在 Admin Console TODO 中补充 lane health、失败反查、drain/undrain 和单 lane smoke 治理入口。
+- 修正 Runtime Adapter timeout 配置链路：
+  - `NexusClient.execute()` 支持分别发送 `timeoutMs` 和 `watchdogTimeoutMs`。
+  - `RuntimeAdapterOptions` 增加 `executeTimeoutMs` / `watchdogTimeoutMs`。
+  - `apps/runtime-adapter/src/server.ts` 支持 `RUNTIME_ADAPTER_EXECUTE_TIMEOUT_MS` / `RUNTIME_ADAPTER_WATCHDOG_TIMEOUT_MS`。
+  - staging compose/env example 暴露上述配置，默认 `execute=300000ms`、`watchdog=600000ms`。
+  - 新增 runtime-adapter 回归测试，断言 raw Nexus `/v1/execute` payload 的两个 timeout 不再被同一个 300000ms 值锁死。
+- 新增 Runtime Lane contract 基础模块：
+  - `RuntimeLane`、`RuntimeLaneRegistry`、`RuntimeLaneLease`。
+  - lease acquire/release、drain/unavailable 过滤、least-loaded 初步选择策略。
+  - `parseRuntimeLaneConfigsJson()` 支持静态 lane JSON 配置校验。
+  - `DUDESIGN_RUNTIME_LANES_JSON` 已接入 runtime-adapter server；当前阶段仅使用 primary lane，保持单 lane 行为兼容。
+- 将 Runtime Lane 接入真实 stream 执行路径：
+  - `/v1/agents` 创建 stream 时 acquire lane lease，并返回 `runtimeLaneId` / `runtimeLeaseId`。
+  - `/v1/stream` 按 stream 绑定的 lane 调用对应 Nexus，结束后释放 lease。
+  - stream 首条输出 `runtime_lane_assigned` 标准 adapter 事件，后续可由 Gateway 映射为 `design.runtime_lane_assigned`。
+  - `RuntimeAdapterStateStore` 持久化 `runtimeLaneId` / `runtimeLeaseId`。
+  - 默认未配置 lane pool 时使用高容量 single lane，保持既有并发创建 pending streams 的兼容行为。
+- 完善 lane 调度与观测：
+  - 调度策略升级为 least-inflight + round-robin tie break。
+  - `/v1/health` 输出脱敏 lane 列表：id、provider、status、inflight、maxConcurrent、weight、contractVersion、lastHealthAt、lastErrorCode。
+- 打通 Gateway 和业务事件流：
+  - `@dudesign/contracts` 新增 `design.runtime_lane_assigned` 标准事件。
+  - `BabelONexusEventAdapter` 将 adapter raw event `runtime_lane_assigned` 映射为 `design.runtime_lane_assigned`。
+  - `BabelORuntimeGateway.spawnVariationAgents()` 可把 lane assignment 事件透传到业务服务层。
+  - Runtime adapter contract manifest 和 MockRuntimeGateway contract manifest 都声明 `runtime_lane_assigned -> design.runtime_lane_assigned`。
+  - Application Service 现有 design event append/replay 链路已覆盖该事件，并新增测试断言可通过 SSE replay。
+
+### 决策
+
+- Runtime Lane Pool 主归属后端内核兼容层。
+- MVP 推荐由单 Runtime Adapter 内部管理多个 BabeL-O Nexus backend，而不是让用户前端或业务服务层直接理解多 Nexus 拓扑。
+- Application Service 只保存 DUDesign 标准化 lane assignment metadata，不参与具体 lane 调度。
+- 用户前端默认不展示 raw lane 拓扑；管理端按权限展示排障字段。
+
+### 后续关注
+
+- 增加 lane drain/undrain 控制入口，并将 drain 状态纳入 Admin API / Admin UI。
+- 将 lane assignment metadata 写入 variation snapshot / PostgreSQL 字段，供 Admin API 直接查询。
+- staging docker compose 后续增加 2-3 个独立 BabeL-O Nexus backend，再做真实动态百科 multi-lane smoke。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+
 ## 2026-07-08 RTC-M46 Dynamic Encyclopedia Vertical Matrix Staging Smoke
 
 ### 已完成
@@ -2088,3 +2146,717 @@
 
 - 真实 BabeL-O staging smoke 需要观察垂类 risk flags 是否减少影视资源入口、历史关系幻觉和文化典故硬拼。
 - 若 prompt 长度膨胀明显，可把 child template reason 做摘要化或只注入 selected child templates。
+
+## 2026-07-09 RTC-9 Runtime Lane Assignment Metadata Persistence
+
+### 已完成
+
+- `DesignVariation` 领域模型增加 runtime lane 观测字段：
+  - `runtimeLaneId`
+  - `runtimeBackendId`
+  - `runtimeLeaseId`
+  - `runtimeAttempt`
+  - `runtimeLastErrorCode`
+- Application Service 在收到 `design.runtime_lane_assigned` 标准事件时更新 variation snapshot：
+  - 写入 `runtime_lane_id`。
+  - 写入 `runtime_lease_id`。
+  - 递增 `runtime_attempt`。
+- Application Service 在收到 `design.variation_failed` 时同步 `runtime_last_error_code`，便于后续排查 lane timeout / unavailable / quality gate 等失败原因。
+- PostgreSQL 增加 migration `0018_runtime_lane_variation_metadata.sql`，并同步 baseline schema。
+- InMemoryRepository / PostgresRepository 持久化和 hydration 映射都支持 runtime lane metadata。
+- `DesignJobSnapshotResponse` 暴露 variation runtime lane 字段，供后续 Admin Console 排障面板使用；用户端仍可选择隐藏 raw lane 拓扑。
+- API 事件测试补充验证：
+  - lane assignment event 被持久化。
+  - SSE replay 可回放 `design.runtime_lane_assigned`。
+  - job snapshot 中 variation 带有 lane id、lease id、attempt。
+
+### 验证
+
+- `npx tsc -b packages/domain packages/contracts --force && npm --workspace @dudesign/api exec tsc -b`
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `node --test apps/api/dist/designJobEvents.test.js`
+- `node --test apps/api/dist/postgresRepository.test.js`（当前环境未配置 `POSTGRES_TEST_URL`，测试按设计 skip）
+
+### 决策
+
+- `runtimeBackendId` 当前先作为数据库和响应契约预留字段，等待 Runtime Adapter 在 lane config 中补充 backend 标识后再真实填充。
+- 用户端不直接依赖 lane 字段；这些字段优先服务管理端排障、成本归因和 lane retry 治理。
+
+### 下一步
+
+- Runtime Adapter 的 `runtime_lane_assigned` 事件补充 `runtimeBackendId`。
+- 实现 lane drain：draining lane 不再接收新任务，但已分配 stream 继续完成。
+- 增加 lane unavailable / timeout 后的换 lane retry 事件与持久化。
+
+## 2026-07-09 RTC-9 Runtime Lane Backend Identity
+
+### 已完成
+
+- `RuntimeLaneConfig` 增加可公开的 `backendId`，默认回退到 lane id。
+- Runtime Adapter `/v1/agents` 响应和 `/v1/stream` 首条 `runtime_lane_assigned` 事件现在都会输出 `runtimeBackendId`。
+- Runtime Adapter state store 持久化 `runtimeBackendId`，避免 adapter 重启后恢复 stream 时丢失 lane/backend 观测信息。
+- Runtime Gateway raw event adapter 将 `runtimeBackendId` 映射到 `design.runtime_lane_assigned.payload.runtimeBackendId`。
+- Application Service 收到 `design.runtime_lane_assigned` 后写入 variation `runtimeBackendId`。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/runtime-adapter apps/api --force`
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api exec tsc -b && node --test apps/api/dist/designJobEvents.test.js`
+
+### 决策
+
+- `backendId` 是脱敏排障标识，不使用 raw `baseUrl`，避免把内网拓扑泄漏到用户/API 快照中。
+- 后续 Admin Console 可以基于 `runtimeLaneId + runtimeBackendId` 展示失败分布、成本归因和 drain 操作影响面。
+
+## 2026-07-09 RTC-9 Runtime Lane Drain Control
+
+### 已完成
+
+- Runtime Adapter 增加 lane drain 控制入口：
+  - `POST /v1/lanes/:laneId/drain`
+  - `POST /v1/lanes/:laneId/undrain`
+- `/v1/health` 的 lane 列表增加脱敏 `backendId`，便于控制面定位目标 lane。
+- drain 行为语义固定：
+  - 已分配 stream 不被中断。
+  - draining lane 不再接收新任务。
+  - active stream 完成后正常释放 lease，lane 保持 `draining` 状态。
+  - undrain 后 lane 状态恢复 `healthy`，可重新接收任务。
+- Runtime Adapter contract `optionalEndpoints` 增加 drain/undrain 控制端点，供后续 Admin API 代理。
+- 新增 runtime-adapter 回归测试覆盖 drain、health、调度绕开、stream 完成释放和 undrain 后重新接任务。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 下一步
+
+- Admin API 增加 lane drain/undrain 代理，并写入 audit log。
+- Admin Console 增加 lane health 表和 drain/undrain 操作按钮。
+- 继续推进 lane unavailable / stream idle timeout 换 lane retry。
+
+## 2026-07-09 RTC-9 Runtime Lane Unavailable Retry
+
+### 已完成
+
+- Runtime Lane Registry 支持 acquire 时排除已失败 lane，用于换线 retry。
+- Runtime Adapter 新增 `laneRetryAttempts` 配置，默认允许换 lane retry 一次。
+- Runtime Adapter 在 raw Nexus execute 返回可恢复线路错误时执行换线：
+  - HTTP 429：优先走既有同 lane capacity retry；同 lane retry 耗尽后可进入换线。
+  - HTTP 408：归一为 `runtime_request_timeout`。
+  - HTTP 5xx：归一为 `runtime_lane_unavailable`。
+- 换线 retry 语义固定：
+  - 标记原 lane 为 `unavailable` 并记录稳定错误码。
+  - 释放原 lane lease。
+  - 从候选中排除已尝试 lane，获取下一条可用 lane。
+  - 在新 lane 创建新的 runtime child session，不复用旧 session。
+  - 输出 `runtime_lane_retry_started`，随后输出新的 `runtime_lane_assigned`。
+  - 无可用 lane 时输出 `runtime_lane_retry_exhausted`，再交由原失败流程输出 terminal error。
+- Runtime Adapter state store 持久化 retry 所需 stream identity context：
+  - `userId`
+  - `workspaceId`
+  - `sessionId`
+  - `mode`
+  - `variationIndex`
+  - `memoryNamespace`
+- `@dudesign/contracts` 增加标准事件：
+  - `design.runtime_lane_retry_started`
+  - `design.runtime_lane_retry_exhausted`
+- Runtime Gateway adapter 映射 raw retry 事件到 DUDesign 标准事件。
+- MockRuntimeGateway contract manifest 同步 retry event mappings。
+- Application Service 收到 `design.runtime_lane_retry_started` 后更新 variation runtime lane metadata，并递增 `runtimeAttempt`。
+- 新增测试覆盖：
+  - lane unavailable 后成功换到另一条 lane。
+  - 无备用 lane 时输出 retry exhausted。
+  - Gateway golden replay 覆盖 retry started/exhausted。
+  - API event chain 仍可持久化和 replay。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npm --workspace @dudesign/runtime-gateway run test`
+- `npm --workspace @dudesign/api exec tsc -b && node --test apps/api/dist/designJobEvents.test.js`
+
+### 边界
+
+- 本轮完成的是 raw Nexus 明确返回不可用/超时类 HTTP 错误后的换线 retry。
+- Gateway 侧 `RUNTIME_STREAM_IDLE_TIMEOUT` 发生在 Adapter 已开始输出流后，当前仍由 Gateway client 报错；要做到真正的 stream idle 换线，需要下一步让 Runtime Adapter 对 raw Nexus execute 增加自身 abort/idle watchdog，并在 Adapter 内触发换线。
+
+### 下一步
+
+- 给 Runtime Adapter `NexusClient.execute()` 增加 abortable timeout / idle watchdog，把 long-hang 转成可换线的 `RUNTIME_STREAM_IDLE_TIMEOUT`。
+- 将 retry started/exhausted 持久化后的展示文案接入用户前端 runtime activity。
+- Admin API / Admin Console 增加 lane retry 分布统计。
+
+## 2026-07-09 RTC-9 Runtime Execute Watchdog Retry
+
+### 已完成
+
+- `apps/runtime-adapter/src/nexusClient.ts` 的 `requestJson()` 支持可选 `timeoutMs` 和 `AbortController`。
+- `NexusClient.execute()` 使用 `watchdogTimeoutMs` 作为 HTTP abort watchdog：
+  - raw Nexus 长时间不返回时中断请求。
+  - abort 被归一为 `NexusClientError(status=408)`。
+  - Adapter 既有 lane retry 逻辑将 408 归因为 `runtime_request_timeout`。
+- Runtime Adapter 现在可以在 raw Nexus execute long-hang 时：
+  - 标记原 lane `unavailable`。
+  - 记录 `RUNTIME_REQUEST_TIMEOUT`。
+  - 释放原 lane lease。
+  - 切换到备用 lane。
+  - 创建新的 runtime child session。
+  - 输出 `runtime_lane_retry_started` 和新的 `runtime_lane_assigned`。
+- 新增回归测试：lane-a `/v1/execute` 挂住直到 abort，Adapter 在 watchdog 后切换到 lane-b 并完成 artifact。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npx tsc -b apps/runtime-adapter --force`
+
+### 决策
+
+- HTTP abort watchdog 当前只在 `NexusClient.execute()` 启用，避免改变 health/model discovery/session 等短请求路径的行为。
+- 408 作为 Adapter 内部可恢复超时信号，不要求 raw BabeL-O Nexus 真的返回 HTTP 408。
+
+### 下一步
+
+- docker compose staging 增加 2-3 个独立 BabeL-O Nexus backend。
+- 增加 multi-lane fake Nexus integration test。
+- staging 真实动态百科 3 variation multi-lane smoke。
+
+## 2026-07-09 RTC-9 Staging Multi-Lane Compose
+
+### 已完成
+
+- `deploy/staging/docker-compose.yml` 增加可选 `babel-o-multilane` profile。
+- 保留现有 `babel-o-nexus` 作为单 lane / lane-a，新增：
+  - `babel-o-nexus-b`
+  - `babel-o-nexus-c`
+- Runtime Adapter 在 `babel-o-multilane` profile 下会同时挂载 lane-b / lane-c 的 workspace volume：
+  - `/runtime-workspaces/lane-b`
+  - `/runtime-workspaces/lane-c`
+- `apps/runtime-adapter/src/app.ts` 开始在 lane 分配后使用 `RuntimeLane.workspaceRoot` 解析相对 workspace root。
+- 换 lane retry 时会按新 lane 的 workspace root 重新解析 cwd，并为新 lane 创建 runtime child session。
+- Runtime Adapter state store 持久化 `workspaceRootInput`，避免 adapter 重启后无法复原 lane-relative workspace。
+- `apps/runtime-adapter/src/server.ts` 接入 `RUNTIME_ADAPTER_LANE_RETRY_ATTEMPTS`。
+- refine follow-up 会透传 variation 已保存的 `runtimeLaneId`：
+  - Application Service 从 variation snapshot 取 `runtimeLaneId`。
+  - Runtime Gateway 在 `/v1/agents/refine` payload 中带上 `runtimeLaneId`。
+  - Runtime Adapter 对 refine 使用 preferred lane acquire，并按该 lane 的 workspace root 解析 cwd。
+  - preferred lane 不可用或已满时返回明确 runtime lane unavailable，不静默漂移到另一条 lane。
+- `deploy/staging/staging.env.example` 增加三 lane JSON 示例和 b/c 端口配置。
+- `runtime-lane-pool-plan.md` 修正 compose 内部 baseUrl 使用容器端口 `:3000`，并补充 lane workspace root 字段。
+
+### 验证
+
+- 新增 Runtime Adapter 回归测试：同一相对 workspace 在不同 lane 下会解析到对应 lane root，并从对应 root 读取 artifact。
+- 新增 Runtime Adapter refine 回归测试：指定 `runtimeLaneId` 后 follow-up refine 固定在原 lane root。
+- 新增 Runtime Lane Registry 回归测试：preferred lane acquire 受健康状态和容量约束。
+
+### 边界
+
+- 当前 staging multi-lane 仍是静态配置，不引入服务发现。
+- lane-a 复用现有单 lane `babel-o-nexus`，以降低迁移风险。
+- 本轮完成 compose 拓扑、adapter lane workspace 解析和 refine lane affinity；尚未完成 compose 级 multi-lane fake Nexus integration smoke。
+
+### 下一步
+
+- 增加 multi-lane fake Nexus integration test。
+- 在 staging 启用 `babel-o-multilane` profile，执行真实动态百科 3 variation smoke，并确认 job 至少分配到两条 lane。
+
+## 2026-07-09 RTC-9 Multi-Lane Fake Nexus Integration
+
+### 已完成
+
+- 新增 `apps/runtime-adapter/src/multiLaneIntegration.test.ts`。
+- 测试会启动多个真实本地 HTTP fake Nexus backend，而不是只 mock `fetch`：
+  - 每条 lane 独立 HTTP port。
+  - 每条 lane 独立 workspace root。
+  - Runtime Adapter 通过真实 `NexusClient` HTTP 请求访问 fake Nexus。
+- 覆盖三 variation 多 lane 调度：
+  - 3 个 pending variation stream 分配到 `lane-a` / `lane-b` / `lane-c`。
+  - 每条 lane 各执行一次 `/v1/execute`。
+  - 每条 lane 写入自己的 `index.html` artifact。
+  - stream 完成后 lease inflight 归零。
+- 覆盖单 lane 失败隔离：
+  - lane-b fake Nexus `/v1/execute` 返回 503。
+  - lane-a / lane-c 仍能完成 artifact。
+  - 失败 lane 输出 terminal error，不影响其他 lane 已完成 stream。
+
+### 验证
+
+- `npx tsc -b apps/runtime-adapter && node --test apps/runtime-adapter/dist/multiLaneIntegration.test.js`
+- `npm --workspace @dudesign/runtime-adapter run test`
+
+### 边界
+
+- 本轮完成的是本地 fake Nexus HTTP integration，不需要真实 BabeL-O、不依赖 Docker。
+- staging 真实动态百科 3 variation multi-lane smoke 仍是下一步；它需要远端启用 `babel-o-multilane` profile 和真实 `DUDESIGN_RUNTIME_LANES_JSON`。
+
+### 下一步
+
+- 增加/参数化 staging dynamic encyclopedia smoke，让它能在 `DUDESIGN_STAGING_RUNTIME_MULTILANE_SMOKE=1` 时断言至少两条 runtime lane 被使用。
+- 远端启用 `babel-o-multilane` profile 后运行真实动态百科 3 variation smoke。
+
+## 2026-07-09 RTC-9 Dynamic Encyclopedia Multi-Lane Smoke Gate
+
+### 已完成
+
+- `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh` 增加可选 multi-lane 断言开关：
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE=1`
+- 当 multi-lane smoke 开启时：
+  - 要求 `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VARIATION_COUNT>=3`。
+  - 继续沿用动态百科真实生成、preview、export、quality gate 校验。
+  - 额外检查 job snapshot 中 variation 均带有 `runtimeLaneId`。
+  - 额外检查 completed variations 至少使用两条不同 runtime lane。
+  - 输出 `dynamic-encyclopedia-smoke:multilane lanes=...`，便于部署日志定位。
+- `deploy/staging/staging.env.example` 增加 `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE=0` 默认配置和说明。
+
+### 验证
+
+- `bash -n deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `npx tsc -b packages/contracts packages/runtime-gateway apps/runtime-adapter apps/api --force`
+
+### 边界
+
+- 本轮只完成真实 staging smoke 的断言入口和本地脚本语法验证。
+- TODO 中 “staging 真实动态百科 3 variation multi-lane smoke” 仍未勾选；需要远端实际启用 `babel-o-multilane` profile 后运行。
+
+### 下一步
+
+- 部署到远端并启用：
+  - `DUDESIGN_RUNTIME_PROVIDER=babel-o`
+  - `DUDESIGN_RUNTIME_LANE_MODE=static`
+  - 三 lane `DUDESIGN_RUNTIME_LANES_JSON`
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VARIATION_COUNT=3`
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE=1`
+- 运行 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`，通过后再勾选 RTC-9 最后一项。
+
+## 2026-07-09 Dynamic Encyclopedia Interactive Preview Contract
+
+### 已完成
+
+- private variation preview 使用独立 HTML response contract，允许受控 self-contained inline JS 执行。
+- share preview 保持 strict sandbox / no script，只读分享链路不放开交互脚本。
+- Runtime prompt 从“静态 HTML 页面”调整为“self-contained HTML/CSS/JS artifact”，明确允许本地 tab、page-switcher、accordion、modal 等交互，禁止外部脚本、网络 API 和未打包资源。
+- 动态百科 summary 官方 few-shot 升级为真实 `role="tab"` / `role="tabpanel"` 结构，并包含本地状态切换脚本。
+- spec review 增加 Stage 1 warning：
+  - visible tab 不得只有静态 active 状态。
+  - page-switcher 不得只有静态页码。
+  - modal trigger 不得缺少可打开的本地 modal panel。
+- 新增浏览器级 smoke，验证 private preview 中 tab 控件可真实点击切换。
+- Automation Loop repair prompt 从 `static HTML artifact` 改为 `self-contained HTML/CSS/JS artifact`，允许受控本地交互脚本并继续禁止外部脚本、远程 API、构建步骤和未打包资源。
+- spec review finding 已接入定向 repair prompt：
+  - `encyclopedia.fake_tab_interaction` 生成 tab/panel/aria/script 修复指令。
+  - `encyclopedia.fake_page_switcher_interaction` 生成本地分页面板和状态切换修复指令。
+  - `encyclopedia.fake_modal_interaction` 生成本地弹层、开关状态和可访问性修复指令。
+  - no-scroll 相关 finding 生成固定 frame、移除 `.scroll-container`、转为 tab/page-switcher/modal 的修复指令。
+- 半自动审查事件的 `promptPreview` 放大到 1200 字，确保用户端能看到关键定向修复入口。
+- `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh` 增加真实浏览器交互 opt-in：
+  - 开关：`DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_INTERACTION_SMOKE=1`。
+  - 严格模式：`DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_INTERACTION_REQUIRED=1`，当选定模板/上下文必须产生 tab 时，缺少 tab 也判定失败。
+  - 执行位置：远端 API 容器内，复用 staging API 镜像中的 Playwright/Chromium。
+  - 验证方式：打开真实 `/api/variations/:id/preview`，点击第二个 tab，断言 `aria-selected` 和可见 panel 状态发生变化。
+  - 默认关闭，避免普通 deploy smoke 因浏览器环境或成本变脆。
+- 清理动态百科能力契约中的旧滚动口径：
+  - `tpl_dynamic_encyclopedia_entry.requiredElements` 从 `explicit scroll container` 改为 `no-scroll frame` + `local overflow interaction`。
+  - dual-surface skill 不再建议 fixed-size iframe 使用显式滚动容器。
+  - staging dynamic encyclopedia prompt 从 `完整静态 HTML` 改为 `完整 self-contained HTML/CSS/JS`，并明确可见控件必须使用本地 inline JavaScript 更新 `aria-selected`、`hidden` 或 `aria-expanded`。
+
+### 验证
+
+- `npm --workspace @dudesign/api exec tsc -b`
+- `npm --workspace @dudesign/runtime-gateway exec tsc -b`
+- `npm --workspace @dudesign/web exec tsc -b`
+- `bash -n deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+- `node --test apps/api/dist/preview-interaction.test.js`
+- `node --test apps/api/dist/automationLoop.test.js`
+- `node --test apps/api/dist/designJobEvents.test.js`
+- `node --test apps/api/dist/capabilities.test.js packages/runtime-gateway/dist/babelOClient.test.js`
+- `node --test apps/api/dist/encyclopediaSpecReview.test.js apps/api/dist/officialDesignTemplatePacks.test.js apps/api/dist/babel-runtime-api-flow.test.js packages/runtime-gateway/dist/babelOClient.test.js`
+
+### 边界
+
+- 本轮解决“生成结果像 tab 但不可点击”的基础问题：prompt、模板 few-shot、spec review、private preview CSP/sandbox 和浏览器 smoke 已串起来。
+- auto/semi-auto repair prompt 已接入定向修复指令；真实 BabeL-O 是否稳定产出复杂交互仍需后续 staging smoke 观察。
+- 真实 staging 预跑已到达 Babel-O execution 层，但当前远端仍是部署前脚本/契约，且 raw Nexus lane-c 返回 `EXECUTION_FAILED`、无详细 runtime error，未进入 preview interaction 断言阶段。下一步需要部署本轮 contract/smoke 更新后复跑；若仍 `EXECUTION_FAILED`，优先查看 raw Nexus execute/transcript 日志或临时降低 prompt 复杂度定位内核失败原因。
+
+## 2026-07-09 RTC-9 Multi-Lane Real Smoke Follow-Up
+
+### 远端验证结果
+
+- 已将当前 worktree 打包部署到 `49.233.190.201` staging。
+- 基础 deploy smoke 通过：
+  - raw BabeL-O Nexus health：`version=0.4.0`。
+  - DUDesign runtime-adapter health：`lane-a`、`lane-b`、`lane-c` 均 healthy。
+  - public web/api/admin：200。
+  - `babelo-prompt-smoke:completed`。
+- 动态百科 3 variation multi-lane smoke 尚未通过：
+  - job：`job_3590ba245b424283`。
+  - lane-a / `dtp_dynamic_encyclopedia_compare_card` 完成并生成 artifact。
+  - lane-b / `dtp_de_cultural_phrase_origin_story` 返回 `EXECUTION_FAILED`，无 artifact。
+  - lane-c / `dtp_dynamic_encyclopedia_timeline_card` 返回 `EXECUTION_FAILED`，无 artifact。
+  - raw Nexus 容器无服务级异常日志；失败表现为 `/v1/execute` 返回 `success=false`，且 transcript 只到 `Writing index.html.`。
+
+### 本地修复
+
+- Runtime Adapter：
+  - 将 raw Nexus `execute.success=false` 包装为可重试的 `runtime_execution_failed`。
+  - 多 lane spawn 模式下可切换到下一条 lane，并输出 `runtime_lane_retry_started`。
+  - 无备用 lane 时回落为原始 BabeL-O 失败事件，保留 `code/message/detail`，避免被包装成泛化 `ADAPTER_STREAM_FAILED`。
+- Application Service：
+  - 动态百科模式下，用户显式选择 child template 时默认循环显式模板。
+  - 不再为了凑齐 `variationCount` 自动补入其它动态百科子模板，避免企业词条 smoke 被文化词语/影视等垂类模板污染。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+- `node --test --test-concurrency=1 apps/api/dist/designJobEvents.test.js --test-name-pattern "dynamic encyclopedia|template isolation|variation template"`
+- `npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api --force`
+
+### 下一步
+
+- 重新部署本地修复到 staging。
+- 再跑 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`。
+- 通过后勾选 RTC-9 `staging 真实动态百科 3 variation multi-lane smoke`。
+
+## 2026-07-09 RTC-9 Deferred Lane Lease And Waiting Retry Acquire
+
+### 本地修复
+
+- Runtime Adapter spawn 阶段改为 `planRuntimeLane`：
+  - `/v1/agents` 只规划 `runtimeLaneId/runtimeBackendId`。
+  - 不再提前创建 `runtimeLeaseId`，不增加 lane `inflight`。
+  - `/v1/stream` 被真正消费时再 acquire lane lease。
+- `RuntimeStream` 增加 `runtimeLeasePending`，持久化后可恢复未消费 stream 的 deferred lease 状态。
+- retry 换 lane 时从一次性 `runtimeLaneRegistry.acquire()` 改为等待式 `acquireRuntimeLane()`：
+  - 当 alternate lane 短暂繁忙时，在 `laneAcquireTimeoutMs` 窗口内等待。
+  - 避免真实并行生成中“其他 lane 正在跑，瞬时无空闲”被误判为 `runtime_lane_retry_exhausted`。
+- Runtime Adapter 增加可配置项：
+  - `RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS`
+  - `RUNTIME_ADAPTER_LANE_ACQUIRE_POLL_MS`
+- staging env 示例补充 retry acquire 配置，并将建议窗口提高到 `300000ms`，适配动态百科复杂页面可能超过 3 分钟的真实生成耗时。
+
+### 本地验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+  - 45 tests pass。
+  - 新增覆盖：`waits for a busy alternate runtime lane before retrying execution failure`。
+- `npx tsc -b packages/contracts packages/domain packages/artifact-store packages/runtime-gateway apps/runtime-adapter apps/api --force`
+
+### 远端部署与验证
+
+- 已部署当前 worktree 到 `49.233.190.201` staging。
+- 基础 deploy smoke 通过：
+  - `raw-babelo-nexus-health`：`runtime=babel-o`，`version=0.4.0`。
+  - `runtime-adapter-health`：`lane-a`、`lane-b`、`lane-c` 均 healthy，`inflight=0`。
+  - public web/api/admin 均 200。
+  - `babelo-prompt-smoke:completed job=job_c7c5ec88881d4914 variations=1`。
+- 动态百科 3 variation multi-lane smoke 仍未完全通过：
+  - job：`job_01d1ef141ead45ee`。
+  - `var_bd8b6c85539a473b` 最终在 `lane-a` 完成，生成 HTML artifact `art_69d0426ac7454c65`，quality pass，并生成 desktop/tablet/mobile screenshots。
+  - `var_2b9e72fc0e6a47da`、`var_1d73f08249294c6c` 在多次 lane retry 后失败，错误仍为 `EXECUTION_FAILED` 且 raw BabeL-O 未给出详细错误。
+  - 事件流显示三条 lane 均被真实分配/重试使用过，说明 multi-lane 调度链路已打通。
+
+### 关键发现
+
+- 当前失败已经不是“没有启动后端内核”或“不能动态拉起多条 runtime 线路”：
+  - 三个 BabeL-O Nexus backend 均已启动。
+  - Runtime Adapter 可分配到 `lane-a`、`lane-b`、`lane-c`。
+  - 单 variation 真实 BabeL-O 生成可完成。
+  - 动态百科 3 variation 中至少一个 variation 可在 retry 后完成 artifact。
+- 剩余问题集中在两个方面：
+  - `RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS=120000` 对复杂动态百科生成偏短；`lane-a` 在约 12:37 完成，而两个失败 variation 在约 12:35:46/47 已因等待不到可用 lane exhausted。
+  - raw BabeL-O `execute.success=false` 仍缺少 detail，导致 DUDesign 只能显示泛化 `BabeL-O execution failed without a detailed runtime error.`。
+
+### 下一步
+
+- 将远端 staging `.env` 同步为 `RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS=300000` 后重新部署/重启 runtime-adapter。
+- 重新运行 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`。
+- 若仍只有 1 个 variation 完成：
+  - 优先增加 raw BabeL-O execution failure detail 采集。
+  - 其次考虑把 multi-lane smoke 验收拆为两档：调度通路 smoke（至少使用两条 lane）与生成质量 smoke（至少两条 completed artifact）。
+- 单独治理重复 `design.job_completed` 事件，避免 job stream terminal event 输出两次。
+
+## 2026-07-09 RTC-9 Quality Gate False Positive Follow-Up
+
+### 远端复测结果
+
+- 将 staging `RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS` 提升到 `300000ms` 后，动态百科 3 variation job 已能全部完成：
+  - job：`job_dc42e6a8c81143da`。
+  - `var_3a5e3f2d60e64597`：completed，`lane-a`，attempt 1，artifact `art_79d10154f0df4a9e`。
+  - `var_5169ab96cb2f4232`：completed，`lane-a`，attempt 5，artifact `art_b53e212fee474dbb`。
+  - `var_bf14ef6dee414368`：completed，`lane-a`，attempt 5，artifact `art_787ade2cfbd74c7d`。
+- 这说明 RTC-9 的 deferred lease + waiting retry acquire 已经解决了“并行任务因为 lane 短暂繁忙而过早 exhausted”的主问题。
+- 本轮 smoke 仍失败的原因转移到 artifact quality gate：
+  - `global_touch_blocked` 误判：artifact 仅在注释中出现 `no touch-action:none`，旧规则对整份 HTML 做正则扫描，导致 false positive。
+  - `Rendered screenshot appears blank white` 误判：极简白底动态百科卡片可见内容面积较小，旧 pixel gate 只按白色占比 `> 0.96` 判白屏，容易误伤。
+
+### 本地修复
+
+- `reviewDynamicEncyclopediaSpec`：
+  - `global_touch_blocked` 改为只检测全局 frame 选择器或 `html/body` inline style 上的真实 `touch-action:none`。
+  - 先剥离 HTML、CSS block、JS line comments 后再检测触控拦截风险，避免说明性安全注释触发错误。
+- `artifactQuality`：
+  - 白屏 pixel gate 从单纯 `whiteRatio > 0.96` 调整为 `whiteRatio > 0.995 && transitionRatio < 0.001`。
+  - 真空白页仍会 fail；白底但有文本/边界/视觉变化的卡片不再被误判为 blank white。
+- `runtime-adapter`：
+  - variation prompt 中残留的 `complete static HTML page` 改为 `complete self-contained HTML page with inline CSS and small local inline JavaScript when interaction is required`。
+  - 明确禁止外部脚本、外部样式、远程 hydration 和网络加载 UI framework。
+
+### 验证
+
+- `npx tsc -b apps/api apps/runtime-adapter --force`
+- `npm --workspace @dudesign/runtime-adapter run test`
+  - 45 tests pass。
+- `node --test apps/api/dist/artifactQuality.test.js apps/api/dist/encyclopediaSpecReview.test.js`
+  - 23 tests pass。
+  - 新增覆盖：
+    - 注释中的 `touch-action:none` 不触发 `global_touch_blocked` / `touch_intercept_risk`。
+    - `html, body { touch-action:none }` 仍会 fail。
+    - 真空白白屏仍会 fail。
+    - 白底但有可见内容的卡片不会触发 `blank white`。
+
+### 下一步
+
+- 部署本轮 quality gate 修复到 staging。
+- 重新运行 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`。
+- 若动态百科 3 variation 全部 pass/warn：
+  - 勾选 RTC-9 staging multi-lane smoke。
+  - 继续治理重复 `design.job_completed` terminal event。
+- 若仍失败：
+  - 优先收集失败 artifact 的 spec/pixel finding 原始输入和截图样本。
+  - 再决定是收紧 prompt、调整质量门禁，还是增加 automation repair 的定向修复指令。
+
+## 2026-07-09 RTC-9 Staging Quality Gate Redeploy And Failure Detail Fallback
+
+### 远端复测结果
+
+- 已部署 quality gate 修复到 `49.233.190.201` staging。
+- 基础 deploy smoke 通过：
+  - raw BabeL-O Nexus `version=0.4.0`。
+  - runtime-adapter 三条 lane 均 healthy。
+  - public web/api/admin 均 200。
+  - 单 variation `babelo-prompt-smoke` 完成。
+- 动态百科 3 variation multi-lane smoke：
+  - job：`job_885b7d3d7f364c98`。
+  - `var_a46acb53e3a34095` completed，artifact `art_76ed230f80fb43db`，quality warn（仍有 `overflow:auto/scroll`，但不是 fail）。
+  - `var_9c7a83f7a97240e9` completed，artifact `art_20b0e9937fae4f73`，quality pass。
+  - `var_5f5fbcc730404584` failed，`lane-c`，attempt 3，`EXECUTION_FAILED`，仍无具体 runtime detail。
+- 本轮验证说明：
+  - `touch-action:none` 注释误判已不再阻断。
+  - 白底动态百科卡片不再被误判为 blank white。
+  - RTC-9 当前主要剩余问题是 raw BabeL-O execution failure 的可诊断性与 timeline 子模板稳定性。
+
+### 本地修复
+
+- Runtime Adapter 在 `execute.success=false` 且 `execute.events` 没有 error/detail 时，主动调用 raw Nexus `/v1/agents/:agentJobId/transcript`。
+- 将 execute events + transcript events 合并生成 failure summary：
+  - 如果 transcript 内存在 error event，使用其 `code/message/detail`。
+  - 如果没有 error event，使用 transcript 尾部事件作为 `detail`，避免只显示泛化 “without a detailed runtime error”。
+- 新增回归测试：
+  - `falls back to agent transcript detail when execute failure returns no events`。
+
+### 验证
+
+- `npm --workspace @dudesign/runtime-adapter run test`
+  - 46 tests pass。
+
+### 下一步
+
+- 部署 transcript fallback detail 采集到 staging。
+- 重新运行动态百科 smoke 或单独复测 timeline 子模板失败样本。
+- 若失败 detail 显示为 prompt/工具/写文件问题：
+  - 调整 timeline 子模板 prompt 或 BabeL-O adapter 约束。
+- 若 transcript 仍然没有有效信息：
+  - 需要在 BabeL-O Nexus 侧增强 `/v1/execute` 的 failure payload，至少返回 last tool call、last stderr、agent stop reason。
+
+## 2026-07-09 RTC-9 Transcript Fallback Redeploy And Multi-Lane Assertion Split
+
+### 远端复测结果
+
+- 已部署 transcript fallback detail 采集到 `49.233.190.201` staging。
+- 基础 deploy smoke 通过：
+  - runtime-adapter 三条 lane 均 healthy。
+  - public web/api/admin 均 200。
+  - 单 variation `babelo-prompt-smoke` completed。
+- 动态百科 3 variation smoke 重新运行：
+  - job：`job_cea974ea57cf4b9f`。
+  - 三个 variation 均 completed：
+    - `var_0581a094a90b4311` -> `art_7c1223a9cf904c39`，quality pass。
+    - `var_0cb5f6ff6cb94fdb` -> `art_a70e0ed6b6d74c27`，quality pass。
+    - `var_59cd25596a784f0a` -> `art_b1ad9526e4ae43c8`，quality warn（neutral tone warning）。
+  - smoke 仍以失败退出，原因不是生成失败，而是严格断言 `completed variations must use at least two runtime lanes`；最终 completed variation metadata 全部落在 `lane-a`。
+
+### 结论
+
+- RTC-9 的核心运行结果已经达到：
+  - 3 variation 可全部完成。
+  - artifact quality 达到 pass/warn，不再被 blank white 或 touch comment false positive 阻断。
+  - retry 机制可以把失败/繁忙 lane 上的任务救回可用 lane。
+- 当前 smoke 断言需要拆分：
+  - `调度通路 smoke`：验证 lane-a/b/c 被分配、重试、释放，证明多线路调度链路有效。
+  - `完成分布 smoke`：验证最终 completed artifact 来自至少两条 lane，作为 lane 健康/稳定性指标，而不应与“生成是否成功”混为一个 hard fail。
+- 仍需继续分析 lane-b / lane-c 的动态百科完成率偏低：它们参与了分配，但最终完成经常回流到 lane-a。
+
+### 下一步
+
+- 调整 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh` 的 multi-lane 断言：
+  - completed artifacts 全部 pass/warn 时，生成 smoke 应通过。
+  - lane 分布不足两条时输出 warning/diagnostic，或在单独 `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_COMPLETION_LANE_REQUIRED=1` 下才 hard fail。
+- 补充 lane event / variation attempt 查询，避免只看最终 variation metadata 丢失“曾经使用过 lane-b/c”的调度事实。
+- 后续单独治理 lane-b/c 完成率，而不是继续把它阻塞在 artifact quality 或基础生成 smoke 上。
+
+## 2026-07-09 RTC-9 Split Smoke Assertion Remote Validation
+
+### 远端复测结果
+
+- 已将拆分后的 `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh` 部署到 `49.233.190.201` staging。
+- 远端 runtime-adapter health 显示三条 lane 均 healthy：
+  - `lane-a`
+  - `lane-b`
+  - `lane-c`
+- 运行真实动态百科 3 variation smoke：
+  - job：`job_d88f73b483994681`。
+  - `var_fe1dbe53209a4252` completed，初始分配 `lane-a`，artifact `art_9bb5f2c90dca477d`。
+  - `var_94f7fc78d5864114` completed，最终回流 `lane-a`，artifact `art_797e3dfd9bd4473d`。
+  - `var_3392acfaf50e4331` completed，最终回流 `lane-a`。
+- smoke 输出：
+  - `dynamic-encyclopedia-smoke:multilane-warning completed_lanes=lane-a completion_lane_required=0`
+  - `dynamic-encyclopedia-smoke:completed job=job_d88f73b483994681 variations=3 guidance=eg_c745b763450542a9`
+
+### 结论
+
+- RTC-9 的 staging 真实动态百科 3 variation smoke 已按新验收口径通过：
+  - 生成链路通过。
+  - 3 个 variation 均能完成。
+  - 多 lane 调度路径仍可观测到；完成分布不足两条 lane 被记录为风险 warning，而非生成失败。
+- 当前剩余治理项应从“基础 smoke 能不能过”转为：
+  - lane-b / lane-c 动态百科完成率偏低诊断。
+  - 重复 `design.job_completed` terminal event 清理。
+  - 更细的 lane attempt/event 诊断持久化，避免只看最终 variation metadata 时丢失历史 lane 使用轨迹。
+
+### 下一步
+
+- 优先补充 lane attempt history / retry diagnostic 的查询和持久化，辅助定位 lane-b / lane-c 为什么更多以 retry 回流到 lane-a 结束。
+- 随后治理重复 `design.job_completed` 事件，确保用户端 job stream terminal event 幂等。
+
+## 2026-07-09 RTC-9 Lane Event Diagnostics In Staging Smoke
+
+### 本地变更
+
+- `deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh` 在 `MULTILANE_SMOKE=1` 时新增 lane event 诊断：
+  - 从 staging PostgreSQL `design_events` 查询 `design.runtime_lane_assigned`、`design.runtime_lane_retry_started`、`design.runtime_lane_retry_exhausted`。
+  - 用事件轨迹判断调度通路是否至少覆盖两条 runtime lane。
+  - 输出 `dynamic-encyclopedia-smoke:multilane-scheduled`，包含 `scheduled_lanes`、`retry_edges`、`exhausted`。
+- 保留最终 completed artifact lane 分布检查：
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_COMPLETION_LANE_REQUIRED=0` 时，完成 lane 不足两条只输出 warning。
+  - `DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_COMPLETION_LANE_REQUIRED=1` 时，仍可作为严格 lane 完成分布验收。
+
+### 验证
+
+- 本地语法检查：
+  - `bash -n deploy/staging/scripts/smoke-dynamic-encyclopedia-remote.sh`
+- 远端真实动态百科 3 variation smoke：
+  - job：`job_a3d4867d047e41d7`。
+  - job status：completed。
+  - 3 个 variation 均 completed：
+    - `var_ec50881311694947` -> `art_67e148c1680b4e0e`。
+    - `var_d837cc39732c43e3` -> `art_bbd7af7b20b04c8f`。
+    - `var_8e80f8dd24f242a3` -> `art_ebee2d11656444dc`。
+- lane event 诊断结果：
+  - `scheduled_lanes=lane-a,lane-b,lane-c`。
+  - `retry_edges=lane-c->lane-b:runtime_execution_failed,lane-b->lane-c:runtime_execution_failed,lane-c->lane-a:runtime_execution_failed,lane-b->lane-a:runtime_execution_failed`。
+  - `event_count=11`。
+
+### 结论
+
+- lane-b / lane-c 的问题已经初步定性：
+  - 不是“调度不到多线路”。
+  - 不是“缺少多 lane backend”。
+  - 是 lane-b / lane-c 在动态百科真实执行中更容易返回 `runtime_execution_failed`，随后由 retry 机制回流到 lane-a 完成。
+- 下一步应检查 lane-b / lane-c 与 lane-a 的 BabeL-O workspace、环境变量、模型配置、文件权限、依赖版本和 raw Nexus failure transcript 差异。
+- 重复 `design.job_completed` terminal event 仍是独立治理项。
+
+## 2026-07-09 RTC-9 BabeL-O Lane Config Drift Fix
+
+### 根因
+
+- 远端 multi-lane raw Nexus 配置存在 provider config drift：
+  - `lane-a`：`provider=minimax`，`model=minimax/MiniMax-M3`，`authMode=api-key`。
+  - `lane-b`：`provider=local`，`model=local/coding-runtime`，`authMode=none`。
+  - `lane-c`：`provider=local`，`model=local/coding-runtime`，`authMode=none`。
+- 直接原因：
+  - staging `.env` 使用 `BABELO_NEXUS_CONFIG_FILE=/data/config.json`。
+  - 三个 raw BabeL-O Nexus 容器各自挂载独立 `/data` volume。
+  - `lane-a` 的 `/data/config.json` 存在 MiniMax provider config；`lane-b` / `lane-c` 的 `/data/config.json` 不存在，因此回退到 local deterministic runtime。
+- 这解释了此前现象：
+  - 多 lane 调度路径正常。
+  - `lane-b` / `lane-c` 能被分配，但 `execute` 快速 `runtime_execution_failed`。
+  - `lane-b` / `lane-c` provider invocation count 为 0。
+
+### 修复
+
+- 新增 `deploy/staging/scripts/sync-babelo-lane-config-remote.sh`：
+  - 仅在 `babel-o` + static/multilane 模式下运行。
+  - 校验 `BABELO_NEXUS_CONFIG_FILE=/data/config.json`。
+  - 从 `babel-o-nexus` 读取 `/data/config.json`。
+  - 写入 `babel-o-nexus-b` / `babel-o-nexus-c` 的 `/data/config.json`。
+  - 重启 `babel-o-nexus-b`、`babel-o-nexus-c`、`runtime-adapter`。
+- `deploy/staging/scripts/deploy-remote.sh` 在 multi-lane BabeL-O 部署后自动调用该同步脚本。
+- `deploy/staging/scripts/smoke-remote.sh` 增加 raw BabeL-O lane config drift 检查：
+  - 读取 `3300` / `3312` / `3313` 的 `/v1/runtime/config`。
+  - 输出 `raw-babelo-lane-configs`。
+  - 若 provider/model/authMode 与 lane-a 不一致则失败。
+- staging 默认配置建议更新：
+  - `BABELO_TIMEOUT_MS=120000`。
+  - `runtime-lane-pool-plan.md` 明确 `BABELO_TIMEOUT_MS` 是 DUDesign API 到 Runtime Adapter 的请求/stream 首次连接窗口，不是模型执行超时。
+
+### 验证
+
+- 同步后 raw Nexus config：
+  - `port=3300 provider=minimax model=minimax/MiniMax-M3 auth=api-key hasApiKey=True`
+  - `port=3312 provider=minimax model=minimax/MiniMax-M3 auth=api-key hasApiKey=True`
+  - `port=3313 provider=minimax model=minimax/MiniMax-M3 auth=api-key hasApiKey=True`
+- 基础 staging smoke 通过，并输出：
+  - `raw-babelo-lane-configs:{"a": {"authMode": "api-key", "hasApiKey": true, "model": "minimax/MiniMax-M3", "provider": "minimax"}, "b": {"authMode": "api-key", "hasApiKey": true, "model": "minimax/MiniMax-M3", "provider": "minimax"}, "c": {"authMode": "api-key", "hasApiKey": true, "model": "minimax/MiniMax-M3", "provider": "minimax"}}`
+- 动态百科 3 variation multi-lane smoke 在 `BABELO_TIMEOUT_MS=120000` 后通过：
+  - job：`job_18caa8d5963e4e35`。
+  - `var_bb2e81dcb9794ebf` completed，`lane-a`，artifact `art_3c69b151c1e04a96`。
+  - `var_79098e5bd2d24800` completed，`lane-b`，artifact `art_fa89fcc554304aba`。
+  - `var_2556d2ba53034f77` completed，`lane-c`，artifact `art_614c873c814c4a0e`。
+- raw Nexus metrics 显示 b/c 已真实调用 provider：
+  - `port=3312 execute=count:2 success:2 failure:0 provider=count:5 success:5 failure:0`
+  - `port=3313 execute=count:3 success:3 failure:0 provider=count:15 success:15 failure:0`
+
+### 下一步
+
+- 动态百科 multi-lane smoke 已确认以全部 variation completed 作为 hard gate；继续保留该检查作为 staging 准入。
+- 继续治理重复 `design.job_completed` terminal event。
+
+## 2026-07-10 RTC-9 Job Completed Terminal Event Idempotency
+
+### 背景
+
+- Runtime Gateway / Adapter 可能在 child session 聚合结束后输出 runtime 级 `design.job_completed`。
+- DUDesign Application Service 也会在 artifact reconcile、未完成 variation 标记、job status 更新后发布应用级 `design.job_completed`。
+- 如果两个 terminal event 都被持久化并推送到 SSE，用户端 job stream 可能重复收到完成事件，且 runtime 级 payload 可能早于应用层最终计数。
+
+### 修复
+
+- `ApplicationService.runMockJob` 过滤 runtime 级 `design.job_completed`。
+- Application Service 继续作为 job terminal event 的唯一 owner：
+  - runtime 事件仍可驱动 variation 状态和 artifact 生成。
+  - job 级完成事件只由 `finalizeQueuedDesignJob` 在应用层 reconcile 后发布。
+- 增加回归测试：
+  - controlled runtime 主动输出一个错误计数的 `design.job_completed`。
+  - 验证持久化事件中只有一个应用级 `design.job_completed`。
+  - 验证 SSE replay 中只输出一次 terminal event。
+  - 验证 runtime 级错误计数不会泄漏给用户端。
+
+### 验收
+
+- Job stream terminal event 语义幂等。
+- 前端和管理端可继续以 `design.job_completed` 作为一次性关闭信号。
+- Runtime Adapter 后续升级即使保留自身 completed event，也不会影响 DUDesign 应用层最终状态。

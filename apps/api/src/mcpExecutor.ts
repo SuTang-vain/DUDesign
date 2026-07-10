@@ -466,7 +466,17 @@ function imagePromptHash(imageRequest: ImageGenerationRequest): string {
 }
 
 function isUnsafeImagePrompt(prompt: string): boolean {
-  return /logo|copyrighted|celebrity|private person|exact brand trade dress/i.test(prompt)
+  return prompt
+    .split(/[。.!?！？；;\n]+/)
+    .some(segment => {
+      const normalized = segment.trim()
+      if (!normalized || isNegativeImageSafetyConstraint(normalized)) return false
+      return /logo|copyrighted|celebrity|private person|exact brand trade dress/i.test(normalized)
+    })
+}
+
+function isNegativeImageSafetyConstraint(segment: string): boolean {
+  return /(?:不要|禁止|避免|不得|不能|请勿|非|无|no|avoid|without|do not|don't|never|must not)\s*(?:使用|包含|生成|描绘|出现|use|include|generate|depict|show)?/i.test(segment)
 }
 
 function normalizeImageGenerationRequest(input: Record<string, unknown>): ImageGenerationRequest {

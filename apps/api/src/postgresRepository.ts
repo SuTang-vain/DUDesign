@@ -474,6 +474,19 @@ export class PostgresRepository extends InMemoryStore {
     return job
   }
 
+  override async updateJobTemplateRequirements(jobId: string, templateRequirements: Record<string, unknown>): Promise<DesignJob | null> {
+    const existing = await this.getJobById(jobId)
+    if (!existing) return null
+    const job: DesignJob = {
+      ...existing,
+      templateRequirements,
+      updatedAt: nowIso(),
+    }
+    await this.persistJob(job)
+    this.jobs.set(jobId, job)
+    return job
+  }
+
   override async createVariations(input: { job: DesignJob; count: number }): Promise<DesignVariation[]> {
     const now = nowIso()
     const variations: DesignVariation[] = []
@@ -486,6 +499,11 @@ export class PostgresRepository extends InMemoryStore {
         title: `Variation ${String(index).padStart(2, '0')}`,
         runtimeChildSessionId: null,
         runtimeAgentJobId: null,
+        runtimeLaneId: null,
+        runtimeBackendId: null,
+        runtimeLeaseId: null,
+        runtimeAttempt: 0,
+        runtimeLastErrorCode: null,
         status: 'queued',
         currentArtifactId: null,
         previewUrl: null,
@@ -634,6 +652,11 @@ export class PostgresRepository extends InMemoryStore {
       screenshotArtifactId: input.screenshotArtifactId ?? existing.screenshotArtifactId,
       runtimeChildSessionId: input.runtimeChildSessionId ?? existing.runtimeChildSessionId,
       runtimeAgentJobId: input.runtimeAgentJobId ?? existing.runtimeAgentJobId,
+      runtimeLaneId: input.runtimeLaneId ?? existing.runtimeLaneId,
+      runtimeBackendId: input.runtimeBackendId ?? existing.runtimeBackendId,
+      runtimeLeaseId: input.runtimeLeaseId ?? existing.runtimeLeaseId,
+      runtimeAttempt: input.runtimeAttempt ?? existing.runtimeAttempt,
+      runtimeLastErrorCode: input.runtimeLastErrorCode ?? existing.runtimeLastErrorCode,
       inputTokens: input.inputTokens ?? existing.inputTokens,
       outputTokens: input.outputTokens ?? existing.outputTokens,
       costCents: input.costCents ?? existing.costCents,
@@ -1265,6 +1288,11 @@ export class PostgresRepository extends InMemoryStore {
         v.title,
         v.runtime_child_session_id,
         v.runtime_agent_job_id,
+        v.runtime_lane_id,
+        v.runtime_backend_id,
+        v.runtime_lease_id,
+        v.runtime_attempt,
+        v.runtime_last_error_code,
         v.status as variation_status,
         v.current_artifact_id,
         v.preview_url,
@@ -1405,6 +1433,11 @@ export class PostgresRepository extends InMemoryStore {
         v.title,
         v.runtime_child_session_id,
         v.runtime_agent_job_id,
+        v.runtime_lane_id,
+        v.runtime_backend_id,
+        v.runtime_lease_id,
+        v.runtime_attempt,
+        v.runtime_last_error_code,
         v.status as variation_status,
         v.current_artifact_id,
         v.preview_url,
@@ -1437,6 +1470,11 @@ export class PostgresRepository extends InMemoryStore {
       title: row.title,
       runtime_child_session_id: row.runtime_child_session_id,
       runtime_agent_job_id: row.runtime_agent_job_id,
+      runtime_lane_id: row.runtime_lane_id,
+      runtime_backend_id: row.runtime_backend_id,
+      runtime_lease_id: row.runtime_lease_id,
+      runtime_attempt: row.runtime_attempt,
+      runtime_last_error_code: row.runtime_last_error_code,
       status: row.variation_status,
       current_artifact_id: row.current_artifact_id,
       preview_url: row.preview_url,
@@ -2207,12 +2245,17 @@ export class PostgresRepository extends InMemoryStore {
 
   private async persistVariation(variation: DesignVariation): Promise<void> {
     await this.pool.query(`
-      insert into design_variations (id, job_id, session_id, index, title, runtime_child_session_id, runtime_agent_job_id, status, current_artifact_id, preview_url, screenshot_artifact_id, input_tokens, output_tokens, cost_cents, error_code, error_message, created_at, updated_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      insert into design_variations (id, job_id, session_id, index, title, runtime_child_session_id, runtime_agent_job_id, runtime_lane_id, runtime_backend_id, runtime_lease_id, runtime_attempt, runtime_last_error_code, status, current_artifact_id, preview_url, screenshot_artifact_id, input_tokens, output_tokens, cost_cents, error_code, error_message, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
       on conflict (id) do update set
         title = excluded.title,
         runtime_child_session_id = excluded.runtime_child_session_id,
         runtime_agent_job_id = excluded.runtime_agent_job_id,
+        runtime_lane_id = excluded.runtime_lane_id,
+        runtime_backend_id = excluded.runtime_backend_id,
+        runtime_lease_id = excluded.runtime_lease_id,
+        runtime_attempt = excluded.runtime_attempt,
+        runtime_last_error_code = excluded.runtime_last_error_code,
         status = excluded.status,
         current_artifact_id = excluded.current_artifact_id,
         preview_url = excluded.preview_url,
@@ -2225,7 +2268,8 @@ export class PostgresRepository extends InMemoryStore {
         updated_at = excluded.updated_at
     `, [
       variation.id, variation.jobId, variation.sessionId, variation.index, variation.title, variation.runtimeChildSessionId,
-      variation.runtimeAgentJobId, variation.status, variation.currentArtifactId, variation.previewUrl, variation.screenshotArtifactId,
+      variation.runtimeAgentJobId, variation.runtimeLaneId, variation.runtimeBackendId, variation.runtimeLeaseId,
+      variation.runtimeAttempt, variation.runtimeLastErrorCode, variation.status, variation.currentArtifactId, variation.previewUrl, variation.screenshotArtifactId,
       variation.inputTokens, variation.outputTokens, variation.costCents, variation.errorCode, variation.errorMessage,
       variation.createdAt, variation.updatedAt,
     ])
@@ -2871,6 +2915,11 @@ function mapVariation(row: any): DesignVariation {
     title: row.title,
     runtimeChildSessionId: row.runtime_child_session_id,
     runtimeAgentJobId: row.runtime_agent_job_id,
+    runtimeLaneId: row.runtime_lane_id ?? null,
+    runtimeBackendId: row.runtime_backend_id ?? null,
+    runtimeLeaseId: row.runtime_lease_id ?? null,
+    runtimeAttempt: row.runtime_attempt ?? 0,
+    runtimeLastErrorCode: row.runtime_last_error_code ?? null,
     status: row.status,
     currentArtifactId: row.current_artifact_id,
     previewUrl: row.preview_url,
@@ -2894,6 +2943,11 @@ function mapVariationFromAliasedRow(row: any): DesignVariation {
     title: row.title,
     runtimeChildSessionId: row.runtime_child_session_id,
     runtimeAgentJobId: row.runtime_agent_job_id,
+    runtimeLaneId: row.runtime_lane_id ?? null,
+    runtimeBackendId: row.runtime_backend_id ?? null,
+    runtimeLeaseId: row.runtime_lease_id ?? null,
+    runtimeAttempt: row.runtime_attempt ?? 0,
+    runtimeLastErrorCode: row.runtime_last_error_code ?? null,
     status: row.variation_status,
     currentArtifactId: row.current_artifact_id,
     previewUrl: row.preview_url,

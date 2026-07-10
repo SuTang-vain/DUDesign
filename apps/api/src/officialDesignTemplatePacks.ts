@@ -31,6 +31,7 @@ const SUMMARY_CARD_HTML_EXAMPLE = `<!doctype html>
       .tab-bar { display: flex; gap: 18px; border-bottom: 1px solid #E5E7EB; margin-bottom: 16px; }
       .tab-bar button { background: none; border: none; padding: 6px 0; font: inherit; font-size: 12px; font-weight: 600; color: #848691; cursor: pointer; border-bottom: 2px solid transparent; }
       .tab-bar button[aria-selected="true"] { color: #6487FA; border-bottom-color: #6487FA; }
+      .tab-panel[hidden] { display: none; }
       .fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
       .fact-cell { background: #F8F8F8; border-radius: 10px; padding: 12px 14px; }
       .fact-label { display: block; font-size: 12px; font-weight: 600; color: #848691; margin-bottom: 4px; }
@@ -46,30 +47,38 @@ const SUMMARY_CARD_HTML_EXAMPLE = `<!doctype html>
       </header>
       <p class="entry-summary">【一句中性摘要，说明该词条的核心事实，不含营销/绝对化语言。】</p>
       <nav class="tab-bar" role="tablist" aria-label="事实分组">
-        <button type="button" role="tab" aria-selected="true">【分组一】</button>
-        <button type="button" role="tab" aria-selected="false">【分组二】</button>
-        <button type="button" role="tab" aria-selected="false">【分组三】</button>
+        <button type="button" role="tab" aria-selected="true" aria-controls="panel-basic" id="tab-basic">【分组一】</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-more" id="tab-more">【分组二】</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="panel-source" id="tab-source">【分组三】</button>
       </nav>
-      <section class="fact-grid" aria-label="关键事实">
-        <article class="fact-cell">
-          <span class="fact-label">【事实 1 名称】</span>
-          <p class="fact-value">【事实 1 内容】</p>
-        </article>
-        <article class="fact-cell">
-          <span class="fact-label">【事实 2 名称】</span>
-          <p class="fact-value">【事实 2 内容】</p>
-        </article>
-        <article class="fact-cell">
-          <span class="fact-label">【事实 3 名称】</span>
-          <p class="fact-value">【事实 3 内容】</p>
-        </article>
-        <article class="fact-cell">
-          <span class="fact-label">【事实 4 名称】</span>
-          <p class="fact-value">【事实 4 内容】</p>
-        </article>
+      <section class="tab-panel fact-grid" id="panel-basic" role="tabpanel" aria-labelledby="tab-basic">
+        <article class="fact-cell"><span class="fact-label">【事实 1 名称】</span><p class="fact-value">【事实 1 内容】</p></article>
+        <article class="fact-cell"><span class="fact-label">【事实 2 名称】</span><p class="fact-value">【事实 2 内容】</p></article>
+        <article class="fact-cell"><span class="fact-label">【事实 3 名称】</span><p class="fact-value">【事实 3 内容】</p></article>
+        <article class="fact-cell"><span class="fact-label">【事实 4 名称】</span><p class="fact-value">【事实 4 内容】</p></article>
+      </section>
+      <section class="tab-panel fact-grid" id="panel-more" role="tabpanel" aria-labelledby="tab-more" hidden>
+        <article class="fact-cell"><span class="fact-label">【补充事实】</span><p class="fact-value">【更多事实内容，资料不足时明确标注。】</p></article>
+        <article class="fact-cell"><span class="fact-label">【关联信息】</span><p class="fact-value">【相关实体、时间或分类。】</p></article>
+      </section>
+      <section class="tab-panel fact-grid" id="panel-source" role="tabpanel" aria-labelledby="tab-source" hidden>
+        <article class="fact-cell"><span class="fact-label">【来源状态】</span><p class="fact-value">【据公开资料 / 待核实 / 资料不足。】</p></article>
       </section>
       <p class="source-hint">【信息以可核验来源为基础】</p>
     </main>
+    <script>
+      document.querySelectorAll('[role="tab"]').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          var target = tab.getAttribute('aria-controls');
+          document.querySelectorAll('[role="tab"]').forEach(function(item) {
+            item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
+          });
+          document.querySelectorAll('[role="tabpanel"]').forEach(function(panel) {
+            panel.hidden = panel.id !== target;
+          });
+        });
+      });
+    </script>
   </body>
 </html>`
 
@@ -515,7 +524,7 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
         iframeTouch: 'No internal scroll means no need to intercept touchmove. Iframe embeds must present the full card without parent-page scroll influence. Avoid pinch/zoom conflicts by using touch-action: pan-x pan-y on local controls only.',
         canvasTouch: 'Canvas-like interactions must use touch-action: pan-x pan-y and should leave physical spacing from iframe or scroll areas.',
         compatibility: 'Android compatibility is prioritized: avoid video resources, downloads, and jump links unless explicitly requested.',
-        packageChildren: 'This root template represents a package. Generic child templates: dtp_dynamic_encyclopedia_summary_card (summary-card: entity summary and key facts), dtp_dynamic_encyclopedia_timeline_card (timeline-card: events or development history), dtp_dynamic_encyclopedia_relation_card (relation-card: related entities and lightweight graph preview), dtp_dynamic_encyclopedia_compare_card (comparison-card: side-by-side fact comparison), dtp_dynamic_encyclopedia_expandable_card (expandable-fact-card: progressive disclosure for long encyclopedic details). Vertical child templates: dtp_de_history_person_relationship, dtp_de_history_person_event_chain, dtp_de_film_cast_role_network, dtp_de_film_series_navigation, dtp_de_tv_character_relation, dtp_de_tv_episode_chain, dtp_de_cultural_phrase_relation_graph, dtp_de_cultural_phrase_origin_story. All child templates inherit sizing, color, iframe/touch, no-scroll, and delivery safety constraints. No child template may introduce overflow:auto/scroll containers.',
+        packageChildren: 'This root template represents a package. Generic child templates: dtp_dynamic_encyclopedia_summary_card (summary-card: entity summary and key facts), dtp_dynamic_encyclopedia_timeline_card (timeline-card: events or development history), dtp_dynamic_encyclopedia_relation_card (relation-card: related entities and lightweight graph preview), dtp_dynamic_encyclopedia_compare_card (comparison-card: side-by-side fact comparison), dtp_dynamic_encyclopedia_expandable_card (expandable-fact-card: progressive disclosure for long encyclopedic details). Vertical child templates: dtp_de_history_person_relationship, dtp_de_history_person_event_chain, dtp_de_film_cast_role_network, dtp_de_film_series_navigation, dtp_de_tv_character_relation, dtp_de_tv_episode_chain, dtp_de_cultural_phrase_relation_graph, dtp_de_cultural_phrase_origin_story, dtp_de_scenic_spot_route_guide, dtp_de_scenic_spot_map_poi. All child templates inherit sizing, color, iframe/touch, no-scroll, and delivery safety constraints. No child template may introduce overflow:auto/scroll containers.',
       },
     },
     previewArtifactId: null,
@@ -934,17 +943,18 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for historical people where the main unmet demand is kinship, monarch-subject, faction, mentorship, rival, or literary/social relations.',
+      overview: 'Use for historical people where the main unmet demand is kinship, monarch-subject, faction, mentorship, rival, or literary/social relations. Case references emphasize an unlock-style journey: users first choose an impression of the person, then inspect compact relation groups and event-linked people.',
       colors: 'Inherit the parent encyclopedia palette. Use #6487FA for the current person and selected relation only.',
       typography: 'Default body language is Simplified Chinese. Relation labels must be short and fact-like.',
       layout: 'Lead with the current person, then show a bounded relation graph with category tabs such as 血缘、君臣、师承、对手、文学交游. Keep at most 7 visible nodes; overflow opens a modal list. No internal scrolling.',
       elevation: 'Use quiet borders and grouped relation lanes instead of decorative graph frames.',
       shapes: 'Use simple chips or circles for nodes; avoid complex canvas-only navigation.',
-      components: 'Current-person anchor, relation-category tab bar, bounded relation graph, relation detail modal, source hint.',
+      components: 'Current-person anchor, impression/identity chips, relation-category tab bar, bounded relation graph, relation detail modal, source hint.',
       dos: [
         'Classify every edge with a relationship type.',
         'Keep relation labels bidirectional where applicable.',
         'Use modal details for supporting notes instead of adding scrollable panels.',
+        'When relationship data is sparse, connect people through the event where they appear rather than drawing unsupported edges.',
       ],
       donts: [
         'Do not copy or imitate any public encyclopedia, search engine, browser, or mobile app trade dress.',
@@ -1005,17 +1015,18 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for historical people whose value lies in why events happened, how stages changed, and what consequences followed.',
+      overview: 'Use for historical people whose value lies in why events happened, how stages changed, and what consequences followed. Case references repeatedly use "如果没有这 N 件事" and "史实 / 如果没发生" contrast, so the template should support counterfactual explanation without presenting it as fact.',
       colors: 'Inherit the parent encyclopedia palette; use the accent on causality arrows and selected event state.',
       typography: 'Event labels should stay concise and Chinese-first.',
       layout: 'Show cause -> process -> result -> impact as a compact event chain. Each page contains at most 3 event nodes. Additional nodes use page switcher or modal detail. No internal scrolling.',
       elevation: 'Use lightweight event cards and connector lines.',
       shapes: 'Precise markers and arrows; avoid decorative timeline clutter.',
-      components: 'Causality chain, phase chips, event detail modal, page switcher, source hint.',
+      components: 'Splash/intro choice, causality chain, phase chips, what-if contrast modal, event detail modal, page switcher, source hint.',
       dos: [
         'Every event should include its role in the chain: 起因、经过、结果、影响.',
         'Use "资料不足" rather than inventing event dates or consequences.',
         'Keep the chain readable in both 788x492 and 380x456 frames.',
+        'If using counterfactual copy, label it as "如果没发生" and keep the paired "史实" visible.',
       ],
       donts: [
         'Do not copy or imitate any public encyclopedia, search engine, browser, or mobile app trade dress.',
@@ -1077,17 +1088,18 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for film entries where actor-role mapping and related people are the strongest extension path.',
+      overview: 'Use for film entries where actor-role mapping and related people are the strongest extension path. Case references combine relationship graph, plot causality, and related-work recommendation tabs; for a cast template, keep graph primary and expose the other two as local tabs.',
       colors: 'Use neutral encyclopedia surfaces; reserve #6487FA for selected actor, role, or current work.',
       typography: 'Chinese-first labels; preserve film and person names in their original script when needed.',
       layout: 'Lead with film identity, then actor -> role pairs or a compact cooperation map. Keep 4-6 visible actor-role pairs and route overflow to a modal. No internal scrolling.',
       elevation: 'Use compact cards or chips, not promotional movie-poster layouts.',
       shapes: 'Moderate radii and inspectable nodes.',
-      components: 'Film identity header, cast-role grid, relation detail modal, local tabs for 主演/导演/原型/合作.',
+      components: 'Film identity header, cast-role grid, relation detail modal, local tabs for 人物图谱/剧情因果/作品推荐, source hint.',
       dos: [
         'Bind each actor to a role or collaboration note.',
         'Use "资料不足" for unknown roles rather than inventing.',
         'Keep the module encyclopedia-like, not ticketing or streaming oriented.',
+        'If showing recommendations, label why they are related: 同主演、同题材、同作者、同系列 or 同IP.',
       ],
       donts: [
         'Do not copy or imitate any public encyclopedia, search engine, browser, or mobile app trade dress.',
@@ -1148,13 +1160,13 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for films with series, sequel, prequel, remake, derivative, same-IP, or similar-film discovery demand.',
+      overview: 'Use for films with series, sequel, prequel, remake, derivative, same-IP, or similar-film discovery demand. Case references expect a work recommendation area with tabs for 同主演、同题材、同作者、同系列/同IP rather than a generic carousel.',
       colors: 'Use #6487FA to mark the current film in the series track.',
       typography: 'Keep titles and year/status labels compact.',
       layout: 'Show the current film inside a bounded series track, with tabs for 系列/同IP/相似推荐/版本. Use page switcher for additional recommendations. No internal scrolling.',
       elevation: 'Prefer timeline-like lanes and concise recommendation cards.',
       shapes: 'Moderate radii and clear current-state markers.',
-      components: 'Series track, current-film marker, recommendation cards, tab bar, page switcher.',
+      components: 'Series track, current-film marker, recommendation cards, relation-reason tabs, tab bar, page switcher.',
       dos: [
         'Clearly label sequel, prequel, remake, derivative, or similar recommendation.',
         'Keep recommendations grounded in supplied context or readonly democase references.',
@@ -1219,13 +1231,13 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for TV entries whose strongest extension demand is character identity, relationship, faction, family, workplace, or emotion lines.',
+      overview: 'Use for TV entries whose strongest extension demand is character identity, relationship, faction, family, workplace, or emotion lines. Case references expect a three-view structure: 关系图谱、剧情因果、作品推荐.',
       colors: 'Use #6487FA for selected character and active relation type.',
       typography: 'Character names, actor names, and relation labels must remain compact.',
       layout: 'Lead with drama identity and a quick role-answer strip, then show a bounded character relation graph with tabs for 家族、阵营、情感、职场. No internal scrolling.',
       elevation: 'Use compact grouped relation cards and clear visual hierarchy.',
       shapes: 'Simple node chips and readable edges.',
-      components: 'Role quick answer, character relation graph, relation tabs, detail modal, source hint.',
+      components: 'Role quick answer, character relation graph, view tabs for 关系图谱/剧情因果/作品推荐, relation tabs, detail modal, source hint.',
       dos: [
         'Separate character, actor, and relation labels clearly.',
         'Use relation type tabs for complex dramas.',
@@ -1290,13 +1302,13 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for TV entries where episode plots, clue chains, cause-effect development, foreshadowing, or reveal structure matters.',
+      overview: 'Use for TV entries where episode plots, clue chains, cause-effect development, foreshadowing, or reveal structure matters. Case references use a horizontal mind-map-like chain with draggable/clickable nodes; DUDesign should approximate this with bounded nodes and page-switcher controls inside the fixed card.',
       colors: 'Use the accent for current episode and cause-effect connectors.',
       typography: 'Episode labels must be short and readable in mobile frames.',
       layout: 'Show up to 4 event nodes with episode numbers or phased labels, causal labels, and visible source/uncertainty wording per node. Additional episodes paginate. Spoiler-heavy details open only after an explicit local control. No internal scrolling.',
       elevation: 'Use lightweight event cards.',
       shapes: 'Clear markers and connectors.',
-      components: 'Episode chain, clue/reveal markers, page switcher, spoiler detail modal, source hint.',
+      components: 'Episode chain, clue/reveal markers, mind-map lane, page switcher, spoiler detail modal, source hint.',
       dos: [
         'Include episode number or ordered phase when available.',
         'Attach a visible source hint, 资料不足, 待核实, 据公开资料, or 来源 label to every episode node, plot point, clue, reveal, and ending-related statement.',
@@ -1362,7 +1374,7 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for cultural words, idioms, phrases, and concepts where related-word exploration is the largest second-search demand.',
+      overview: 'Use for cultural words, idioms, phrases, and concepts where related-word exploration is the largest second-search demand. Case references show "关联词详解" as the dominant pattern, usually grouping 近义、反义、同源、同类典故、人物关联、易混词.',
       colors: 'Use the parent palette; use #6487FA for current phrase and selected relation type.',
       typography: 'Definitions and relation notes should be concise and Chinese-first.',
       layout: 'Lead with one-sentence meaning and pronunciation/source summary, then show relation groups: 近义、反义、同类典故、同源、人物关联、易混词. No internal scrolling.',
@@ -1433,7 +1445,7 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
       },
     },
     rationale: {
-      overview: 'Use for cultural phrases where origin, source text, story, figures, events, and modern meaning are the high-value deep-reading path.',
+      overview: 'Use for cultural phrases where origin, source text, story, figures, events, and modern meaning are the high-value deep-reading path. Case references pair source/origin with relation graph; origin story should not crowd out the first-screen meaning and relation entry points.',
       colors: 'Use neutral content surfaces; reserve blue for active story step and source marker.',
       typography: 'Source text, modern explanation, and story labels should remain compact.',
       layout: 'Lead with meaning and source summary, then show origin story as 起因/经过/结果/寓意 tabs or a short chain. No internal scrolling.',
@@ -1457,6 +1469,152 @@ export const officialDesignTemplatePacks: DesignTemplatePack[] = [
         businessPriority: 'Cultural phrase P1: origin, story, and meaning deepening.',
         dataShape: 'Best with phrase, pronunciation, concise meaning, source work/chapter, original sentence, story steps, related figures, and cultural meaning.',
         overflowStrategy: 'Story is split into tabs or page-switcher pages; missing source hides the origin story module.',
+      },
+    },
+    previewArtifactId: null,
+    lintStatus: 'unknown',
+    createdByUserId: null,
+  },
+  {
+    schemaVersion: DESIGN_TEMPLATE_PACK_SCHEMA_VERSION,
+    id: 'dtp_de_scenic_spot_route_guide',
+    parentPackId: 'dtp_dynamic_encyclopedia_card',
+    templateRole: 'child_template',
+    supportedProductModes: ['dynamic_encyclopedia_card'],
+    supportedEntryCategories: ['地域建筑', '景区景点'],
+    source: 'official',
+    format: 'dudesign-template-v1',
+    visibility: 'public',
+    status: 'published',
+    name: 'Dynamic Encyclopedia · Scenic Spot Route Guide',
+    description: 'A vertical child template for scenic-spot guide routes, visit order, time planning, and route recommendations.',
+    version: '1.0.0',
+    designTokens: {
+      colors: {
+        primary: '#6487FA',
+        'on-primary': '#FFFFFF',
+        background: '#F8F8F8',
+        surface: '#FFFFFF',
+        text: '#1E1F24',
+        muted: '#848691',
+        subtle: '#B7B9C1',
+      },
+      typography: {
+        display: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '24px', fontWeight: 700, lineHeight: 1.18 },
+        body: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '14px', fontWeight: 400, lineHeight: 1.58 },
+        label: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '12px', fontWeight: 600, lineHeight: 1.35 },
+      },
+      spacing: { xs: '4px', sm: '8px', md: '14px', lg: '20px', xl: '28px' },
+      rounded: { sm: '6px', md: '10px', lg: '14px' },
+      components: {
+        'pc-card-frame': { width: 788, height: 492, backgroundColor: '{colors.surface}', rounded: '{rounded.lg}' },
+        'wise-standard-frame': { width: 380, height: 456, ratio: '1:1.2', backgroundColor: '{colors.surface}', rounded: '{rounded.lg}' },
+        'no-scroll-frame': { overflow: 'hidden', position: 'relative', width: '100%', height: '100%' },
+        'route-stepper': { maxSteps: 6, accentColor: '{colors.primary}', markerSize: 8 },
+        'poi-card': { maxItems: 5, rounded: '{rounded.md}', accentColor: '{colors.primary}' },
+        'tab-bar': { position: 'top', height: 36, accentColor: '{colors.primary}', indicatorStyle: 'underline', maxTabs: 4 },
+        'page-switcher': { variant: 'dots-or-pill', position: 'bottom', height: 28, accentColor: '{colors.primary}' },
+        'modal-overlay': { background: 'rgba(30,31,36,0.45)', rounded: '{rounded.lg}', maxWidth: '90%' },
+      },
+    },
+    rationale: {
+      overview: 'Use for scenic-spot entries where the main value is intelligent guide route, visit order, key POIs, and time-aware route recommendation. Case references emphasize 导览、路线、景点、地图 and 坐标, but DUDesign should keep map/coordinate data symbolic unless trusted context is supplied.',
+      colors: 'Use neutral encyclopedia surfaces; reserve #6487FA for the selected route step or current scenic spot.',
+      typography: 'Route labels and POI notes should be compact, Chinese-first, and readable at 300px width.',
+      layout: 'Lead with scenic spot identity and a recommended route strip, then show 4-6 route steps with POI highlights. Provide tabs for 推荐路线、必看景点、游览提示、地图概览. No internal scrolling.',
+      elevation: 'Use bounded route cards and lightweight POI markers.',
+      shapes: 'Use simple route dots, connectors, and POI chips. Avoid imitating any map provider UI.',
+      components: 'Scenic identity header, route stepper, POI cards, route tabs, map-schematic panel, detail modal, source hint.',
+      dos: [
+        'Label route order clearly and keep each step short.',
+        'Use "坐标待补充" or "位置资料不足" when coordinates are not supplied.',
+        'Separate scenic facts, route suggestions, and safety/visit tips.',
+        'Use schematic route lines, not external map tiles or provider chrome.',
+      ],
+      donts: [
+        'Do not copy or imitate any public encyclopedia, search engine, browser, map provider, or travel platform trade dress.',
+        'Do not fabricate coordinates, opening hours, ticket prices, traffic routes, safety warnings, or real-time crowding.',
+        'Do not embed outbound navigation, map, ticketing, hotel, or booking links as core interactions.',
+        'Do not use overflow: auto / scroll or .scroll-container.',
+        'Do not insert English UI phrases.',
+      ],
+      sections: {
+        parentPack: 'Inherits fixed viewport, iframe/touch, no-scroll, Chinese-first, and delivery safety constraints from dtp_dynamic_encyclopedia_card.',
+        businessPriority: 'Scenic spot P0: route guide and POI visit order.',
+        dataShape: 'Best with scenic spot name, POI names, route order, time estimate, coordinates/source status, visit tips, and source hint.',
+        overflowStrategy: '4-6 route steps in primary view. More POIs paginate through .page-switcher or open in .modal-overlay.',
+      },
+    },
+    previewArtifactId: null,
+    lintStatus: 'unknown',
+    createdByUserId: null,
+  },
+  {
+    schemaVersion: DESIGN_TEMPLATE_PACK_SCHEMA_VERSION,
+    id: 'dtp_de_scenic_spot_map_poi',
+    parentPackId: 'dtp_dynamic_encyclopedia_card',
+    templateRole: 'child_template',
+    supportedProductModes: ['dynamic_encyclopedia_card'],
+    supportedEntryCategories: ['地域建筑', '景区景点'],
+    source: 'official',
+    format: 'dudesign-template-v1',
+    visibility: 'public',
+    status: 'published',
+    name: 'Dynamic Encyclopedia · Scenic Spot Map POI',
+    description: 'A vertical child template for scenic-spot 地图 POI, attraction clusters, 坐标 hints, and local exploration.',
+    version: '1.0.0',
+    designTokens: {
+      colors: {
+        primary: '#6487FA',
+        'on-primary': '#FFFFFF',
+        background: '#F8F8F8',
+        surface: '#FFFFFF',
+        text: '#1E1F24',
+        muted: '#848691',
+        subtle: '#B7B9C1',
+      },
+      typography: {
+        display: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '24px', fontWeight: 700, lineHeight: 1.18 },
+        body: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '14px', fontWeight: 400, lineHeight: 1.58 },
+        label: { fontFamily: 'Inter, PingFang SC, system-ui, sans-serif', fontSize: '12px', fontWeight: 600, lineHeight: 1.35 },
+      },
+      spacing: { xs: '4px', sm: '8px', md: '14px', lg: '20px', xl: '28px' },
+      rounded: { sm: '6px', md: '10px', lg: '14px' },
+      components: {
+        'pc-card-frame': { width: 788, height: 492, backgroundColor: '{colors.surface}', rounded: '{rounded.lg}' },
+        'wise-standard-frame': { width: 380, height: 456, ratio: '1:1.2', backgroundColor: '{colors.surface}', rounded: '{rounded.lg}' },
+        'no-scroll-frame': { overflow: 'hidden', position: 'relative', width: '100%', height: '100%' },
+        'map-schematic': { maxPois: 7, accentColor: '{colors.primary}', rounded: '{rounded.md}' },
+        'poi-card': { maxItems: 5, rounded: '{rounded.md}', accentColor: '{colors.primary}' },
+        'tab-bar': { position: 'top', height: 36, accentColor: '{colors.primary}', indicatorStyle: 'underline', maxTabs: 4 },
+        'modal-overlay': { background: 'rgba(30,31,36,0.45)', rounded: '{rounded.lg}', maxWidth: '90%' },
+      },
+    },
+    rationale: {
+      overview: 'Use for scenic-spot entries where the user needs a compact 地图-like POI overview and local exploration. Case references include image-backed scenic POIs and 坐标 files; this template should represent coordinates as verified hints or placeholders, not live navigation.',
+      colors: 'Use the parent palette with blue only for current POI, selected route, and map marker state.',
+      typography: 'POI names, scenic area names, and visit tips should be concise and Chinese-first.',
+      layout: 'Show a schematic POI map with up to 7 markers and a side/bottom POI detail area. Provide tabs for 景点分布、路线串联、游览提示、资料来源. No internal scrolling.',
+      elevation: 'Use quiet panels and bounded marker callouts.',
+      shapes: 'Use simplified map blocks, route lines, and POI chips. Do not imitate any real map-product controls.',
+      components: 'Schematic map, POI markers, POI detail modal, source hint, route link chips.',
+      dos: [
+        'Clearly mark whether coordinates are supplied, approximate, or missing.',
+        'Use source wording for opening hours, ticket, transportation, or safety facts.',
+        'Keep POI marker labels short and avoid overcrowding the fixed viewport.',
+      ],
+      donts: [
+        'Do not copy or imitate any public map provider, travel platform, encyclopedia, search engine, browser, or mobile app trade dress.',
+        'Do not fabricate coordinates, opening hours, ticket prices, transportation, safety warnings, or real-time status.',
+        'Do not use external map tiles, outbound navigation, ticketing, hotel, or booking links as core interactions.',
+        'Do not use overflow: auto / scroll or .scroll-container.',
+        'Do not insert English UI phrases.',
+      ],
+      sections: {
+        parentPack: 'Inherits fixed viewport, iframe/touch, no-scroll, Chinese-first, and delivery safety constraints from dtp_dynamic_encyclopedia_card.',
+        businessPriority: 'Scenic spot P0/P1: POI map overview and route-linked exploration.',
+        dataShape: 'Best with scenic spot name, POI names, approximate location or coordinate source status, route relation, visit tips, and source hint.',
+        overflowStrategy: 'Up to 7 POI markers in primary view. More POIs grouped by tab or opened in .modal-overlay.',
       },
     },
     previewArtifactId: null,

@@ -185,6 +185,30 @@ describe('MockMcpExecutor', () => {
     assert.equal(imageGeneration?.artifactId, null)
     assert.equal(result.references.length, 0)
   })
+
+  it('does not block prompts that mention protected assets only as negative constraints', async () => {
+    const executor = new MockMcpExecutor()
+
+    const result = await executor.execute({
+      ...request,
+      invocationId: 'mcpinv_image_negative_constraints_test',
+      mcpToolId: 'mcp_image_generation_ark_seedream',
+      serverName: 'image-generation',
+      toolName: 'generateArkSeedreamImage',
+      scopes: ['artifact_write', 'readonly_context'],
+      input: {
+        prompt: '原创动态百科卡片辅助视觉。不要使用品牌 logo、真实人物肖像、影视剧照、copyrighted character 或可识别受保护素材。',
+        usageContext: 'dynamic_encyclopedia_card',
+        contentSafety: { policy: 'strict', allowBrandReference: false },
+      },
+      reason: 'Validate negative safety constraints do not block image context generation.',
+    })
+
+    const imageGeneration = result.data?.imageGeneration as ImageGenerationArtifact | undefined
+    assert.equal(result.status, 'ok')
+    assert.equal(imageGeneration?.contentSafety.status, 'passed')
+    assert.ok(imageGeneration?.artifactId)
+  })
 })
 
 describe('ArkSeedreamImageMcpExecutor', () => {

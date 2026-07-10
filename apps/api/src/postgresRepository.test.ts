@@ -102,6 +102,11 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
 	      previewUrl: `/api/variations/${variation.id}/preview`,
 	      runtimeChildSessionId: 'rt_child_pg_smoke',
 	      runtimeAgentJobId: 'agent_pg_smoke',
+        runtimeLaneId: 'lane_pg_smoke',
+        runtimeBackendId: 'backend_pg_smoke',
+        runtimeLeaseId: 'lease_pg_smoke',
+        runtimeAttempt: 2,
+        runtimeLastErrorCode: 'PG_PREVIOUS_TIMEOUT',
 	      inputTokens: 11,
       outputTokens: 22,
       costCents: 3,
@@ -285,6 +290,11 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
 	      assert.equal(hydrated.variations.get(variation.id)?.currentArtifactId, artifact.id)
 	      assert.equal(hydrated.variations.get(variation.id)?.runtimeChildSessionId, 'rt_child_pg_smoke')
 	      assert.equal(hydrated.variations.get(variation.id)?.runtimeAgentJobId, 'agent_pg_smoke')
+      assert.equal(hydrated.variations.get(variation.id)?.runtimeLaneId, 'lane_pg_smoke')
+      assert.equal(hydrated.variations.get(variation.id)?.runtimeBackendId, 'backend_pg_smoke')
+      assert.equal(hydrated.variations.get(variation.id)?.runtimeLeaseId, 'lease_pg_smoke')
+      assert.equal(hydrated.variations.get(variation.id)?.runtimeAttempt, 2)
+      assert.equal(hydrated.variations.get(variation.id)?.runtimeLastErrorCode, 'PG_PREVIOUS_TIMEOUT')
       assert.equal(hydrated.artifacts.get(artifact.id)?.contentHash, 'sha256:postgres-smoke')
       assert.equal(hydrated.artifacts.get(cssAsset.id)?.contentHash, 'sha256:postgres-css')
       assert.equal(hydrated.artifacts.get(imageAsset.id)?.contentHash, 'sha256:postgres-svg')
@@ -308,6 +318,11 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(sqlVariation?.currentArtifactId, artifact.id)
       assert.equal(sqlVariation?.runtimeChildSessionId, 'rt_child_pg_smoke')
       assert.equal(sqlVariation?.runtimeAgentJobId, 'agent_pg_smoke')
+      assert.equal(sqlVariation?.runtimeLaneId, 'lane_pg_smoke')
+      assert.equal(sqlVariation?.runtimeBackendId, 'backend_pg_smoke')
+      assert.equal(sqlVariation?.runtimeLeaseId, 'lease_pg_smoke')
+      assert.equal(sqlVariation?.runtimeAttempt, 2)
+      assert.equal(sqlVariation?.runtimeLastErrorCode, 'PG_PREVIOUS_TIMEOUT')
       assert.equal((await hydrated.getArtifactById(artifact.id))?.contentHash, 'sha256:postgres-smoke')
       assert.equal((await hydrated.listSessions()).some(candidate => candidate.id === session.id), true)
       assert.equal((await hydrated.getShareByToken(share.token))?.artifactId, artifact.id)
