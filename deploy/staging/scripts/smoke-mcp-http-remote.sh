@@ -94,7 +94,7 @@ PY
 restart_api() {
   docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d api >/dev/null
   for attempt in 1 2 3 4 5 6 7 8; do
-    if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap \
+    if curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap >/tmp/dudesign-mcp-bootstrap.curl.log 2>&1 \
       && python3 - /tmp/dudesign-mcp-bootstrap.json <<'PY'
 import json
 import sys
@@ -112,7 +112,11 @@ PY
     fi
     sleep "$attempt"
   done
-  curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap
+  curl -fsS -o /tmp/dudesign-mcp-bootstrap.json http://127.0.0.1/api/dev/bootstrap >/tmp/dudesign-mcp-bootstrap.curl.log 2>&1 || {
+    echo 'mcp-http-smoke:bootstrap-curl-failed' >&2
+    cat /tmp/dudesign-mcp-bootstrap.curl.log >&2
+    exit 1
+  }
   echo 'mcp-http-smoke:bootstrap-not-ready' >&2
   cat /tmp/dudesign-mcp-bootstrap.json >&2
   exit 1
