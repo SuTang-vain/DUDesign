@@ -343,7 +343,7 @@ export class ApplicationService {
     this.mcpExecutor = options.mcpExecutor ?? new MockMcpExecutor()
     this.authService = new AuthApplicationService(this.store)
     this.adminRuntimeGovernance = new AdminRuntimeGovernanceService(this.store, this.runtime)
-    this.artifactService = new ArtifactApplicationService(this.store, this.artifacts)
+    this.artifactService = new ArtifactApplicationService(this.store, this.artifacts, this.queue)
     this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
@@ -1247,119 +1247,11 @@ export class ApplicationService {
   }
 
   async restoreVariationVersion(ctx: RequestContext, variationId: string, artifactId: string) {
-    const context = await this.store.getVariationArtifactContext(variationId, artifactId)
-    const variation = context.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
-    const artifact = context.artifact
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    if (context.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    if (artifact.kind !== 'html') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Only HTML artifact versions can be restored.')
-    }
-    const previewUrl = `/api/variations/${variationId}/preview`
-    const updated = await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
-    if (!updated) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.enqueueScreenshotJob({
-      workspaceId: artifact.workspaceId,
-      sessionId: artifact.sessionId,
-      variation: updated,
-      htmlArtifactId: artifact.id,
-      source: 'repair',
-      reason: 'restore_requested',
-      jobId: updated.jobId,
-    })
-    await this.store.appendMessage({
-      sessionId: variation.sessionId,
-      role: 'system',
-      content: `Restored ${variation.title ?? variation.id} to artifact v${artifact.version}.`,
-      metadata: {
-        kind: 'variation_restore',
-        variationId,
-        artifactId: artifact.id,
-        artifactVersion: artifact.version,
-      },
-    })
-    return {
-      variation: {
-        id: updated.id,
-        currentArtifactId: artifact.id,
-        previewUrl: updated.previewUrl,
-      },
-      artifact: {
-        id: artifact.id,
-        kind: 'html' as const,
-        version: artifact.version,
-        entryPath: artifact.entryPath,
-        createdAt: artifact.createdAt,
-      },
-    }
+    return this.artifactService.restoreVariationVersion(ctx, variationId, artifactId)
   }
 
   async repairVariationPreview(ctx: RequestContext, variationId: string, input: { artifactId?: string | null } = {}) {
-    const snapshot = input.artifactId
-      ? await this.store.getVariationArtifactContext(variationId, input.artifactId)
-      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const variation = snapshot.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
-    if (snapshot.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    const artifact = snapshot.artifact
-    if (!artifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an HTML artifact to repair.')
-    if (artifact.kind !== 'html') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Preview repair requires an HTML artifact.')
-    }
-    await this.readArtifactHtml(artifact.storageKey)
-    const previewUrl = `/api/variations/${encodeURIComponent(variationId)}/preview`
-    const updated = variation.currentArtifactId === artifact.id
-      ? await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
-      : variation
-    const queueJob = await this.enqueueScreenshotJob({
-      workspaceId: artifact.workspaceId,
-      sessionId: artifact.sessionId,
-      variation,
-      htmlArtifactId: artifact.id,
-      source: 'repair',
-      reason: 'repair_requested',
-      jobId: variation.jobId,
-    })
-    await this.store.appendMessage({
-      sessionId: variation.sessionId,
-      role: 'system',
-      content: `Queued preview repair for ${variation.title ?? variation.id} artifact v${artifact.version}.`,
-      metadata: {
-        kind: 'variation_preview_repair',
-        variationId,
-        artifactId: artifact.id,
-        artifactVersion: artifact.version,
-        queueJobIdempotencyKey: queueJob.idempotencyKey,
-      },
-    })
-    return {
-      variation: {
-        id: variation.id,
-        currentArtifactId: updated?.currentArtifactId ?? variation.currentArtifactId ?? artifact.id,
-        previewUrl: updated?.previewUrl ?? variation.previewUrl ?? previewUrl,
-        screenshotUrl: screenshotUrlForArtifactId(updated?.screenshotArtifactId ?? variation.screenshotArtifactId, variation.id),
-      },
-      artifact: {
-        id: artifact.id,
-        kind: 'html' as const,
-        version: artifact.version,
-        entryPath: artifact.entryPath,
-        createdAt: artifact.createdAt,
-        quality: artifactQualitySummary(artifact.metadata.quality),
-      },
-      queueJob: {
-        idempotencyKey: queueJob.idempotencyKey,
-        kind: 'screenshot_job' as const,
-        status: queueJob.status,
-      },
-    }
+    return this.artifactService.repairVariationPreview(ctx, variationId, input)
   }
 
   async reviewVariationAction(ctx: RequestContext, variationId: string, input: ReviewVariationActionRequest) {
@@ -1639,54 +1531,7 @@ export class ApplicationService {
   }
 
   async exportVariation(ctx: RequestContext, variationId: string) {
-    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
-    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
-    const job = await this.store.getJobById(variation.jobId)
-    const html = await this.readArtifactHtml(artifact.storageKey)
-    const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`.replaceAll(/\s+/g, '-').toLowerCase()
-    const existingExportArtifact = await this.findExistingExportArtifact(variation.id, artifact.id)
-    const exportArtifact = existingExportArtifact ?? await this.createExportZipArtifact({
-      variation,
-      sourceArtifact: artifact,
-      filename: filename.replace(/\.html$/, '.zip'),
-      html,
-    })
-    await this.recordUsageEvent({
-      idempotencyKey: `usage:export.created:export:${exportArtifact.id}:source:${artifact.id}`,
-      kind: 'export.created',
-      userId: ctx.userId,
-      workspaceId: artifact.workspaceId,
-      sessionId: artifact.sessionId,
-      jobId: variation.jobId,
-      variationId: variation.id,
-      artifactId: artifact.id,
-      inputTokens: 0,
-      outputTokens: 0,
-      costCents: 0,
-      metadata: {
-        artifactVersion: artifact.version,
-        exportArtifactId: exportArtifact.id,
-        jobStatus: job?.status ?? null,
-      },
-    })
-    return {
-      artifact: {
-        id: artifact.id,
-        version: artifact.version,
-        filename,
-        html,
-      },
-      exportArtifact: {
-        id: exportArtifact.id,
-        kind: 'export_zip',
-        filename: exportArtifact.entryPath ?? filename.replace(/\.html$/, '.zip'),
-        sizeBytes: exportArtifact.sizeBytes,
-        contentHash: exportArtifact.contentHash,
-        downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
-        files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
-        reused: Boolean(existingExportArtifact),
-      },
-    }
+    return this.artifactService.exportVariation(ctx, variationId)
   }
 
   async downloadArtifact(ctx: RequestContext, artifactId: string): Promise<{
@@ -1698,45 +1543,7 @@ export class ApplicationService {
   }
 
   async shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
-    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
-    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
-    if (!['public', 'private', 'password'].includes(input.visibility)) {
-      throw createHttpError(400, 'INVALID_SHARE_VISIBILITY', 'visibility must be public, private, or password.')
-    }
-    const share = await this.store.createShare({
-      artifactId: artifact.id,
-      variationId: variation.id,
-      ownerId: ctx.userId,
-      visibility: input.visibility,
-      expiresAt: input.expiresAt ?? null,
-    })
-    await this.recordUsageEvent({
-      idempotencyKey: `usage:share.created:share:${share.id}`,
-      kind: 'share.created',
-      userId: ctx.userId,
-      workspaceId: artifact.workspaceId,
-      sessionId: artifact.sessionId,
-      jobId: variation.jobId,
-      variationId: variation.id,
-      artifactId: artifact.id,
-      inputTokens: 0,
-      outputTokens: 0,
-      costCents: 0,
-      metadata: {
-        shareId: share.id,
-        visibility: share.visibility,
-        artifactVersion: artifact.version,
-      },
-    })
-    return {
-      share: {
-        id: share.id,
-        token: share.token,
-        url: `/share/${share.token}`,
-        visibility: share.visibility,
-        expiresAt: share.expiresAt,
-      },
-    }
+    return this.artifactService.shareVariation(ctx, variationId, input)
   }
 
   async getSharedVariation(token: string) {
@@ -1744,20 +1551,7 @@ export class ApplicationService {
   }
 
   async revokeShare(ctx: RequestContext, token: string) {
-    const share = await this.store.getShareByToken(token)
-    if (!share) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
-    if (share.ownerId !== ctx.userId) {
-      throw createHttpError(403, 'SHARE_FORBIDDEN', 'You do not have access to this share link.')
-    }
-    const revoked = await this.store.revokeShare(token)
-    if (!revoked) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
-    return {
-      share: {
-        id: revoked.id,
-        token: revoked.token,
-        revokedAt: revoked.revokedAt!,
-      },
-    }
+    return this.artifactService.revokeShare(ctx, token)
   }
 
   async getAdminRuntimeHealth(ctx: RequestContext) {
@@ -2396,19 +2190,6 @@ export class ApplicationService {
       retry,
       audit,
     }
-  }
-
-  private async requireCurrentVariationArtifact(variationId: string) {
-    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const variation = snapshot.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    if (!snapshot.artifactId) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
-    const artifact = snapshot.artifact
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${snapshot.artifactId}`)
-    if (snapshot.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    return { variation, artifact }
   }
 
   private async requireUser(userId: string) {
@@ -4256,10 +4037,6 @@ export class ApplicationService {
     if (!sourceArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Source artifact not found: ${sourceArtifactId}`)
     if (sourceArtifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Export source artifact must be HTML.')
     return sourceArtifact
-  }
-
-  private async findExistingExportArtifact(variationId: string, sourceArtifactId: string): Promise<Artifact | null> {
-    return this.store.getExportArtifactForSource(variationId, sourceArtifactId)
   }
 
   private async resolveDataIntakeArtifactReference(workspaceId: string, artifactId: string | null | undefined): Promise<DataIntakeArtifactReference | undefined> {

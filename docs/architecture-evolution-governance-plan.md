@@ -283,8 +283,9 @@ type ApplicationServices = {
 当前进度：
 
 - Auth/OAuth 与 Admin Runtime Governance 已形成独立应用服务。
-- Artifact/Preview/Share 的只读链路已形成独立 `ArtifactApplicationService`。
-- Artifact 写链路仍按 command orchestration 留在 facade，待 Queue、Usage Recorder 等协作者形成更窄接口后继续迁移。
+- 用户侧 Artifact/Preview/Export/Share 读写链路已形成独立 `ArtifactApplicationService`。
+- Artifact Service 仅通过 `ApplicationRepository + ArtifactStore + DesignJobQueue` 三个稳定端口协作，不依赖 facade。
+- Admin screenshot/export/share 治理仍留在 facade，后续拆为 `AdminArtifactGovernanceService` 并统一 artifact ZIP/path helper。
 
 ### 6.2 Repository 去继承化
 

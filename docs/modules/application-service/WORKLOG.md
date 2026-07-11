@@ -2865,6 +2865,37 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - restore version、preview repair、export creation、share creation/revoke 暂留 facade，因为它们还依赖 queue、usage event 和写操作编排。
 - 下一批应先提取 artifact command collaborators，再迁移上述写链路；不把 Queue 或完整 `ApplicationService` 注入 Artifact Service。
 
+## 2026-07-11 APP-M57 Artifact Command Application Service
+
+### 已完成
+
+- `ArtifactApplicationService` 新增用户侧 command 能力：
+  - restore historical HTML version。
+  - repair preview screenshot。
+  - create/reuse export ZIP。
+  - create artifact-pinned share。
+  - revoke owned share。
+- 服务新增窄依赖 `DesignJobQueue`，仅用于 screenshot job；没有注入 `ApplicationService` 或 worker。
+- restore/repair 保留原有系统消息和 screenshot queue payload 语义。
+- screenshot queue 的 `userId` 继续来自 design job owner，支持 workspace editor 代操作但不改变任务归属。
+- export 重复请求复用同一 source artifact 的 export ZIP，并通过 usage idempotency key 避免重复记量。
+- share 创建时固定当前 artifact，后续 restore/refine 不改变已有 share 内容。
+- `ApplicationService` 的同名用户方法全部改为 facade 委托。
+
+### 独立测试
+
+- restore 后 current artifact 回到历史版本，并创建稳定 restore screenshot job。
+- repair 创建独立 idempotency key，并记录 preview repair 系统消息。
+- export ZIP 包含 HTML 和关联 assets。
+- 重复 export 复用 artifact，usage event 不重复。
+- share 固定 source artifact，并可由 owner 撤销。
+
+### 边界决策
+
+- 用户侧 Artifact Service 已完成首轮读写拆分。
+- Admin screenshot rebuild、export repair、bulk share revoke 仍留在 facade，下一批应形成 `AdminArtifactGovernanceService`。
+- ZIP/path helper 当前在用户服务与 Admin facade 过渡期重复；待 Admin Artifact Service 拆出后统一下沉为 artifact domain helper。
+
 ### 2026-07-07 追加进展
 
 - OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。

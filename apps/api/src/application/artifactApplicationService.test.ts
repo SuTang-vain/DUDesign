@@ -8,18 +8,21 @@ import type { Artifact } from '@dudesign/domain'
 import type { RequestContext } from '../auth.js'
 import { InMemoryStore } from '../store.js'
 import { ArtifactApplicationService } from './artifactApplicationService.js'
+import { InMemoryDesignJobQueue } from '../designJobQueue.js'
 
 describe('ArtifactApplicationService', () => {
   let rootDir: string
   let store: InMemoryStore
   let artifacts: LocalArtifactStore
   let service: ArtifactApplicationService
+  let queue: InMemoryDesignJobQueue
 
   beforeEach(async () => {
     rootDir = await mkdtemp(join(tmpdir(), 'dudesign-artifact-service-'))
     store = new InMemoryStore()
     artifacts = new LocalArtifactStore({ rootDir })
-    service = new ArtifactApplicationService(store, artifacts)
+    queue = new InMemoryDesignJobQueue()
+    service = new ArtifactApplicationService(store, artifacts, queue)
   })
 
   afterEach(async () => {
@@ -142,6 +145,69 @@ describe('ArtifactApplicationService', () => {
     assert.equal(downloaded.filename, 'design.zip')
     assert.equal(downloaded.contentType, 'application/zip')
     assert.deepEqual([...downloaded.body], [1, 2, 3])
+  })
+
+  it('restores and repairs HTML versions through screenshot queue commands', async () => {
+    const fixture = await createVariationFixture(store)
+    const v1 = await createHtmlVersion({
+      store,
+      artifacts,
+      fixture,
+      version: 1,
+      html: '<h1>Version one</h1>',
+    })
+    const v2 = await createHtmlVersion({
+      store,
+      artifacts,
+      fixture,
+      version: 2,
+      html: '<h1>Version two</h1>',
+    })
+    await store.setVariationCurrentArtifact(fixture.variation.id, v2.html.id, `/api/variations/${fixture.variation.id}/preview`)
+
+    const restored = await service.restoreVariationVersion(ownerContext(store), fixture.variation.id, v1.html.id)
+    const restoreQueue = await queue.getJobState(`queue:screenshot:restore_requested:${v1.html.id}`)
+    const repaired = await service.repairVariationPreview(ownerContext(store), fixture.variation.id)
+    const session = await store.getSessionSnapshot(fixture.session.id)
+
+    assert.equal(restored.variation.currentArtifactId, v1.html.id)
+    assert.equal(restoreQueue?.status, 'queued')
+    assert.equal(repaired.artifact.id, v1.html.id)
+    assert.equal(repaired.queueJob.status, 'queued')
+    assert.match(repaired.queueJob.idempotencyKey, new RegExp(`^queue:screenshot:repair_requested:${v1.html.id}:repair_`))
+    assert.deepEqual(
+      session?.messages.slice(-2).map(message => message.metadata.kind),
+      ['variation_restore', 'variation_preview_repair'],
+    )
+  })
+
+  it('creates reusable exports and artifact-pinned shares with usage records', async () => {
+    const fixture = await createVariationFixture(store)
+    const v1 = await createHtmlVersion({
+      store,
+      artifacts,
+      fixture,
+      version: 1,
+      html: '<link href="assets/site.css"><h1>Export me</h1>',
+      assetPath: 'assets/site.css',
+      assetBody: 'body { color: green; }',
+    })
+    await store.setVariationCurrentArtifact(fixture.variation.id, v1.html.id, `/api/variations/${fixture.variation.id}/preview`)
+
+    const firstExport = await service.exportVariation(ownerContext(store), fixture.variation.id)
+    const secondExport = await service.exportVariation(ownerContext(store), fixture.variation.id)
+    const shared = await service.shareVariation(ownerContext(store), fixture.variation.id, { visibility: 'public' })
+    const shareSnapshot = await store.getSharedVariationSnapshot(shared.share.token)
+    const revoked = await service.revokeShare(ownerContext(store), shared.share.token)
+    const usageKinds = store.listUsageEvents({ variationId: fixture.variation.id }).map(event => event.kind)
+
+    assert.equal(firstExport.exportArtifact.reused, false)
+    assert.equal(secondExport.exportArtifact.id, firstExport.exportArtifact.id)
+    assert.equal(secondExport.exportArtifact.reused, true)
+    assert.deepEqual(firstExport.exportArtifact.files, ['index.html', 'assets/site.css'])
+    assert.equal(shareSnapshot?.artifact?.id, v1.html.id)
+    assert.ok(revoked.share.revokedAt)
+    assert.deepEqual([...usageKinds].sort(), ['export.created', 'share.created'])
   })
 })
 

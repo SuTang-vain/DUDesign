@@ -1,14 +1,245 @@
 import type { ArtifactStore } from '@dudesign/artifact-store'
-import type { Artifact, WorkspaceMemberRole } from '@dudesign/domain'
+import type { ShareVariationRequest } from '@dudesign/contracts'
+import type { Artifact, DesignVariation, WorkspaceMemberRole } from '@dudesign/domain'
 import { posix } from 'node:path'
 import type { RequestContext } from '../auth.js'
+import type { DesignJobQueue, ScreenshotJobQueuePayload } from '../designJobQueue.js'
+import { createId } from '../id.js'
 import type { ApplicationRepository } from '../repository.js'
 
 export class ArtifactApplicationService {
   constructor(
     private readonly store: ApplicationRepository,
     private readonly artifacts: ArtifactStore,
+    private readonly queue: DesignJobQueue,
   ) {}
+
+  async restoreVariationVersion(ctx: RequestContext, variationId: string, artifactId: string) {
+    const context = await this.store.getVariationArtifactContext(variationId, artifactId)
+    const variation = context.variation
+    if (!variation) throw applicationError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    const artifact = context.artifact
+    if (!artifact) throw applicationError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+    if (context.mismatch) {
+      throw applicationError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    if (artifact.kind !== 'html') {
+      throw applicationError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Only HTML artifact versions can be restored.')
+    }
+    const previewUrl = `/api/variations/${variationId}/preview`
+    const updated = await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
+    if (!updated) throw applicationError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.enqueueScreenshotJob({
+      artifact,
+      variation: updated,
+      reason: 'restore_requested',
+    })
+    await this.store.appendMessage({
+      sessionId: variation.sessionId,
+      role: 'system',
+      content: `Restored ${variation.title ?? variation.id} to artifact v${artifact.version}.`,
+      metadata: {
+        kind: 'variation_restore',
+        variationId,
+        artifactId: artifact.id,
+        artifactVersion: artifact.version,
+      },
+    })
+    return {
+      variation: {
+        id: updated.id,
+        currentArtifactId: artifact.id,
+        previewUrl: updated.previewUrl,
+      },
+      artifact: {
+        id: artifact.id,
+        kind: 'html' as const,
+        version: artifact.version,
+        entryPath: artifact.entryPath,
+        createdAt: artifact.createdAt,
+      },
+    }
+  }
+
+  async repairVariationPreview(
+    ctx: RequestContext,
+    variationId: string,
+    input: { artifactId?: string | null } = {},
+  ) {
+    const snapshot = input.artifactId
+      ? await this.store.getVariationArtifactContext(variationId, input.artifactId)
+      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw applicationError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    if (snapshot.mismatch) {
+      throw applicationError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    const artifact = snapshot.artifact
+    if (!artifact) throw applicationError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an HTML artifact to repair.')
+    if (artifact.kind !== 'html') {
+      throw applicationError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Preview repair requires an HTML artifact.')
+    }
+    await this.readArtifactText(artifact.storageKey)
+    const previewUrl = `/api/variations/${encodeURIComponent(variationId)}/preview`
+    const updated = variation.currentArtifactId === artifact.id
+      ? await this.store.setVariationCurrentArtifact(variationId, artifact.id, previewUrl)
+      : variation
+    const queueJob = await this.enqueueScreenshotJob({
+      artifact,
+      variation,
+      reason: 'repair_requested',
+    })
+    await this.store.appendMessage({
+      sessionId: variation.sessionId,
+      role: 'system',
+      content: `Queued preview repair for ${variation.title ?? variation.id} artifact v${artifact.version}.`,
+      metadata: {
+        kind: 'variation_preview_repair',
+        variationId,
+        artifactId: artifact.id,
+        artifactVersion: artifact.version,
+        queueJobIdempotencyKey: queueJob.idempotencyKey,
+      },
+    })
+    return {
+      variation: {
+        id: variation.id,
+        currentArtifactId: updated?.currentArtifactId ?? variation.currentArtifactId ?? artifact.id,
+        previewUrl: updated?.previewUrl ?? variation.previewUrl ?? previewUrl,
+        screenshotUrl: screenshotUrlForArtifactId(
+          updated?.screenshotArtifactId ?? variation.screenshotArtifactId,
+          variation.id,
+        ),
+      },
+      artifact: {
+        id: artifact.id,
+        kind: 'html' as const,
+        version: artifact.version,
+        entryPath: artifact.entryPath,
+        createdAt: artifact.createdAt,
+        quality: artifactQualitySummary(artifact.metadata.quality),
+      },
+      queueJob: {
+        idempotencyKey: queueJob.idempotencyKey,
+        kind: 'screenshot_job' as const,
+        status: queueJob.status,
+      },
+    }
+  }
+
+  async exportVariation(ctx: RequestContext, variationId: string) {
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
+    const job = await this.store.getJobById(variation.jobId)
+    const html = await this.readArtifactText(artifact.storageKey)
+    const filename = `${variation.title ?? variation.id}-v${artifact.version}.html`
+      .replaceAll(/\s+/g, '-')
+      .toLowerCase()
+    const existingExportArtifact = await this.store.getExportArtifactForSource(variation.id, artifact.id)
+    const exportArtifact = existingExportArtifact ?? await this.createExportZipArtifact({
+      variationId: variation.id,
+      sourceArtifact: artifact,
+      filename: filename.replace(/\.html$/, '.zip'),
+      html,
+    })
+    await this.store.createUsageEvent({
+      idempotencyKey: `usage:export.created:export:${exportArtifact.id}:source:${artifact.id}`,
+      kind: 'export.created',
+      userId: ctx.userId,
+      workspaceId: artifact.workspaceId,
+      sessionId: artifact.sessionId,
+      jobId: variation.jobId,
+      variationId: variation.id,
+      artifactId: artifact.id,
+      inputTokens: 0,
+      outputTokens: 0,
+      costCents: 0,
+      metadata: {
+        artifactVersion: artifact.version,
+        exportArtifactId: exportArtifact.id,
+        jobStatus: job?.status ?? null,
+      },
+    })
+    return {
+      artifact: {
+        id: artifact.id,
+        version: artifact.version,
+        filename,
+        html,
+      },
+      exportArtifact: {
+        id: exportArtifact.id,
+        kind: 'export_zip',
+        filename: exportArtifact.entryPath ?? filename.replace(/\.html$/, '.zip'),
+        sizeBytes: exportArtifact.sizeBytes,
+        contentHash: exportArtifact.contentHash,
+        downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
+        files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
+        reused: Boolean(existingExportArtifact),
+      },
+    }
+  }
+
+  async shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
+    await this.requireVariationAccess(variationId, ctx.userId, 'editor')
+    const { variation, artifact } = await this.requireCurrentVariationArtifact(variationId)
+    if (!['public', 'private', 'password'].includes(input.visibility)) {
+      throw applicationError(400, 'INVALID_SHARE_VISIBILITY', 'visibility must be public, private, or password.')
+    }
+    const share = await this.store.createShare({
+      artifactId: artifact.id,
+      variationId: variation.id,
+      ownerId: ctx.userId,
+      visibility: input.visibility,
+      expiresAt: input.expiresAt ?? null,
+    })
+    await this.store.createUsageEvent({
+      idempotencyKey: `usage:share.created:share:${share.id}`,
+      kind: 'share.created',
+      userId: ctx.userId,
+      workspaceId: artifact.workspaceId,
+      sessionId: artifact.sessionId,
+      jobId: variation.jobId,
+      variationId: variation.id,
+      artifactId: artifact.id,
+      inputTokens: 0,
+      outputTokens: 0,
+      costCents: 0,
+      metadata: {
+        shareId: share.id,
+        visibility: share.visibility,
+        artifactVersion: artifact.version,
+      },
+    })
+    return {
+      share: {
+        id: share.id,
+        token: share.token,
+        url: `/share/${share.token}`,
+        visibility: share.visibility,
+        expiresAt: share.expiresAt,
+      },
+    }
+  }
+
+  async revokeShare(ctx: RequestContext, token: string) {
+    const share = await this.store.getShareByToken(token)
+    if (!share) throw applicationError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    if (share.ownerId !== ctx.userId) {
+      throw applicationError(403, 'SHARE_FORBIDDEN', 'You do not have access to this share link.')
+    }
+    const revoked = await this.store.revokeShare(token)
+    if (!revoked) throw applicationError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
+    return {
+      share: {
+        id: revoked.id,
+        token: revoked.token,
+        revokedAt: revoked.revokedAt!,
+      },
+    }
+  }
 
   async getVariationPreview(
     ctx: RequestContext,
@@ -208,6 +439,102 @@ export class ArtifactApplicationService {
     }
   }
 
+  private async requireCurrentVariationArtifact(variationId: string) {
+    const snapshot = await this.store.getCurrentVariationArtifactSnapshot(variationId)
+    const variation = snapshot.variation
+    if (!variation) throw applicationError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
+    if (!snapshot.artifactId) throw applicationError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
+    const artifact = snapshot.artifact
+    if (!artifact) throw applicationError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${snapshot.artifactId}`)
+    if (snapshot.mismatch) {
+      throw applicationError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
+    }
+    if (artifact.kind !== 'html') {
+      throw applicationError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation export and share require an HTML artifact.')
+    }
+    return { variation, artifact }
+  }
+
+  private async enqueueScreenshotJob(input: {
+    artifact: Artifact
+    variation: DesignVariation
+    reason: Extract<ScreenshotJobQueuePayload['reason'], 'repair_requested' | 'restore_requested'>
+  }) {
+    const job = await this.store.getJobById(input.variation.jobId)
+    return this.queue.enqueueScreenshotJob({
+      jobId: input.variation.jobId,
+      sessionId: input.artifact.sessionId,
+      variationId: input.variation.id,
+      artifactId: input.artifact.id,
+      idempotencyKey: screenshotQueueIdempotencyKey(input.artifact.id, input.reason),
+      userId: job?.userId ?? this.store.devUser.id,
+      workspaceId: input.artifact.workspaceId,
+      source: 'repair',
+      reason: input.reason,
+      createdAt: new Date().toISOString(),
+    })
+  }
+
+  private async createExportZipArtifact(input: {
+    variationId: string
+    sourceArtifact: Artifact
+    filename: string
+    html: string
+  }): Promise<Artifact> {
+    const assets = await this.store.getVariationAssetArtifacts(input.variationId, input.sourceArtifact.id)
+    const files: Array<{ path: string; body: Uint8Array | string }> = [{
+      path: input.sourceArtifact.entryPath ?? 'index.html',
+      body: input.html,
+    }]
+    for (const asset of assets) {
+      if (!asset.entryPath) continue
+      const stored = await this.artifacts.get(asset.storageKey)
+      files.push({ path: asset.entryPath, body: stored.body })
+    }
+    const manifest = {
+      kind: 'dudesign.export',
+      variationId: input.variationId,
+      sourceArtifactId: input.sourceArtifact.id,
+      sourceVersion: input.sourceArtifact.version,
+      files: files.map(file => file.path),
+      exportedAt: new Date().toISOString(),
+    }
+    const body = createZipArchive([
+      ...files,
+      { path: 'dudesign-export.json', body: JSON.stringify(manifest, null, 2) },
+    ])
+    const exportArtifactId = `export_${input.sourceArtifact.id}`
+    const stored = await this.artifacts.put({
+      workspaceId: input.sourceArtifact.workspaceId,
+      artifactId: exportArtifactId,
+      relativePath: input.filename,
+      contentType: 'application/zip',
+      body,
+      metadata: {
+        kind: 'export_zip',
+        sourceArtifactId: input.sourceArtifact.id,
+        variationId: input.variationId,
+        files: manifest.files.join('\n'),
+      },
+    })
+    return this.store.createArtifact({
+      workspaceId: input.sourceArtifact.workspaceId,
+      sessionId: input.sourceArtifact.sessionId,
+      variationId: input.variationId,
+      parentArtifactId: input.sourceArtifact.id,
+      kind: 'export_zip',
+      version: input.sourceArtifact.version,
+      storageKey: stored.storageKey,
+      entryPath: input.filename,
+      contentHash: stored.contentHash,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        sourceArtifactId: input.sourceArtifact.id,
+        files: manifest.files,
+      },
+    })
+  }
+
   private async requireVariationAccess(
     variationId: string,
     userId: string,
@@ -358,6 +685,102 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
 function encodeRuntimeAssetPath(path: string): string {
   return path.split('/').map(part => encodeURIComponent(part)).join('/')
 }
+
+function screenshotQueueIdempotencyKey(
+  artifactId: string,
+  reason: Extract<ScreenshotJobQueuePayload['reason'], 'repair_requested' | 'restore_requested'>,
+): string {
+  if (reason === 'repair_requested') return `queue:screenshot:${reason}:${artifactId}:${createId('repair')}`
+  return `queue:screenshot:${reason}:${artifactId}`
+}
+
+function screenshotUrlForArtifactId(artifactId: string | null, variationId: string): string | null {
+  return artifactId
+    ? `/api/variations/${encodeURIComponent(variationId)}/screenshots/${encodeURIComponent(artifactId)}`
+    : null
+}
+
+function artifactQualitySummary(value: unknown): {
+  status: 'pass' | 'warn' | 'fail'
+  issues: string[]
+  specFindings?: unknown[]
+} | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.status !== 'pass' && record.status !== 'warn' && record.status !== 'fail') return null
+  if (!Array.isArray(record.issues) || !record.issues.every(issue => typeof issue === 'string')) return null
+  return {
+    status: record.status,
+    issues: record.issues,
+    ...(Array.isArray(record.specFindings) ? { specFindings: record.specFindings } : {}),
+  }
+}
+
+function createZipArchive(files: Array<{ path: string; body: Uint8Array | string }>): Uint8Array {
+  const encoder = new TextEncoder()
+  const localParts: Uint8Array[] = []
+  const centralParts: Uint8Array[] = []
+  let offset = 0
+  for (const file of files) {
+    const path = normalizeArtifactPath(file.path)
+    const name = encoder.encode(path)
+    const body = typeof file.body === 'string' ? encoder.encode(file.body) : file.body
+    const crc = crc32(body)
+    const localHeader = concatBytes([
+      u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(crc), u32(body.byteLength), u32(body.byteLength), u16(name.byteLength), u16(0), name,
+    ])
+    localParts.push(localHeader, body)
+    centralParts.push(concatBytes([
+      u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+      u32(crc), u32(body.byteLength), u32(body.byteLength), u16(name.byteLength),
+      u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), name,
+    ]))
+    offset += localHeader.byteLength + body.byteLength
+  }
+  const centralDirectory = concatBytes(centralParts)
+  const end = concatBytes([
+    u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+    u32(centralDirectory.byteLength), u32(offset), u16(0),
+  ])
+  return concatBytes([...localParts, centralDirectory, end])
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.byteLength
+  }
+  return out
+}
+
+function u16(value: number): Uint8Array {
+  const out = new Uint8Array(2)
+  new DataView(out.buffer).setUint16(0, value, true)
+  return out
+}
+
+function u32(value: number): Uint8Array {
+  const out = new Uint8Array(4)
+  new DataView(out.buffer).setUint32(0, value >>> 0, true)
+  return out
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff
+  for (const byte of bytes) crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff]!
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+  }
+  return value >>> 0
+})
 
 function escapeHtmlAttribute(value: string): string {
   return value
