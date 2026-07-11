@@ -56,8 +56,11 @@ export function createDesignJobQueueFromEnv(): DesignJobQueue {
 
 export function createRuntimeGatewayFromEnv(): RuntimeGateway {
   const runtimeProvider = process.env.DUDESIGN_RUNTIME_PROVIDER ?? process.env.DUDESIGN_RUNTIME_MODE
-  if (runtimeProvider !== 'babel-o') {
+  if (!runtimeProvider || runtimeProvider === 'mock') {
     return new MockRuntimeGateway()
+  }
+  if (runtimeProvider !== 'babel-o') {
+    throw new Error(`Unsupported DUDESIGN_RUNTIME_PROVIDER: ${runtimeProvider}. Expected one of: mock, babel-o.`)
   }
   const baseUrl = process.env.BABELO_BASE_URL ?? process.env.DUDESIGN_BABELO_BASE_URL
   if (!baseUrl) {

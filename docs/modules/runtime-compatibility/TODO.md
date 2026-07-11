@@ -291,3 +291,29 @@
 验收：
 - runtime prompt 注入后，LLM 不会引入英文 UI 短语或内部滚动容器。
 - 动态百科卡片中可见 tab、分页、展开、弹层控件不能只是静态装饰，必须在 private preview 中执行本地交互。
+
+## Phase RTC-10：Runtime Provider 边界基线
+
+- [x] `RuntimeHealth.runtime` / `RuntimeContract.runtime` 泛化为 `RuntimeProviderId`。
+- [x] Mock Runtime 使用 `runtime=mock`，不再伪装为 BabeL-O。
+- [x] Runtime factory 对 unknown provider fail fast。
+- [x] 增加 unknown provider 单测和架构边界 smoke。
+- [ ] 定义正式 `RuntimeCapabilities`。
+- [ ] 定义 `RuntimeDesignContextV1`。
+- [ ] 增加 CLI Agent fixture provider。
+
+验收：
+
+- BabeL-O 是真实 provider，不再是 Runtime Contract 唯一允许的类型。
+- 显式 provider 配置不会静默回退到 Mock。
+
+## Phase RTC-11：Provider-neutral Admin Governance
+
+- [x] Admin Runtime health/rollback 使用 provider-neutral service。
+- [x] Runtime observation audit `targetId` 使用实际 provider id。
+- [x] rollback request metadata 记录 `runtimeProviderId`。
+- [x] Mock Runtime 独立治理测试覆盖。
+
+验收：
+
+- Admin Runtime 治理不再把所有 provider 记录成 `babel-o`。

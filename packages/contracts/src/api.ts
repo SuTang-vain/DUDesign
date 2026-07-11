@@ -1140,6 +1140,25 @@ export type ArtifactQualitySummary = {
   }>
 }
 
+export type UserVariationExecution = {
+  phase: 'queued' | 'generating' | 'rendering' | 'completed' | 'failed' | 'cancelled'
+  retrying: boolean
+  degraded: boolean
+  attempt: number
+  message: string | null
+}
+
+export type AdminVariationRuntimeDiagnostics = {
+  runtimeProviderId: string | null
+  runtimeLaneId: string | null
+  runtimeBackendId: string | null
+  runtimeLeaseId: string | null
+  runtimeChildSessionId: string | null
+  runtimeAgentJobId: string | null
+  runtimeAttempt: number
+  runtimeLastErrorCode: string | null
+}
+
 export type DesignJobSnapshotResponse = {
   job: {
     id: ID
@@ -1159,11 +1178,7 @@ export type DesignJobSnapshotResponse = {
     previewUrl: string | null
     screenshotUrl: string | null
     designTemplatePack: DesignTemplatePack | null
-    runtimeLaneId: string | null
-    runtimeBackendId: string | null
-    runtimeLeaseId: string | null
-    runtimeAttempt: number
-    runtimeLastErrorCode: string | null
+    execution: UserVariationExecution
     inputTokens: number
     outputTokens: number
     costCents: number

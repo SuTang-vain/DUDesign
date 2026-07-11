@@ -1663,3 +1663,15 @@
 - 补真实浏览器 E2E：注册 -> 进入工作台 -> 登出 -> 未登录跳转。
 - 补真实 provider staging smoke：Google/GitHub OAuth client 配置后，从 `/login` 完成完整授权回跳。
 - 登录页后续可接入忘记密码、邮箱验证和登录失败节流提示。
+
+## 2026-07-11 UX-M11 Runtime Diagnostic Redaction
+
+### 已完成
+
+- 用户 Job Activity Stream 不再显示 runtime child session id 和 agent job id。
+- queued/repair 活动改为产品化执行状态文案。
+- 用户 Job Snapshot 改为消费 `execution` 状态，不感知 lane/backend/lease 拓扑。
+
+### 决策
+
+- Runtime 诊断信息只进入 Admin API；用户端只表达进度、重试、降级和可恢复动作。

@@ -158,3 +158,26 @@
 
 验收：
 - Admin GET `/api/admin/capabilities/templates` 返回的 `quality.hardConstraints` 包含正确统计
+
+## Phase ADM-7：Runtime Diagnostic Contract
+
+- [x] Admin Job Variation contract 增加 runtime provider/lane/backend/lease/session/agent/attempt/error diagnostics。
+- [x] User API 移除上述诊断字段后，Admin API 继续保留排障能力。
+- [ ] 在 Job Monitor UI 中展示 runtime diagnostics。
+- [ ] 增加按 lane/provider/error code 筛选。
+
+验收：
+
+- 管理端诊断能力不依赖 User API 泄露 Runtime 内部字段。
+
+## Phase ADM-8：Admin Runtime Governance Service Boundary
+
+- [x] Runtime health/contract/rollback 业务逻辑从巨型 `ApplicationService` 提取。
+- [x] 独立服务继续执行真实用户和 admin role 校验。
+- [x] Runtime observation 和 rollback request 继续写入 audit log。
+- [x] rollback audit target 改为实际 runtime provider id，不再写死 BabeL-O。
+
+验收：
+
+- 管理端路由保持不变。
+- Admin Runtime Governance 可以独立单测。

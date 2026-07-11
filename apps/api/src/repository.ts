@@ -234,6 +234,14 @@ export type AdminJobVariationSummary = {
   costCents: number
   errorCode: string | null
   errorMessage: string | null
+  runtimeProviderId: string | null
+  runtimeLaneId: string | null
+  runtimeBackendId: string | null
+  runtimeLeaseId: string | null
+  runtimeChildSessionId: string | null
+  runtimeAgentJobId: string | null
+  runtimeAttempt: number
+  runtimeLastErrorCode: string | null
   updatedAt: string
 }
 

@@ -1,10 +1,11 @@
 import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
+export type RuntimeProviderId = 'mock' | 'babel-o' | 'cli-agent' | (string & {})
 
 export type RuntimeHealth = {
   status: RuntimeContractStatus
-  runtime: 'babel-o'
+  runtime: RuntimeProviderId
   runtimeVersion: string | null
   contractVersion: string
   checkedAt: string
@@ -12,7 +13,7 @@ export type RuntimeHealth = {
 }
 
 export type RuntimeContract = {
-  runtime: 'babel-o'
+  runtime: RuntimeProviderId
   runtimeVersion: string | null
   contractVersion: string
   status: RuntimeContractStatus

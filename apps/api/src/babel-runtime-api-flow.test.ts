@@ -5,6 +5,7 @@ import type {
   CreateAnnotationBatchResponse,
   CreateDesignJobResponse,
   CreateSessionResponse,
+  DesignJobSnapshotResponse,
   ExportVariationResponse,
   ResumeSessionResponse,
   VariationDetailResponse,
@@ -13,21 +14,7 @@ import type {
 import { ApplicationService } from './service.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 
-type JobSnapshot = {
-  job: { status: string }
-  variations: Array<{
-    id: string
-    status: string
-    previewUrl: string | null
-    runtimeChildSessionId: string | null
-    runtimeAgentJobId: string | null
-  }>
-  artifacts: Array<{
-    id: string
-    variationId: string | null
-    quality: { status: 'pass' | 'warn' | 'fail'; issues: string[] } | null
-  }>
-}
+type JobSnapshot = DesignJobSnapshotResponse
 
 describe('DUDesign API flow with BabeL-O runtime gateway', () => {
   let harness: ApiFlowHarness
@@ -243,8 +230,20 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
 	    assert.equal(jobSnapshot.variations.length, 2)
 	    assert.ok(jobSnapshot.variations.every(variation => variation.status === 'completed'))
 	    assert.ok(jobSnapshot.variations.every(variation => variation.previewUrl === `/api/variations/${variation.id}/preview`))
-	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeChildSessionId), ['rt_child_1', 'rt_child_2'])
-	    assert.deepEqual(jobSnapshot.variations.map(variation => variation.runtimeAgentJobId), ['agent_1', 'agent_2'])
+	    assert.ok(jobSnapshot.variations.every(variation => variation.execution.phase === 'completed'))
+	    assert.ok(jobSnapshot.variations.every(variation => !('runtimeChildSessionId' in variation)))
+	    const adminJobs = await getJson<{
+	      jobs: Array<{
+	        id: string
+	        variations: Array<{
+	          runtimeChildSessionId: string | null
+	          runtimeAgentJobId: string | null
+	        }>
+	      }>
+	    }>('/api/admin/jobs', { 'x-dudesign-admin-role': 'developer' })
+	    const adminJob = adminJobs.jobs.find(candidate => candidate.id === createdJob.job.id)
+	    assert.deepEqual(adminJob?.variations.map(variation => variation.runtimeChildSessionId), ['rt_child_1', 'rt_child_2'])
+	    assert.deepEqual(adminJob?.variations.map(variation => variation.runtimeAgentJobId), ['agent_1', 'agent_2'])
 	    assert.equal(jobSnapshot.artifacts.length, 10)
     const preview = await getText(`/api/variations/${jobSnapshot.variations[0]!.id}/preview`)
     const previewResponse = await fetch(`${harness.baseUrl}/api/variations/${jobSnapshot.variations[0]!.id}/preview`)
@@ -510,8 +509,8 @@ describe('DUDesign API flow with BabeL-O runtime gateway', () => {
     throw new Error(`Timed out waiting for variation status ${variationStatus} in job ${jobId}`)
   }
 
-  async function getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${harness.baseUrl}${path}`)
+  async function getJson<T>(path: string, headers?: Record<string, string>): Promise<T> {
+    const response = await fetch(`${harness.baseUrl}${path}`, { headers })
     assert.equal(response.ok, true, `${path} failed with ${response.status}`)
     return response.json() as Promise<T>
   }

@@ -340,3 +340,44 @@
 验收：
 - 全部 132 个测试通过
 - Stage 1 warning 阶段：先观察真实分布，1-2 周后再升 error
+
+## Phase APP-10：架构边界基线
+
+- [x] Runtime provider 仅在未配置或显式配置 `mock` 时使用 Mock Runtime。
+- [x] 未识别 `DUDESIGN_RUNTIME_PROVIDER` 时 fail fast，不静默回退。
+- [x] User Job Snapshot 移除 lane/backend/lease/runtime session 等诊断字段。
+- [x] User Job Snapshot 增加产品化 `execution` 状态。
+- [x] Admin Job Variation 保留 runtime provider/lane/backend/lease/session/agent/attempt/error diagnostics。
+- [x] 增加源码级架构边界 smoke test。
+- [ ] 后续将 provider id 正式持久化到 variation runtime assignment，而不是由已有 runtime handle 推断。
+
+验收：
+
+- 用户 API 不暴露 Runtime Lane 拓扑。
+- 管理端仍可排查完整 Runtime 执行引用。
+- runtime provider 配置拼写错误会阻断启动。
+
+## Phase APP-11：ApplicationService First Split
+
+- [x] 建立 `apps/api/src/application/` 目录。
+- [x] 提取 `AuthApplicationService`：
+  - [x] 注册。
+  - [x] 密码登录。
+  - [x] OAuth provider readiness/start/callback。
+  - [x] session cookie 创建/撤销。
+  - [x] current user bootstrap。
+- [x] 提取 `AdminRuntimeGovernanceService`：
+  - [x] runtime health/contract observability。
+  - [x] degraded/unavailable/mismatch/drift 审计。
+  - [x] provider-neutral rollback request 审计。
+- [x] `ApplicationService` 保留 facade，Server routes 和外部 API 不变。
+- [x] 新增独立服务单测。
+- [x] 架构门禁禁止 application services 反向依赖 `ApplicationService`。
+- [ ] 提取 Artifact Application Service。
+- [ ] 提取 Capability/Encyclopedia Application Service。
+- [ ] 提取剩余 Admin Governance 子域。
+
+验收：
+
+- Auth 和 Admin Runtime Governance 可脱离 facade 独立测试。
+- 现有 Auth/Admin HTTP 流程保持兼容。

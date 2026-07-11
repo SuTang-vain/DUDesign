@@ -559,7 +559,7 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         variationLabel,
         stage: 'queued',
         summary: 'Agent queued',
-        detail: runtimeRefs(event.payload.runtimeChildSessionId, event.payload.runtimeAgentJobId),
+        detail: 'Waiting for available design execution capacity.',
       }
     case 'design.variation_streaming':
       return {
@@ -657,7 +657,7 @@ function activityFromEvent(event: DesignEvent, variations: VariationSnapshot[]):
         variationLabel,
         stage: 'repair',
         summary: `Automatic repair started · attempt ${event.payload.attempt}`,
-        detail: event.payload.runtimeChildSessionId ? `Runtime session ${event.payload.runtimeChildSessionId}` : `Repairing artifact ${event.payload.artifactId}`,
+        detail: `Repairing artifact ${event.payload.artifactId}`,
       }
     case 'design.loop_completed':
       return {
@@ -737,14 +737,6 @@ function activityDetailForDelta(delta: string): string | undefined {
   return undefined
 }
 
-function runtimeRefs(runtimeChildSessionId?: string, runtimeAgentJobId?: string): string | undefined {
-  const parts = [
-    runtimeChildSessionId && `session ${runtimeChildSessionId}`,
-    runtimeAgentJobId && `agent ${runtimeAgentJobId}`,
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : undefined
-}
-
 function tokenSummary(inputTokens?: number, outputTokens?: number, costCents?: number): string | undefined {
   const tokens = [inputTokens, outputTokens].some(value => typeof value === 'number')
     ? `${(inputTokens ?? 0).toLocaleString()} in · ${(outputTokens ?? 0).toLocaleString()} out`
@@ -814,13 +806,25 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
   switch (event.type) {
     case 'design.variation_queued':
       if (isTerminal) return variation
-      return { ...variation, status: 'queued' }
+      return {
+        ...variation,
+        status: 'queued',
+        execution: { ...variation.execution, phase: 'queued' },
+      }
     case 'design.variation_streaming':
       if (isTerminal) return variation
-      return { ...variation, status: 'streaming' }
+      return {
+        ...variation,
+        status: 'streaming',
+        execution: { ...variation.execution, phase: 'generating' },
+      }
     case 'design.variation_code_delta':
       if (isTerminal) return variation
-      return { ...variation, status: 'streaming' }
+      return {
+        ...variation,
+        status: 'streaming',
+        execution: { ...variation.execution, phase: 'generating' },
+      }
     case 'design.variation_preview_ready':
       if (isTerminal) {
         return {
@@ -828,6 +832,7 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
           currentArtifactId: variation.currentArtifactId ?? event.payload.artifactId,
           previewUrl: variation.previewUrl ?? event.payload.previewUrl,
           screenshotUrl: variation.screenshotUrl ?? event.payload.screenshotUrl ?? null,
+          execution: { ...variation.execution, phase: 'completed' },
         }
       }
       return {
@@ -836,6 +841,7 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
         currentArtifactId: event.payload.artifactId,
         previewUrl: event.payload.previewUrl,
         screenshotUrl: event.payload.screenshotUrl ?? variation.screenshotUrl,
+        execution: { ...variation.execution, phase: 'rendering' },
       }
     case 'design.variation_completed':
       return {
@@ -846,6 +852,7 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
         inputTokens: event.payload.inputTokens ?? variation.inputTokens,
         outputTokens: event.payload.outputTokens ?? variation.outputTokens,
         costCents: event.payload.costCents ?? variation.costCents,
+        execution: { ...variation.execution, phase: 'completed', retrying: false, degraded: false, message: null },
       }
     case 'design.variation_failed':
       return {
@@ -853,6 +860,7 @@ function updateVariationFromEvent(variation: VariationSnapshot, event: DesignEve
         status: 'failed',
         errorCode: event.payload.errorCode,
         errorMessage: event.payload.message,
+        execution: { ...variation.execution, phase: 'failed', retrying: false, degraded: true, message: event.payload.message },
       }
     default:
       return variation

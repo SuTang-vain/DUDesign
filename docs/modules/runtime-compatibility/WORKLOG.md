@@ -2942,3 +2942,30 @@
 
 - 下一步可继续优化镜像导出/解包耗时：当前 API / runtime-adapter / web / admin 都复制完整 `/app`，导致导出层偏大。
 - 可考虑生产镜像裁剪：只复制目标 workspace 运行所需包、`dist` / `.next` / `node_modules`，减少镜像体积和 unpack 时间。
+
+## 2026-07-11 RTC-M11 Runtime Provider Boundary Baseline
+
+### 已完成
+
+- `RuntimeProviderId` 替代固定 `'babel-o'` 类型。
+- Mock Runtime health/contract 正确报告 `runtime=mock`。
+- Runtime factory 仅在未配置或显式 `mock` 时启用 Mock。
+- unknown runtime provider 直接报错，避免生产配置拼写错误后静默运行 Mock。
+- 增加 factory 单测和源码级架构边界 smoke。
+
+### 后续
+
+- 定义 Runtime Capabilities 和 `RuntimeDesignContextV1`。
+- 增加 CLI Agent fixture provider，并复用统一 contract tests。
+
+## 2026-07-11 RTC-M12 Provider-neutral Runtime Governance
+
+### 已完成
+
+- 新增 `AdminRuntimeGovernanceService`，只依赖 Repository 与 Runtime Gateway。
+- Runtime observation 和 rollback audit 不再写死 `babel-o` target。
+- Mock provider health/rollback 可通过同一治理路径独立运行。
+
+### 后续
+
+- Runtime Provider Registry 落地后，把 provider id 正式持久化到 variation assignment。

@@ -2800,6 +2800,43 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - staging 配置真实 OAuth client，并增加 opt-in provider smoke。
 - 上线前补 rate limit、登录失败节流、CSRF/CORS allowlist 和密码重置。
 
+## 2026-07-11 APP-M54 Architecture Boundary Baseline
+
+### 已完成
+
+- User Job Snapshot 不再展开内部 `DesignVariation`，改为显式用户 DTO。
+- 移除用户响应中的 runtime lane/backend/lease diagnostics。
+- 新增 `UserVariationExecution`，统一表达 phase、retrying、degraded、attempt 和用户可理解 message。
+- Admin Job Variation 增加完整 runtime diagnostics，确保用户协议收口不损失排障信息。
+- 新增 `architectureBoundaries.test.ts`，自动守住 User/Admin/Runtime 边界。
+
+### 决策
+
+- 内部持久化事件暂保留 lane assignment/retry 信息，供 Application Service 与 Admin 使用。
+- provider id 后续正式字段化；当前 Admin summary 仍处于迁移 contract 阶段。
+
+## 2026-07-11 APP-M55 ApplicationService First Split
+
+### 已完成
+
+- 新建 `apps/api/src/application/`。
+- 提取 `AuthApplicationService`，承接注册、密码登录、OAuth、session cookie、登出和 current user bootstrap。
+- 提取 `AdminRuntimeGovernanceService`，承接 runtime health/contract、observation audit 和 rollback request。
+- `ApplicationService` 保留同名 facade 方法，Server routes 和外部 API 无需修改。
+- 删除 facade 中已经迁移的 Auth/OAuth 和 runtime observation 私有 helper。
+- 新增两个独立服务测试和反向依赖架构门禁。
+
+### 验证
+
+- `npm run typecheck`
+- Auth/Admin Runtime/architecture 定向测试通过。
+- 原有 session cookie、OAuth 和 Admin runtime HTTP 测试通过。
+
+### 后续
+
+- 下一批优先提取 Artifact Service。
+- Capability/Encyclopedia 业务建议一起设计边界后再拆，避免把紧密流程机械切碎。
+
 ### 2026-07-07 追加进展
 
 - OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。

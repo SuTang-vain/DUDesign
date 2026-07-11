@@ -22,7 +22,7 @@ export class MockRuntimeGateway implements RuntimeGateway {
   async getRuntimeHealth(): Promise<RuntimeHealth> {
     return {
       status: 'compatible',
-      runtime: 'babel-o',
+      runtime: 'mock',
       runtimeVersion: 'mock',
       contractVersion: CONTRACT_VERSION,
       checkedAt: new Date().toISOString(),
@@ -32,7 +32,7 @@ export class MockRuntimeGateway implements RuntimeGateway {
 
   async getRuntimeContract(): Promise<RuntimeContract> {
     return {
-      runtime: 'babel-o',
+      runtime: 'mock',
       runtimeVersion: 'mock',
       contractVersion: CONTRACT_VERSION,
       status: 'compatible',

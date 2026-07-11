@@ -854,3 +854,28 @@
 - 增加 `PATCH /api/admin/capabilities/templates/:id`，支持 official Design Template Pack 发布/下线/归档。
 - 扩展禁用对象到动态百科子模板、审查规则和 capability preset。
 - 如后续引入多环境配置中心，可将 override 表作为 API 层 cache/source 的一部分，而不是让前端直接读取配置中心。
+
+## 2026-07-11 ADM-M23 Runtime Diagnostic Contract
+
+### 已完成
+
+- Admin Job Variation contract 增加 runtime provider、lane、backend、lease、child session、agent job、attempt 和 last error。
+- BabeL-O API flow 测试验证：User Job Snapshot 不返回 runtime handles，Admin Jobs API 仍返回完整 handles。
+
+### 后续
+
+- 在 Job Monitor UI 中渲染 runtime diagnostics。
+- 增加 lane/provider/error code 筛选和 Lane Pool 反查。
+
+## 2026-07-11 ADM-M24 Admin Runtime Governance Service
+
+### 已完成
+
+- Runtime health、contract observation 和 rollback request 从 `ApplicationService` 提取到独立服务。
+- 保留 support/operator/developer 权限规则。
+- Runtime audit target 使用真实 provider id。
+- 增加独立 Mock Runtime governance 单测。
+
+### 决策
+
+- `ApplicationService` 暂时继续作为 facade，避免同时修改路由和 HTTP contract。

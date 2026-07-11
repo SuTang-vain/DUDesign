@@ -64,6 +64,23 @@ describe('createRuntimeGatewayFromEnv', () => {
     assert.ok(runtime instanceof MockRuntimeGateway)
   })
 
+  it('uses the mock runtime gateway when explicitly configured', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'mock'
+
+    const runtime = createRuntimeGatewayFromEnv()
+
+    assert.ok(runtime instanceof MockRuntimeGateway)
+  })
+
+  it('fails fast for an unknown runtime provider', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'babel-typo'
+
+    assert.throws(
+      () => createRuntimeGatewayFromEnv(),
+      /Unsupported DUDESIGN_RUNTIME_PROVIDER: babel-typo/,
+    )
+  })
+
   it('requires a BabeL-O base URL when babel-o mode is enabled', () => {
     process.env.DUDESIGN_RUNTIME_PROVIDER = 'babel-o'
 

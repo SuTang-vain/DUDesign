@@ -220,3 +220,15 @@
 验收：
 - 词条引导完成后，用户能在卡片上看到"中文优先"或"语言类"标识
 - 标识提示会解释约束含义（中文优先：默认简体中文 / 语言类：豁免外语正文约束）
+
+## Phase UX-10：Runtime 诊断信息收口
+
+- [x] Job Snapshot 改为消费产品化 `execution` 状态。
+- [x] Activity Stream 不再展示 runtime child session id / agent job id。
+- [x] 用户端继续展示 queued/generating/rendering/retrying/degraded/completed/failed 产品状态。
+- [x] 增加架构 smoke，禁止用户源码出现 BabeL-O endpoint、env 和 NexusEvent。
+
+验收：
+
+- Runtime Lane Pool 或 provider 切换不要求修改用户端诊断展示。
+- 最终用户不会看到 Runtime 内部引用。

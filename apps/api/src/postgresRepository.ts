@@ -1612,6 +1612,14 @@ export class PostgresRepository extends InMemoryStore {
         costCents: row.cost_cents,
         errorCode: row.error_code,
         errorMessage: adminPreviewText(row.error_message, 160),
+        runtimeProviderId: null,
+        runtimeLaneId: row.runtime_lane_id,
+        runtimeBackendId: row.runtime_backend_id,
+        runtimeLeaseId: row.runtime_lease_id,
+        runtimeChildSessionId: row.runtime_child_session_id,
+        runtimeAgentJobId: row.runtime_agent_job_id,
+        runtimeAttempt: row.runtime_attempt,
+        runtimeLastErrorCode: row.runtime_last_error_code,
         updatedAt: toIso(row.updated_at),
       })
       variationsByJob.set(row.job_id, list)

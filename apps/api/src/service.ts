@@ -66,28 +66,8 @@ import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
 import type { ApplicationRepository } from './repository.js'
-import {
-  clearSessionCookie,
-  createSessionToken,
-  hashIp,
-  hashPassword,
-  hashSessionToken,
-  normalizeAuthEmail,
-  sessionCookie,
-  validatePassword,
-  verifyPassword,
-  type RequestContext,
-} from './auth.js'
-import {
-  createOAuthAuthorizationUrl,
-  createOAuthStateCookie,
-  exchangeOAuthCodeForProfile,
-  isOAuthProviderConfigured,
-  oauthConfig,
-  oauthIdentityProvider,
-  type OAuthProvider,
-  type OAuthProfile,
-} from './oauth.js'
+import type { RequestContext } from './auth.js'
+import type { OAuthProvider } from './oauth.js'
 import { createId } from './id.js'
 import { DYNAMIC_ENCYCLOPEDIA_PRESET, listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
 import { DESIGN_TEMPLATE_PACK_SCHEMA_VERSION, importDesignMd } from './designTemplatePack.js'
@@ -108,6 +88,8 @@ import {
 } from './automationLoop.js'
 import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
 import { detectEntryLanguage } from './entryLanguage.js'
+import { AuthApplicationService } from './application/authApplicationService.js'
+import { AdminRuntimeGovernanceService } from './application/adminRuntimeGovernanceService.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
 const AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH = 1200
@@ -334,6 +316,8 @@ export class ApplicationService {
   readonly artifacts: ArtifactStore
   readonly queue: DesignJobQueue
   readonly mcpExecutor: McpExecutor
+  readonly authService: AuthApplicationService
+  readonly adminRuntimeGovernance: AdminRuntimeGovernanceService
   private readonly backgroundTasks = new Set<Promise<unknown>>()
   private readonly disabledCapabilityPluginIds = new Set<string>()
   private readonly capabilityGovernanceReady: Promise<void>
@@ -355,6 +339,8 @@ export class ApplicationService {
     })
     this.queue = options.queue ?? new InMemoryDesignJobQueue()
     this.mcpExecutor = options.mcpExecutor ?? new MockMcpExecutor()
+    this.authService = new AuthApplicationService(this.store)
+    this.adminRuntimeGovernance = new AdminRuntimeGovernanceService(this.store, this.runtime)
     this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
@@ -383,32 +369,7 @@ export class ApplicationService {
     input: { email?: string; password?: string; name?: string | null },
     meta: { userAgent?: string | null; ip?: string | null } = {},
   ) {
-    const email = normalizeAuthEmail(input.email)
-    const password = input.password ?? ''
-    validatePassword(password)
-    const existing = await this.store.getUserByEmail(email)
-    if (existing) throw createHttpError(409, 'USER_ALREADY_EXISTS', 'A user with this email already exists.')
-    const { user, workspace } = await this.store.createUserWithWorkspace({
-      email,
-      name: input.name ?? null,
-    })
-    await this.store.createAuthIdentity({
-      userId: user.id,
-      provider: 'password',
-      providerSubject: email,
-      passwordHash: await hashPassword(password),
-      verifiedAt: null,
-    })
-    const auth = await this.createAuthSessionForUser(user.id, meta)
-    return {
-      cookie: auth.cookie,
-      body: {
-        user,
-        workspace,
-        workspaces: [workspace],
-        models: await this.store.listUserModelOptions(user.id),
-      },
-    }
+    return this.authService.registerUser(input, meta)
   }
 
   async loginUser(
@@ -416,45 +377,15 @@ export class ApplicationService {
     input: { email?: string; password?: string },
     meta: { userAgent?: string | null; ip?: string | null } = {},
   ) {
-    const email = normalizeAuthEmail(input.email)
-    const identity = await this.store.getAuthIdentityByProvider('password', email)
-    if (!identity?.passwordHash) throw createHttpError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.')
-    const valid = await verifyPassword(input.password ?? '', identity.passwordHash)
-    if (!valid) throw createHttpError(401, 'INVALID_CREDENTIALS', 'Invalid email or password.')
-    const user = await this.requireUser(identity.userId)
-    const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
-    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-    const auth = await this.createAuthSessionForUser(user.id, meta)
-    return {
-      cookie: auth.cookie,
-      body: {
-        user,
-        workspace,
-        workspaces: [workspace],
-        models: await this.store.listUserModelOptions(user.id),
-      },
-    }
+    return this.authService.loginUser(input, meta)
   }
 
   async listOAuthProviders() {
-    return {
-      providers: (['google', 'github'] as OAuthProvider[]).map(provider => ({
-        provider,
-        configured: isOAuthProviderConfigured(provider),
-      })),
-    }
+    return this.authService.listOAuthProviders()
   }
 
   async startOAuthLogin(provider: OAuthProvider) {
-    const config = oauthConfig(provider)
-    const authorization = createOAuthAuthorizationUrl(config)
-    return {
-      cookie: createOAuthStateCookie(provider, authorization.state),
-      body: {
-        provider,
-        authorizationUrl: authorization.authorizationUrl,
-      },
-    }
+    return this.authService.startOAuthLogin(provider)
   }
 
   async completeOAuthLogin(
@@ -462,34 +393,15 @@ export class ApplicationService {
     code: string,
     meta: { userAgent?: string | null; ip?: string | null } = {},
   ) {
-    const profile = await exchangeOAuthCodeForProfile(oauthConfig(provider), code)
-    const { user, workspace } = await this.findOrCreateOAuthUser(profile)
-    const auth = await this.createAuthSessionForUser(user.id, meta)
-    return {
-      cookie: auth.cookie,
-      body: {
-        user,
-        workspace,
-        workspaces: [workspace],
-        models: await this.store.listUserModelOptions(user.id),
-      },
-    }
+    return this.authService.completeOAuthLogin(provider, code, meta)
   }
 
   async logoutUser(ctx: RequestContext) {
-    if (ctx.authSessionTokenHash) await this.store.revokeAuthSession(ctx.authSessionTokenHash)
-    return {
-      cookie: clearSessionCookie(),
-      body: { ok: true },
-    }
+    return this.authService.logoutUser(ctx)
   }
 
   async getCurrentUser(ctx: RequestContext) {
-    const user = await this.requireUser(ctx.userId)
-    const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
-    if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-    const models = await this.store.listUserModelOptions(user.id)
-    return { user, workspace, workspaces: [workspace], models }
+    return this.authService.getCurrentUser(ctx)
   }
 
   async listUserModels(ctx: RequestContext) {
@@ -1091,9 +1003,20 @@ export class ApplicationService {
         designTemplatePacks,
       },
       variations: snapshot.variations.map(variation => ({
-        ...variation,
+        id: variation.id,
+        index: variation.index,
+        title: variation.title,
+        status: variation.status,
+        currentArtifactId: variation.currentArtifactId,
+        previewUrl: variation.previewUrl,
+        inputTokens: variation.inputTokens,
+        outputTokens: variation.outputTokens,
+        costCents: variation.costCents,
+        errorCode: variation.errorCode,
+        errorMessage: variation.errorMessage,
         designTemplatePack: assignedTemplatePackForVariation(variation.index, assignments),
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
+        execution: userVariationExecution(variation),
         reviewAction: reviewActionsByVariation.get(variation.id) ?? null,
       })),
       artifacts: snapshot.artifacts.map(artifact => ({
@@ -2002,74 +1925,11 @@ export class ApplicationService {
   }
 
   async getAdminRuntimeHealth(ctx: RequestContext) {
-    await this.requireAdminRole(ctx, ['support', 'operator', 'developer'])
-    const startedAt = Date.now()
-    const [runtime, contract] = await Promise.all([
-      this.runtime.getRuntimeHealth(),
-      this.runtime.getRuntimeContract(),
-    ])
-    const latencyMs = Math.max(0, Date.now() - startedAt)
-    const degraded = runtime.status === 'degraded' || contract.status === 'degraded'
-    const unavailable = runtime.status === 'unavailable' || contract.status === 'unavailable'
-    const contractMismatch = runtime.status === 'contract_mismatch' || contract.status === 'contract_mismatch'
-    const drift = runtime.contractVersion !== contract.contractVersion || runtime.runtimeVersion !== contract.runtimeVersion
-    if (degraded || unavailable || contractMismatch || drift) {
-      await this.recordRuntimeObservation(ctx, {
-        runtime,
-        contract,
-        latencyMs,
-        degraded,
-        unavailable,
-        contractMismatch,
-        drift,
-      })
-    }
-    return {
-      runtime,
-      contract,
-      observability: {
-        latencyMs,
-        degraded,
-        unavailable,
-        contractMismatch,
-        drift,
-        degradedMode: degraded ? 'read_existing_artifacts_and_block_unsafe_runtime_switch' : 'none',
-        rollbackAvailable: false,
-        rollbackMode: 'external_config_required',
-      },
-    }
+    return this.adminRuntimeGovernance.getRuntimeHealth(ctx)
   }
 
   async rollbackAdminRuntimeConfig(ctx: RequestContext, input: { reason?: string | null } = {}) {
-    await this.requireAdminRole(ctx, ['operator', 'developer'])
-    const [runtime, contract] = await Promise.all([
-      this.runtime.getRuntimeHealth(),
-      this.runtime.getRuntimeContract(),
-    ])
-    const audit = await this.store.createAuditLog({
-      requestId: ctx.requestId,
-      operatorUserId: ctx.userId,
-      operatorRole: ctx.adminRole!,
-      action: 'runtime.config.rollback.requested',
-      targetType: 'runtime_config',
-      targetId: 'babel-o',
-      reason: input.reason ?? null,
-      metadata: {
-        status: 'unsupported_external_config_required',
-        runtimeStatus: runtime.status,
-        contractStatus: contract.status,
-        runtimeVersion: runtime.runtimeVersion,
-        contractVersion: contract.contractVersion,
-        message: 'Runtime config rollback is recorded by DUDesign but must be executed by deployment/config management.',
-      },
-    })
-    return {
-      status: 'unsupported_external_config_required',
-      message: 'DUDesign recorded the rollback request. Switch the active runtime config through deployment/config management, then re-run runtime health.',
-      runtime,
-      contract,
-      audit,
-    }
+    return this.adminRuntimeGovernance.requestRuntimeRollback(ctx, input)
   }
 
   async listAuditLogs(ctx: RequestContext) {
@@ -2746,62 +2606,6 @@ export class ApplicationService {
       this.disabledCapabilityPluginIds.add(pluginId)
     } else {
       this.disabledCapabilityPluginIds.delete(pluginId)
-    }
-  }
-
-  private async createAuthSessionForUser(userId: string, meta: { userAgent?: string | null; ip?: string | null }) {
-    const token = createSessionToken()
-    const maxAgeSeconds = 60 * 60 * 24 * 30
-    const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000).toISOString()
-    const session = await this.store.createAuthSession({
-      userId,
-      tokenHash: hashSessionToken(token),
-      userAgent: meta.userAgent ?? null,
-      ipHash: meta.ip ? hashIp(meta.ip) : null,
-      expiresAt,
-    })
-    return {
-      session,
-      cookie: sessionCookie(token, { maxAgeSeconds }),
-    }
-  }
-
-  private async findOrCreateOAuthUser(profile: OAuthProfile) {
-    const email = normalizeAuthEmail(profile.email)
-    if (!profile.emailVerified) {
-      throw createHttpError(400, 'OAUTH_EMAIL_UNVERIFIED', 'OAuth provider did not return a verified email.')
-    }
-    const provider = oauthIdentityProvider(profile.provider)
-    const existingIdentity = await this.store.getAuthIdentityByProvider(provider, profile.providerSubject)
-    if (existingIdentity) {
-      const user = await this.requireUser(existingIdentity.userId)
-      const workspace = await this.store.getPrimaryWorkspaceForUser(user.id)
-      if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-      return { user, workspace }
-    }
-    const existingUser = await this.store.getUserByEmail(email)
-    const userContext = existingUser
-      ? {
-          user: existingUser,
-          workspace: await this.store.getPrimaryWorkspaceForUser(existingUser.id),
-        }
-      : await this.store.createUserWithWorkspace({
-          email,
-          name: profile.name,
-        })
-    if (!userContext.workspace) {
-      throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${userContext.user.id}`)
-    }
-    await this.store.createAuthIdentity({
-      userId: userContext.user.id,
-      provider,
-      providerSubject: profile.providerSubject,
-      passwordHash: null,
-      verifiedAt: new Date().toISOString(),
-    })
-    return {
-      user: userContext.user,
-      workspace: userContext.workspace,
     }
   }
 
@@ -3734,46 +3538,6 @@ export class ApplicationService {
 
   private async recordUsageEvent(input: Parameters<ApplicationRepository['createUsageEvent']>[0]): Promise<void> {
     await this.store.createUsageEvent(input)
-  }
-
-  private async recordRuntimeObservation(ctx: RequestContext, input: {
-    runtime: Awaited<ReturnType<RuntimeGateway['getRuntimeHealth']>>
-    contract: Awaited<ReturnType<RuntimeGateway['getRuntimeContract']>>
-    latencyMs: number
-    degraded: boolean
-    unavailable: boolean
-    contractMismatch: boolean
-    drift: boolean
-  }): Promise<void> {
-    const action = input.contractMismatch
-      ? 'runtime.contract_mismatch'
-      : input.unavailable
-        ? 'runtime.unavailable'
-        : input.drift
-          ? 'runtime.drift_detected'
-          : 'runtime.degraded'
-    await this.store.createAuditLog({
-      requestId: ctx.requestId,
-      operatorUserId: ctx.userId,
-      operatorRole: ctx.adminRole ?? 'support',
-      action,
-      targetType: 'runtime',
-      targetId: 'babel-o',
-      reason: input.runtime.message ?? input.contract.status,
-      metadata: {
-        latencyMs: input.latencyMs,
-        runtimeStatus: input.runtime.status,
-        contractStatus: input.contract.status,
-        runtimeVersion: input.runtime.runtimeVersion,
-        runtimeContractVersion: input.runtime.contractVersion,
-        contractRuntimeVersion: input.contract.runtimeVersion,
-        contractVersion: input.contract.contractVersion,
-        degraded: input.degraded,
-        unavailable: input.unavailable,
-        contractMismatch: input.contractMismatch,
-        drift: input.drift,
-      },
-    })
   }
 
   private async writeMockArtifactBody(artifactId: string): Promise<void> {
@@ -7282,6 +7046,40 @@ function isEntryContentLanguage(value: unknown): value is EntryContentLanguage {
 
 function isTerminalVariationStatus(status: DesignVariationStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
+function userVariationExecution(variation: DesignVariation): {
+  phase: 'queued' | 'generating' | 'rendering' | 'completed' | 'failed' | 'cancelled'
+  retrying: boolean
+  degraded: boolean
+  attempt: number
+  message: string | null
+} {
+  const phase = variation.status === 'queued'
+    ? 'queued'
+    : variation.status === 'rendering_preview'
+      ? 'rendering'
+      : variation.status === 'completed'
+        ? 'completed'
+        : variation.status === 'failed'
+          ? 'failed'
+          : variation.status === 'cancelled'
+            ? 'cancelled'
+            : 'generating'
+  const retrying = variation.runtimeAttempt > 1 && !isTerminalVariationStatus(variation.status)
+  const degraded = Boolean(variation.runtimeLastErrorCode) && variation.status !== 'completed'
+  const message = retrying
+    ? 'The system switched execution capacity and is retrying this design.'
+    : degraded
+      ? 'Design execution is continuing with reduced runtime availability.'
+      : null
+  return {
+    phase,
+    retrying,
+    degraded,
+    attempt: Math.max(variation.runtimeAttempt, 0),
+    message,
+  }
 }
 
 function escapeHtml(value: string): string {
