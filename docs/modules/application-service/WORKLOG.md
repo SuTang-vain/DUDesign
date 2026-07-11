@@ -2896,6 +2896,40 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - Admin screenshot rebuild、export repair、bulk share revoke 仍留在 facade，下一批应形成 `AdminArtifactGovernanceService`。
 - ZIP/path helper 当前在用户服务与 Admin facade 过渡期重复；待 Admin Artifact Service 拆出后统一下沉为 artifact domain helper。
 
+## 2026-07-11 APP-M58 Admin Artifact Governance Service
+
+### 已完成
+
+- 新增 `AdminArtifactGovernanceService`，承接：
+  - HTML artifact screenshot rebuild。
+  - HTML/export artifact export repair。
+  - artifact 全部 active shares 批量撤销。
+  - 每项操作对应的 operator/developer audit log。
+- `ApplicationService` 保留同名 facade 方法，Admin HTTP route 和 contract 不变。
+- 新增 `artifactOperations.ts`，统一用户服务与管理服务共用的：
+  - screenshot repair/restore queue payload。
+  - export ZIP artifact 创建。
+  - export manifest 和关联 assets 打包。
+- 删除 facade 和用户 Artifact Service 中重复的 ZIP/CRC/path 实现。
+- support 角色继续只能查询，不能执行 artifact 写治理。
+
+### 独立测试
+
+- screenshot rebuild 创建 repair queue job 并记录原因审计。
+- export repair 可从 HTML 或已有 export 找回 source HTML，并保留 assets。
+- 每次 admin export repair 产生独立 repair export artifact。
+- bulk share revoke 撤销全部 active shares。
+- support 角色执行写操作返回 `ADMIN_FORBIDDEN`。
+- API flow 的 screenshot 等待窗口改为默认 30 秒，并支持
+  `DUDESIGN_API_SMOKE_SCREENSHOT_TIMEOUT_MS` 覆盖；避免 Chromium 冷启动和 desktop/tablet/mobile
+  串行渲染超过旧 5 秒窗口时产生假失败。
+
+### 边界决策
+
+- 用户 Artifact Service 负责 workspace 权限下的产品操作和 usage event。
+- Admin Artifact Governance 负责 operator/developer 修复与审计，不写用户 usage event。
+- 共用 operation 只处理 repository/artifact store/queue 技术动作，不负责权限和审计裁决。
+
 ### 2026-07-07 追加进展
 
 - OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。

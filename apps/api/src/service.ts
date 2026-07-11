@@ -91,6 +91,7 @@ import { detectEntryLanguage } from './entryLanguage.js'
 import { AuthApplicationService } from './application/authApplicationService.js'
 import { AdminRuntimeGovernanceService } from './application/adminRuntimeGovernanceService.js'
 import { ArtifactApplicationService } from './application/artifactApplicationService.js'
+import { AdminArtifactGovernanceService } from './application/adminArtifactGovernanceService.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
 const AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH = 1200
@@ -320,6 +321,7 @@ export class ApplicationService {
   readonly authService: AuthApplicationService
   readonly adminRuntimeGovernance: AdminRuntimeGovernanceService
   readonly artifactService: ArtifactApplicationService
+  readonly adminArtifactGovernance: AdminArtifactGovernanceService
   private readonly backgroundTasks = new Set<Promise<unknown>>()
   private readonly disabledCapabilityPluginIds = new Set<string>()
   private readonly capabilityGovernanceReady: Promise<void>
@@ -344,6 +346,7 @@ export class ApplicationService {
     this.authService = new AuthApplicationService(this.store)
     this.adminRuntimeGovernance = new AdminRuntimeGovernanceService(this.store, this.runtime)
     this.artifactService = new ArtifactApplicationService(this.store, this.artifacts, this.queue)
+    this.adminArtifactGovernance = new AdminArtifactGovernanceService(this.store, this.artifacts, this.queue)
     this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
@@ -1647,143 +1650,15 @@ export class ApplicationService {
   }
 
   async rebuildArtifactScreenshotAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
-    await this.requireAdminRole(ctx, ['operator', 'developer'])
-    const artifact = await this.store.getArtifactById(artifactId)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    if (artifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Screenshot rebuild requires an HTML artifact.')
-    if (!artifact.variationId) throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Artifact is not attached to a variation.')
-    const variation = await this.store.getVariationById(artifact.variationId)
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${artifact.variationId}`)
-    const queueJob = await this.enqueueScreenshotJob({
-      workspaceId: artifact.workspaceId,
-      sessionId: artifact.sessionId,
-      variation,
-      htmlArtifactId: artifact.id,
-      source: 'repair',
-      reason: 'repair_requested',
-      jobId: variation.jobId,
-    })
-    const audit = await this.store.createAuditLog({
-      requestId: ctx.requestId,
-      operatorUserId: ctx.userId,
-      operatorRole: ctx.adminRole!,
-      action: 'artifact.screenshot_rebuild',
-      targetType: 'artifact',
-      targetId: artifact.id,
-      reason: input.reason ?? null,
-      metadata: {
-        variationId: artifact.variationId,
-        queueJobIdempotencyKey: queueJob.idempotencyKey,
-        queueJobStatus: queueJob.status,
-      },
-    })
-    return {
-      artifact: {
-        id: artifact.id,
-        version: artifact.version,
-        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
-      },
-      queueJob: {
-        idempotencyKey: queueJob.idempotencyKey,
-        kind: queueJob.kind,
-        status: queueJob.status,
-      },
-      variation: {
-        id: variation.id,
-        screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
-      },
-      audit,
-    }
+    return this.adminArtifactGovernance.rebuildScreenshot(ctx, artifactId, input)
   }
 
   async repairExportArtifactAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
-    await this.requireAdminRole(ctx, ['operator', 'developer'])
-    const artifact = await this.store.getArtifactById(artifactId)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    const sourceArtifact = await this.resolveExportRepairSourceArtifact(artifact)
-    if (!sourceArtifact.variationId) throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Export repair source is not attached to a variation.')
-    const variation = await this.store.getVariationById(sourceArtifact.variationId)
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${sourceArtifact.variationId}`)
-    const html = await this.readArtifactHtml(sourceArtifact.storageKey)
-    const filename = `${variation.title ?? variation.id}-v${sourceArtifact.version}.zip`.replaceAll(/\s+/g, '-').toLowerCase()
-    const exportArtifact = await this.createExportZipArtifact({
-      variation,
-      sourceArtifact,
-      filename,
-      html,
-      reuseKey: createId('repair_export'),
-    })
-    const audit = await this.store.createAuditLog({
-      requestId: ctx.requestId,
-      operatorUserId: ctx.userId,
-      operatorRole: ctx.adminRole!,
-      action: 'artifact.export_repair',
-      targetType: 'artifact',
-      targetId: artifact.id,
-      reason: input.reason ?? null,
-      metadata: {
-        variationId: variation.id,
-        sourceArtifactId: sourceArtifact.id,
-        exportArtifactId: exportArtifact.id,
-        repairedFromKind: artifact.kind,
-      },
-    })
-    return {
-      sourceArtifact: {
-        id: sourceArtifact.id,
-        version: sourceArtifact.version,
-      },
-      exportArtifact: {
-        id: exportArtifact.id,
-        kind: 'export_zip',
-        filename: exportArtifact.entryPath ?? filename,
-        sizeBytes: exportArtifact.sizeBytes,
-        contentHash: exportArtifact.contentHash,
-        downloadUrl: `/api/artifacts/${encodeURIComponent(exportArtifact.id)}/download`,
-        files: Array.isArray(exportArtifact.metadata.files) ? exportArtifact.metadata.files as string[] : [],
-      },
-      audit,
-    }
+    return this.adminArtifactGovernance.repairExport(ctx, artifactId, input)
   }
 
   async revokeArtifactSharesAsAdmin(ctx: RequestContext, artifactId: string, input: { reason?: string } = {}) {
-    await this.requireAdminRole(ctx, ['operator', 'developer'])
-    const artifact = await this.store.getArtifactById(artifactId)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    const shares = await this.store.listSharesForArtifact(artifact.id)
-    const activeShares = shares.filter(share => !share.revokedAt)
-    const revoked = []
-    for (const share of activeShares) {
-      const next = await this.store.revokeShare(share.token)
-      if (next) revoked.push(next)
-    }
-    const audit = await this.store.createAuditLog({
-      requestId: ctx.requestId,
-      operatorUserId: ctx.userId,
-      operatorRole: ctx.adminRole!,
-      action: 'artifact.shares_revoke',
-      targetType: 'artifact',
-      targetId: artifact.id,
-      reason: input.reason ?? null,
-      metadata: {
-        variationId: artifact.variationId,
-        revokedCount: revoked.length,
-        totalShareCount: shares.length,
-      },
-    })
-    return {
-      artifact: {
-        id: artifact.id,
-        shareCount: shares.length,
-      },
-      revokedShares: revoked.map(share => ({
-        id: share.id,
-        token: share.token,
-        revokedAt: share.revokedAt!,
-      })),
-      revokedCount: revoked.length,
-      audit,
-    }
+    return this.adminArtifactGovernance.revokeShares(ctx, artifactId, input)
   }
 
   async getAdminUserSupport(ctx: RequestContext, filter: { userId?: string | null; email?: string | null } = {}) {
@@ -3949,94 +3824,6 @@ export class ApplicationService {
       const resolved = resolveHtmlAssetPath(value, baseDir)
       return resolved ? dataUrls.get(resolved) ?? value : value
     })
-  }
-
-  private async createExportZipArtifact(input: {
-    variation: DesignVariation
-    sourceArtifact: Artifact
-    filename: string
-    html: string
-    reuseKey?: string
-  }): Promise<Artifact> {
-    const exportArtifactId = input.reuseKey
-      ? `export_${input.sourceArtifact.id}_${input.reuseKey}`
-      : `export_${input.sourceArtifact.id}`
-    const assets = await this.store.getVariationAssetArtifacts(input.variation.id, input.sourceArtifact.id)
-    const files: Array<{ path: string; body: Uint8Array | string }> = [
-      {
-        path: input.sourceArtifact.entryPath ?? 'index.html',
-        body: input.html,
-      },
-    ]
-    for (const asset of assets) {
-      if (!asset.entryPath) continue
-      const stored = await this.artifacts.get(asset.storageKey)
-      files.push({
-        path: asset.entryPath,
-        body: stored.body,
-      })
-    }
-    const manifest = {
-      kind: 'dudesign.export',
-      variationId: input.variation.id,
-      sourceArtifactId: input.sourceArtifact.id,
-      sourceVersion: input.sourceArtifact.version,
-      files: files.map(file => file.path),
-      exportedAt: new Date().toISOString(),
-    }
-    const body = createZipArchive([
-      ...files,
-      {
-        path: 'dudesign-export.json',
-        body: JSON.stringify(manifest, null, 2),
-      },
-    ])
-    const stored = await this.artifacts.put({
-      workspaceId: input.sourceArtifact.workspaceId,
-      artifactId: exportArtifactId,
-      relativePath: input.filename,
-      contentType: 'application/zip',
-      body,
-      metadata: {
-        kind: 'export_zip',
-        sourceArtifactId: input.sourceArtifact.id,
-        variationId: input.variation.id,
-        files: manifest.files.join('\n'),
-      },
-    })
-    return await this.store.createArtifact({
-      workspaceId: input.sourceArtifact.workspaceId,
-      sessionId: input.sourceArtifact.sessionId,
-      variationId: input.variation.id,
-      parentArtifactId: input.sourceArtifact.id,
-      kind: 'export_zip',
-      version: input.sourceArtifact.version,
-      storageKey: stored.storageKey,
-      entryPath: input.filename,
-      contentHash: stored.contentHash,
-      sizeBytes: stored.sizeBytes,
-      metadata: {
-        sourceArtifactId: input.sourceArtifact.id,
-        files: manifest.files,
-      },
-    })
-  }
-
-  private async resolveExportRepairSourceArtifact(artifact: Artifact): Promise<Artifact> {
-    if (artifact.kind === 'html') return artifact
-    if (artifact.kind !== 'export_zip') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Export repair requires an HTML or export artifact.')
-    }
-    const sourceArtifactId = typeof artifact.metadata.sourceArtifactId === 'string'
-      ? artifact.metadata.sourceArtifactId
-      : artifact.parentArtifactId
-    if (!sourceArtifactId) {
-      throw createHttpError(400, 'EXPORT_SOURCE_ARTIFACT_MISSING', 'Export artifact does not record its source HTML artifact.')
-    }
-    const sourceArtifact = await this.store.getArtifactById(sourceArtifactId)
-    if (!sourceArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Source artifact not found: ${sourceArtifactId}`)
-    if (sourceArtifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Export source artifact must be HTML.')
-    return sourceArtifact
   }
 
   private async resolveDataIntakeArtifactReference(workspaceId: string, artifactId: string | null | undefined): Promise<DataIntakeArtifactReference | undefined> {
@@ -6483,108 +6270,6 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
     return null
   }
 }
-
-function createZipArchive(files: Array<{ path: string; body: Uint8Array | string }>): Uint8Array {
-  const encoder = new TextEncoder()
-  const localParts: Uint8Array[] = []
-  const centralParts: Uint8Array[] = []
-  let offset = 0
-  for (const file of files) {
-    const path = normalizeRuntimeArtifactPath(file.path)
-    const name = encoder.encode(path)
-    const body = typeof file.body === 'string' ? encoder.encode(file.body) : file.body
-    const crc = crc32(body)
-    const localHeader = concatBytes([
-      u32(0x04034b50),
-      u16(20),
-      u16(0x0800),
-      u16(0),
-      u16(0),
-      u16(0),
-      u32(crc),
-      u32(body.byteLength),
-      u32(body.byteLength),
-      u16(name.byteLength),
-      u16(0),
-      name,
-    ])
-    localParts.push(localHeader, body)
-    centralParts.push(concatBytes([
-      u32(0x02014b50),
-      u16(20),
-      u16(20),
-      u16(0x0800),
-      u16(0),
-      u16(0),
-      u16(0),
-      u32(crc),
-      u32(body.byteLength),
-      u32(body.byteLength),
-      u16(name.byteLength),
-      u16(0),
-      u16(0),
-      u16(0),
-      u16(0),
-      u32(0),
-      u32(offset),
-      name,
-    ]))
-    offset += localHeader.byteLength + body.byteLength
-  }
-  const centralDirectory = concatBytes(centralParts)
-  const end = concatBytes([
-    u32(0x06054b50),
-    u16(0),
-    u16(0),
-    u16(files.length),
-    u16(files.length),
-    u32(centralDirectory.byteLength),
-    u32(offset),
-    u16(0),
-  ])
-  return concatBytes([...localParts, centralDirectory, end])
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array {
-  const length = parts.reduce((total, part) => total + part.byteLength, 0)
-  const out = new Uint8Array(length)
-  let offset = 0
-  for (const part of parts) {
-    out.set(part, offset)
-    offset += part.byteLength
-  }
-  return out
-}
-
-function u16(value: number): Uint8Array {
-  const out = new Uint8Array(2)
-  const view = new DataView(out.buffer)
-  view.setUint16(0, value, true)
-  return out
-}
-
-function u32(value: number): Uint8Array {
-  const out = new Uint8Array(4)
-  const view = new DataView(out.buffer)
-  view.setUint32(0, value >>> 0, true)
-  return out
-}
-
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff
-  for (const byte of bytes) {
-    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff]!
-  }
-  return (crc ^ 0xffffffff) >>> 0
-}
-
-const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
-  let value = index
-  for (let bit = 0; bit < 8; bit += 1) {
-    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
-  }
-  return value >>> 0
-})
 
 export type HttpError = Error & {
   status: number

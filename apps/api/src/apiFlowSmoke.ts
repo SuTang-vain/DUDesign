@@ -39,6 +39,11 @@ export type ApiFlowHarness = {
   close(): Promise<void>
 }
 
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name])
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
+
 export async function startApiFlowHarness(service: ApplicationService): Promise<ApiFlowHarness> {
   const server = createApiServer(service)
   await new Promise<void>(resolve => {
@@ -86,7 +91,8 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
     parentArtifactId?: string | null,
   ): Promise<JobSnapshot['artifacts'][number]> {
     const startedAt = Date.now()
-    while (Date.now() - startedAt < 5000) {
+    const timeoutMs = positiveIntegerEnv('DUDESIGN_API_SMOKE_SCREENSHOT_TIMEOUT_MS', 30_000)
+    while (Date.now() - startedAt < timeoutMs) {
       const snapshot = await getJson<JobSnapshot>(`/api/design-jobs/${jobId}`)
       const screenshot = snapshot.artifacts.find(artifact =>
         artifact.kind === 'screenshot'

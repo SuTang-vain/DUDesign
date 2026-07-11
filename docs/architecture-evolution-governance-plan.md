@@ -285,7 +285,8 @@ type ApplicationServices = {
 - Auth/OAuth 与 Admin Runtime Governance 已形成独立应用服务。
 - 用户侧 Artifact/Preview/Export/Share 读写链路已形成独立 `ArtifactApplicationService`。
 - Artifact Service 仅通过 `ApplicationRepository + ArtifactStore + DesignJobQueue` 三个稳定端口协作，不依赖 facade。
-- Admin screenshot/export/share 治理仍留在 facade，后续拆为 `AdminArtifactGovernanceService` 并统一 artifact ZIP/path helper。
+- Admin screenshot/export/share 治理已拆为 `AdminArtifactGovernanceService`。
+- 用户与管理 Artifact 服务共用 `artifactOperations` 技术操作层；权限、usage 与 audit 仍由各自应用服务裁决。
 
 ### 6.2 Repository 去继承化
 

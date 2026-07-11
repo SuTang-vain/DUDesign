@@ -381,16 +381,16 @@
   - [x] 迁移 restore version、preview repair、export creation、share creation/revoke 写链路。
   - [x] restore/repair 通过窄 `DesignJobQueue` 端口调度截图任务。
   - [x] export/share 用量事件保持幂等。
-- [ ] 提取 Admin Artifact Governance Service：
-  - [ ] screenshot rebuild。
-  - [ ] export repair。
-  - [ ] bulk share revoke。
-  - [ ] 管理操作审计。
-- [ ] 抽取共用 artifact path/ZIP helper，消除用户服务与管理 facade 的过渡期重复。
+- [x] 提取 Admin Artifact Governance Service：
+  - [x] screenshot rebuild。
+  - [x] export repair。
+  - [x] bulk share revoke。
+  - [x] 管理操作审计。
+- [x] 抽取共用 artifact screenshot/export operation，消除用户服务与管理 facade 的 ZIP 重复实现。
 - [ ] 提取 Capability/Encyclopedia Application Service。
 - [ ] 提取剩余 Admin Governance 子域。
 
 验收：
 
-- Auth、Admin Runtime Governance 和用户 Artifact 读写服务可脱离 facade 独立测试。
+- Auth、Admin Runtime Governance、用户 Artifact 和 Admin Artifact Governance 可脱离 facade 独立测试。
 - 现有 Auth/Admin HTTP 流程保持兼容。
