@@ -4,6 +4,8 @@
 > 日期：2026-06-26
 > 关联文档：`docs/online-design-platform-plan.md`
 > 定位：定义 DUDesign 从 MVP 到线上化阶段的架构边界、依赖规则、治理机制与推进路线
+>
+> 当前实施阶段的详细演进计划见：`docs/architecture-evolution-governance-plan.md`。本文继续作为四层架构原则与长期治理基线。
 
 ## 1. 治理目标
 

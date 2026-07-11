@@ -4,6 +4,7 @@
 > 关联文档：
 > - `docs/online-design-platform-plan.md`
 > - `docs/architecture-governance-plan.md`
+> - `docs/architecture-evolution-governance-plan.md`
 > - `docs/development-release-governance.md`
 > - `docs/manual-browser-qa-checklist.md`
 
@@ -45,3 +46,4 @@ packages/
 - 与 BabeL-O 相关的协议、事件、兼容性变更只记录在 `runtime-compatibility`，其他模块只记录 DUDesign 标准契约。
 - 管理端治理能力不得绕过 `application-service` 和 `runtime-compatibility` 的边界。
 - Capability Distribution System 是跨层能力模块，不新增架构层级；具体实现仍必须落到四层对应边界内。
+- 当前模块化单体拆分、Repository 去继承化、Artifact Store 生产化、Runtime Provider 中立化等治理任务，以 `docs/architecture-evolution-governance-plan.md` 为执行基线。
