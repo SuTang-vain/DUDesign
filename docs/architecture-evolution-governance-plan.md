@@ -280,6 +280,12 @@ type ApplicationServices = {
 
 不建议先拆 Design Job，因为它与 Queue、Runtime、Artifact 和 Automation Loop 的耦合最高。
 
+当前进度：
+
+- Auth/OAuth 与 Admin Runtime Governance 已形成独立应用服务。
+- Artifact/Preview/Share 的只读链路已形成独立 `ArtifactApplicationService`。
+- Artifact 写链路仍按 command orchestration 留在 facade，待 Queue、Usage Recorder 等协作者形成更窄接口后继续迁移。
+
 ### 6.2 Repository 去继承化
 
 #### 当前问题

@@ -2837,6 +2837,34 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - 下一批优先提取 Artifact Service。
 - Capability/Encyclopedia 业务建议一起设计边界后再拆，避免把紧密流程机械切碎。
 
+## 2026-07-11 APP-M56 Artifact Read Application Service
+
+### 已完成
+
+- 新增 `ArtifactApplicationService`，依赖仅限 `ApplicationRepository + ArtifactStore`。
+- 从 `ApplicationService` facade 迁移首批 artifact 只读能力：
+  - 当前和历史 HTML preview。
+  - variation asset、screenshot 和 code files。
+  - public share snapshot 和 share asset。
+  - export zip download。
+- `ApplicationService` 保留同名方法委托，HTTP route 和外部 API contract 不变。
+- 新服务内部独立执行 workspace membership 权限校验，不依赖 facade 私有 helper。
+- 删除 facade 中已迁移的 public share 校验、asset URL rewrite 和 code file helper。
+
+### 独立测试
+
+- 历史 artifact preview 使用指定版本，并只读取该版本的 asset。
+- variation 当前版本更新后，旧 share 仍固定读取创建时 artifact 和 asset。
+- workspace 外用户不能读取私有 preview。
+- download boundary 仅允许读取绑定 variation 的 `export_zip`。
+- 架构门禁继续禁止细分 application service 反向依赖 `ApplicationService`。
+
+### 边界决策
+
+- 本批只迁移查询链路。
+- restore version、preview repair、export creation、share creation/revoke 暂留 facade，因为它们还依赖 queue、usage event 和写操作编排。
+- 下一批应先提取 artifact command collaborators，再迁移上述写链路；不把 Queue 或完整 `ApplicationService` 注入 Artifact Service。
+
 ### 2026-07-07 追加进展
 
 - OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。

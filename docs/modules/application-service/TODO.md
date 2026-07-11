@@ -373,11 +373,17 @@
 - [x] `ApplicationService` 保留 facade，Server routes 和外部 API 不变。
 - [x] 新增独立服务单测。
 - [x] 架构门禁禁止 application services 反向依赖 `ApplicationService`。
-- [ ] 提取 Artifact Application Service。
+- [~] 提取 Artifact Application Service：
+  - [x] 私有 preview、历史 artifact preview、asset、screenshot、code files 查询。
+  - [x] public share snapshot、share asset 查询。
+  - [x] export zip download 查询。
+  - [x] 独立权限、历史版本不漂移和 share 固定 artifact 测试。
+  - [ ] 迁移 restore version、preview repair、export creation、share creation/revoke 写链路。
+  - [ ] 抽取共用 artifact path/content helper，消除 facade 与子服务的过渡期重复。
 - [ ] 提取 Capability/Encyclopedia Application Service。
 - [ ] 提取剩余 Admin Governance 子域。
 
 验收：
 
-- Auth 和 Admin Runtime Governance 可脱离 facade 独立测试。
+- Auth、Admin Runtime Governance 和 Artifact 读服务可脱离 facade 独立测试。
 - 现有 Auth/Admin HTTP 流程保持兼容。

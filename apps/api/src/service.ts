@@ -90,6 +90,7 @@ import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './e
 import { detectEntryLanguage } from './entryLanguage.js'
 import { AuthApplicationService } from './application/authApplicationService.js'
 import { AdminRuntimeGovernanceService } from './application/adminRuntimeGovernanceService.js'
+import { ArtifactApplicationService } from './application/artifactApplicationService.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
 const AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH = 1200
@@ -318,6 +319,7 @@ export class ApplicationService {
   readonly mcpExecutor: McpExecutor
   readonly authService: AuthApplicationService
   readonly adminRuntimeGovernance: AdminRuntimeGovernanceService
+  readonly artifactService: ArtifactApplicationService
   private readonly backgroundTasks = new Set<Promise<unknown>>()
   private readonly disabledCapabilityPluginIds = new Set<string>()
   private readonly capabilityGovernanceReady: Promise<void>
@@ -341,6 +343,7 @@ export class ApplicationService {
     this.mcpExecutor = options.mcpExecutor ?? new MockMcpExecutor()
     this.authService = new AuthApplicationService(this.store)
     this.adminRuntimeGovernance = new AdminRuntimeGovernanceService(this.store, this.runtime)
+    this.artifactService = new ArtifactApplicationService(this.store, this.artifacts)
     this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
@@ -1602,25 +1605,7 @@ export class ApplicationService {
     variationId: string,
     options: { artifactId?: string | null } = {},
   ): Promise<string> {
-    const snapshot = options.artifactId
-      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
-      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const variation = snapshot.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
-    if (snapshot.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    const artifact = snapshot.artifact
-    if (!artifact) {
-      throw createHttpError(404, 'ARTIFACT_NOT_FOUND', 'Variation does not have a preview artifact yet.')
-    }
-    if (artifact.kind !== 'html') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation preview can only be read from HTML artifacts.')
-    }
-    const html = await this.readArtifactHtml(artifact.storageKey)
-    return await this.rewriteArtifactAssetUrls(variationId, artifact, html, assetPath =>
-      `/api/variations/${encodeURIComponent(variationId)}/assets/${encodeRuntimeAssetPath(assetPath)}${options.artifactId ? `?artifactId=${encodeURIComponent(artifact.id)}` : ''}`)
+    return this.artifactService.getVariationPreview(ctx, variationId, options)
   }
 
   async getVariationAsset(
@@ -1632,119 +1617,25 @@ export class ApplicationService {
     contentType: string
     body: Uint8Array
   }> {
-    const normalizedPath = normalizeRuntimeArtifactPath(assetPath)
-    const snapshot = options.artifactId
-      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
-      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const variation = snapshot.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
-    if (snapshot.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    const htmlArtifact = snapshot.artifact
-    if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
-    if (htmlArtifact.kind !== 'html') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation assets can only be read from HTML artifacts.')
-    }
-    const asset = await this.store.getVariationAssetArtifact(variationId, htmlArtifact.id, normalizedPath)
-    if (!asset) throw createHttpError(404, 'ASSET_NOT_FOUND', `Asset not found: ${normalizedPath}`)
-    const stored = await this.artifacts.get(asset.storageKey)
-    return {
-      contentType: stored.contentType || contentTypeForPath(normalizedPath),
-      body: stored.body,
-    }
+    return this.artifactService.getVariationAsset(ctx, variationId, assetPath, options)
   }
 
   async getVariationScreenshot(ctx: RequestContext, variationId: string, screenshotArtifactId: string): Promise<{
     contentType: string
     body: Uint8Array
   }> {
-    const context = await this.store.getVariationArtifactContext(variationId, screenshotArtifactId)
-    const variation = context.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
-    if (context.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    const artifact = context.artifact
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${screenshotArtifactId}`)
-    if (artifact.kind !== 'screenshot') {
-      throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Only screenshot artifacts can be read through this endpoint.')
-    }
-    const stored = await this.artifacts.get(artifact.storageKey)
-    return {
-      contentType: stored.contentType || 'image/png',
-      body: stored.body,
-    }
+    return this.artifactService.getVariationScreenshot(ctx, variationId, screenshotArtifactId)
   }
 
   async getVariationFiles(ctx: RequestContext, variationId: string, options: { artifactId?: string | null } = {}) {
-    const snapshot = options.artifactId
-      ? await this.store.getVariationArtifactContext(variationId, options.artifactId)
-      : await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const variation = snapshot.variation
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
-    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
-    if (snapshot.mismatch) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISMATCH', 'Artifact does not belong to this variation.')
-    }
-    const htmlArtifact = snapshot.artifact
-    if (!htmlArtifact) throw createHttpError(409, 'ARTIFACT_NOT_READY', 'Variation does not have an artifact yet.')
-    if (htmlArtifact.kind !== 'html') throw createHttpError(400, 'ARTIFACT_KIND_UNSUPPORTED', 'Variation files can only be read from HTML artifacts.')
-    const files: Array<{
-      path: string
-      language: 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text'
-      content: string
-      artifactId: string
-      kind: 'html' | 'asset'
-    }> = [
-      {
-        path: htmlArtifact.entryPath ?? 'index.html',
-        language: languageForPath(htmlArtifact.entryPath ?? 'index.html'),
-        content: await this.readArtifactHtml(htmlArtifact.storageKey),
-        artifactId: htmlArtifact.id,
-        kind: 'html' as const,
-      },
-    ]
-    const assets = await this.store.getVariationAssetArtifacts(variationId, htmlArtifact.id)
-    for (const asset of assets) {
-      if (!asset.entryPath) continue
-      if (!isCodeFilePath(asset.entryPath)) continue
-      const stored = await this.artifacts.get(asset.storageKey)
-      files.push({
-        path: asset.entryPath,
-        language: languageForPath(asset.entryPath),
-        content: new TextDecoder().decode(stored.body),
-        artifactId: asset.id,
-        kind: 'asset' as const,
-      })
-    }
-    return {
-      artifact: {
-        id: htmlArtifact.id,
-        version: htmlArtifact.version,
-        entryPath: htmlArtifact.entryPath,
-        createdAt: htmlArtifact.createdAt,
-      },
-      files: files.sort((a, b) => fileSortKey(a.path).localeCompare(fileSortKey(b.path))),
-    }
+    return this.artifactService.getVariationFiles(ctx, variationId, options)
   }
 
   async getSharedVariationAsset(token: string, assetPath: string): Promise<{
     contentType: string
     body: Uint8Array
   }> {
-    const normalizedPath = normalizeRuntimeArtifactPath(assetPath)
-    const snapshot = await this.requirePublicShareSnapshot(token)
-    const { share, artifact } = snapshot
-    const asset = await this.store.getVariationAssetArtifact(share.variationId, artifact.id, normalizedPath)
-    if (!asset) throw createHttpError(404, 'ASSET_NOT_FOUND', `Asset not found: ${normalizedPath}`)
-    const stored = await this.artifacts.get(asset.storageKey)
-    return {
-      contentType: stored.contentType || contentTypeForPath(normalizedPath),
-      body: stored.body,
-    }
+    return this.artifactService.getSharedVariationAsset(token, assetPath)
   }
 
   async exportVariation(ctx: RequestContext, variationId: string) {
@@ -1803,21 +1694,7 @@ export class ApplicationService {
     contentType: string
     body: Uint8Array
   }> {
-    const artifact = await this.store.getArtifactById(artifactId)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
-    if (artifact.kind !== 'export_zip') {
-      throw createHttpError(403, 'ARTIFACT_DOWNLOAD_FORBIDDEN', 'Only export artifacts can be downloaded through this endpoint.')
-    }
-    if (!artifact.variationId) {
-      throw createHttpError(400, 'ARTIFACT_VARIATION_MISSING', 'Export artifact is not attached to a variation.')
-    }
-    await this.requireVariationAccess(artifact.variationId, ctx.userId, 'viewer')
-    const stored = await this.artifacts.get(artifact.storageKey)
-    return {
-      filename: artifact.entryPath ?? `${artifact.id}.zip`,
-      contentType: stored.contentType || 'application/zip',
-      body: stored.body,
-    }
+    return this.artifactService.downloadArtifact(ctx, artifactId)
   }
 
   async shareVariation(ctx: RequestContext, variationId: string, input: ShareVariationRequest) {
@@ -1863,48 +1740,7 @@ export class ApplicationService {
   }
 
   async getSharedVariation(token: string) {
-    const { share, variation, artifact } = await this.requirePublicShareSnapshot(token)
-    const html = await this.readArtifactHtml(artifact.storageKey)
-    return {
-      share: {
-        id: share.id,
-        token: share.token,
-        visibility: share.visibility,
-        revokedAt: share.revokedAt,
-        expiresAt: share.expiresAt,
-        createdAt: share.createdAt,
-      },
-      variation: {
-        id: variation.id,
-        title: variation.title,
-        previewUrl: `/api/variations/${variation.id}/preview`,
-      },
-      artifact: {
-        id: artifact.id,
-        version: artifact.version,
-        entryPath: artifact.entryPath,
-        html: await this.rewriteArtifactAssetUrls(variation.id, artifact, html, assetPath =>
-          `/api/shares/${encodeURIComponent(token)}/assets/${encodeRuntimeAssetPath(assetPath)}`),
-      },
-    }
-  }
-
-  private async requirePublicShareSnapshot(token: string) {
-    const snapshot = await this.store.getSharedVariationSnapshot(token)
-    if (!snapshot) throw createHttpError(404, 'SHARE_NOT_FOUND', `Share not found: ${token}`)
-    const { share, variation, artifact } = snapshot
-    if (share.revokedAt) {
-      throw createHttpError(410, 'SHARE_REVOKED', 'This share link has been revoked.')
-    }
-    if (share.expiresAt && new Date(share.expiresAt).getTime() < Date.now()) {
-      throw createHttpError(410, 'SHARE_EXPIRED', 'This share link has expired.')
-    }
-    if (share.visibility !== 'public') {
-      throw createHttpError(403, 'SHARE_FORBIDDEN', `${share.visibility} share links require authenticated access in MVP.`)
-    }
-    if (!variation) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${share.variationId}`)
-    if (!artifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${share.artifactId}`)
-    return { share, variation, artifact }
+    return this.artifactService.getSharedVariation(token)
   }
 
   async revokeShare(ctx: RequestContext, token: string) {
@@ -4312,25 +4148,6 @@ export class ApplicationService {
     return new TextDecoder().decode(artifact.body)
   }
 
-  private async rewriteArtifactAssetUrls(
-    variationId: string,
-    htmlArtifact: Artifact,
-    html: string,
-    toAssetUrl: (assetPath: string) => string,
-  ): Promise<string> {
-    const assets = await this.store.getVariationAssetArtifacts(variationId, htmlArtifact.id)
-    if (assets.length === 0) return html
-    const assetPaths = new Set(assets.map(asset => asset.entryPath).filter((path): path is string => Boolean(path)))
-    const baseDir = htmlArtifact.entryPath?.includes('/')
-      ? htmlArtifact.entryPath.split('/').slice(0, -1).join('/')
-      : ''
-    return rewriteHtmlAssetUrls(html, value => {
-      const resolved = resolveHtmlAssetPath(value, baseDir)
-      if (!resolved || !assetPaths.has(resolved)) return value
-      return toAssetUrl(resolved)
-    })
-  }
-
   private async inlineArtifactAssetsForRendering(
     variationId: string,
     htmlArtifact: Artifact,
@@ -6290,19 +6107,6 @@ function contentTypeForPath(path: string): string {
   return 'application/octet-stream'
 }
 
-function languageForPath(path: string): 'html' | 'css' | 'javascript' | 'typescript' | 'json' | 'text' {
-  if (path.endsWith('.html') || path.endsWith('.htm')) return 'html'
-  if (path.endsWith('.css')) return 'css'
-  if (path.endsWith('.js') || path.endsWith('.mjs')) return 'javascript'
-  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript'
-  if (path.endsWith('.json')) return 'json'
-  return 'text'
-}
-
-function fileSortKey(path: string): string {
-  return path === 'index.html' ? `0:${path}` : `1:${path}`
-}
-
 function adminCapabilityRegistryAssets(
   capabilities: ReturnType<typeof listCapabilities>,
   templateEntries: AdminTemplateGovernanceEntry[],
@@ -6867,10 +6671,6 @@ function componentString(component: Record<string, unknown> | undefined, key: st
   return typeof component?.[key] === 'string' && component[key] === expected
 }
 
-function isCodeFilePath(path: string): boolean {
-  return /\.(html?|css|m?js|tsx?|json|txt|md)$/i.test(path)
-}
-
 function stablePathId(path: string): string {
   return path.replaceAll(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'asset'
 }
@@ -6905,10 +6705,6 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
   } catch {
     return null
   }
-}
-
-function encodeRuntimeAssetPath(path: string): string {
-  return path.split('/').map(part => encodeURIComponent(part)).join('/')
 }
 
 function createZipArchive(files: Array<{ path: string; body: Uint8Array | string }>): Uint8Array {
