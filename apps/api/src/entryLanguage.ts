@@ -73,8 +73,16 @@ const LANGUAGE_CATEGORY_SIGNALS: ReadonlyArray<{ pattern: RegExp; label: string 
 export function detectEntryLanguage(entryTitle: string, entryContext: string | null): EntryLanguageDetection {
   const text = `${entryTitle ?? ''}\n${entryContext ?? ''}`.trim()
   const breakdown = scanScripts(text)
-  const total = totalLetters(breakdown)
-  const entryContentLanguage = classifyLanguage(breakdown, total)
+  const contextText = entryContext?.trim() ?? ''
+  const contextBreakdown = scanScripts(contextText)
+  const contextTotal = totalLetters(contextBreakdown)
+  // A foreign-script title is commonly a proper noun (BLACKPINK, Apple,
+  // OpenAI), not a request for a foreign-language page. In the Chinese
+  // product, absent substantive context, keep the body language Chinese and
+  // preserve the title in its original script.
+  const entryContentLanguage = contextTotal > 0
+    ? classifyLanguage(contextBreakdown, contextTotal)
+    : 'zh'
   const languageSignals: string[] = []
   let isLanguageCategory = false
 
@@ -88,8 +96,8 @@ export function detectEntryLanguage(entryTitle: string, entryContext: string | n
   // Signal B: 词条正文（非标题）由单一非中文脚本主导且**正文**直接出现
   // "语言/翻译/外语"相关语义。仅命中字符脚本本身不应当 language-category
   // （避免 "Apple" / "Toyota" 等纯外语公司名误判）；必须有语义支撑。
-  if (total > 0 && !hasHan(breakdown) && (entryContext?.length ?? 0) >= 8) {
-    const latinShare = (breakdown.latin + breakdown.cyrillic + breakdown.greek + breakdown.arabic) / total
+  if (contextTotal > 0 && !hasHan(contextBreakdown) && (entryContext?.length ?? 0) >= 8) {
+    const latinShare = (contextBreakdown.latin + contextBreakdown.cyrillic + contextBreakdown.greek + contextBreakdown.arabic) / contextTotal
     if (latinShare > 0.7) {
       const semanticsHit = /\b(language|dialect|grammar|vocabulary|alphabet|script|translation|linguistics)\b/i.test(entryContext ?? '')
         || /外语|语言学|翻译|译本/.test(entryContext ?? '')

@@ -3,7 +3,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 import type { Artifact, DesignJob, DesignSession, DesignVariation, EncyclopediaEntryGuidance, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
-import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
+import type {
+  CapabilityAuthoringAsset,
+  CapabilityAuthoringDraft,
+  DesignEvent,
+  DesignTemplatePack,
+  McpInvocationAuditRecord,
+  UserCapabilityPreference,
+} from '@dudesign/contracts'
 import { InMemoryStore, type AnnotationBatch, type AuditLog, type AuthIdentity, type AuthSession, type SessionMessage } from './store.js'
 import { createId, nowIso } from './id.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
@@ -33,6 +40,7 @@ import type {
   DesignTemplatePackVersion,
   JobSnapshot,
   ModelSyncDiffItem,
+  RefineOperationRecord,
   RuntimeSessionContext,
   SessionSnapshot,
   SessionWorkspaceContext,
@@ -196,6 +204,8 @@ export class PostgresRepository extends InMemoryStore {
     this.authIdentities.clear()
     this.authSessions.clear()
     this.encyclopediaEntryGuidances.clear()
+    this.capabilityAuthoringDrafts.clear()
+    this.capabilityAuthoringAssets.clear()
 
     for (const row of (await this.pool.query('select * from users')).rows) this.users.set(row.id, mapUser(row))
     for (const row of (await this.pool.query('select * from workspaces')).rows) this.workspaces.set(row.id, mapWorkspace(row))
@@ -240,6 +250,14 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from design_template_versions order by created_at')).rows) {
       const version = mapDesignTemplatePackVersion(row)
       this.designTemplatePackVersions.set(designTemplatePackVersionKey(version.templateId, version.version), version)
+    }
+    for (const row of (await this.pool.query('select * from capability_authoring_drafts order by updated_at desc')).rows) {
+      const draft = mapCapabilityAuthoringDraft(row)
+      this.capabilityAuthoringDrafts.set(draft.id, draft)
+    }
+    for (const row of (await this.pool.query('select * from capability_authoring_assets order by created_at, id')).rows) {
+      const asset = mapCapabilityAuthoringAsset(row)
+      this.capabilityAuthoringAssets.set(asset.id, asset)
     }
     for (const row of (await this.pool.query('select * from annotation_batches')).rows) this.annotationBatches.set(row.id, mapAnnotationBatch(row))
     for (const row of (await this.pool.query('select * from audit_logs order by created_at')).rows) this.auditLogs.push(mapAuditLog(row))
@@ -294,6 +312,22 @@ export class PostgresRepository extends InMemoryStore {
   override async saveSession(session: DesignSession): Promise<void> {
     await this.persistSession(session)
     this.sessions.set(session.id, session)
+  }
+
+  override async archiveSession(sessionId: string, updatedAt: string): Promise<void> {
+    await this.pool.query(`
+      update design_sessions
+      set status = 'archived', updated_at = $2
+      where id = $1
+    `, [sessionId, updatedAt])
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      this.sessions.set(sessionId, {
+        ...session,
+        status: 'archived',
+        updatedAt,
+      })
+    }
   }
 
   override async saveUserCapabilityPreference(userId: string, preference: UserCapabilityPreference): Promise<UserCapabilityPreference> {
@@ -408,6 +442,136 @@ export class PostgresRepository extends InMemoryStore {
     const templateVersion = mapDesignTemplatePackVersion(row)
     this.designTemplatePackVersions.set(designTemplatePackVersionKey(templateVersion.templateId, templateVersion.version), templateVersion)
     return templateVersion
+  }
+
+  override async listCapabilityAuthoringDrafts(ownerUserId: string, workspaceId: string): Promise<CapabilityAuthoringDraft[]> {
+    const rows = (await this.pool.query(`
+      select *
+      from capability_authoring_drafts
+      where owner_user_id = $1 and workspace_id = $2
+      order by updated_at desc, id asc
+    `, [ownerUserId, workspaceId])).rows
+    const drafts = rows.map(mapCapabilityAuthoringDraft)
+    for (const draft of drafts) this.capabilityAuthoringDrafts.set(draft.id, draft)
+    return drafts
+  }
+
+  override async getCapabilityAuthoringDraftById(
+    draftId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): Promise<CapabilityAuthoringDraft | null> {
+    const row = (await this.pool.query(`
+      select *
+      from capability_authoring_drafts
+      where id = $1 and owner_user_id = $2 and workspace_id = $3
+    `, [draftId, ownerUserId, workspaceId])).rows[0]
+    if (!row) return null
+    const draft = mapCapabilityAuthoringDraft(row)
+    this.capabilityAuthoringDrafts.set(draft.id, draft)
+    return draft
+  }
+
+  override async saveCapabilityAuthoringDraft(draft: CapabilityAuthoringDraft): Promise<CapabilityAuthoringDraft> {
+    const result = await this.pool.query(`
+      insert into capability_authoring_drafts (
+        id, owner_user_id, workspace_id, source_type, source_artifact_id,
+        source_content_hash, source, status, draft_bundle, findings,
+        confirmed_paths, published_template_id, created_at, updated_at
+      )
+      values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14)
+      on conflict (id) do update set
+        source_type = excluded.source_type,
+        source_artifact_id = excluded.source_artifact_id,
+        source_content_hash = excluded.source_content_hash,
+        source = excluded.source,
+        status = excluded.status,
+        draft_bundle = excluded.draft_bundle,
+        findings = excluded.findings,
+        confirmed_paths = excluded.confirmed_paths,
+        published_template_id = excluded.published_template_id,
+        updated_at = excluded.updated_at
+      where capability_authoring_drafts.owner_user_id = excluded.owner_user_id
+        and capability_authoring_drafts.workspace_id = excluded.workspace_id
+    `, [
+      draft.id,
+      draft.ownerUserId,
+      draft.workspaceId,
+      draft.source.type,
+      sourceArtifactId(draft.source),
+      draft.source.contentHash,
+      JSON.stringify(draft.source),
+      draft.status,
+      JSON.stringify(draft.candidateBundle),
+      JSON.stringify(draft.findings),
+      JSON.stringify(draft.confirmedPaths),
+      draft.publishedTemplateId ?? null,
+      draft.createdAt,
+      draft.updatedAt,
+    ])
+    if (result.rowCount !== 1) {
+      throw new Error(`Capability authoring draft ownership conflict: ${draft.id}`)
+    }
+    this.capabilityAuthoringDrafts.set(draft.id, structuredClone(draft))
+    return structuredClone(draft)
+  }
+
+  override async listCapabilityAuthoringAssets(
+    draftId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): Promise<CapabilityAuthoringAsset[]> {
+    const rows = (await this.pool.query(`
+      select * from capability_authoring_assets
+      where draft_id = $1 and owner_user_id = $2 and workspace_id = $3
+      order by created_at, id
+    `, [draftId, ownerUserId, workspaceId])).rows
+    const assets = rows.map(mapCapabilityAuthoringAsset)
+    for (const asset of assets) this.capabilityAuthoringAssets.set(asset.id, asset)
+    return assets
+  }
+
+  override async getCapabilityAuthoringAssetById(
+    assetId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): Promise<CapabilityAuthoringAsset | null> {
+    const row = (await this.pool.query(`
+      select * from capability_authoring_assets
+      where id = $1 and owner_user_id = $2 and workspace_id = $3
+    `, [assetId, ownerUserId, workspaceId])).rows[0]
+    if (!row) return null
+    const asset = mapCapabilityAuthoringAsset(row)
+    this.capabilityAuthoringAssets.set(asset.id, asset)
+    return asset
+  }
+
+  override async saveCapabilityAuthoringAsset(asset: CapabilityAuthoringAsset): Promise<CapabilityAuthoringAsset> {
+    const row = (await this.pool.query(`
+      insert into capability_authoring_assets (
+        id, draft_id, owner_user_id, workspace_id, kind, storage_key,
+        entry_path, content_type, content_hash, size_bytes, metadata, created_at
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+      on conflict (id) do update set
+        storage_key = excluded.storage_key,
+        entry_path = excluded.entry_path,
+        content_type = excluded.content_type,
+        content_hash = excluded.content_hash,
+        size_bytes = excluded.size_bytes,
+        metadata = excluded.metadata
+      where capability_authoring_assets.owner_user_id = excluded.owner_user_id
+        and capability_authoring_assets.workspace_id = excluded.workspace_id
+        and capability_authoring_assets.draft_id = excluded.draft_id
+      returning *
+    `, [
+      asset.id, asset.draftId, asset.ownerUserId, asset.workspaceId, asset.kind, asset.storageKey,
+      asset.entryPath, asset.contentType, asset.contentHash, asset.sizeBytes,
+      JSON.stringify(asset.metadata), asset.createdAt,
+    ])).rows[0]
+    if (!row) throw new Error(`Capability authoring asset ownership mismatch: ${asset.id}`)
+    const saved = mapCapabilityAuthoringAsset(row)
+    this.capabilityAuthoringAssets.set(saved.id, saved)
+    return saved
   }
 
   override async saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): Promise<EncyclopediaEntryGuidance> {
@@ -713,7 +877,7 @@ export class PostgresRepository extends InMemoryStore {
   override async createArtifact(input: CreateArtifactInput): Promise<Artifact> {
     const version = input.version ?? await this.nextArtifactVersion(input.variationId ?? null, input.kind)
     const artifact: Artifact = {
-      id: createId('art'),
+      id: input.artifactId ?? createId('art'),
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
       variationId: input.variationId ?? null,
@@ -1332,6 +1496,131 @@ export class PostgresRepository extends InMemoryStore {
       workspace: workspaceRow ? mapWorkspace(workspaceRow) : null,
       baseArtifact: baseArtifactRow ? mapArtifact(baseArtifactRow) : null,
     }
+  }
+
+  override async createRefineOperation(operation: RefineOperationRecord): Promise<RefineOperationRecord> {
+    const row = (await this.pool.query(`
+      insert into refine_operations (
+        request_id, kind, prompt, variation_id, job_id, session_id, workspace_id, user_id,
+        base_artifact_id, base_preview_url, runtime_child_session_id, runtime_agent_job_id,
+        status, cancel_requested, cancel_reason, runtime_cancel_result, cancellation_recorded,
+        created_at, updated_at, completed_at
+      ) values (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12,
+        $13, $14, $15, $16, $17,
+        $18, $19, $20
+      )
+      returning *
+    `, refineOperationValues(operation))).rows[0]
+    const saved = mapRefineOperation(row)
+    this.refineOperations.set(saved.requestId, saved)
+    return structuredClone(saved)
+  }
+
+  override async saveRefineOperation(operation: RefineOperationRecord): Promise<RefineOperationRecord> {
+    const row = (await this.pool.query(`
+      update refine_operations set
+        kind = $2,
+        prompt = $3,
+        variation_id = $4,
+        job_id = $5,
+        session_id = $6,
+        workspace_id = $7,
+        user_id = $8,
+        base_artifact_id = $9,
+        base_preview_url = $10,
+        runtime_child_session_id = $11,
+        runtime_agent_job_id = $12,
+        status = $13,
+        cancel_requested = $14,
+        cancel_reason = $15,
+        runtime_cancel_result = $16,
+        cancellation_recorded = $17,
+        created_at = $18,
+        updated_at = $19,
+        completed_at = $20
+      where request_id = $1
+      returning *
+    `, refineOperationValues(operation))).rows[0]
+    if (!row) throw new Error(`Refine operation not found: ${operation.requestId}`)
+    const saved = mapRefineOperation(row)
+    this.refineOperations.set(saved.requestId, saved)
+    return structuredClone(saved)
+  }
+
+  override async getRefineOperationById(requestId: string): Promise<RefineOperationRecord | null> {
+    const row = (await this.pool.query('select * from refine_operations where request_id = $1', [requestId])).rows[0]
+    if (!row) return null
+    const operation = mapRefineOperation(row)
+    this.refineOperations.set(operation.requestId, operation)
+    return structuredClone(operation)
+  }
+
+  override async getActiveRefineOperationByVariation(variationId: string): Promise<RefineOperationRecord | null> {
+    const row = (await this.pool.query(`
+      select * from refine_operations
+      where variation_id = $1 and status in ('starting', 'running', 'cancelling')
+      order by created_at desc
+      limit 1
+    `, [variationId])).rows[0]
+    if (!row) return null
+    const operation = mapRefineOperation(row)
+    this.refineOperations.set(operation.requestId, operation)
+    return structuredClone(operation)
+  }
+
+  override async getLatestRefineOperationByVariation(variationId: string): Promise<RefineOperationRecord | null> {
+    const row = (await this.pool.query(`
+      select * from refine_operations
+      where variation_id = $1
+      order by created_at desc, request_id desc
+      limit 1
+    `, [variationId])).rows[0]
+    if (!row) return null
+    const operation = mapRefineOperation(row)
+    this.refineOperations.set(operation.requestId, operation)
+    return structuredClone(operation)
+  }
+
+  override async claimActiveRefineOperations(ownerId: string, limit: number, leaseMs: number, staleAfterMs = 300_000): Promise<RefineOperationRecord[]> {
+    const rows = (await this.pool.query(`
+      with candidates as (
+        select request_id
+        from refine_operations
+        where (
+            status = 'cancelling'
+            or (status in ('starting', 'running') and updated_at <= now() - ($4::integer * interval '1 millisecond'))
+          )
+          and (reconcile_lease_until is null or reconcile_lease_until <= now() or reconcile_owner = $1)
+        order by updated_at asc, request_id asc
+        for update skip locked
+        limit $2
+      )
+      update refine_operations operation
+      set reconcile_owner = $1,
+          reconcile_lease_until = now() + ($3::integer * interval '1 millisecond'),
+          reconcile_attempts = operation.reconcile_attempts + 1,
+          last_reconcile_error = null
+      from candidates
+      where operation.request_id = candidates.request_id
+      returning operation.*
+    `, [ownerId, Math.max(0, limit), Math.max(1, leaseMs), Math.max(0, staleAfterMs)])).rows
+    const operations = rows.map(mapRefineOperation)
+    for (const operation of operations) this.refineOperations.set(operation.requestId, operation)
+    return operations.map(operation => structuredClone(operation))
+  }
+
+  override async releaseRefineOperationLease(requestId: string, ownerId: string, lastError: string | null = null): Promise<void> {
+    const row = (await this.pool.query(`
+      update refine_operations
+      set reconcile_owner = null,
+          reconcile_lease_until = null,
+          last_reconcile_error = $3
+      where request_id = $1 and reconcile_owner = $2
+      returning *
+    `, [requestId, ownerId, lastError])).rows[0]
+    if (row) this.refineOperations.set(requestId, mapRefineOperation(row))
   }
 
   override async getVariationArtifactContext(variationId: string, artifactId: string): Promise<VariationArtifactContext> {
@@ -2237,6 +2526,7 @@ export class PostgresRepository extends InMemoryStore {
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17)
       on conflict (id) do update set
         product_mode = excluded.product_mode,
+        template_requirements = excluded.template_requirements,
         status = excluded.status,
         total_input_tokens = excluded.total_input_tokens,
         total_output_tokens = excluded.total_output_tokens,
@@ -2554,7 +2844,15 @@ export class PostgresRepository extends InMemoryStore {
         content_hash, created_by_user_id, created_at
       )
       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10)
-      on conflict (template_id, version) do nothing
+      on conflict (template_id, version) do update set
+        schema_version = excluded.schema_version,
+        pack = excluded.pack,
+        design_tokens = excluded.design_tokens,
+        rationale = excluded.rationale,
+        content_hash = excluded.content_hash,
+        created_at = excluded.created_at
+      where design_template_versions.created_by_user_id is null
+        and excluded.created_by_user_id is null
     `, [
       createId('dtpv'),
       template.id,
@@ -2712,6 +3010,46 @@ function mapCapabilityGovernanceOverride(row: any): CapabilityGovernanceOverride
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   }
+}
+
+function mapCapabilityAuthoringDraft(row: any): CapabilityAuthoringDraft {
+  if (!isPlainObject(row.source) || !isPlainObject(row.draft_bundle)) {
+    throw new Error(`Invalid capability authoring draft payload: ${row.id}`)
+  }
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    workspaceId: row.workspace_id,
+    source: row.source as CapabilityAuthoringDraft['source'],
+    status: row.status,
+    candidateBundle: row.draft_bundle as CapabilityAuthoringDraft['candidateBundle'],
+    findings: Array.isArray(row.findings) ? row.findings as CapabilityAuthoringDraft['findings'] : [],
+    confirmedPaths: stringArray(row.confirmed_paths),
+    publishedTemplateId: row.published_template_id ?? null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }
+}
+
+function mapCapabilityAuthoringAsset(row: any): CapabilityAuthoringAsset {
+  return {
+    id: row.id,
+    draftId: row.draft_id,
+    ownerUserId: row.owner_user_id,
+    workspaceId: row.workspace_id,
+    kind: row.kind,
+    storageKey: row.storage_key,
+    entryPath: row.entry_path,
+    contentType: row.content_type,
+    contentHash: row.content_hash,
+    sizeBytes: Number(row.size_bytes),
+    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    createdAt: toIso(row.created_at),
+  }
+}
+
+function sourceArtifactId(source: CapabilityAuthoringDraft['source']): string | null {
+  return 'artifactId' in source ? source.artifactId ?? null : null
 }
 
 function mapDesignTemplatePackRow(row: any): DesignTemplatePack {
@@ -3100,6 +3438,60 @@ function mapMcpInvocationAuditRecord(row: any): McpInvocationAuditRecord {
     replayKey: row.replay_key,
     createdAt: toIso(row.created_at),
     completedAt: toIso(row.completed_at),
+  }
+}
+
+function refineOperationValues(operation: RefineOperationRecord): unknown[] {
+  return [
+    operation.requestId,
+    operation.kind,
+    operation.prompt,
+    operation.variationId,
+    operation.jobId,
+    operation.sessionId,
+    operation.workspaceId,
+    operation.userId,
+    operation.baseArtifactId,
+    operation.basePreviewUrl,
+    operation.runtimeChildSessionId,
+    operation.runtimeAgentJobId,
+    operation.status,
+    operation.cancelRequested,
+    operation.cancelReason,
+    operation.runtimeCancelResult,
+    operation.cancellationRecorded,
+    operation.createdAt,
+    operation.updatedAt,
+    operation.completedAt,
+  ]
+}
+
+function mapRefineOperation(row: any): RefineOperationRecord {
+  return {
+    requestId: row.request_id,
+    kind: row.kind,
+    prompt: row.prompt,
+    variationId: row.variation_id,
+    jobId: row.job_id,
+    sessionId: row.session_id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    baseArtifactId: row.base_artifact_id,
+    basePreviewUrl: row.base_preview_url,
+    runtimeChildSessionId: row.runtime_child_session_id,
+    runtimeAgentJobId: row.runtime_agent_job_id,
+    status: row.status,
+    cancelRequested: row.cancel_requested,
+    cancelReason: row.cancel_reason,
+    runtimeCancelResult: row.runtime_cancel_result ?? null,
+    cancellationRecorded: row.cancellation_recorded,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    completedAt: row.completed_at ? toIso(row.completed_at) : null,
+    reconcileOwner: row.reconcile_owner ?? null,
+    reconcileLeaseUntil: row.reconcile_lease_until ? toIso(row.reconcile_lease_until) : null,
+    reconcileAttempts: Number(row.reconcile_attempts ?? 0),
+    lastReconcileError: row.last_reconcile_error ?? null,
   }
 }
 

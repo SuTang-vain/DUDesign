@@ -122,7 +122,27 @@ const democases: EncyclopediaDemocase[] = [
     keywords: ['景区', '景点', '公园', '风景区', '旅游区', '导览', '路线', '游览', '坐标', '地图', '推荐路线', '必看景点', 'POI', 'poi'],
     summary: '景区景点词条优先承接智能导览、路线推荐、POI 分布和坐标/位置资料状态，不硬编实时路线或票务信息。',
   },
+  {
+    id: 'demo_star_group',
+    title: '明星组合',
+    aliases: ['男团', '女团', '乐队', '偶像团体', '组合成员', '限定团', '小分队', 'Unit'],
+    primaryCategory: '名人',
+    secondaryCategory: '娱乐明星',
+    interactionParadigmId: 'ip_relation_map',
+    preferredTemplateIds: ['dtp_de_star_group_member_map', 'dtp_dynamic_encyclopedia_timeline_card', 'dtp_dynamic_encyclopedia_summary_card'],
+    keywords: ['组合', '男团', '女团', '乐队', '成员', '出道', '队长', '主唱', '主舞', 'Rapper', '门面', '退团', '加入', '解散', '休团', '限定团', '小分队', 'Unit', '子团', '专辑', '单曲', '演唱会', '团综', '代表作品', '粉丝名', '经纪公司', '经纪公司'],
+    summary: '明星组合词条优先展示当前成员名单、队内定位与状态，辅以入退团时间线、团体作品和成员互跳链接。',
+  },
 ]
+
+export function listEncyclopediaDemocases(): EncyclopediaDemocase[] {
+  return democases.map(democase => ({
+    ...democase,
+    aliases: [...democase.aliases],
+    preferredTemplateIds: [...democase.preferredTemplateIds],
+    keywords: [...democase.keywords],
+  }))
+}
 
 export function lookupEncyclopediaDemocases(query: string, limit = 3): EncyclopediaDemocaseMatch[] {
   const normalized = query.toLowerCase()

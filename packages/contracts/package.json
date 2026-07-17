@@ -6,6 +6,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./api": "./dist/api.js",
-    "./events": "./dist/events.js"
+    "./events": "./dist/events.js",
+    "./exploration": "./dist/exploration.js",
+    "./guidance": "./dist/guidance.js"
   }
 }

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主题渐进探索卡 - 参考实现</title>
+  <style>
+    :root { --ink:#17181c; --muted:#6d707a; --line:#e5e7eb; --paper:#fff; --stage:#eef1f6; --accent:#315cdd; --soft:#edf2ff; }
+    * { box-sizing: border-box; }
+    html, body { width:100%; height:100%; margin:0; overflow:hidden; }
+    body { display:grid; place-items:center; background:var(--stage); color:var(--ink); font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+    button { color:inherit; font:inherit; }
+    .pc-card-frame { width:788px; height:492px; display:grid; grid-template-rows:104px 1fr 48px; overflow:hidden; background:var(--paper); border:1px solid rgba(23,24,28,.08); border-radius:14px; box-shadow:0 18px 48px rgba(23,24,28,.12); }
+    .identity { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:center; padding:18px 22px; border-bottom:1px solid var(--line); }
+    .kicker { color:var(--accent); font-size:11px; font-weight:800; }
+    h1 { margin:4px 0 0; font-size:23px; letter-spacing:0; }
+    .summary { max-width:460px; margin:7px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
+    .fact-callout { min-width:170px; padding:12px 14px; border-radius:9px; background:var(--soft); }
+    .fact-callout small { display:block; color:var(--muted); font-size:10px; }
+    .fact-callout b { display:block; margin-top:5px; font-size:13px; }
+    .detail-stack { min-height:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:14px 22px; }
+    .detail { min-height:0; display:grid; grid-template-rows:44px 1fr; overflow:hidden; border:1px solid var(--line); border-radius:10px; background:#fafafa; }
+    .detail-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 13px; border:0; background:transparent; text-align:left; font-weight:800; cursor:pointer; }
+    .detail-toggle span { color:var(--accent); transition:transform .18s ease; }
+    .detail-body { min-height:0; padding:0 13px 12px; color:var(--muted); font-size:11px; line-height:1.55; }
+    .detail[aria-expanded="false"] .detail-body { display:none; }
+    .detail[aria-expanded="false"] { grid-template-rows:44px; align-self:start; }
+    .detail[aria-expanded="true"] .detail-toggle span { transform:rotate(45deg); }
+    .tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:6px 22px 8px; border-top:1px solid var(--line); }
+    .tab { min-width:0; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; }
+    .tab[aria-selected="true"] { background:var(--ink); color:#fff; }
+    @media (max-width:500px) { .pc-card-frame { width:380px; height:456px; grid-template-rows:92px 1fr 46px; } .fact-callout { display:none; } .detail-stack { grid-template-columns:1fr; padding:12px 14px; } .detail:nth-child(n+3) { display:none; } .identity { padding:14px; } .tabs { padding-inline:14px; } }
+    @media (max-width:320px), (max-height:365px) {
+      .pc-card-frame { width:300px; height:360px; grid-template-rows:76px 1fr; border-radius:0; }
+      .identity { padding:10px 12px; }
+      h1 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:17px; }
+      .summary { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:4px; font-size:10px; line-height:1.3; }
+      .detail-stack { gap:6px; padding:8px 10px; }
+      .detail { grid-template-rows:40px 1fr; border-radius:7px; }
+      .detail-toggle { padding:0 10px; font-size:11px; }
+      .detail-body { display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; padding:0 10px 8px; font-size:10px; line-height:1.35; }
+      .detail { display:none; }
+      .detail:first-child { display:grid; }
+      .tabs { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="pc-card-frame" data-dudesign-template="dtp_dynamic_encyclopedia_expandable_card">
+    <header class="identity">
+      <div><span class="kicker">主题探索</span><h1>【词条主题】</h1><p class="summary">【先给出一条最重要的主题概览，再邀请用户主动展开背景、机制与影响。】</p></div>
+      <aside class="fact-callout"><small>核心结论</small><b>【一条可核实的关键事实】</b></aside>
+    </header>
+    <section class="detail-stack" aria-label="主题详情">
+      <article class="detail" aria-expanded="false"><button class="detail-toggle" type="button">查看更多 <span>＋</span></button><div class="detail-body">【用短段落解释主题背景与必要定义。首屏只保留理解主题所需的核心信息。】</div></article>
+      <article class="detail" aria-expanded="false"><button class="detail-toggle" type="button">机制与关系 <span>＋</span></button><div class="detail-body">【点击后展示机制、关系或形成过程；资料不足时明确标注待核实。】</div></article>
+      <article class="detail" aria-expanded="false"><button class="detail-toggle" type="button">影响与边界 <span>＋</span></button><div class="detail-body">【点击后展示影响、适用边界和来源状态。】</div></article>
+    </section>
+    <nav class="tabs" role="tablist" aria-label="探索视图">
+      <button class="tab" type="button" role="tab" aria-selected="true" data-target="0">核心</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-target="1">机制</button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-target="2">影响</button>
+    </nav>
+  </main>
+  <script data-dudesign-example-interaction>
+    const details = Array.from(document.querySelectorAll('.detail'));
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    function select(index) {
+      details.forEach(function (detail, detailIndex) { detail.setAttribute('aria-expanded', detailIndex === index ? 'true' : 'false'); });
+      tabs.forEach(function (tab, tabIndex) { tab.setAttribute('aria-selected', tabIndex === index ? 'true' : 'false'); });
+    }
+    details.forEach(function (detail, index) { detail.querySelector('button').addEventListener('click', function () { select(index); }); });
+    tabs.forEach(function (tab) { tab.addEventListener('click', function () { select(Number(tab.dataset.target)); }); });
+  </script>
+</body>
+</html>

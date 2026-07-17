@@ -9,6 +9,8 @@
     "migrate:postgres": "tsc -b && node -e \"import('./dist/postgresRepository.js').then(async ({ PostgresRepository }) => { if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required'); const repo = await PostgresRepository.connect({ connectionString: process.env.DATABASE_URL }); await repo.close(); })\"",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
+    "build:democase-index": "tsc -b && node dist/encyclopediaDemocaseIndexBuilder.js && tsc -b",
+    "eval:guidance-golden": "tsc -b && node dist/encyclopediaGuidanceEvaluationRunner.js",
     "test": "tsc -b && node --test --test-concurrency=1 dist/*.test.js",
     "test:redis": "tsc -b && node --test dist/redisDesignJobQueue.integration.test.js"
   },
@@ -19,8 +21,11 @@
     "@dudesign/runtime-gateway": "0.1.0",
     "@types/pg": "^8.20.0",
     "bullmq": "^5.79.2",
+    "fflate": "^0.8.3",
     "ioredis": "^5.11.1",
+    "parse5": "^8.0.1",
     "pg": "^8.22.0",
+    "postcss": "^8.5.18",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

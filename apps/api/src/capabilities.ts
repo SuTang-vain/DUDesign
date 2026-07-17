@@ -159,23 +159,25 @@ const domainTemplates: DomainTemplate[] = [
     id: 'tpl_dynamic_encyclopedia_entry',
     name: 'Dynamic Encyclopedia Entry',
     category: 'encyclopedia',
-    description: 'A compact interactive card for encyclopedia entries, entity facts, classification-driven templates, and iframe/mobile embedding.',
+    description: 'A topic-driven dynamic interactive card. The entry defines the theme and factual boundary; the output is not a traditional encyclopedia article or website page.',
     contentVersion: '1.0.0',
     structure: {
-      sections: ['entry identity', 'neutral summary', 'key facts', 'interactive module', 'source or context notes'],
-      requiredElements: ['entry title', 'neutral summary', 'key facts', 'no-scroll frame', 'local overflow interaction'],
+      sections: ['theme signal', 'interactive focal module', 'curated supporting content', 'source or context notes'],
+      requiredElements: ['entry theme', 'primary interaction', 'curated factual support', 'no-scroll frame'],
       optionalElements: ['timeline', 'relation preview', 'comparison rows', 'expandable details'],
     },
     constraints: [
       'Preserve dynamic encyclopedia viewport constraints.',
       'Keep facts neutral and avoid marketing language.',
+      'Treat factual grounding as a safety boundary, not as a requirement to reproduce encyclopedia article structure or exhaustive coverage.',
+      'Prioritize a theme-specific interaction, visual narrative, and curated modules over generic summary-and-facts layouts.',
       'Use tab bars, page switchers, accordions, or local modal panels instead of body or container scrolling.',
       'Do not imitate public encyclopedia or search product trade dress.',
     ],
     variationDirections: [
-      'Entity summary and key facts.',
-      'Timeline-led knowledge card.',
-      'Relation or comparison-focused interactive card.',
+      'Theme-led interactive focal experience.',
+      'Timeline-driven visual narrative.',
+      'Relation, comparison, or exploration-focused interactive card.',
     ],
   },
 ]
@@ -289,6 +291,7 @@ const interactionParadigms: InteractionParadigm[] = [
       'dtp_de_tv_character_relation',
       'dtp_de_cultural_phrase_relation_graph',
       'dtp_de_scenic_spot_map_poi',
+      'dtp_de_star_group_member_map',
     ],
   },
   {
@@ -357,12 +360,24 @@ export const DYNAMIC_ENCYCLOPEDIA_PRESET: CapabilityPreset = {
   id: 'preset_dynamic_encyclopedia_card',
   productMode: 'dynamic_encyclopedia_card',
   name: 'Dynamic Encyclopedia Card',
-  description: 'Automatically selects entry guidance, research context, visual asset briefing, the dynamic encyclopedia template package, democase readonly context, image generation, and encyclopedia spec review.',
+  description: 'Builds a topic-driven dynamic interactive card from an entry theme, using guidance, research context, visual assets, interaction templates, democase context, and bounded factual review.',
   domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
   designTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
   skillIds: ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'],
   mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'],
   loopProfileId: 'loop_encyclopedia_spec_review',
+  requirementModuleGraphId: 'requirement_graph_dynamic_encyclopedia_entry',
+  selectionPolicy: {
+    requiredTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
+    requiredSkillIds: ['sk_encyclopedia_entry_guidance'],
+    requiredMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+    allowedLoopProfileIds: ['loop_standard', 'loop_encyclopedia_spec_review'],
+  },
+  explorationDefaults: {
+    level: 40,
+    experimentalConfirmationThreshold: 71,
+    forceReviewAtOrAbove: 71,
+  },
 }
 
 const capabilityPresets: CapabilityPreset[] = [
@@ -492,6 +507,27 @@ const aestheticProfiles: AestheticProfile[] = [
     layoutTone: 'asymmetric grids and dramatic section breaks',
     motionTone: 'confident but controlled',
     negativeRules: ['Avoid illegible low-contrast text.', 'Do not overuse all-caps body copy.'],
+  },
+  {
+    id: 'aes_topic_interactive_card',
+    name: 'Topic Interactive Card',
+    description: 'A theme-responsive single-canvas experience led by one meaningful local interaction instead of landing-page conversion patterns.',
+    colorPaletteIds: ['pal_minimal_mono', 'pal_editorial_contrast'],
+    mood: ['curated', 'immersive', 'focused'],
+    occasion: ['topic exploration', 'interactive knowledge object', 'embedded story card'],
+    tone: ['editorial', 'expressive', 'factual'],
+    formality: 'medium',
+    density: 'medium-high',
+    bestFor: ['topic-driven interactive cards', 'member or relation exploration', 'timeline and object narratives'],
+    avoidFor: ['SaaS landing pages', 'conversion funnels', 'pricing pages', 'testimonial-heavy marketing'],
+    typographyTone: 'compact editorial hierarchy with a strong topic title and concise interaction labels',
+    layoutTone: 'one fixed canvas, one primary interaction, and supporting facts that never compete with the main experience',
+    motionTone: 'local state transitions that clarify selection, progression, relation, or reveal',
+    negativeRules: [
+      'Do not add CTA rhythms, proof blocks, testimonials, social proof, pricing, signup, or conversion language.',
+      'Do not turn the topic into a traditional encyclopedia article, dashboard, or marketing landing page.',
+      'Do not overload the fixed frame with multiple equally dominant modules.',
+    ],
   },
 ]
 
@@ -849,10 +885,11 @@ const designSkills: DesignSkill[] = [
     pluginId: 'plug_encyclopedia_entry_guidance',
     schemaVersion: '2026-07-08.dudesign-skill.v2',
     rules: [
-      'Treat the user input as an encyclopedia entry title, entry content, or both.',
-      'Classify the entry into the closest encyclopedia category before choosing a card structure.',
+      'Treat the user input as a topic/entity theme and optional supporting context for a dynamic interactive card.',
+      'Classify the entry only to choose a relevant interaction paradigm, module set, and factual boundary.',
       'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
-      'Prefer neutral encyclopedia tone, compact facts, clear labels, and inspectable interactions.',
+      'Prioritize a distinctive thematic experience and one valuable inspectable interaction; use compact neutral facts as supporting material.',
+      'Do not generate a traditional encyclopedia article, encyclopedia website page, infobox-plus-contents layout, or exhaustive knowledge summary.',
       'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
       // 硬性归束（v0.4）— 中文优先
       'Default body content to Simplified Chinese. Preserve proper nouns, foreign entry titles, and language-category entries (foreign language / linguistics / translation / dialect) in their original script.',
@@ -862,7 +899,8 @@ const designSkills: DesignSkill[] = [
       'Never use overflow: auto / scroll, the .scroll-container class, or any internal scroll container. For overflow content use a .tab-bar (max 4 tabs), .page-switcher (dots/pill), or .modal-overlay.',
     ],
     promptBlocks: [
-      'For dynamic encyclopedia cards, first summarize the entry type, then generate a compact interactive card that respects the selected child template and interaction paradigm.',
+      'For topic-driven dynamic cards, identify the user goal and primary interaction first, then create a compact thematic experience that respects the selected child template and interaction paradigm.',
+      'The entry is a theme and factual boundary, not a requirement for encyclopedia-style completeness. Curate only the content that strengthens the selected interaction.',
       'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
       // 硬性归束（v0.4）— 溢出策略指引
       'Overflow strategy: when content density exceeds the canvas, split across .tab-bar (one tab per logical group, max 4), paginate with .page-switcher (e.g. 3–4 milestones per page), or open a .modal-overlay for "查看更多" details. Never wrap content in an overflow:auto container.',
@@ -879,6 +917,8 @@ const designSkills: DesignSkill[] = [
     qualityChecklist: [
       'The card fits the required dynamic encyclopedia viewport constraints (PC 788×492 / WISE 380×456).',
       'The structure matches the selected subtemplate and entry category.',
+      'The card has a clear thematic focal point and a real primary interaction; it is not a compressed encyclopedia article.',
+      'Content selection serves the user goal and interaction rather than exhaustive topic coverage.',
       'No internal scroll containers; overflow content is routed through .tab-bar / .page-switcher / .modal-overlay.',
       'Body content is Simplified Chinese by default; proper nouns and language-category entries are preserved in their original script.',
       'No English UI phrases (View More / Read More / Get Started / etc.) in non-language-category entries.',

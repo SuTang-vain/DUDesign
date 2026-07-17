@@ -1,5 +1,12 @@
 import { LocalArtifactStore } from '@dudesign/artifact-store'
-import { BabelORuntimeGateway, MockRuntimeGateway, type RuntimeGateway } from '@dudesign/runtime-gateway'
+import {
+  BabelOGuidanceAnalysisGateway,
+  BabelORuntimeGateway,
+  CliAgentRuntimeGateway,
+  MockRuntimeGateway,
+  type GuidanceAnalysisGateway,
+  type RuntimeGateway,
+} from '@dudesign/runtime-gateway'
 import { join } from 'node:path'
 import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
@@ -17,6 +24,7 @@ export async function createApplicationServiceFromEnv(options: {
     rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
   })
   const runtime = createRuntimeGatewayFromEnv()
+  const guidanceAnalysis = createGuidanceAnalysisGatewayFromEnv()
   const mcpExecutor = createMcpExecutorFromEnv()
   const queue = createDesignJobQueueFromEnv()
   const consumeQueue = shouldConsumeQueue(role)
@@ -28,9 +36,9 @@ export async function createApplicationServiceFromEnv(options: {
       connectionString: process.env.DATABASE_URL,
       hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
-    return new ApplicationService({ store, artifacts, runtime, mcpExecutor, queue, consumeQueue })
+    return new ApplicationService({ store, artifacts, runtime, guidanceAnalysis, mcpExecutor, queue, consumeQueue })
   }
-  return new ApplicationService({ artifacts, runtime, mcpExecutor, queue, consumeQueue })
+  return new ApplicationService({ artifacts, runtime, guidanceAnalysis, mcpExecutor, queue, consumeQueue })
 }
 
 export function applicationProcessRoleFromEnv(env: NodeJS.ProcessEnv = process.env): ApplicationProcessRole {
@@ -59,8 +67,29 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
   if (!runtimeProvider || runtimeProvider === 'mock') {
     return new MockRuntimeGateway()
   }
+  if (runtimeProvider === 'cli-agent') {
+    const executable = process.env.DUDESIGN_CLI_AGENT_EXECUTABLE
+    const workspaceBaseDir = process.env.DUDESIGN_CLI_AGENT_WORKSPACE_BASE
+      ?? process.env.DUDESIGN_ARTIFACT_ROOT
+      ?? join(process.cwd(), '.dudesign', 'cli-agent-workspaces')
+    if (!executable) {
+      throw new Error('DUDESIGN_CLI_AGENT_EXECUTABLE is required when DUDESIGN_RUNTIME_PROVIDER=cli-agent.')
+    }
+    return new CliAgentRuntimeGateway({
+      executable,
+      args: parseStringArrayJson(process.env.DUDESIGN_CLI_AGENT_ARGS_JSON, 'DUDESIGN_CLI_AGENT_ARGS_JSON'),
+      env: parseStringRecordJson(process.env.DUDESIGN_CLI_AGENT_ENV_JSON, 'DUDESIGN_CLI_AGENT_ENV_JSON'),
+      workspaceBaseDir,
+      timeoutMs: optionalPositiveInteger(process.env.DUDESIGN_CLI_AGENT_TIMEOUT_MS),
+      maxOutputBytes: optionalPositiveInteger(process.env.DUDESIGN_CLI_AGENT_MAX_OUTPUT_BYTES),
+      maxArtifactBytes: optionalPositiveInteger(process.env.DUDESIGN_CLI_AGENT_MAX_ARTIFACT_BYTES),
+      maxArtifactFiles: optionalPositiveInteger(process.env.DUDESIGN_CLI_AGENT_MAX_ARTIFACT_FILES),
+      killGraceMs: optionalPositiveInteger(process.env.DUDESIGN_CLI_AGENT_KILL_GRACE_MS),
+      variationConcurrency: optionalPositiveInteger(process.env.DUDESIGN_RUNTIME_VARIATION_CONCURRENCY),
+    })
+  }
   if (runtimeProvider !== 'babel-o') {
-    throw new Error(`Unsupported DUDESIGN_RUNTIME_PROVIDER: ${runtimeProvider}. Expected one of: mock, babel-o.`)
+    throw new Error(`Unsupported DUDESIGN_RUNTIME_PROVIDER: ${runtimeProvider}. Expected one of: mock, babel-o, cli-agent.`)
   }
   const baseUrl = process.env.BABELO_BASE_URL ?? process.env.DUDESIGN_BABELO_BASE_URL
   if (!baseUrl) {
@@ -78,6 +107,67 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
       expectedContractVersion: process.env.BABELO_CONTRACT_VERSION ?? process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
     },
   })
+}
+
+export function createGuidanceAnalysisGatewayFromEnv(): GuidanceAnalysisGateway | null {
+  const provider = process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER
+  if (!provider || provider === 'legacy' || provider === 'off' || provider === 'disabled') return null
+  if (provider !== 'babel-o') {
+    throw new Error(`Unsupported DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER: ${provider}. Expected one of: legacy, babel-o.`)
+  }
+  const baseUrl = process.env.DUDESIGN_GUIDANCE_BABELO_BASE_URL
+    ?? process.env.BABELO_BASE_URL
+    ?? process.env.DUDESIGN_BABELO_BASE_URL
+  if (!baseUrl) {
+    throw new Error('DUDESIGN_GUIDANCE_BABELO_BASE_URL or BABELO_BASE_URL is required when DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER=babel-o.')
+  }
+  return new BabelOGuidanceAnalysisGateway({
+    baseUrl,
+    endpointPath: process.env.DUDESIGN_GUIDANCE_ANALYSIS_ENDPOINT,
+    apiKey: process.env.DUDESIGN_GUIDANCE_BABELO_API_KEY
+      ?? process.env.BABELO_API_KEY
+      ?? process.env.DUDESIGN_BABELO_API_KEY,
+    authHeaderName: process.env.DUDESIGN_GUIDANCE_BABELO_AUTH_HEADER
+      ?? process.env.BABELO_AUTH_HEADER
+      ?? process.env.DUDESIGN_BABELO_AUTH_HEADER,
+    timeoutMs: optionalPositiveInteger(
+      process.env.DUDESIGN_GUIDANCE_ANALYSIS_TIMEOUT_MS
+      ?? process.env.BABELO_TIMEOUT_MS
+      ?? process.env.DUDESIGN_BABELO_TIMEOUT_MS,
+    ),
+  })
+}
+
+function parseStringArrayJson(value: string | undefined, name: string): string[] {
+  if (!value?.trim()) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error(`${name} must be valid JSON.`)
+  }
+  if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) {
+    throw new Error(`${name} must be a JSON array of strings.`)
+  }
+  return parsed
+}
+
+function parseStringRecordJson(value: string | undefined, name: string): Record<string, string> {
+  if (!value?.trim()) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    throw new Error(`${name} must be valid JSON.`)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${name} must be a JSON object of string values.`)
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>)
+  if (entries.some(([, item]) => typeof item !== 'string')) {
+    throw new Error(`${name} must be a JSON object of string values.`)
+  }
+  return Object.fromEntries(entries) as Record<string, string>
 }
 
 export function createMcpExecutorFromEnv(): McpExecutor {

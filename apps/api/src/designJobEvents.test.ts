@@ -422,7 +422,7 @@ describe('Design job event persistence and partial failures', () => {
     harness = null
   })
 
-  it('stops automation repair at max attempts when repaired artifact still fails', async () => {
+  it('stops automation repair as repeated failure when the repaired artifact has the same findings', async () => {
     harness = await startApiFlowHarness(new ApplicationService({
       runtime: new ControlledRuntimeGateway('quality-failure-still-fails'),
       queue: new NoopScreenshotQueue(),
@@ -457,7 +457,7 @@ describe('Design job event persistence and partial failures', () => {
 
     assert.deepEqual(qualityChecks.map(event => event.payload.status), ['fail', 'fail'])
     assert.equal(repairStartedEvents.length, 1)
-    assert.equal(stopped?.payload.reason, 'max_attempts_reached')
+    assert.equal(stopped?.payload.reason, 'repeated_failure')
     assert.equal(stopped?.payload.attempts, 1)
     assert.equal(completed, undefined)
 
@@ -523,6 +523,43 @@ describe('Design job event persistence and partial failures', () => {
       `/api/variations/${job.variations[0]!.id}`,
     )
     assert.equal(detail.currentArtifact?.version, 1)
+
+    await harness.close()
+    harness = null
+  })
+
+  it('releases the quality review when runtime ends repair with a failure event', async () => {
+    harness = await startApiFlowHarness(new ApplicationService({
+      runtime: new ControlledRuntimeGateway('quality-failure-runtime-event'),
+      queue: new NoopScreenshotQueue(),
+    }))
+    const bootstrap = await getJson<{ workspace: { id: string } }>(harness, '/api/dev/bootstrap')
+    const session = await postJson<CreateSessionResponse>(harness, '/api/sessions', {
+      workspaceId: bootstrap.workspace.id,
+      mode: 'new_html',
+      title: 'Automation loop runtime failure event',
+    })
+    const job = await postJson<CreateDesignJobResponse>(harness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'Generate an artifact whose repair emits a runtime failure event.',
+      sourceMode: 'new_html',
+      variationCount: 1,
+      capabilityRequirements: {
+        automation: {
+          loopProfileId: 'loop_standard',
+          maxRepairAttempts: 1,
+        },
+      },
+      templateRequirements: {},
+    })
+    const snapshot = await waitForJob(harness, job.job.id, 'completed')
+    assert.equal(snapshot.variations[0]?.currentArtifactId !== null, true)
+    await harness.service.flushBackgroundTasks()
+
+    const events = await harness.service.store.listDesignEvents(job.job.id)
+    const stopped = events.find(event => event.type === 'design.loop_stopped')
+    assert.equal(stopped?.payload.reason, 'runtime_unavailable')
+    assert.equal((await harness.service.store.getJobById(job.job.id))?.status, 'completed')
 
     await harness.close()
     harness = null
@@ -890,6 +927,7 @@ type ControlledRuntimeMode =
   | 'quality-failure'
   | 'quality-failure-still-fails'
   | 'quality-failure-runtime-unavailable'
+  | 'quality-failure-runtime-event'
   | 'encyclopedia-fake-tab-interaction'
   | 'encyclopedia-summary-with-timeline-candidate'
   | 'encyclopedia-film-resource-risk'
@@ -1024,6 +1062,20 @@ class ControlledRuntimeGateway implements RuntimeGateway {
     if (this.mode === 'quality-failure-runtime-unavailable') {
       throw new Error('Runtime refine unavailable in controlled test.')
     }
+    if (this.mode === 'quality-failure-runtime-event') {
+      yield createDesignEvent({
+        type: 'design.variation_failed',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: input.variationId,
+        payload: {
+          errorCode: 'RUNTIME_CHILD_FAILED',
+          message: 'Runtime emitted a terminal repair failure event.',
+          recoverable: true,
+        },
+      })
+      return
+    }
     yield createDesignEvent({
       type: 'design.variation_streaming',
       sessionId: input.sessionId,
@@ -1056,7 +1108,10 @@ class ControlledRuntimeGateway implements RuntimeGateway {
   }
 
   private completedHtml(): string {
-    if (this.mode === 'quality-failure' || this.mode === 'quality-failure-still-fails' || this.mode === 'quality-failure-runtime-unavailable') {
+    if (this.mode === 'quality-failure'
+      || this.mode === 'quality-failure-still-fails'
+      || this.mode === 'quality-failure-runtime-unavailable'
+      || this.mode === 'quality-failure-runtime-event') {
       return '<!doctype html><html><body></body></html>'
     }
     if (this.mode === 'encyclopedia-fake-tab-interaction') {

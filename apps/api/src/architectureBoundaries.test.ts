@@ -35,6 +35,16 @@ describe('architecture boundaries', () => {
     assert.match(snapshotBlock, /execution:\s*UserVariationExecution/)
   })
 
+  it('keeps MCP routing and internal job records out of user snapshot responses', async () => {
+    const contractSource = await readFile(join(repoRoot, 'packages/contracts/src/api.ts'), 'utf8')
+    const serviceSource = await readFile(join(repoRoot, 'apps/api/src/service.ts'), 'utf8')
+
+    assert.match(contractSource, /UserCapabilityPluginSnapshot = Omit<CapabilityPluginSnapshot, 'mcpToolBindings'>/)
+    assert.match(contractSource, /Omit<McpToolBinding, 'serverName' \| 'toolName'>/)
+    assert.match(serviceSource, /function toUserCapabilitySnapshot/)
+    assert.doesNotMatch(serviceSource, /job:\s*\{\s*\.\.\.snapshot\.job,\s*capabilitySnapshot:/)
+  })
+
   it('requires unknown runtime providers to fail fast instead of falling back to mock', async () => {
     const source = await readFile(join(repoRoot, 'apps/api/src/serviceFactory.ts'), 'utf8')
 
@@ -56,6 +66,45 @@ describe('architecture boundaries', () => {
     }
 
     assert.deepEqual(violations, [])
+  })
+
+  it('keeps exploration planning independent from runtime and infrastructure providers', async () => {
+    const source = await readFile(
+      join(repoRoot, 'apps/api/src/application/explorationPlanningApplicationService.ts'),
+      'utf8',
+    )
+
+    assert.doesNotMatch(source, /runtime-gateway|postgresRepository|redisDesignJobQueue|service\.js/)
+    assert.match(source, /ExplorationModuleGraphResolver/)
+  })
+
+  it('keeps runtime exploration context free from authoring evidence and provider sampling controls', async () => {
+    const source = await readFile(
+      join(repoRoot, 'packages/runtime-gateway/src/runtimeExplorationContext.ts'),
+      'utf8',
+    )
+
+    assert.doesNotMatch(source, /sourceExcerpt|sourcePath|unresolvedQuestions|mcpToolIds|requestedScopes/)
+    assert.doesNotMatch(source, /temperature|topP|top_p|maxTokens/)
+    assert.match(source, /factCreativity: 0/)
+    assert.match(source, /mayExpandToolPolicy: false/)
+    assert.match(source, /mayReassignModules: false/)
+  })
+
+  it('contains CLI process execution inside the runtime gateway with shell disabled', async () => {
+    const apiFiles = await sourceFiles(join(repoRoot, 'apps/api/src'))
+    const processViolations: string[] = []
+    for (const file of apiFiles) {
+      if (file.endsWith('architectureBoundaries.test.ts')) continue
+      const source = await readFile(file, 'utf8')
+      if (/node:child_process|\bspawn\(|\bexecFile\(/.test(source)) processViolations.push(relativePath(file))
+    }
+    assert.deepEqual(processViolations, [])
+
+    const source = await readFile(join(repoRoot, 'packages/runtime-gateway/src/cliAgentGateway.ts'), 'utf8')
+    assert.match(source, /shell:\s*false/)
+    assert.match(source, /child\.stdin\.end/)
+    assert.doesNotMatch(source, /exec\(|execSync\(|shell:\s*true/)
   })
 })
 

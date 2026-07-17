@@ -13,7 +13,14 @@ import type {
   EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, AuthIdentity, AuthSession, SessionMessage } from './store.js'
-import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
+import type {
+  CapabilityAuthoringDraft,
+  CapabilityAuthoringAsset,
+  DesignEvent,
+  DesignTemplatePack,
+  McpInvocationAuditRecord,
+  UserCapabilityPreference,
+} from '@dudesign/contracts'
 
 export type MaybePromise<T> = T | Promise<T>
 
@@ -68,6 +75,42 @@ export type VariationRefineContext = {
   session: DesignSession | null
   workspace: Workspace | null
   baseArtifact: Artifact | null
+}
+
+export type RefineOperationStatus = 'starting' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
+
+export type RefineRuntimeCancelResult = {
+  cancelled: boolean
+  message?: string
+  cancelledVariationCount?: number
+  failedVariationCount?: number
+}
+
+export type RefineOperationRecord = {
+  requestId: string
+  kind: 'prompt' | 'annotations'
+  prompt: string
+  variationId: string
+  jobId: string
+  sessionId: string
+  workspaceId: string
+  userId: string
+  baseArtifactId: string
+  basePreviewUrl: string | null
+  runtimeChildSessionId: string | null
+  runtimeAgentJobId: string | null
+  status: RefineOperationStatus
+  cancelRequested: boolean
+  cancelReason: string | null
+  runtimeCancelResult: RefineRuntimeCancelResult | null
+  cancellationRecorded: boolean
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+  reconcileOwner: string | null
+  reconcileLeaseUntil: string | null
+  reconcileAttempts: number
+  lastReconcileError: string | null
 }
 
 export type DesignTemplatePackVersion = {
@@ -152,6 +195,7 @@ export type CreateHtmlArtifactInput = {
 }
 
 export type CreateArtifactInput = {
+  artifactId?: string
   workspaceId: string
   sessionId: string
   variationId?: string | null
@@ -444,6 +488,9 @@ export type ApplicationRepository = {
   readonly authIdentities: Map<string, AuthIdentity>
   readonly authSessions: Map<string, AuthSession>
   readonly encyclopediaEntryGuidances: Map<string, EncyclopediaEntryGuidance>
+  readonly capabilityAuthoringDrafts: Map<string, CapabilityAuthoringDraft>
+  readonly capabilityAuthoringAssets: Map<string, CapabilityAuthoringAsset>
+  readonly refineOperations: Map<string, RefineOperationRecord>
 
   readonly devUser: User
   readonly devWorkspace: Workspace
@@ -496,6 +543,12 @@ export type ApplicationRepository = {
   getDesignTemplatePackById(templateId: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePack | null>
   saveDesignTemplatePack(template: DesignTemplatePack): MaybePromise<DesignTemplatePack>
   getDesignTemplatePackVersion(templateId: string, version: string, userId: string, workspaceId?: string | null): MaybePromise<DesignTemplatePackVersion | null>
+  listCapabilityAuthoringDrafts(ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringDraft[]>
+  getCapabilityAuthoringDraftById(draftId: string, ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringDraft | null>
+  saveCapabilityAuthoringDraft(draft: CapabilityAuthoringDraft): MaybePromise<CapabilityAuthoringDraft>
+  listCapabilityAuthoringAssets(draftId: string, ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringAsset[]>
+  getCapabilityAuthoringAssetById(assetId: string, ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringAsset | null>
+  saveCapabilityAuthoringAsset(asset: CapabilityAuthoringAsset): MaybePromise<CapabilityAuthoringAsset>
   saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance>
   getEncyclopediaEntryGuidanceById(guidanceId: string): MaybePromise<EncyclopediaEntryGuidance | null>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
@@ -507,10 +560,18 @@ export type ApplicationRepository = {
   getSessionWorkspaceContext(sessionId: string): MaybePromise<SessionWorkspaceContext | null>
   getVariationJobContext(variationId: string): MaybePromise<VariationJobContext | null>
   getVariationRefineContext(variationId: string, baseArtifactId: string): MaybePromise<VariationRefineContext | null>
+  createRefineOperation(operation: RefineOperationRecord): MaybePromise<RefineOperationRecord>
+  saveRefineOperation(operation: RefineOperationRecord): MaybePromise<RefineOperationRecord>
+  getRefineOperationById(requestId: string): MaybePromise<RefineOperationRecord | null>
+  getActiveRefineOperationByVariation(variationId: string): MaybePromise<RefineOperationRecord | null>
+  getLatestRefineOperationByVariation(variationId: string): MaybePromise<RefineOperationRecord | null>
+  claimActiveRefineOperations(ownerId: string, limit: number, leaseMs: number, staleAfterMs?: number): MaybePromise<RefineOperationRecord[]>
+  releaseRefineOperationLease(requestId: string, ownerId: string, lastError?: string | null): MaybePromise<void>
   getVariationArtifactContext(variationId: string, artifactId: string): MaybePromise<VariationArtifactContext>
   getRuntimeSessionContext(sessionId: string): MaybePromise<RuntimeSessionContext | null>
   createSession(input: CreateSessionInput): MaybePromise<DesignSession>
   saveSession(session: DesignSession): MaybePromise<void>
+  archiveSession(sessionId: string, updatedAt: string): MaybePromise<void>
   appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): MaybePromise<SessionMessage>
   createJob(input: CreateJobInput): MaybePromise<DesignJob>
   updateJobTemplateRequirements(jobId: string, templateRequirements: Record<string, unknown>): MaybePromise<DesignJob | null>

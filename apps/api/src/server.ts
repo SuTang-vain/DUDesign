@@ -5,6 +5,7 @@ import { ApplicationService, type HttpError } from './service.js'
 import { createApplicationServiceFromEnv } from './serviceFactory.js'
 import { createRequestContext, type RequestContext } from './auth.js'
 import { assertOAuthState, clearOAuthStateCookie, oauthProviderFromPath } from './oauth.js'
+import { createRefineOperationReconcilerFromEnv, refineOperationReconcilerEnabled } from './refineOperationReconciler.js'
 
 const defaultPort = Number(process.env.PORT ?? 4000)
 const defaultHost = process.env.HOST ?? '127.0.0.1'
@@ -24,11 +25,16 @@ export async function startApiServer(options: {
   service?: ApplicationService
   port?: number
   host?: string
+  startRefineReconciler?: boolean
 } = {}): Promise<http.Server> {
   const port = options.port ?? defaultPort
   const host = options.host ?? defaultHost
   const service = options.service ?? await createApplicationServiceFromEnv()
   const server = createApiServer(service)
+  const shouldStartReconciler = options.startRefineReconciler ?? (!options.service && refineOperationReconcilerEnabled())
+  const reconciler = shouldStartReconciler ? createRefineOperationReconcilerFromEnv(service) : null
+  reconciler?.start()
+  server.once('close', () => reconciler?.stop())
   server.listen(port, host, () => {
     console.log(`DUDesign API listening on http://${host}:${port}`)
   })
@@ -158,6 +164,150 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (method === 'POST' && url.pathname === '/api/design-templates/import-design-md') {
     sendJson(res, 201, await service.importDesignTemplatePack(ctx, await readJson(req)))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/capability-authoring/import-design-md') {
+    sendJson(res, 201, await service.importDesignMdAuthoringDraft(ctx, await readJson(req)))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/capability-authoring/import-template-pack-json') {
+    sendJson(res, 201, await service.importTemplatePackJsonAuthoringDraft(ctx, await readJson(req)))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/capability-authoring/import-bundle') {
+    sendJson(res, 201, await service.importCapabilityBundleAuthoringDraft(ctx, await readJson(req)))
+    return
+  }
+
+  const designTemplateDesignMdExportMatch = url.pathname.match(/^\/api\/design-templates\/([^/]+)\/export\/design-md$/)
+  if (method === 'GET' && designTemplateDesignMdExportMatch) {
+    const download = await service.exportDesignTemplateDesignMd(
+      ctx,
+      decodeURIComponent(designTemplateDesignMdExportMatch[1]!),
+      requiredQueryParam(url, 'workspaceId'),
+    )
+    sendDownload(res, 200, download)
+    return
+  }
+
+  const designTemplateJsonExportMatch = url.pathname.match(/^\/api\/design-templates\/([^/]+)\/export\/template-pack-json$/)
+  if (method === 'GET' && designTemplateJsonExportMatch) {
+    const download = await service.exportDesignTemplatePackJson(
+      ctx,
+      decodeURIComponent(designTemplateJsonExportMatch[1]!),
+      requiredQueryParam(url, 'workspaceId'),
+    )
+    sendDownload(res, 200, download)
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/capability-authoring/drafts') {
+    sendJson(res, 201, await service.createCapabilityAuthoringDraft(ctx, await readJson(req)))
+    return
+  }
+
+  if (method === 'GET' && url.pathname === '/api/capability-authoring/drafts') {
+    sendJson(res, 200, await service.listCapabilityAuthoringDrafts(
+      ctx,
+      requiredQueryParam(url, 'workspaceId'),
+    ))
+    return
+  }
+
+  const capabilityDraftMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)$/)
+  if (method === 'GET' && capabilityDraftMatch) {
+    sendJson(res, 200, await service.getCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftMatch[1]!),
+      requiredQueryParam(url, 'workspaceId'),
+    ))
+    return
+  }
+
+  if (method === 'PATCH' && capabilityDraftMatch) {
+    sendJson(res, 200, await service.updateCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
+  const capabilityDraftLintMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/lint$/)
+  if (method === 'POST' && capabilityDraftLintMatch) {
+    const input = await readJson(req) as { workspaceId?: string }
+    sendJson(res, 200, await service.lintCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftLintMatch[1]!),
+      requiredBodyString(input.workspaceId, 'workspaceId'),
+    ))
+    return
+  }
+
+  const capabilityDraftAnalyzeMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/analyze$/)
+  if (method === 'POST' && capabilityDraftAnalyzeMatch) {
+    const input = await readJson(req) as { workspaceId?: string }
+    sendJson(res, 200, await service.analyzeCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftAnalyzeMatch[1]!),
+      requiredBodyString(input.workspaceId, 'workspaceId'),
+    ))
+    return
+  }
+
+  const capabilityDraftSanitizeMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/sanitize$/)
+  if (method === 'POST' && capabilityDraftSanitizeMatch) {
+    const input = await readJson(req) as { workspaceId?: string }
+    sendJson(res, 200, await service.sanitizeCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftSanitizeMatch[1]!),
+      requiredBodyString(input.workspaceId, 'workspaceId'),
+    ))
+    return
+  }
+
+  const capabilityDraftPreviewMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/preview$/)
+  if (method === 'POST' && capabilityDraftPreviewMatch) {
+    const input = await readJson(req) as { workspaceId?: string }
+    sendJson(res, 200, await service.previewCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftPreviewMatch[1]!),
+      requiredBodyString(input.workspaceId, 'workspaceId'),
+    ))
+    return
+  }
+
+  const capabilityDraftPublishMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/publish-private$/)
+  if (method === 'POST' && capabilityDraftPublishMatch) {
+    sendJson(res, 201, await service.publishPrivateCapabilityAuthoringDraft(
+      ctx,
+      decodeURIComponent(capabilityDraftPublishMatch[1]!),
+      await readJson(req),
+    ))
+    return
+  }
+
+  const capabilityDraftBundleExportMatch = url.pathname.match(/^\/api\/capability-authoring\/drafts\/([^/]+)\/export-bundle$/)
+  if (method === 'POST' && capabilityDraftBundleExportMatch) {
+    const download = await service.exportCapabilityAuthoringBundle(
+      ctx,
+      decodeURIComponent(capabilityDraftBundleExportMatch[1]!),
+      await readJson(req),
+    )
+    sendDownload(res, 200, download)
+    return
+  }
+
+  const privateTemplateRollbackMatch = url.pathname.match(/^\/api\/design-templates\/([^/]+)\/rollback$/)
+  if (method === 'POST' && privateTemplateRollbackMatch) {
+    sendJson(res, 200, await service.rollbackPrivateDesignTemplate(
+      ctx,
+      decodeURIComponent(privateTemplateRollbackMatch[1]!),
+      await readJson(req),
+    ))
     return
   }
 
@@ -346,9 +496,25 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
+  const sessionMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/)
+  if (method === 'PUT' && sessionMatch) {
+    sendJson(res, 200, await service.updateSession(ctx, decodeURIComponent(sessionMatch[1]!), await readJson(req)))
+    return
+  }
+
+  if (method === 'DELETE' && sessionMatch) {
+    sendJson(res, 200, await service.deleteSession(ctx, decodeURIComponent(sessionMatch[1]!)))
+    return
+  }
+
   const resumeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/resume$/)
   if (method === 'POST' && resumeMatch) {
     sendJson(res, 200, await service.resumeSession(ctx, decodeURIComponent(resumeMatch[1]!)))
+    return
+  }
+
+  if (method === 'POST' && url.pathname === '/api/design-jobs/exploration-plan/preview') {
+    sendJson(res, 200, await service.previewExplorationPlan(ctx, await readJson(req)))
     return
   }
 
@@ -468,6 +634,27 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   const variationRefineMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine$/)
   if (method === 'POST' && variationRefineMatch) {
     sendJson(res, 200, await service.refineVariation(ctx, decodeURIComponent(variationRefineMatch[1]!), await readJson(req)))
+    return
+  }
+
+  const variationRefineOperationMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine-operation$/)
+  if (method === 'GET' && variationRefineOperationMatch) {
+    sendJson(res, 200, await service.getVariationRefineOperation(
+      ctx,
+      decodeURIComponent(variationRefineOperationMatch[1]!),
+      url.searchParams.get('requestId'),
+    ))
+    return
+  }
+
+  const variationRefineCancelMatch = url.pathname.match(/^\/api\/variations\/([^/]+)\/refine\/([^/]+)\/cancel$/)
+  if (method === 'POST' && variationRefineCancelMatch) {
+    sendJson(res, 200, await service.cancelVariationRefine(
+      ctx,
+      decodeURIComponent(variationRefineCancelMatch[1]!),
+      decodeURIComponent(variationRefineCancelMatch[2]!),
+      await readJson(req),
+    ))
     return
   }
 
@@ -732,7 +919,7 @@ function applyCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): 
     res.setHeader('access-control-allow-credentials', 'true')
     res.setHeader('vary', 'Origin')
   }
-  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,OPTIONS')
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
   res.setHeader('access-control-allow-headers', 'content-type')
 }
 
@@ -752,6 +939,17 @@ function routeError(status: number, code: string, message: string): Error & { st
   error.status = status
   error.code = code
   return error
+}
+
+function requiredQueryParam(url: URL, name: string): string {
+  return requiredBodyString(url.searchParams.get(name), name)
+}
+
+function requiredBodyString(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw routeError(400, 'INVALID_REQUEST', `${name} is required.`)
+  }
+  return value.trim()
 }
 
 function oauthRedirectTarget(value: string | null): string | null {

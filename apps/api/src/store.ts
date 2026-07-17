@@ -33,6 +33,7 @@ import type {
   MaybePromise,
   ModelSyncDiffItem,
   RuntimeSessionContext,
+  RefineOperationRecord,
   SessionWorkspaceContext,
   SharedVariationSnapshot,
   UpsertDiscoveredModelServicesResult,
@@ -41,7 +42,14 @@ import type {
   VariationJobContext,
   VariationRefineContext,
 } from './repository.js'
-import type { DesignEvent, DesignTemplatePack, McpInvocationAuditRecord, UserCapabilityPreference } from '@dudesign/contracts'
+import type {
+  CapabilityAuthoringDraft,
+  CapabilityAuthoringAsset,
+  DesignEvent,
+  DesignTemplatePack,
+  McpInvocationAuditRecord,
+  UserCapabilityPreference,
+} from '@dudesign/contracts'
 import { adminPreviewText, redactAdminStorageKey, summarizeAdminSupportIssue } from './adminRedaction.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 import { createHash } from 'node:crypto'
@@ -125,6 +133,9 @@ export class InMemoryStore implements ApplicationRepository {
   readonly authIdentities = new Map<string, AuthIdentity>()
   readonly authSessions = new Map<string, AuthSession>()
   readonly encyclopediaEntryGuidances = new Map<string, EncyclopediaEntryGuidance>()
+  readonly capabilityAuthoringDrafts = new Map<string, CapabilityAuthoringDraft>()
+  readonly capabilityAuthoringAssets = new Map<string, CapabilityAuthoringAsset>()
+  readonly refineOperations = new Map<string, RefineOperationRecord>()
 
   readonly devUser: User
   readonly devWorkspace: Workspace
@@ -377,6 +388,54 @@ export class InMemoryStore implements ApplicationRepository {
     return this.designTemplatePackVersions.get(designTemplatePackVersionKey(templateId, version)) ?? null
   }
 
+  listCapabilityAuthoringDrafts(ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringDraft[]> {
+    return [...this.capabilityAuthoringDrafts.values()]
+      .filter(draft => draft.ownerUserId === ownerUserId && draft.workspaceId === workspaceId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+      .map(draft => structuredClone(draft))
+  }
+
+  getCapabilityAuthoringDraftById(
+    draftId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): MaybePromise<CapabilityAuthoringDraft | null> {
+    const draft = this.capabilityAuthoringDrafts.get(draftId) ?? null
+    if (!draft || draft.ownerUserId !== ownerUserId || draft.workspaceId !== workspaceId) return null
+    return structuredClone(draft)
+  }
+
+  saveCapabilityAuthoringDraft(draft: CapabilityAuthoringDraft): MaybePromise<CapabilityAuthoringDraft> {
+    this.capabilityAuthoringDrafts.set(draft.id, structuredClone(draft))
+    return structuredClone(draft)
+  }
+
+  listCapabilityAuthoringAssets(
+    draftId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): MaybePromise<CapabilityAuthoringAsset[]> {
+    return [...this.capabilityAuthoringAssets.values()]
+      .filter(asset => asset.draftId === draftId && asset.ownerUserId === ownerUserId && asset.workspaceId === workspaceId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+      .map(asset => structuredClone(asset))
+  }
+
+  getCapabilityAuthoringAssetById(
+    assetId: string,
+    ownerUserId: string,
+    workspaceId: string,
+  ): MaybePromise<CapabilityAuthoringAsset | null> {
+    const asset = this.capabilityAuthoringAssets.get(assetId)
+    if (!asset || asset.ownerUserId !== ownerUserId || asset.workspaceId !== workspaceId) return null
+    return structuredClone(asset)
+  }
+
+  saveCapabilityAuthoringAsset(asset: CapabilityAuthoringAsset): MaybePromise<CapabilityAuthoringAsset> {
+    this.capabilityAuthoringAssets.set(asset.id, structuredClone(asset))
+    return structuredClone(asset)
+  }
+
   saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance> {
     this.encyclopediaEntryGuidances.set(guidance.id, guidance)
     return guidance
@@ -509,6 +568,85 @@ export class InMemoryStore implements ApplicationRepository {
     }
   }
 
+  createRefineOperation(operation: RefineOperationRecord): MaybePromise<RefineOperationRecord> {
+    if (this.refineOperations.has(operation.requestId)) throw new Error(`Refine request already exists: ${operation.requestId}`)
+    const active = this.getActiveRefineOperationByVariation(operation.variationId)
+    if (active) throw new Error(`Variation already has an active refine request: ${operation.variationId}`)
+    const saved = structuredClone(operation)
+    this.refineOperations.set(saved.requestId, saved)
+    return structuredClone(saved)
+  }
+
+  saveRefineOperation(operation: RefineOperationRecord): MaybePromise<RefineOperationRecord> {
+    const existing = this.refineOperations.get(operation.requestId)
+    const saved = structuredClone({
+      ...operation,
+      reconcileOwner: existing?.reconcileOwner ?? operation.reconcileOwner,
+      reconcileLeaseUntil: existing?.reconcileLeaseUntil ?? operation.reconcileLeaseUntil,
+      reconcileAttempts: existing?.reconcileAttempts ?? operation.reconcileAttempts,
+      lastReconcileError: existing?.lastReconcileError ?? operation.lastReconcileError,
+    })
+    this.refineOperations.set(saved.requestId, saved)
+    return structuredClone(saved)
+  }
+
+  getRefineOperationById(requestId: string): MaybePromise<RefineOperationRecord | null> {
+    const operation = this.refineOperations.get(requestId)
+    return operation ? structuredClone(operation) : null
+  }
+
+  getActiveRefineOperationByVariation(variationId: string): MaybePromise<RefineOperationRecord | null> {
+    const operation = [...this.refineOperations.values()].find(candidate => (
+      candidate.variationId === variationId
+      && (candidate.status === 'starting' || candidate.status === 'running' || candidate.status === 'cancelling')
+    ))
+    return operation ? structuredClone(operation) : null
+  }
+
+  getLatestRefineOperationByVariation(variationId: string): MaybePromise<RefineOperationRecord | null> {
+    const operation = [...this.refineOperations.values()]
+      .filter(candidate => candidate.variationId === variationId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+    return operation ? structuredClone(operation) : null
+  }
+
+  claimActiveRefineOperations(ownerId: string, limit: number, leaseMs: number, staleAfterMs = 300_000): MaybePromise<RefineOperationRecord[]> {
+    const now = Date.now()
+    const staleBefore = now - Math.max(0, staleAfterMs)
+    const leaseUntil = new Date(now + Math.max(1, leaseMs)).toISOString()
+    const claimed = [...this.refineOperations.values()]
+      .filter(operation => (
+        (operation.status === 'cancelling'
+          || ((operation.status === 'starting' || operation.status === 'running') && Date.parse(operation.updatedAt) <= staleBefore))
+        && (!operation.reconcileLeaseUntil || Date.parse(operation.reconcileLeaseUntil) <= now || operation.reconcileOwner === ownerId)
+      ))
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
+      .slice(0, Math.max(0, limit))
+      .map(operation => {
+        const next = {
+          ...operation,
+          reconcileOwner: ownerId,
+          reconcileLeaseUntil: leaseUntil,
+          reconcileAttempts: operation.reconcileAttempts + 1,
+          lastReconcileError: null,
+        }
+        this.refineOperations.set(next.requestId, structuredClone(next))
+        return structuredClone(next)
+      })
+    return claimed
+  }
+
+  releaseRefineOperationLease(requestId: string, ownerId: string, lastError: string | null = null): MaybePromise<void> {
+    const operation = this.refineOperations.get(requestId)
+    if (!operation || operation.reconcileOwner !== ownerId) return
+    this.refineOperations.set(requestId, {
+      ...operation,
+      reconcileOwner: null,
+      reconcileLeaseUntil: null,
+      lastReconcileError: lastError,
+    })
+  }
+
   getVariationArtifactContext(variationId: string, artifactId: string): MaybePromise<VariationArtifactContext> {
     const variation = this.variations.get(variationId) ?? null
     const artifact = this.artifacts.get(artifactId) ?? null
@@ -559,6 +697,16 @@ export class InMemoryStore implements ApplicationRepository {
 
   saveSession(session: DesignSession): MaybePromise<void> {
     this.sessions.set(session.id, session)
+  }
+
+  archiveSession(sessionId: string, updatedAt: string): MaybePromise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    this.sessions.set(sessionId, {
+      ...session,
+      status: 'archived',
+      updatedAt,
+    })
   }
 
   private createSeedUserWorkspace(input: {
@@ -1056,6 +1204,7 @@ export class InMemoryStore implements ApplicationRepository {
   }
 
   createArtifact(input: {
+    artifactId?: string
     workspaceId: string
     sessionId: string
     variationId?: string | null
@@ -1069,7 +1218,7 @@ export class InMemoryStore implements ApplicationRepository {
     metadata?: Record<string, unknown>
   }): MaybePromise<Artifact> {
     const artifact: Artifact = {
-      id: createId('art'),
+      id: input.artifactId ?? createId('art'),
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
       variationId: input.variationId ?? null,

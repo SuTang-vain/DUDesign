@@ -7,6 +7,7 @@ import { LocalArtifactStore } from '@dudesign/artifact-store'
 import type {
   CreateDesignJobResponse,
   CreateSessionResponse,
+  DesignJobSnapshotResponse,
   ExportVariationResponse,
   SharedVariationResponse,
   ShareVariationResponse,
@@ -112,6 +113,26 @@ describe('Runtime unavailable degradation', () => {
     const previewBefore = await getText(healthyHarness, `/api/variations/${variationId}/preview`)
     assert.match(previewBefore, /iframe-ready HTML/)
 
+    const plannedJob = await postJson<CreateDesignJobResponse>(healthyHarness, '/api/design-jobs', {
+      sessionId: session.session.id,
+      prompt: 'A controlled dynamic encyclopedia plan before runtime outage',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 3,
+      requirementModuleGraphId: 'requirement_graph_dynamic_encyclopedia_entry',
+      exploration: {
+        level: 40,
+        lockedModuleIds: ['entry_timeline'],
+        excludedModuleIds: ['entry_comparison'],
+      },
+      templateRequirements: {},
+    })
+    await waitForJob(healthyHarness, plannedJob.job.id, 'completed')
+    const plannedBefore = await getJson<DesignJobSnapshotResponse>(healthyHarness, `/api/design-jobs/${plannedJob.job.id}`)
+    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.entry_timeline, 1)
+    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.entry_comparison, undefined)
+    assert.deepEqual(plannedBefore.job.capabilitySelectionSnapshot?.explorationRequest.excludedModuleIds, ['entry_comparison'])
+
     const resumed = await postJson<{ runtime: { status: string }; artifacts: unknown[] }>(
       degradedHarness,
       `/api/sessions/${session.session.id}/resume`,
@@ -119,6 +140,14 @@ describe('Runtime unavailable degradation', () => {
     )
     assert.equal(resumed.runtime.status, 'unavailable')
     assert.equal(resumed.artifacts.length >= 1, true)
+
+    const plannedDuringOutage = await getJson<DesignJobSnapshotResponse>(degradedHarness, `/api/design-jobs/${plannedJob.job.id}`)
+    assert.deepEqual(plannedDuringOutage.job.explorationPlan, plannedBefore.job.explorationPlan)
+    assert.deepEqual(plannedDuringOutage.job.capabilitySelectionSnapshot, plannedBefore.job.capabilitySelectionSnapshot)
+    assert.deepEqual(
+      plannedDuringOutage.variations.map(variation => variation.explorationPlan?.focusId),
+      plannedBefore.variations.map(variation => variation.explorationPlan?.focusId),
+    )
 
     const previewDuringOutage = await getText(degradedHarness, `/api/variations/${variationId}/preview`)
     assert.match(previewDuringOutage, /iframe-ready HTML/)

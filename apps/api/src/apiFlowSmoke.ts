@@ -667,7 +667,7 @@ Reusable smoke test template.
     sessionId: createdSession.session.id,
     prompt: sensitivePrompt,
     sourceMode: 'new_html',
-    productMode: 'dynamic_encyclopedia_card',
+    productMode: 'web_app',
     variationCount: 3,
     capabilityRequirements: {
       template: {
@@ -704,9 +704,9 @@ Reusable smoke test template.
 
   const jobSnapshot = await waitForJob(createdJob.job.id)
   assert.equal(jobSnapshot.job.status, 'completed')
-  assert.equal(jobSnapshot.job.productMode, 'dynamic_encyclopedia_card')
+  assert.equal(jobSnapshot.job.productMode, 'web_app')
   const storedCreatedJob = await harness.service.store.getJobById(createdJob.job.id)
-  assert.equal(storedCreatedJob?.productMode, 'dynamic_encyclopedia_card')
+  assert.equal(storedCreatedJob?.productMode, 'web_app')
   const capabilitySnapshot = storedCreatedJob?.templateRequirements.capabilitySnapshot as {
     schemaVersion?: string
     template?: {
@@ -755,8 +755,8 @@ Reusable smoke test template.
         domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
       },
       plugins: {
-        skillIds: ['sk_research_brief_builder'],
-        mcpToolIds: ['mcp_agent_reach_search'],
+        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_research_brief_builder'],
+        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search'],
       },
     },
   })
@@ -802,8 +802,8 @@ Reusable smoke test template.
         domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
       },
       plugins: {
-        skillIds: ['sk_visual_asset_brief'],
-        mcpToolIds: ['mcp_image_generation_ark_seedream'],
+        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_visual_asset_brief'],
+        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_image_generation_ark_seedream'],
       },
     },
   })
@@ -886,8 +886,8 @@ Reusable smoke test template.
         domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
       },
       plugins: {
-        skillIds: ['sk_research_brief_builder', 'sk_data_intake_analysis'],
-        mcpToolIds: ['mcp_agent_reach_search'],
+        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_research_brief_builder', 'sk_data_intake_analysis'],
+        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search'],
       },
     },
     templateRequirements: {

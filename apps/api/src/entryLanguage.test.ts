@@ -71,6 +71,13 @@ describe('detectEntryLanguage', () => {
     assert.equal(result.isLanguageCategory, false)
   })
 
+  it('keeps a foreign proper-noun title Chinese-first when no body context is supplied', () => {
+    const result = detectEntryLanguage('BLACKPINK', null)
+    assert.equal(result.entryContentLanguage, 'zh')
+    assert.equal(result.isLanguageCategory, false)
+    assert.equal(result.scriptBreakdown.latin > 0, true)
+  })
+
   it('keeps empty input as zh fallback without crashing', () => {
     const result = detectEntryLanguage('', null)
     assert.equal(result.entryContentLanguage, 'zh')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { Pool } from 'pg'
-import type { DesignEvent, DesignTemplatePack } from '@dudesign/contracts'
+import type { CapabilityAuthoringAsset, CapabilityAuthoringDraft, DesignEvent, DesignTemplatePack } from '@dudesign/contracts'
 import { PostgresRepository } from './postgresRepository.js'
 import { officialDesignTemplatePacks } from './officialDesignTemplatePacks.js'
 
@@ -52,7 +52,47 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       sourceMode: 'new_html',
       productMode: 'dynamic_encyclopedia_card',
       variationCount: 1,
-      templateRequirements: { styles: ['postgres'] },
+      templateRequirements: {
+        styles: ['postgres'],
+        explorationPlan: {
+          schemaVersion: '2026-07-13.dudesign-exploration-plan.v1',
+          plannerVersion: 'pg-smoke-planner',
+          seed: 'sha256:pg-exploration',
+          capabilitySnapshotId: 'capexp_pg_smoke',
+          moduleGraphVersion: '2026-07-14.pg-smoke.v1',
+          profile: { level: 40, mode: 'balanced', factCreativity: 0 },
+          variations: [{
+            variationIndex: 1,
+            focusId: 'entry_timeline',
+            requiredModuleIds: ['entry_identity_summary'],
+            sampledModuleIds: ['entry_timeline'],
+            excludedModuleIds: ['entry_comparison'],
+            interactionDirectionIds: ['ip_timeline_story'],
+            styleDirectionId: 'balanced:entry_timeline',
+            rationale: 'Postgres snapshot smoke.',
+          }],
+          coverageSummary: { entry_identity_summary: 1, entry_timeline: 1 },
+          warnings: [],
+        },
+        capabilitySelectionSnapshot: {
+          schemaVersion: '2026-07-14.dudesign-capability-selection.v1',
+          presetId: 'preset_dynamic_encyclopedia_card',
+          guidanceId: 'eg_pg_smoke',
+          confirmedAt: new Date().toISOString(),
+          selectedTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
+          selectedSkillIds: ['sk_encyclopedia_entry_guidance'],
+          selectedMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
+          loopProfileId: 'loop_encyclopedia_spec_review',
+          reviewMode: 'semi_auto',
+          explorationRequest: { level: 40, lockedModuleIds: ['entry_timeline'], excludedModuleIds: ['entry_comparison'] },
+          sourceByCapabilityId: {
+            dtp_dynamic_encyclopedia_timeline_card: 'entry_guidance',
+            sk_encyclopedia_entry_guidance: 'official_preset',
+            mcp_encyclopedia_democase_readonly: 'official_preset',
+            loop_encyclopedia_spec_review: 'official_preset',
+          },
+        },
+      },
     })
     assert.equal(job.productMode, 'dynamic_encyclopedia_card')
     const [variation] = await repository.createVariations({ job, count: 1 })
@@ -273,6 +313,59 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       updatedAt: new Date().toISOString(),
     })
     assert.equal(guidance.status, 'confirmed')
+    const authoringDraft: CapabilityAuthoringDraft = {
+      id: 'cad_pg_smoke',
+      ownerUserId: repository.devUser.id,
+      workspaceId: repository.devWorkspace.id,
+      source: {
+        type: 'variation_artifact',
+        variationId: variation.id,
+        artifactId: artifact.id,
+        artifactVersion: artifact.version,
+        contentHash: artifact.contentHash,
+      },
+      status: 'needs_confirmation',
+      candidateBundle: {
+        templatePacks: [],
+        skills: [],
+        interactionParadigms: [],
+        dataContracts: [],
+        reviewProfiles: [],
+        recommendedCapabilityProfile: {
+          templateDraftIndexes: [],
+          skillDraftIndexes: [],
+          interactionDraftIndexes: [],
+          dataContractDraftIndexes: [],
+          reviewProfileDraftIndexes: [],
+        },
+      },
+      findings: [{
+        severity: 'warning',
+        code: 'draft.pending_analysis',
+        path: 'candidateBundle',
+        message: 'Postgres smoke authoring draft.',
+      }],
+      confirmedPaths: [],
+      publishedTemplateId: privateTemplate.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    await repository.saveCapabilityAuthoringDraft(authoringDraft)
+    const authoringAsset: CapabilityAuthoringAsset = {
+      id: 'caa_pg_smoke',
+      draftId: authoringDraft.id,
+      ownerUserId: repository.devUser.id,
+      workspaceId: repository.devWorkspace.id,
+      kind: 'html_example',
+      storageKey: `${repository.devWorkspace.id}/artifacts/caa_pg_smoke/bundle-imports/example.html`,
+      entryPath: 'examples/template-001/example-001.html',
+      contentType: 'text/html',
+      contentHash: 'sha256:capability-authoring-asset',
+      sizeBytes: 128,
+      metadata: { bundlePath: 'examples/template-001/example-001.html' },
+      createdAt: new Date().toISOString(),
+    }
+    await repository.saveCapabilityAuthoringAsset(authoringAsset)
 
     await repository.flush()
     await repository.close()
@@ -305,6 +398,9 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(hydrated.designTemplatePackVersions.get(`${privateTemplate.id}:1.0.0`)?.pack.name, 'Private PG Smoke')
       assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.selectedTemplateIds[0], 'dtp_dynamic_encyclopedia_timeline_card')
       assert.equal(hydrated.encyclopediaEntryGuidances.get(guidance.id)?.interactionParadigmId, 'ip_timeline_story')
+      assert.equal(hydrated.capabilityAuthoringDrafts.get(authoringDraft.id)?.source.contentHash, artifact.contentHash)
+      assert.equal(hydrated.capabilityAuthoringDrafts.get(authoringDraft.id)?.publishedTemplateId, privateTemplate.id)
+      assert.equal(hydrated.capabilityAuthoringAssets.get(authoringAsset.id)?.contentHash, authoringAsset.contentHash)
       assert.equal(hydrated.mcpInvocationAuditRecords.get(mcpInvocationAuditRecord.invocationId)?.replayKey, 'mcp-replay:mcpinv_pg_smoke')
       clearHydratedCache(hydrated)
       hydrated.designTemplatePacks.clear()
@@ -314,6 +410,14 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal((await hydrated.getPrimaryWorkspaceForUser(repository.devUser.id))?.id, repository.devWorkspace.id)
       assert.equal((await hydrated.getSessionById(session.id))?.runtimeSessionId, 'runtime_pg_smoke')
       assert.equal((await hydrated.getJobById(job.id))?.prompt, 'Persist a design job')
+      const hydratedJobSnapshot = await hydrated.getJobSnapshot(job.id)
+      const hydratedRequirements = hydratedJobSnapshot?.job.templateRequirements as {
+        explorationPlan?: { variations?: Array<{ focusId?: string; excludedModuleIds?: string[] }> }
+        capabilitySelectionSnapshot?: { sourceByCapabilityId?: Record<string, string> }
+      }
+      assert.equal(hydratedRequirements.explorationPlan?.variations?.[0]?.focusId, 'entry_timeline')
+      assert.deepEqual(hydratedRequirements.explorationPlan?.variations?.[0]?.excludedModuleIds, ['entry_comparison'])
+      assert.equal(hydratedRequirements.capabilitySelectionSnapshot?.sourceByCapabilityId?.dtp_dynamic_encyclopedia_timeline_card, 'entry_guidance')
       const sqlVariation = await hydrated.getVariationById(variation.id)
       assert.equal(sqlVariation?.currentArtifactId, artifact.id)
       assert.equal(sqlVariation?.runtimeChildSessionId, 'rt_child_pg_smoke')
@@ -368,6 +472,31 @@ describe('PostgresRepository integration', { skip: !POSTGRES_TEST_URL }, () => {
       assert.equal(sqlGuidance?.automationMode, 'semi_auto')
       assert.equal(sqlGuidance?.interactionParadigmId, 'ip_timeline_story')
       assert.deepEqual(sqlGuidance?.selectedTemplateIds, ['dtp_dynamic_encyclopedia_timeline_card'])
+      assert.equal((await hydrated.getCapabilityAuthoringDraftById(
+        authoringDraft.id,
+        repository.devUser.id,
+        repository.devWorkspace.id,
+      ))?.status, 'needs_confirmation')
+      assert.equal((await hydrated.getCapabilityAuthoringAssetById(
+        authoringAsset.id,
+        repository.devUser.id,
+        repository.devWorkspace.id,
+      ))?.contentHash, authoringAsset.contentHash)
+      assert.equal((await hydrated.listCapabilityAuthoringAssets(
+        authoringDraft.id,
+        repository.devUser.id,
+        repository.devWorkspace.id,
+      )).length, 1)
+      assert.equal(await hydrated.getCapabilityAuthoringDraftById(
+        authoringDraft.id,
+        repository.altUser.id,
+        repository.devWorkspace.id,
+      ), null)
+      hydrated.capabilityAuthoringDrafts.clear()
+      assert.equal((await hydrated.listCapabilityAuthoringDrafts(
+        repository.devUser.id,
+        repository.devWorkspace.id,
+      )).some(draft => draft.id === authoringDraft.id), true)
       const adminModels = await hydrated.listAdminModels()
       assert.ok(adminModels.models.some(model => model.id === userModels.defaultModelId))
       const fastModel = await hydrated.updateAdminModel('mdl_babelo_fast', { enabled: true, isDefault: true })
@@ -440,6 +569,8 @@ function clearHydratedCache(repository: PostgresRepository): void {
   repository.designTemplatePackVersions.clear()
   repository.annotationBatches.clear()
   repository.encyclopediaEntryGuidances.clear()
+  repository.capabilityAuthoringDrafts.clear()
+  repository.capabilityAuthoringAssets.clear()
   repository.mcpInvocationAuditRecords.clear()
   repository.auditLogs.splice(0, repository.auditLogs.length)
   repository.usageEvents.splice(0, repository.usageEvents.length)

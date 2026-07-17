@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import { BabelORuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
+import { BabelOGuidanceAnalysisGateway, BabelORuntimeGateway, CliAgentRuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
 import { ArkSeedreamImageMcpExecutor, HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
 
 import {
   applicationProcessRoleFromEnv,
+  createGuidanceAnalysisGatewayFromEnv,
   createMcpExecutorFromEnv,
   createRuntimeGatewayFromEnv,
   shouldConsumeQueue,
@@ -21,6 +22,15 @@ const envKeys = [
   'BABELO_STREAM_RECONNECT_ATTEMPTS',
   'BABELO_CONTRACT_VERSION',
   'DUDESIGN_RUNTIME_VARIATION_CONCURRENCY',
+  'DUDESIGN_CLI_AGENT_EXECUTABLE',
+  'DUDESIGN_CLI_AGENT_ARGS_JSON',
+  'DUDESIGN_CLI_AGENT_ENV_JSON',
+  'DUDESIGN_CLI_AGENT_WORKSPACE_BASE',
+  'DUDESIGN_CLI_AGENT_TIMEOUT_MS',
+  'DUDESIGN_CLI_AGENT_MAX_OUTPUT_BYTES',
+  'DUDESIGN_CLI_AGENT_MAX_ARTIFACT_BYTES',
+  'DUDESIGN_CLI_AGENT_MAX_ARTIFACT_FILES',
+  'DUDESIGN_CLI_AGENT_KILL_GRACE_MS',
   'DUDESIGN_BABELO_BASE_URL',
   'DUDESIGN_BABELO_API_KEY',
   'DUDESIGN_BABELO_AUTH_HEADER',
@@ -28,6 +38,12 @@ const envKeys = [
   'DUDESIGN_BABELO_STREAM_IDLE_TIMEOUT_MS',
   'DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS',
   'DUDESIGN_BABELO_CONTRACT_VERSION',
+  'DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER',
+  'DUDESIGN_GUIDANCE_ANALYSIS_ENDPOINT',
+  'DUDESIGN_GUIDANCE_ANALYSIS_TIMEOUT_MS',
+  'DUDESIGN_GUIDANCE_BABELO_BASE_URL',
+  'DUDESIGN_GUIDANCE_BABELO_API_KEY',
+  'DUDESIGN_GUIDANCE_BABELO_AUTH_HEADER',
   'DUDESIGN_PROCESS_ROLE',
   'DUDESIGN_SERVICE_ROLE',
   'DUDESIGN_QUEUE',
@@ -87,6 +103,45 @@ describe('createRuntimeGatewayFromEnv', () => {
     assert.throws(() => createRuntimeGatewayFromEnv(), /BABELO_BASE_URL/)
   })
 
+  it('requires an absolute executable when CLI Agent mode is enabled', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'cli-agent'
+
+    assert.throws(() => createRuntimeGatewayFromEnv(), /DUDESIGN_CLI_AGENT_EXECUTABLE/)
+    process.env.DUDESIGN_CLI_AGENT_EXECUTABLE = 'relative-agent'
+    assert.throws(() => createRuntimeGatewayFromEnv(), /absolute path/)
+  })
+
+  it('creates a CLI Agent runtime gateway from controlled JSON configuration', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'cli-agent'
+    process.env.DUDESIGN_CLI_AGENT_EXECUTABLE = '/usr/bin/env'
+    process.env.DUDESIGN_CLI_AGENT_ARGS_JSON = '["node","agent.mjs","--workspace","{workspace}"]'
+    process.env.DUDESIGN_CLI_AGENT_ENV_JSON = '{"HOME":"/tmp/cli-agent-home"}'
+    process.env.DUDESIGN_CLI_AGENT_WORKSPACE_BASE = '/tmp/dudesign-cli-workspaces'
+    process.env.DUDESIGN_CLI_AGENT_TIMEOUT_MS = '4321'
+    process.env.DUDESIGN_CLI_AGENT_MAX_OUTPUT_BYTES = '9876'
+    process.env.DUDESIGN_CLI_AGENT_KILL_GRACE_MS = '321'
+    process.env.DUDESIGN_RUNTIME_VARIATION_CONCURRENCY = '2'
+
+    const runtime = createRuntimeGatewayFromEnv()
+
+    assert.ok(runtime instanceof CliAgentRuntimeGateway)
+    assert.equal(Reflect.get(runtime, 'executable'), '/usr/bin/env')
+    assert.deepEqual(Reflect.get(runtime, 'args'), ['node', 'agent.mjs', '--workspace', '{workspace}'])
+    assert.deepEqual(Reflect.get(runtime, 'env'), { HOME: '/tmp/cli-agent-home' })
+    assert.equal(Reflect.get(runtime, 'timeoutMs'), 4321)
+    assert.equal(Reflect.get(runtime, 'maxOutputBytes'), 9876)
+    assert.equal(Reflect.get(runtime, 'variationConcurrency'), 2)
+    assert.equal(Reflect.get(runtime, 'killGraceMs'), 321)
+  })
+
+  it('rejects malformed CLI Agent JSON configuration', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'cli-agent'
+    process.env.DUDESIGN_CLI_AGENT_EXECUTABLE = '/usr/bin/env'
+    process.env.DUDESIGN_CLI_AGENT_ARGS_JSON = '{"not":"an-array"}'
+
+    assert.throws(() => createRuntimeGatewayFromEnv(), /JSON array of strings/)
+  })
+
   it('creates a BabeL-O runtime gateway from env configuration', () => {
     process.env.DUDESIGN_RUNTIME_PROVIDER = 'babel-o'
     process.env.BABELO_BASE_URL = 'https://runtime.example.test'
@@ -117,6 +172,38 @@ describe('createRuntimeGatewayFromEnv', () => {
     const runtime = createRuntimeGatewayFromEnv()
 
     assert.ok(runtime instanceof BabelORuntimeGateway)
+  })
+})
+
+describe('createGuidanceAnalysisGatewayFromEnv', () => {
+  afterEach(() => {
+    for (const key of envKeys) delete process.env[key]
+  })
+
+  it('keeps legacy guidance enabled by default without creating an AI gateway', () => {
+    assert.equal(createGuidanceAnalysisGatewayFromEnv(), null)
+  })
+
+  it('requires an explicit BabeL-O URL when AI guidance is enabled', () => {
+    process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER = 'babel-o'
+
+    assert.throws(() => createGuidanceAnalysisGatewayFromEnv(), /GUIDANCE_BABELO_BASE_URL/)
+  })
+
+  it('creates an isolated BabeL-O guidance gateway without changing the generation runtime provider', () => {
+    process.env.DUDESIGN_RUNTIME_PROVIDER = 'mock'
+    process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER = 'babel-o'
+    process.env.DUDESIGN_GUIDANCE_BABELO_BASE_URL = 'https://guidance.example.test'
+    process.env.DUDESIGN_GUIDANCE_ANALYSIS_ENDPOINT = '/v1/custom-guidance'
+    process.env.DUDESIGN_GUIDANCE_ANALYSIS_TIMEOUT_MS = '4321'
+
+    const gateway = createGuidanceAnalysisGatewayFromEnv()
+
+    assert.ok(gateway instanceof BabelOGuidanceAnalysisGateway)
+    assert.equal(Reflect.get(gateway, 'baseUrl'), 'https://guidance.example.test')
+    assert.equal(Reflect.get(gateway, 'endpointPath'), '/v1/custom-guidance')
+    assert.equal(Reflect.get(gateway, 'timeoutMs'), 4321)
+    assert.ok(createRuntimeGatewayFromEnv() instanceof MockRuntimeGateway)
   })
 })
 

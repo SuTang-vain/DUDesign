@@ -1,0 +1,2881 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>国色芳华：剧情故事图谱全解析</title>
+    <style>
+      :root {
+        --primary: #6487fa;
+        --primary-dark: #4a6ee0;
+        --primary-light: #8aa5ff;
+        --bg-white: #ffffff;
+        --bg-gray: #f8f8f8;
+        --text-main: #1e1f24;
+        --text-sec: #848691;
+        --text-tri: #b7b9c1;
+        --border: rgba(0, 0, 0, 0.06);
+        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+        --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.18);
+        --gold: #c8a35a;
+        --red: #d94b4b;
+        --blue: #3b7ad9;
+        --green: #4aa06e;
+        --pink: #e07aa8;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        color: var(--text-main);
+        background: #eef1f8;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      button {
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-family: inherit;
+        color: inherit;
+        touch-action: manipulation;
+      }
+      button:disabled {
+        cursor: not-allowed;
+      }
+      button:focus-visible {
+        outline: 3px solid rgba(100, 135, 250, 0.42);
+        outline-offset: 3px;
+      }
+      img {
+        display: block;
+        -webkit-user-drag: none;
+        user-drag: none;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(
+          160deg,
+          #f5f8ff 0%,
+          #eaeff9 60%,
+          #dee6f4 100%
+        );
+        position: relative;
+        overflow: hidden;
+        container-type: size;
+        container-name: app;
+      }
+
+      /* ===== 等比缩放画布层（双基准 380×456 / 788×492） ===== */
+      html.is-scaled-canvas,
+      body.is-scaled-canvas {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #eef1f8;
+      }
+      #app.is-scaled {
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: top left;
+        /* width / height / transform 由 JS 动态设定 */
+      }
+
+      /* ===== 主内容区 ===== */
+      .main {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        padding: 12px 14px 4px;
+      }
+      .view {
+        position: absolute;
+        inset: 12px 14px 4px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        display: flex;
+        flex-direction: column;
+      }
+      .view.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* ===== 底部 Tab（纯文字） ===== */
+      .tabs {
+        flex-shrink: 0;
+        display: flex;
+        gap: 8px;
+        padding: 8px 14px 14px;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 12px 4px;
+        border-radius: 14px;
+        background: #fff;
+        backdrop-filter: blur(20px);
+        font-size: 15px;
+        color: var(--primary-dark);
+        font-weight: 800;
+        border: 2px solid rgba(100, 135, 250, 0.35);
+        box-shadow: 0 4px 12px rgba(100, 135, 250, 0.16);
+        transition: all 0.25s ease;
+      }
+      .tab-btn:hover {
+        border-color: var(--primary);
+        box-shadow: 0 7px 18px rgba(100, 135, 250, 0.26);
+        transform: translateY(-1px);
+      }
+      .tab-btn.active {
+        background: linear-gradient(135deg, var(--primary), var(--primary-light));
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 6px 18px rgba(100, 135, 250, 0.44);
+      }
+      .tab-btn:active {
+        transform: scale(0.96);
+      }
+      .story-switch {
+        flex-shrink: 0;
+        position: relative;
+      }
+      .story-bar {
+        display: flex;
+        gap: 8px;
+        padding: 0 2px 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+      }
+      .story-bar::-webkit-scrollbar {
+        display: none;
+      }
+      .story-btn {
+        flex: 0 0 auto;
+        min-width: 122px;
+        padding: 9px 14px;
+        border-radius: 12px;
+        background: #fff;
+        border: 2px solid rgba(100, 135, 250, 0.28);
+        color: var(--primary-dark);
+        font-size: 13px;
+        font-weight: 800;
+        box-shadow: 0 3px 10px rgba(100, 135, 250, 0.14);
+        transition: all 0.22s ease;
+        scroll-snap-align: start;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      .story-index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: rgba(100, 135, 250, 0.12);
+        color: var(--primary-dark);
+        font-size: 11px;
+        font-weight: 900;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+      .story-btn:hover {
+        border-color: var(--primary);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.24);
+        transform: translateY(-1px);
+      }
+      .story-btn.active {
+        background: linear-gradient(135deg, var(--primary), var(--primary-light));
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 6px 18px rgba(100, 135, 250, 0.38);
+      }
+      .story-btn.active .story-index {
+        background: rgba(255, 255, 255, 0.24);
+        color: #fff;
+      }
+      .story-btn:active {
+        transform: scale(0.97);
+      }
+      .story-desc {
+        width: 100%;
+        margin: 0 0 10px;
+        padding: 9px 13px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(100, 135, 250, 0.14);
+        color: var(--text-main);
+        font-size: 13px;
+        line-height: 1.55;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        white-space: normal;
+      }
+      .story-scroll-hint {
+        display: none;
+      }
+      .story-scroll-hint.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* ============================================
+         视图 1：故事图谱
+         ============================================ */
+      .graph-wrap {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            circle at 50% 44%,
+            rgba(100, 135, 250, 0.07),
+            transparent 62%
+          ),
+          var(--bg-white);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        --avatar-size: 64px;
+        --avatar-big-size: 78px;
+      }
+      .graph-wrap.dense-graph {
+        --avatar-size: 56px;
+        --avatar-big-size: 66px;
+      }
+      /* 图例：左上角常驻，单行展示，半透明不遮挡 */
+      .graph-legend {
+        position: absolute;
+        top: 12px;
+        left: 14px;
+        z-index: 30;
+        display: flex;
+        gap: 14px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--text-sec);
+        background: rgba(255, 255, 255, 0.82);
+        padding: 8px 14px;
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        pointer-events: none;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .legend-item.family {
+        color: var(--red);
+      }
+      .legend-item.romance {
+        color: var(--pink);
+      }
+      .legend-item.master {
+        color: var(--gold);
+      }
+      .legend-item.friend {
+        color: var(--green);
+      }
+      .legend-item.enemy {
+        color: var(--text-main);
+      }
+      .lg-svg {
+        flex-shrink: 0;
+        display: block;
+      }
+      .lg-svg line {
+        stroke-width: 3.2;
+      }
+      .lg-svg.family line {
+        stroke: var(--red);
+      }
+      .lg-svg.romance line {
+        stroke: var(--pink);
+        stroke-dasharray: 1.5 5;
+        stroke-linecap: round;
+      }
+      .lg-svg.master line {
+        stroke: var(--gold);
+        stroke-dasharray: 7 5;
+      }
+      .lg-svg.friend line {
+        stroke: var(--green);
+        stroke-dasharray: 14 6;
+      }
+      .lg-svg.enemy line {
+        stroke: var(--text-main);
+        stroke-dasharray: 9 4 2 4;
+      }
+
+      /* 画布：图谱头像让位时整体压缩到左侧 */
+      .graph-canvas {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .graph-wrap.panel-open .graph-canvas {
+        right: 380px;
+      }
+      @container app (max-width: 900px) {
+        .graph-wrap.panel-open .graph-canvas {
+          right: 320px;
+        }
+      }
+      svg.edges {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .edge {
+        stroke-width: 2;
+        fill: none;
+        transition: opacity 0.25s;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .edge.family {
+        stroke: var(--red);
+        opacity: 0.75;
+      }
+      .edge.romance {
+        stroke: var(--pink);
+        stroke-dasharray: 1.5 5;
+        stroke-linecap: round;
+        opacity: 0.9;
+      }
+      .edge.master {
+        stroke: var(--gold);
+        stroke-dasharray: 7 5;
+        opacity: 0.8;
+      }
+      .edge.enemy {
+        stroke: var(--text-main);
+        stroke-dasharray: 9 4 2 4;
+        opacity: 0.45;
+      }
+      .edge.friend {
+        stroke: var(--green);
+        stroke-dasharray: 14 6;
+        opacity: 0.7;
+      }
+      .edge.dim {
+        opacity: 0.08 !important;
+      }
+      .edge.hl {
+        opacity: 1 !important;
+        stroke-width: 3;
+      }
+      .edge-label {
+        font-size: 11px;
+        font-weight: 800;
+        text-anchor: middle;
+        dominant-baseline: central;
+        pointer-events: none;
+        opacity: 0.95;
+        transition: opacity 0.25s;
+      }
+      .edge-label.family {
+        fill: var(--red);
+      }
+      .edge-label.romance {
+        fill: var(--pink);
+      }
+      .edge-label.master {
+        fill: var(--gold);
+      }
+      .edge-label.friend {
+        fill: var(--green);
+      }
+      .edge-label.enemy {
+        fill: var(--text-main);
+      }
+      .edge-label-bg {
+        fill: rgba(255, 255, 255, 0.94);
+        stroke: rgba(100, 135, 250, 0.18);
+        stroke-width: 1;
+        transition: opacity 0.25s;
+      }
+      .edge-label.dim,
+      .edge-label-bg.dim {
+        opacity: 0.08 !important;
+      }
+      .edge-label.hl {
+        opacity: 1 !important;
+        font-size: 11.5px;
+      }
+      .edge-label-bg.hl {
+        opacity: 1 !important;
+        stroke: rgba(100, 135, 250, 0.35);
+      }
+      .edge-label.lbl-hide,
+      .edge-label-bg.lbl-hide {
+        opacity: 0 !important;
+      }
+      .graph-wrap.dense-graph .edge-label {
+        font-size: 10px;
+      }
+      .graph-wrap.dense-graph .edge-label.hl {
+        font-size: 10.5px;
+      }
+
+      .node {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        cursor: pointer;
+        touch-action: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        z-index: 2;
+        will-change: left, top;
+        transition:
+          left 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+          top 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .avatar.img-fallback,
+      .avt.img-fallback,
+      .cover.img-fallback {
+        background-image: linear-gradient(135deg, #eef1f8, #dfe7f4) !important;
+      }
+      .node.dragging-now {
+        transition: none;
+      }
+      .node.grabbing {
+        cursor: grabbing;
+        z-index: 20;
+      }
+      .node .float-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        will-change: transform;
+        animation-name: none;
+        animation-duration: 2.4s;
+        animation-iteration-count: infinite;
+        animation-timing-function: ease-in-out;
+      }
+      .node.grabbing .float-inner {
+        animation-play-state: paused;
+      }
+      @keyframes breathePoint {
+        0%, 100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.028);
+        }
+      }
+      /* 头像尺寸收敛：避免节点相互遮挡 */
+      .node .avatar {
+        width: var(--avatar-size);
+        height: var(--avatar-size);
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 4px 14px rgba(30, 31, 36, 0.18);
+        background-size: cover;
+        background-position: center top;
+        background-color: #eee;
+        position: relative;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+        animation: avatarBreath 2.4s ease-out infinite;
+      }
+      .node .avatar::after {
+        content: "";
+        position: absolute;
+        inset: -6px;
+        border-radius: inherit;
+        border: 2px solid rgba(100, 135, 250, 0.3);
+        pointer-events: none;
+        animation: avatarPulseRing 2.4s ease-out infinite;
+      }
+      .node.big .avatar {
+        width: var(--avatar-big-size);
+        height: var(--avatar-big-size);
+        border-width: 4px;
+      }
+      .node:hover .avatar,
+      .node.grabbing .avatar {
+        animation: none;
+        transform: scale(1.06);
+        box-shadow:
+          0 0 0 3px rgba(100, 135, 250, 0.16),
+          0 6px 18px rgba(30, 31, 36, 0.24);
+      }
+      .node.active .avatar {
+        animation: none;
+        box-shadow:
+          0 0 0 4px rgba(100, 135, 250, 0.18),
+          0 6px 18px rgba(30, 31, 36, 0.24);
+      }
+      .node:hover .avatar::after,
+      .node.grabbing .avatar::after,
+      .node.active .avatar::after {
+        animation: none;
+        opacity: 0;
+      }
+      .node.dim {
+        opacity: 0.32;
+      }
+      @keyframes avatarBreath {
+        0% {
+          transform: scale(1);
+          box-shadow:
+            0 4px 14px rgba(30, 31, 36, 0.18),
+            0 0 0 0 rgba(100, 135, 250, 0.42);
+        }
+        70% {
+          transform: scale(1.035);
+          box-shadow:
+            0 5px 16px rgba(30, 31, 36, 0.2),
+            0 0 0 12px rgba(100, 135, 250, 0);
+        }
+        100% {
+          transform: scale(1);
+          box-shadow:
+            0 4px 14px rgba(30, 31, 36, 0.18),
+            0 0 0 0 rgba(100, 135, 250, 0);
+        }
+      }
+      @keyframes avatarPulseRing {
+        0% {
+          transform: scale(0.94);
+          opacity: 0.7;
+        }
+        70%, 100% {
+          transform: scale(1.18);
+          opacity: 0;
+        }
+      }
+      .node.tap-hint .avatar {
+        animation: tapPulse 1.8s ease-out 3;
+      }
+      .node.tap-hint .avatar::after {
+        animation: avatarPulseRing 1.8s ease-out 3;
+      }
+      @keyframes tapPulse {
+        0%, 100% {
+          transform: scale(1);
+          box-shadow:
+            0 0 0 0 rgba(100, 135, 250, 0.22),
+            0 4px 12px rgba(0, 0, 0, 0.16);
+        }
+        45% {
+          transform: scale(1.08);
+          box-shadow:
+            0 0 0 12px rgba(100, 135, 250, 0),
+            0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+      }
+
+      /* 角色详情：右侧固定面板，不遮挡头像；内容自适应无滚动条 */
+      .char-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 380px;
+        height: 100%;
+        background: #fff;
+        box-shadow: -8px 0 28px rgba(0, 0, 0, 0.12);
+        padding: 20px 22px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        transform: translateX(100%);
+        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 25;
+        overflow: hidden;
+      }
+      .graph-wrap.panel-open .char-panel {
+        transform: translateX(0);
+      }
+      @container app (max-width: 900px) {
+        .char-panel {
+          width: 320px;
+        }
+      }
+      .char-panel .close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--primary);
+        color: #fff;
+        border: 2px solid rgba(255, 255, 255, 0.95);
+        font-size: 26px;
+        font-weight: 800;
+        line-height: 1;
+        z-index: 3;
+        box-shadow: 0 5px 16px rgba(100, 135, 250, 0.42);
+        transition: all 0.2s;
+      }
+      .char-panel .close:hover {
+        background: var(--primary-dark);
+        transform: translateY(-1px) scale(1.04);
+      }
+      .char-panel .close:active {
+        transform: scale(0.92);
+      }
+      .char-panel .char-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-right: 40px;
+      }
+      .char-panel .avt {
+        width: 86px;
+        height: 86px;
+        border-radius: 18px;
+        background-size: cover;
+        background-position: center;
+        flex: 0 0 auto;
+        box-shadow: 0 5px 14px rgba(0, 0, 0, 0.16);
+      }
+      .char-panel .char-head-info {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+      }
+      .char-panel .p-name {
+        font-size: 21px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+      .char-panel .p-actor {
+        margin-top: 3px;
+        font-size: 13px;
+        color: var(--text-sec);
+      }
+      .char-panel .p-section-title {
+        display: none;
+      }
+      .char-panel .char-rel-tag {
+        display: inline-block;
+        width: fit-content;
+        max-width: 100%;
+        margin-top: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        padding: 2px 10px;
+        border-radius: 20px;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .char-panel .p-desc {
+        flex: 0 0 auto;
+        min-height: 0;
+        max-height: none;
+        overflow: visible;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: 0;
+        font-size: 14.5px;
+        color: var(--text-main);
+        line-height: 1.62;
+        white-space: normal;
+      }
+      /* ============================================
+         视图 3：作品推荐（合并系列作品 + 相似推荐）
+         ============================================ */
+      .works-wrap {
+        flex: 1;
+        background: var(--bg-white);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        padding: 14px 16px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .works-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+        margin-bottom: 12px;
+      }
+      .works-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .works-tab {
+        padding: 9px 18px;
+        border-radius: 22px;
+        font-size: 14.5px;
+        font-weight: 800;
+        background: #fff;
+        color: var(--primary-dark);
+        border: 2px solid rgba(100, 135, 250, 0.5);
+        box-shadow: 0 3px 10px rgba(100, 135, 250, 0.14);
+        transition: all 0.2s;
+      }
+      .works-tab:hover {
+        background: rgba(100, 135, 250, 0.08);
+        border-color: var(--primary);
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.24);
+      }
+      .works-tab.active {
+        background: linear-gradient(
+          135deg,
+          var(--primary),
+          var(--primary-light)
+        );
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.45);
+      }
+      .works-pager {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .works-pageinfo {
+        font-size: 13px;
+        color: var(--text-sec);
+        min-width: 42px;
+        text-align: center;
+      }
+      .works-btn {
+        padding: 8px 15px;
+        border-radius: 10px;
+        font-size: 13.5px;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--primary), var(--primary-light));
+        color: #fff;
+        border: 2px solid rgba(255, 255, 255, 0.85);
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.38);
+        transition: all 0.2s;
+      }
+      .works-btn:not(:disabled):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 7px 18px rgba(100, 135, 250, 0.46);
+      }
+      .works-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+      .works-btn:not(:disabled):active {
+        transform: scale(0.95);
+      }
+
+      .works-viewport {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+      }
+      /* 一行4个，恒定单行，图片尽量铺满窗口 */
+      .works-grid {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: 100%;
+        grid-auto-flow: column;
+        gap: 14px;
+      }
+      .work-card {
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--bg-gray);
+        display: flex;
+        flex-direction: column;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.25s;
+        position: relative;
+        min-height: 0;
+        cursor: pointer;
+        border: 1px solid rgba(100, 135, 250, 0.12);
+      }
+      .work-card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-md);
+      }
+      .work-card .cover {
+        width: 100%;
+        flex: 1;
+        min-height: 0;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--bg-gray);
+        position: relative;
+      }
+      .work-card .cover::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          transparent 55%,
+          rgba(0, 0, 0, 0.5) 100%
+        );
+      }
+      .work-card .tag {
+        position: absolute;
+        top: 9px;
+        left: 9px;
+        padding: 3px 10px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        font-weight: 700;
+        z-index: 2;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--text-main);
+      }
+      .work-card.upcoming .tag {
+        background: var(--gold);
+        color: #fff;
+      }
+      .work-card .info {
+        padding: 9px 11px 11px;
+        background: #fff;
+        flex-shrink: 0;
+      }
+      .work-card .info .n {
+        font-size: 14.5px;
+        font-weight: 700;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .work-card .info .ep-badge {
+        font-size: 11px;
+        color: var(--primary);
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: rgba(100, 135, 250, 0.1);
+      }
+      /* 第二行统一展示主演信息 */
+      .work-card .info .m {
+        font-size: 12px;
+        color: var(--text-main);
+        margin-top: 4px;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .work-card .info .r {
+        font-size: 11.5px;
+        color: var(--primary);
+        margin-top: 4px;
+        font-weight: 600;
+        line-height: 1.4;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        word-break: break-word;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* 作品推荐：移动端向右滑动提示箭头（PC 端隐藏） */
+      .works-scroll-hint {
+        display: none;
+      }
+      .work-card .info .n,
+      .work-card .info .m,
+      .story-btn,
+      .works-tab,
+      .tab-btn {
+        word-break: keep-all;
+      }
+
+      /* ===== 响应式 ===== */
+      @container app (max-width: 900px) {
+        .works-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+        .graph-wrap {
+          --avatar-size: 58px;
+          --avatar-big-size: 70px;
+        }
+        .graph-wrap.dense-graph {
+          --avatar-size: 52px;
+          --avatar-big-size: 62px;
+        }
+      }
+      @container app (max-width: 768px) {
+        .main {
+          padding: 10px 10px 4px;
+        }
+        .view {
+          inset: 10px 10px 4px;
+        }
+        .tabs {
+          padding: 6px 10px 10px;
+          gap: 6px;
+        }
+        .tab-btn {
+          font-size: 14px;
+          padding: 10px 4px;
+        }
+        .story-bar {
+          gap: 8px;
+          padding: 0 1px 7px;
+          scroll-snap-type: x mandatory;
+        }
+        .story-btn {
+          flex: 0 0 calc((100% - 16px) / 2.5);
+          min-width: 0;
+          padding: 5px 5px;
+          font-size: 11.5px;
+          line-height: 1.12;
+          white-space: nowrap;
+          border-radius: 10px;
+          gap: 4px;
+          border-width: 1.5px;
+        }
+        .story-index {
+          min-width: 16px;
+          height: 16px;
+          padding: 0 4px;
+          font-size: 10px;
+        }
+        .story-scroll-hint {
+          display: flex;
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          align-items: center;
+          justify-content: center;
+          background: rgba(100, 135, 250, 0.95);
+          color: #fff;
+          font-size: 23px;
+          font-weight: 900;
+          line-height: 1;
+          box-shadow: 0 4px 14px rgba(100, 135, 250, 0.42);
+          z-index: 4;
+          opacity: 1;
+          transition: opacity 0.35s ease;
+          animation: storyHintNudge 1.4s ease-in-out infinite;
+        }
+        @keyframes storyHintNudge {
+          0%, 100% {
+            transform: translateX(0);
+          }
+          50% {
+            transform: translateX(5px);
+          }
+        }
+        .story-desc {
+          margin-bottom: 6px;
+          padding: 6px 8px;
+          font-size: 11.5px;
+          line-height: 1.38;
+        }
+
+        /* 关系图谱：头像/字体更小；图例整行完整展示 */
+        .graph-legend {
+          left: 8px;
+          right: 8px;
+          top: 8px;
+          max-width: none;
+          justify-content: space-between;
+          gap: 3px;
+          padding: 6px 8px;
+          font-size: 10.5px;
+        }
+        .graph-legend .legend-item {
+          gap: 3px;
+        }
+        .lg-svg {
+          width: 20px;
+        }
+        .graph-wrap {
+          --avatar-size: 46px;
+          --avatar-big-size: 56px;
+        }
+        .graph-wrap.dense-graph {
+          --avatar-size: 40px;
+          --avatar-big-size: 48px;
+        }
+        .node .avatar {
+          border-width: 2px;
+        }
+        .node .name {
+          font-size: 11px;
+          padding: 1px 5px;
+        }
+        .graph-wrap.panel-open .graph-canvas {
+          right: 0;
+        }
+
+        /* 角色详情：移动端为页面内居中卡片弹窗 */
+        .char-panel {
+          position: fixed;
+          left: 50%;
+          top: 50%;
+          right: auto;
+          bottom: auto;
+          width: min(92cqw, 420px);
+          max-width: 420px;
+          height: auto;
+          max-height: min(86cqh, 560px);
+          padding: 0;
+          gap: 0;
+          border-radius: 24px;
+          transform: translate(-50%, calc(-50% + 16px));
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          box-shadow: 0 24px 64px rgba(20, 22, 30, 0.28);
+          z-index: 101;
+          overflow: hidden;
+          transition:
+            opacity 0.28s,
+            transform 0.28s,
+            visibility 0.28s;
+        }
+        .graph-wrap.panel-open .char-panel {
+          transform: translate(-50%, -50%);
+          opacity: 1;
+          visibility: visible;
+          pointer-events: auto;
+        }
+        .char-panel::-webkit-scrollbar {
+          display: none;
+        }
+        .graph-wrap.panel-open::before {
+          content: "";
+          position: fixed;
+          inset: 0;
+          background: rgba(20, 22, 30, 0.56);
+          backdrop-filter: blur(5px);
+          z-index: 100;
+        }
+        /* 弹窗打开时隐藏图例 */
+        .graph-wrap.panel-open .graph-legend {
+          display: none;
+        }
+        .char-panel .close {
+          top: 18px;
+          right: 18px;
+          width: 44px;
+          height: 44px;
+          background: rgba(255, 255, 255, 0.78);
+          color: #7d808b;
+          font-size: 30px;
+          box-shadow: 0 8px 22px rgba(30, 31, 36, 0.1);
+        }
+        .char-panel .avt {
+          width: 74px;
+          height: 74px;
+          border-radius: 16px;
+          margin-top: 0;
+        }
+        .char-panel .p-name {
+          font-size: 23px;
+          line-height: 1.22;
+          margin-bottom: 6px;
+        }
+        .char-panel .p-actor {
+          font-size: 15px;
+          line-height: 1.45;
+          color: var(--primary);
+          font-weight: 700;
+        }
+        .char-panel .p-desc {
+          flex: 1 1 auto;
+          min-height: 0;
+          max-height: none;
+          padding: 24px 26px 30px;
+          font-size: clamp(14px, 3.8cqw, 17px);
+          line-height: 1.86;
+          letter-spacing: 0;
+          overflow: visible;
+          display: block;
+        }
+        .char-panel .char-head {
+          padding: 28px 72px 26px 26px;
+          gap: 18px;
+          background: linear-gradient(180deg, #f4f6ff 0%, #f8f9ff 100%);
+        }
+        .char-panel .char-head-info {
+          gap: 0;
+        }
+        .char-panel.fit-compact .avt {
+          width: 64px;
+          height: 64px;
+        }
+        .char-panel.fit-compact .char-head {
+          gap: 12px;
+          padding: 22px 64px 20px 22px;
+        }
+        .char-panel.fit-compact .p-desc {
+          padding: 18px 22px 22px;
+          font-size: 13px;
+          line-height: 1.62;
+        }
+        .char-panel.fit-tight .p-desc {
+          padding: 12px 16px 16px;
+        }
+        .char-panel.fit-tight .avt {
+          width: 46px;
+          height: 46px;
+          border-radius: 10px;
+        }
+        .char-panel.fit-tight .char-head {
+          gap: 7px;
+          padding: 14px 52px 12px 16px;
+        }
+        .char-panel.fit-tight .p-name {
+          font-size: 16px;
+        }
+        .char-panel.fit-tight .p-actor {
+          font-size: 10.5px;
+        }
+        .char-panel.fit-tight .char-rel-tag {
+          padding: 2px 8px;
+          font-size: 9.5px;
+        }
+        .char-panel.fit-tight .p-desc {
+          font-size: 11px;
+          line-height: 1.4;
+        }
+        .char-panel.fit-ultra .char-head {
+          gap: 4px;
+          padding: 10px 42px 8px 12px;
+          padding-right: 24px;
+        }
+        .char-panel.fit-ultra .p-desc {
+          padding: 8px 12px 12px;
+        }
+        .char-panel.fit-ultra .avt {
+          width: 34px;
+          height: 34px;
+          border-radius: 8px;
+        }
+        .char-panel.fit-ultra .p-name {
+          font-size: calc(13px * var(--char-fit-scale, 1));
+        }
+        .char-panel.fit-ultra .p-actor {
+          font-size: calc(9px * var(--char-fit-scale, 1));
+        }
+        .char-panel.fit-ultra .char-rel-tag {
+          padding: 1px 6px;
+          font-size: calc(8px * var(--char-fit-scale, 1));
+        }
+        .char-panel.fit-ultra .p-desc {
+          font-size: calc(8.8px * var(--char-fit-scale, 1));
+          line-height: 1.12;
+        }
+
+        /* 作品推荐：tab 一行、横向滑动，默认 1 个 + 第二个露 50%；无滚动条；文案全展示 */
+        .works-wrap {
+          padding: 8px 10px 10px;
+        }
+        .works-head {
+          gap: 6px;
+          margin-bottom: 6px;
+        }
+        .works-tabs {
+          flex-wrap: nowrap;
+          gap: 6px;
+          width: 100%;
+        }
+        .works-tab {
+          font-size: 12px;
+          /* 高度缩小为原来的约 80%（原 ~32px → 26px），空出更多纵向空间 */
+          padding: 0;
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex: 1;
+          text-align: center;
+        }
+        .works-pager {
+          display: none;
+        }
+        .works-viewport {
+          overflow: hidden;
+          flex: 1;
+          min-height: 0;
+        }
+        .works-grid {
+          display: flex;
+          align-items: stretch;
+          height: 100%;
+          grid-template-columns: none;
+          grid-auto-flow: row;
+          grid-auto-rows: auto;
+          overflow-x: auto;
+          overflow-y: hidden;
+          gap: 12px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .works-grid::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+        .work-card {
+          flex: 0 0 48%;
+          height: 100%;
+          min-height: 0;
+          scroll-snap-align: start;
+        }
+        /* 封面占满卡片剩余高度，底部文案区固定完整展示 */
+        .work-card .cover {
+          flex: 1 1 auto;
+          width: 100%;
+          min-height: 0;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+        /* 卡片文案区不压缩，推荐语完整换行 */
+        .work-card .info {
+          flex-shrink: 0;
+          padding: 5px 8px 7px;
+        }
+        /* 卡片文案固定三行：标题 / 主演 / 推荐语，各自单行超出省略 */
+        .work-card .info .n {
+          font-size: 13px;
+        }
+        .work-card .info .m {
+          font-size: 11px;
+          margin-top: 2px;
+        }
+        .work-card .info .r {
+          font-size: 11px;
+          margin-top: 2px;
+          white-space: normal;
+          overflow: visible;
+          text-overflow: unset;
+          display: block;
+          line-height: 1.4;
+          word-break: break-word;
+        }
+
+        /* 向右滑动提示箭头：右侧边缘、脉冲动画、滑动后淡出 */
+        .works-scroll-hint {
+          display: flex;
+          position: absolute;
+          top: 50%;
+          right: 4px;
+          transform: translateY(-50%);
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          align-items: center;
+          justify-content: center;
+          background: rgba(100, 135, 250, 0.92);
+          box-shadow: 0 3px 12px rgba(100, 135, 250, 0.5);
+          z-index: 5;
+          pointer-events: auto;
+          cursor: pointer;
+          opacity: 1;
+          transition: opacity 0.4s ease;
+          animation: hintNudge 1.4s ease-in-out infinite;
+        }
+        .works-scroll-hint.hide {
+          opacity: 0;
+          pointer-events: none;
+        }
+        @keyframes hintNudge {
+          0%,
+          100% {
+            transform: translateY(-50%) translateX(0);
+          }
+          50% {
+            transform: translateY(-50%) translateX(6px);
+          }
+        }
+      }
+      /* 超小屏（如 320/360）：头像与名字缩小、连线更细更淡、图例更紧凑，降低重叠与杂乱 */
+      @container app (max-width: 400px) {
+        .graph-legend {
+          font-size: 9.5px;
+          gap: 2px;
+          padding: 5px 6px;
+        }
+        .graph-legend .legend-item {
+          gap: 2px;
+        }
+        .lg-svg {
+          width: 16px;
+        }
+        .graph-wrap {
+          --avatar-size: 40px;
+          --avatar-big-size: 50px;
+        }
+        .graph-wrap.dense-graph {
+          --avatar-size: 36px;
+          --avatar-big-size: 44px;
+        }
+        .node .avatar {
+          border-width: 2px;
+        }
+        .node .name {
+          font-size: 10px;
+          padding: 1px 4px;
+          border-radius: 5px;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        }
+        svg.edges {
+          opacity: 0.6;
+        }
+        .edge {
+          stroke-width: 1.4;
+        }
+        .edge.hl {
+          stroke-width: 2.2;
+        }
+        .edge-label {
+          font-size: 9.5px;
+          stroke-width: 4px;
+        }
+        .edge-label.hl {
+          font-size: 10px;
+        }
+      }
+      /* 极小屏且窗口很矮（如 300×360）：压缩图谱与弹窗内容，避免内部滚动 */
+      @container app (max-width: 400px) and (max-height: 420px) {
+        .story-desc {
+          font-size: 10.5px;
+          line-height: 1.3;
+        }
+        .graph-wrap {
+          --avatar-size: 38px;
+          --avatar-big-size: 48px;
+        }
+        .graph-wrap.dense-graph {
+          --avatar-size: 34px;
+          --avatar-big-size: 42px;
+        }
+        .node .name {
+          font-size: 9.5px;
+        }
+        .char-panel {
+          width: min(92cqw, 320px);
+          max-width: 320px;
+          max-height: 82cqh;
+        }
+        .char-panel .close {
+          width: 30px;
+          height: 30px;
+          font-size: 20px;
+        }
+        .char-panel .char-head {
+          gap: 7px;
+          padding: 12px 42px 10px 14px;
+        }
+        .char-panel .avt {
+          width: 48px;
+          height: 48px;
+          border-radius: 10px;
+        }
+        .char-panel .p-name {
+          font-size: 16px;
+        }
+        .char-panel .p-actor {
+          font-size: 10.5px;
+        }
+        .char-panel .char-head-info {
+          gap: 0;
+        }
+        .char-panel .char-rel-tag {
+          padding: 2px 8px;
+          font-size: 9.5px;
+        }
+        .char-panel .p-desc {
+          padding: 10px 14px 14px;
+          font-size: 10.5px;
+          line-height: 1.38;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="main">
+        <!-- 视图 1：故事图谱 -->
+        <div class="view active" data-view="graph">
+          <div class="story-switch">
+            <div class="story-bar" id="storyBar"></div>
+            <button
+              class="story-scroll-hint"
+              id="storyScrollHint"
+              type="button"
+              aria-label="向右滑动查看更多故事"
+            >
+              ›
+            </button>
+            <div class="story-desc" id="storyDesc"></div>
+          </div>
+          <div class="graph-wrap" id="graphWrap">
+            <div class="graph-legend">
+              <div class="legend-item family">
+                <svg class="lg-svg family" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >血缘
+              </div>
+              <div class="legend-item romance">
+                <svg class="lg-svg romance" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >情感
+              </div>
+              <div class="legend-item master">
+                <svg class="lg-svg master" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >师徒
+              </div>
+              <div class="legend-item friend">
+                <svg class="lg-svg friend" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >盟友
+              </div>
+              <div class="legend-item enemy">
+                <svg class="lg-svg enemy" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >对立
+              </div>
+            </div>
+            <div class="graph-canvas" id="graphCanvas">
+              <svg class="edges" id="graphEdges"></svg>
+            </div>
+            <!-- 角色详情：右侧面板 -->
+            <div class="char-panel" id="charPanel">
+              <button class="close" id="charClose" title="关闭">×</button>
+              <div class="char-head">
+                <div class="avt" id="cAvt"></div>
+                <div class="char-head-info">
+                  <div class="p-name" id="cName"></div>
+                  <div class="p-actor" id="cActor"></div>
+                  <span class="char-rel-tag" id="cRelTag"></span>
+                </div>
+              </div>
+              <div class="p-desc" id="cDesc"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图 3：作品推荐 -->
+        <div class="view" data-view="works">
+          <div class="works-wrap">
+            <div class="works-head">
+              <div class="works-tabs" id="worksTabs"></div>
+              <div class="works-pager">
+                <button class="works-btn" id="worksPrev">← 上一页</button>
+                <span class="works-pageinfo" id="worksPageInfo">1/1</span>
+                <button class="works-btn" id="worksNext">下一页 →</button>
+              </div>
+            </div>
+            <div class="works-viewport">
+              <div class="works-grid" id="worksGrid"></div>
+              <div
+                class="works-scroll-hint"
+                id="worksScrollHint"
+                aria-hidden="true"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M9 5l7 7-7 7"
+                    stroke="#fff"
+                    stroke-width="2.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="graph">故事图谱</button>
+        <button class="tab-btn" data-tab="works">作品推荐</button>
+      </div>
+    </div>
+
+    <script>
+      /* ========= 数据 ========= */
+      const IMG = "./images/";
+      const imageCache = new Map();
+      function imageUrl(src) {
+        return 'url('\${src}')';
+      }
+      function warmImage(src, onDone) {
+        if (!src) {
+          onDone(false);
+          return;
+        }
+        if (imageCache.has(src)) {
+          onDone(imageCache.get(src));
+          return;
+        }
+        const im = new Image();
+        im.onload = () => {
+          imageCache.set(src, true);
+          onDone(true);
+        };
+        im.onerror = () => {
+          imageCache.set(src, false);
+          onDone(false);
+        };
+        im.src = src;
+      }
+      function setBgImage(el, src) {
+        if (!el) return;
+        el.dataset.bgSrc = src || "";
+        el.classList.remove("img-fallback");
+        el.style.backgroundImage = src ? imageUrl(src) : "";
+        warmImage(src, (ok) => {
+          if (el.dataset.bgSrc !== src) return;
+          if (ok) return;
+          el.style.backgroundImage = "";
+          el.classList.add("img-fallback");
+        });
+      }
+      const chars = {
+        heweifang: {
+          name: "何惟芳",
+          actor: "杨紫 饰",
+          img: IMG + "角色_何惟芳.webp",
+          big: true,
+          desc: "商户千金，擅培育牡丹，身陷利益婚姻，和离赴长安创业，聚拢女子以花立业，心怀济世之志。",
+        },
+        jiangchangyang: {
+          name: "蒋长扬",
+          actor: "李现 饰",
+          img: IMG + "角色_蒋长扬.webp",
+          desc: "长安花鸟使，暗中辅佐君王，出资帮扶何惟芳种花，二人从生意搭档渐生相守情意。",
+        },
+        liuchang: {
+          name: "刘畅",
+          actor: "魏哲鸣 饰",
+          img: IMG + "角色_刘畅.webp",
+          desc: "何惟芳前夫，刘家嫡子，性情凉薄，家族利用何惟芳嫁妆牟利，是女主前期枷锁。",
+        },
+        liyouzhen: {
+          name: "李幼贞",
+          actor: "张雅钦 饰",
+          img: IMG + "角色_李幼贞.webp",
+          desc: "吉安县主，爱慕刘畅，初期敌视何惟芳，后期放下私怨，成为女主创业盟友。",
+        },
+        ningwang: {
+          name: "宁王",
+          actor: "涂松岩 饰",
+          img: IMG + "角色_宁王.webp",
+          desc: "皇室藩王，野心勃勃，觊觎朝堂权柄，屡次打压蒋长扬与何惟芳的花坊生意。",
+        },
+        zhufu: {
+          name: "朱福",
+          actor: "管乐 饰",
+          img: IMG + "角色_朱福.webp",
+          desc: "巧手绣娘，身世坎坷，投奔何惟芳，负责花坊织物衍生生意，是女主核心伙伴。",
+        },
+        qinshengyi: {
+          name: "秦胜意",
+          actor: "邵芸 饰",
+          img: IMG + "角色_秦胜意.webp",
+          desc: "制香才女，受夫家苛待，加入芳园，深耕花卉香膏制作，撑起女性工坊一角。",
+        },
+        lvgengchun: {
+          name: "吕耕春",
+          actor: "孙美林 饰",
+          img: IMG + "角色_吕耕春.webp",
+          desc: "懂草药医理的孤女，入芳园配花入药，开设平价药铺，践行女主济世初心。",
+        },
+        xiaoxuexi: {
+          name: "萧雪溪",
+          actor: "许龄月 饰",
+          img: IMG + "角色_萧雪溪.webp",
+          desc: "宫中女官，洞悉宫廷花事，暗中传递情报，助力何惟芳打通宫廷花卉渠道。",
+        },
+        fengyiyi: {
+          name: "冯小姨",
+          actor: "董洁 饰",
+          img: IMG + "角色_冯小姨.webp",
+          desc: "何惟芳母亲旧友，知晓刘家假药内情，多次暗中提点、庇护何惟芳。",
+        },
+        huangfulingge: {
+          name: "皇甫令歌",
+          actor: "沈梦辰 饰",
+          img: IMG + "角色_皇甫令歌.webp",
+          desc: "长安花商，初期与芳园竞争，看清宁王恶行后，选择与何惟芳联手。",
+        },
+        lixing: {
+          name: "李荇",
+          actor: "佟梦实 饰",
+          img: IMG + "角色_李荇.webp",
+          desc: "忠直文官，追随蒋长扬，核查宁王贪腐罪证，为女主生意扫清朝堂阻碍。",
+        },
+        hefu: {
+          name: "何父",
+          actor: "李进荣 饰",
+          img: IMG + "角色_何父.webp",
+          desc: "何惟芳生父，商户掌柜，心疼女儿，无力对抗刘家，暗中提供资金支持。",
+        },
+        jiangmu: {
+          name: "蒋母",
+          actor: "丁子玲 饰",
+          img: IMG + "角色_蒋母.webp",
+          desc: "蒋长扬母亲，温和通透，认可何惟芳，全力支持二人经营花坊、携手成事。",
+        },
+      };
+
+      const HERO = "heweifang";
+      const RELN = {
+        family: "血缘",
+        romance: "情感",
+        master: "师徒",
+        friend: "盟友",
+        enemy: "对立",
+      };
+      const REL_COLORS = {
+        family: "var(--red)",
+        romance: "var(--pink)",
+        master: "var(--gold)",
+        friend: "var(--green)",
+        enemy: "#55585f",
+      };
+      let edges = [
+        { a: "heweifang", b: "jiangchangyang", type: "romance", label: "互生情愫" },
+        { a: "heweifang", b: "liuchang", type: "family", label: "过往夫妻" },
+        { a: "heweifang", b: "liyouzhen", type: "friend", label: "冰释前嫌" },
+        { a: "heweifang", b: "ningwang", type: "enemy", label: "生意死敌" },
+        { a: "heweifang", b: "zhufu", type: "friend", label: "姐妹同心" },
+        { a: "heweifang", b: "qinshengyi", type: "friend", label: "工坊搭档" },
+        { a: "heweifang", b: "lvgengchun", type: "friend", label: "济世同行" },
+        { a: "heweifang", b: "hefu", type: "family", label: "父女相依" },
+        { a: "jiangchangyang", b: "ningwang", type: "enemy", label: "君臣对立" },
+        { a: "jiangchangyang", b: "lixing", type: "friend", label: "君臣搭档" },
+        { a: "jiangchangyang", b: "jiangmu", type: "family", label: "母子情深" },
+        { a: "ningwang", b: "huangfulingge", type: "enemy", label: "胁迫利用" },
+      ];
+
+      /* 与主角的直接关系标签（用于右侧面板） */
+      const heroRel = {
+        jiangchangyang: { type: "romance", text: "生意搭档・心上人" },
+        liuchang: { type: "family", text: "前夫・旧日枷锁" },
+        liyouzhen: { type: "friend", text: "和解县主・盟友" },
+        ningwang: { type: "enemy", text: "朝堂权敌" },
+        zhufu: { type: "friend", text: "创业姐妹" },
+        qinshengyi: { type: "friend", text: "工坊伙伴" },
+        lvgengchun: { type: "friend", text: "济世同伴" },
+        xiaoxuexi: { type: "friend", text: "宫中助力" },
+        fengyiyi: { type: "friend", text: "长辈庇护" },
+        huangfulingge: { type: "friend", text: "同行盟友" },
+        lixing: { type: "friend", text: "朝堂助力" },
+        hefu: { type: "family", text: "生父・后盾" },
+        jiangmu: { type: "friend", text: "长辈认可" },
+      };
+
+      const storyModules = [
+        {
+          key: "liujia",
+          name: "刘家困局",
+          desc: "何惟芳嫁入刘家遭苛待，母亲因假药离世，决意挣脱联姻枷锁，谋划和离脱身。",
+          chars: ["heweifang", "liuchang", "hefu", "fengyiyi", "liyouzhen"],
+          layout: {
+            heweifang: [0.5, 0.5],
+            liuchang: [0.9, 0.2],
+            hefu: [0.1, 0.16],
+            fengyiyi: [0.1, 0.84],
+            liyouzhen: [0.9, 0.86],
+          },
+          edges: [
+            { a: "heweifang", b: "liuchang", type: "family", label: "夫妻隔阂" },
+            { a: "heweifang", b: "hefu", type: "family", label: "父女牵挂" },
+            { a: "heweifang", b: "fengyiyi", type: "friend", label: "暗中提点" },
+            { a: "heweifang", b: "liyouzhen", type: "enemy", label: "心生嫌隙" },
+            { a: "liuchang", b: "liyouzhen", type: "romance", label: "心悦县主" },
+          ],
+          roles: {
+            heweifang: { rel: ["受困少夫人"], desc: "看透刘家算计，决心和离，夺回自身自由。" },
+            liuchang: { rel: ["凉薄夫婿"], desc: "看重家族利益，漠视何惟芳所受委屈。" },
+            hefu: { rel: ["商户生父"], desc: "无力抗衡官宦，暗中接济受难女儿。" },
+            fengyiyi: { rel: ["故人长辈"], desc: "知晓假药真相，屡次暗中庇护女主。" },
+            liyouzhen: { rel: ["爱慕县主"], desc: "因倾心刘畅，初期敌视何惟芳。" },
+          },
+        },
+        {
+          key: "heli",
+          name: "顺利和离",
+          desc: "蒋长扬出面相助，何惟芳顺利和离，辞别洛阳奔赴长安，决意以种花技艺立足谋生。",
+          chars: ["heweifang", "jiangchangyang", "liuchang", "lixing", "hefu"],
+          layout: {
+            heweifang: [0.5, 0.52],
+            jiangchangyang: [0.48, 0.08],
+            liuchang: [0.9, 0.24],
+            lixing: [0.1, 0.22],
+            hefu: [0.1, 0.86],
+          },
+          edges: [
+            { a: "heweifang", b: "jiangchangyang", type: "friend", label: "出手相助" },
+            { a: "heweifang", b: "liuchang", type: "enemy", label: "一刀两断" },
+            { a: "heweifang", b: "hefu", type: "family", label: "父女道别" },
+            { a: "jiangchangyang", b: "lixing", type: "friend", label: "下属辅佐" },
+            { a: "liuchang", b: "lixing", type: "enemy", label: "查案对峙" },
+          ],
+          roles: {
+            heweifang: { rel: ["挣脱桎梏"], desc: "借蒋长扬之力和离，奔赴长安开启新生。" },
+            jiangchangyang: { rel: ["花鸟使"], desc: "欣赏女主坚韧，主动出手帮她脱离刘家。" },
+            liuchang: { rel: ["刘家公子"], desc: "不愿放手，百般阻挠和离流程。" },
+            lixing: { rel: ["正直文官"], desc: "协助蒋长扬查证，撑住女主和离诉求。" },
+            hefu: { rel: ["慈父"], desc: "不舍女儿远行，赠予银两供她创业。" },
+          },
+        },
+        {
+          key: "chuangye",
+          name: "长安创业",
+          desc: "何惟芳落脚长安培育牡丹，结识朱福、秦胜意等女子，联合蒋长扬合伙开设芳园。",
+          chars: ["heweifang", "jiangchangyang", "zhufu", "qinshengyi", "lvgengchun"],
+          layout: {
+            heweifang: [0.5, 0.5],
+            jiangchangyang: [0.5, 0.06],
+            zhufu: [0.1, 0.24],
+            qinshengyi: [0.1, 0.84],
+            lvgengchun: [0.9, 0.5],
+          },
+          edges: [
+            { a: "heweifang", b: "jiangchangyang", type: "friend", label: "合伙创业" },
+            { a: "heweifang", b: "zhufu", type: "friend", label: "收留姐妹" },
+            { a: "heweifang", b: "qinshengyi", type: "friend", label: "工坊伙伴" },
+            { a: "heweifang", b: "lvgengchun", type: "friend", label: "制药同行" },
+            { a: "jiangchangyang", b: "zhufu", type: "friend", label: "扶持女工坊" },
+          ],
+          roles: {
+            heweifang: { rel: ["花坊主理人"], desc: "凭牡丹技艺创业，收拢受难女子共生。" },
+            jiangchangyang: { rel: ["投资方"], desc: "出资开辟花田，为女主解决资金难题。" },
+            zhufu: { rel: ["绣娘伙伴"], desc: "开发花卉绣品，拓宽芳园经营品类。" },
+            qinshengyi: { rel: ["制香匠人"], desc: "打造花膏香品，丰富衍生产品线。" },
+            lvgengchun: { rel: ["草药孤女"], desc: "以花入药，兼顾民生治病需求。" },
+          },
+        },
+        {
+          key: "duili",
+          name: "宁王刁难",
+          desc: "宁王忌惮芳园势力，勾结花商打压生意，蒋长扬与何惟芳联手收集宁王谋私罪证。",
+          chars: ["heweifang", "jiangchangyang", "ningwang", "huangfulingge", "lixing"],
+          layout: {
+            heweifang: [0.5, 0.54],
+            jiangchangyang: [0.46, 0.08],
+            ningwang: [0.9, 0.22],
+            huangfulingge: [0.9, 0.88],
+            lixing: [0.1, 0.26],
+          },
+          edges: [
+            { a: "heweifang", b: "ningwang", type: "enemy", label: "商业打压" },
+            { a: "jiangchangyang", b: "ningwang", type: "enemy", label: "朝堂博弈" },
+            { a: "heweifang", b: "jiangchangyang", type: "romance", label: "共渡难关" },
+            { a: "ningwang", b: "huangfulingge", type: "enemy", label: "胁迫利用" },
+            { a: "jiangchangyang", b: "lixing", type: "friend", label: "收集罪证" },
+          ],
+          roles: {
+            heweifang: { rel: ["守业之人"], desc: "直面宁王打压，坚守女子创业根基。" },
+            jiangchangyang: { rel: ["幕后靠山"], desc: "朝堂周旋，护住芳园产业不崩塌。" },
+            ningwang: { rel: ["反派藩王"], desc: "忌惮二人势力，处处设局刁难破坏。" },
+            huangfulingge: { rel: ["花商"], desc: "遭宁王胁迫利用，后期倒戈相助芳园。" },
+            lixing: { rel: ["监察文官"], desc: "暗中搜集宁王贪腐实证。" },
+          },
+        },
+        {
+          key: "huakai",
+          name: "国色盛放",
+          desc: "万国盛会牡丹惊艳朝野，宁王罪证呈上伏法，何惟芳与蒋长扬相守，以花济世安民。",
+          chars: ["heweifang", "jiangchangyang", "ningwang", "zhufu", "lvgengchun", "jiangmu"],
+          layout: {
+            heweifang: [0.5, 0.5],
+            jiangchangyang: [0.48, 0.06],
+            ningwang: [0.9, 0.18],
+            zhufu: [0.1, 0.22],
+            lvgengchun: [0.1, 0.86],
+            jiangmu: [0.9, 0.82],
+          },
+          edges: [
+            { a: "heweifang", b: "jiangchangyang", type: "romance", label: "情定终身" },
+            { a: "heweifang", b: "zhufu", type: "friend", label: "姐妹相守" },
+            { a: "heweifang", b: "lvgengchun", type: "friend", label: "济世同行" },
+            { a: "jiangchangyang", b: "ningwang", type: "enemy", label: "奸佞伏法" },
+            { a: "jiangchangyang", b: "jiangmu", type: "family", label: "母子认可" },
+            { a: "ningwang", b: "heweifang", type: "enemy", label: "恩怨了结" },
+          ],
+          roles: {
+            heweifang: { rel: ["盛世花主"], desc: "牡丹惊艳万国，完成济世创业理想。" },
+            jiangchangyang: { rel: ["同心爱人"], desc: "平定宁王之乱，与女主相守长安。" },
+            ningwang: { rel: ["乱臣"], desc: "罪证确凿，谋私恶行尽数败露受罚。" },
+            zhufu: { rel: ["创业姐妹"], desc: "长期陪伴女主，共守芳园基业。" },
+            lvgengchun: { rel: ["医者"], desc: "平价药铺普惠百姓，践行初心。" },
+            jiangmu: { rel: ["长辈"], desc: "接纳何惟芳，祝福二人相守。" },
+          },
+        },
+      ];
+      const storyByKey = Object.fromEntries(storyModules.map((s) => [s.key, s]));
+      let currentStoryKey = storyModules[0].key;
+      let activeStory = storyByKey[currentStoryKey];
+      edges = activeStory.edges;
+
+      /* 作品推荐：有内容的分类才会生成 Tab；字段 { n 名称, m 主演, r 推荐理由, cover, ep?, up? } */
+      const WORKS_TAB_LABELS = {
+        series: "同系列",
+        theme: "同题材",
+        cast: "同主演",
+        ip: "同作者",
+      };
+      const works = {
+        series: [
+          {
+            n: "锦绣芳华",
+            m: "杨紫 / 李现",
+            r: "续篇平乱济世",
+            cover: "季_锦绣芳华海报.webp",
+            ep: "24集",
+          },
+        ],
+        theme: [
+          {
+            n: "长风渡",
+            m: "白敬亭 / 宋轶",
+            r: "古代夫妻共经商",
+            cover: "推荐_长风渡.webp",
+          },
+          {
+            n: "尚食",
+            m: "许凯 / 吴谨言",
+            r: "盛唐女子立业",
+            cover: "推荐_尚食.webp",
+          },
+          {
+            n: "花戎",
+            m: "鞠婧祎 / 郭俊辰",
+            r: "古装女性成长",
+            cover: "推荐_花戎.webp",
+          },
+          {
+            n: "锦心似玉",
+            m: "钟汉良 / 谭松韵",
+            r: "古宅女子自立",
+            cover: "推荐_锦心似玉.webp",
+          },
+        ],
+        cast: [
+          {
+            n: "香蜜沉沉烬如霜",
+            m: "杨紫 / 邓伦",
+            r: "杨紫经典古装",
+            cover: "推荐_香蜜沉沉烬如霜.webp",
+          },
+          {
+            n: "长相思",
+            m: "杨紫 / 张晚意",
+            r: "古装大女主剧",
+            cover: "推荐_长相思.webp",
+          },
+          {
+            n: "河神",
+            m: "李现 / 张铭恩",
+            r: "李现悬疑佳作",
+            cover: "推荐_河神.webp",
+          },
+          {
+            n: "亲爱的，热爱的",
+            m: "李现 / 杨紫",
+            r: "二人初次合作",
+            cover: "推荐_亲爱的热爱的.webp",
+          },
+        ],
+      };
+      /* =========================================================
+         视图 1：关系图谱 —— 放射式布局 + 可拖动 + 摆动
+         ========================================================= */
+      const graphWrap = document.getElementById("graphWrap");
+      const graphCanvas = document.getElementById("graphCanvas");
+      const graphEdges = document.getElementById("graphEdges");
+      const charPanel = document.getElementById("charPanel");
+      const storyBar = document.getElementById("storyBar");
+      const storyDesc = document.getElementById("storyDesc");
+      const storyScrollHint = document.getElementById("storyScrollHint");
+
+      const nodeState = {};
+      let bounds = { w: 0, h: 0 };
+      let currentCharKey = null;
+
+      /* ===== 等比缩放画布：双基准 380×456（小） / 788×492（大） ===== */
+      const BASE_MOBILE = { w: 380, h: 456 };
+      const BASE_DESKTOP = { w: 788, h: 492 };
+      let scaleFactor = 1;
+      let currentBaseKey = "desktop";
+      let currentBase = BASE_DESKTOP;
+      function isSmallCanvas() {
+        return currentBaseKey === "mobile";
+      }
+      function applyScale() {
+        const app = document.getElementById("app");
+        if (!app) return;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const base = w <= 480 || h <= 480 ? BASE_MOBILE : BASE_DESKTOP;
+        const scale = Math.min(w / base.w, h / base.h);
+        scaleFactor = scale;
+        currentBase = base;
+        currentBaseKey = base === BASE_MOBILE ? "mobile" : "desktop";
+        const offsetX = (w - base.w * scale) / 2;
+        const offsetY = (h - base.h * scale) / 2;
+        document.documentElement.classList.add("is-scaled-canvas");
+        document.body.classList.add("is-scaled-canvas");
+        app.classList.add("is-scaled");
+        app.style.width = base.w + "px";
+        app.style.height = base.h + "px";
+        app.style.transform = 'translate(\${offsetX}px, \${offsetY}px) scale(\${scale})';
+      }
+      applyScale();
+
+      /* 空间散布式布局：主角居中偏左，按剧情族群成簇分布，
+         非椭圆、非放射；相关角色聚拢，尽量利用整块画布空间 */
+      // 归一化坐标 (0~1)，参照目标图排版：主角居中，相关角色环绕成簇、整体铺散
+      function getStoryChar(k) {
+        const base = chars[k];
+        if (!base) return null;
+        const role = activeStory.roles[k] || {};
+        return {
+          ...base,
+          storyRel: role.rel || [],
+          storyDesc: role.desc || base.desc,
+        };
+      }
+
+      function getLayoutRel() {
+        return activeStory.layout || {};
+      }
+
+      function measure() {
+        // 用不参与过渡的 graph-wrap 宽度减去面板宽度，得到画布最终宽度，
+        // 避免在 right 过渡动画过程中测到中间态尺寸导致头像挤在左侧
+        const rect = graphWrap.getBoundingClientRect();
+        const S = scaleFactor || 1;
+        // 缩放后的 rect 是视觉像素，除以 S 还原为画布逻辑尺寸
+        const logicalW = rect.width / S;
+        const logicalH = rect.height / S;
+        // 面板宽度按画布挡位：小基准（≤480 触发 @container 768）面板全屏遮罩，
+        // 大基准（788 逻辑宽，落在 @container 900 挡）面板宽 320
+        const panelW = graphWrap.classList.contains("panel-open")
+          ? isSmallCanvas()
+            ? 0
+            : 320
+          : 0;
+        bounds = { w: Math.max(logicalW - panelW, 120), h: logicalH };
+      }
+
+      /* 参照秦始皇图谱：主角居中、其他人物环形分布；相连人物尽量相邻，减少交叉 */
+      function orderRing(keys, links) {
+        const names = keys.slice();
+        const n = names.length;
+        if (n <= 2) return names;
+        const rel = (links || []).filter(
+          (l) => names.includes(l.a) && names.includes(l.b),
+        );
+        if (!rel.length) return names;
+        const between = (x, a, b) => {
+          let i = (a + 1) % n;
+          while (i !== b) {
+            if (i === x) return true;
+            i = (i + 1) % n;
+          }
+          return false;
+        };
+        const cost = (order) => {
+          const pos = {};
+          order.forEach((name, i) => (pos[name] = i));
+          let score = 0;
+          rel.forEach((l) => {
+            const i = pos[l.a];
+            const j = pos[l.b];
+            const d = Math.min(Math.abs(i - j), n - Math.abs(i - j));
+            score += Math.max(0, d - 1) * 2;
+          });
+          for (let x = 0; x < rel.length; x++) {
+            for (let y = x + 1; y < rel.length; y++) {
+              const a = pos[rel[x].a],
+                b = pos[rel[x].b],
+                c = pos[rel[y].a],
+                d = pos[rel[y].b];
+              if (a === c || a === d || b === c || b === d) continue;
+              if (between(c, a, b) !== between(d, a, b)) score += 3;
+            }
+          }
+          return score;
+        };
+        let best = names.slice(),
+          bestCost = Infinity;
+        const first = names[0];
+        const rest = names.slice(1);
+        const permute = (arr, k) => {
+          if (k === arr.length) {
+            const order = [first, ...arr];
+            const c = cost(order);
+            if (c < bestCost) {
+              bestCost = c;
+              best = order.slice();
+            }
+            return;
+          }
+          for (let i = k; i < arr.length; i++) {
+            [arr[k], arr[i]] = [arr[i], arr[k]];
+            permute(arr, k + 1);
+            [arr[k], arr[i]] = [arr[i], arr[k]];
+          }
+        };
+        permute(rest, 0);
+        return best;
+      }
+
+      function graphAvatarMetrics(denseGraph) {
+        // 按 #app 容器逻辑尺寸判断挡位，与 @container app 断点一致
+        const wI = currentBase.w;
+        const hI = currentBase.h;
+        if (wI <= 400 && hI <= 420) {
+          return { av: denseGraph ? 34 : 38, avBig: denseGraph ? 42 : 48, nameF: 9.5 };
+        }
+        if (wI <= 400) {
+          return { av: denseGraph ? 36 : 40, avBig: denseGraph ? 44 : 50, nameF: 10 };
+        }
+        if (wI <= 768) {
+          return { av: denseGraph ? 40 : 46, avBig: denseGraph ? 48 : 56, nameF: 11 };
+        }
+        if (wI <= 900) {
+          return { av: denseGraph ? 52 : 58, avBig: denseGraph ? 62 : 70, nameF: 12 };
+        }
+        return { av: denseGraph ? 56 : 64, avBig: denseGraph ? 66 : 78, nameF: 12 };
+      }
+
+      /* 根据当前画布尺寸计算像素坐标：中心 + 环形，外扩到边缘并迭代分离 */
+      function computeLayout() {
+        measure();
+        const isMobile = isSmallCanvas();
+        const denseGraph =
+          activeStory.chars.length >= 7 || bounds.w < 560 || bounds.h < 380;
+        graphWrap.classList.toggle("dense-graph", denseGraph);
+        const { av, avBig, nameF } = graphAvatarMetrics(denseGraph);
+        const w = Math.max(bounds.w, isMobile ? 200 : 320);
+        const h = Math.max(bounds.h, isMobile ? 200 : 320);
+        const topSafe = isMobile ? 48 : 42;
+        const botSafe = isMobile ? 22 : 32;
+        const usableH = Math.max(h - topSafe - botSafe, 120);
+        const cx = w * 0.5;
+        const cy = topSafe + usableH * 0.5;
+        const layout = {};
+        const core = activeStory.chars.includes(HERO) ? HERO : activeStory.chars[0];
+        layout[core] = [cx, cy];
+        const others = activeStory.chars.filter((k) => k !== core);
+        const ringLinks = activeStory.edges.filter(
+          (e) => e.a !== core && e.b !== core,
+        );
+        const ordered = orderRing(others, ringLinks);
+        const n = ordered.length;
+        const rx = Math.max(w * 0.5 - (isMobile ? 38 : 66), 90);
+        const ry = Math.max(usableH * 0.5 - (isMobile ? 10 : 14), 70);
+        const start = -Math.PI / 2 + (n % 2 === 0 ? Math.PI / Math.max(n, 1) : 0);
+        ordered.forEach((k, i) => {
+          const a = start + (i / Math.max(n, 1)) * Math.PI * 2;
+          layout[k] = [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry];
+        });
+
+        const ext = {};
+        Object.keys(layout).forEach((k) => {
+          const c = getStoryChar(k);
+          const aw = c.big ? avBig : av;
+          const nameW = c.name.length * nameF * 0.95 + 14;
+          const chipH = isMobile ? 0 : nameF + 4;
+          ext[k] = [Math.max(aw, nameW) / 2, (aw + nameF + chipH + 14) / 2];
+        });
+        const keys = Object.keys(layout);
+        let legendClearY = 0;
+        const legendEl = document.querySelector(".graph-legend");
+        if (legendEl && getComputedStyle(legendEl).display !== "none") {
+          const lr = legendEl.getBoundingClientRect();
+          const cr = graphCanvas.getBoundingClientRect();
+          const S = scaleFactor || 1;
+          // 缩放后差值需除以 S，回到画布逻辑坐标系
+          legendClearY = Math.max(0, (lr.bottom - cr.top) / S) + 8;
+        }
+        const clamp = (k) => {
+          layout[k][0] = Math.max(
+            ext[k][0] + 4,
+            Math.min(w - ext[k][0] - 4, layout[k][0]),
+          );
+          const yMin = Math.max(ext[k][1] + 4, legendClearY + ext[k][1]);
+          layout[k][1] = Math.max(
+            yMin,
+            Math.min(h - ext[k][1] - botSafe, layout[k][1]),
+          );
+        };
+        const marginX = isMobile ? 12 : 18;
+        const marginY = isMobile ? 20 : 26;
+        for (let it = 0; it < 120; it++) {
+          let moved = false;
+          for (let i = 0; i < keys.length; i++) {
+            for (let j = i + 1; j < keys.length; j++) {
+              const a = keys[i],
+                b = keys[j];
+              const dx = layout[b][0] - layout[a][0];
+              const dy = layout[b][1] - layout[a][1];
+              const ox = ext[a][0] + ext[b][0] + marginX - Math.abs(dx);
+              const oy = ext[a][1] + ext[b][1] + marginY - Math.abs(dy);
+              if (ox > 0 && oy > 0) {
+                moved = true;
+                if (ox <= oy) {
+                  const s = dx === 0 ? (i % 2 ? 1 : -1) : Math.sign(dx);
+                  layout[a][0] -= (ox / 2) * s;
+                  layout[b][0] += (ox / 2) * s;
+                } else {
+                  const s = dy === 0 ? (i % 2 ? 1 : -1) : Math.sign(dy);
+                  layout[a][1] -= (oy / 2) * s;
+                  layout[b][1] += (oy / 2) * s;
+                }
+                clamp(a);
+                clamp(b);
+              }
+            }
+          }
+          if (!moved) break;
+        }
+        keys.forEach(clamp);
+        return layout;
+      }
+
+      function buildGraph() {
+        graphCanvas.querySelectorAll(".node").forEach((n) => n.remove());
+        Object.keys(nodeState).forEach((k) => delete nodeState[k]);
+        graphEdges.innerHTML = "";
+        const layout = computeLayout();
+
+        activeStory.chars.forEach((k) => {
+          const c = getStoryChar(k);
+          const pos = layout[k];
+          if (!pos) return;
+          const [x, y] = pos;
+          const el = document.createElement("div");
+          el.className = "node" + (c.big ? " big" : "");
+          el.dataset.key = k;
+          el.innerHTML = '
+            <div class="float-inner">
+              <div class="avatar" data-bg-src="\${c.img}" style="background-image:\${imageUrl(c.img)}"></div>
+              <div class="name">\${c.name}</div>
+            </div>';
+          const inner = el.querySelector(".float-inner");
+          const dur = 6 + Math.random() * 4;
+          inner.style.animationDuration = dur + "s";
+          inner.style.animationDelay = -Math.random() * dur + "s";
+          el.style.left = x + "px";
+          el.style.top = y + "px";
+          graphCanvas.appendChild(el);
+          setBgImage(el.querySelector(".avatar"), c.img);
+          nodeState[k] = { x, y, el, inner };
+          attachDrag(el, k);
+          el.addEventListener("click", () => {
+            if (!el.dataset.dragged) showChar(k);
+            delete el.dataset.dragged;
+          });
+        });
+
+        edges.forEach((e, idx) => {
+          const path = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          path.setAttribute("class", "edge " + e.type);
+          path.dataset.a = e.a;
+          path.dataset.b = e.b;
+          path.dataset.idx = String(idx);
+          graphEdges.appendChild(path);
+        });
+        edges.forEach((e, idx) => {
+          const bg = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "rect",
+          );
+          bg.setAttribute("class", "edge-label-bg");
+          bg.setAttribute("rx", "5");
+          bg.dataset.a = e.a;
+          bg.dataset.b = e.b;
+          bg.dataset.idx = String(idx);
+          graphEdges.appendChild(bg);
+
+          const label = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "text",
+          );
+          label.setAttribute("class", "edge-label " + e.type);
+          label.textContent = e.label;
+          label.dataset.a = e.a;
+          label.dataset.b = e.b;
+          label.dataset.idx = String(idx);
+          graphEdges.appendChild(label);
+        });
+        updateEdgesFromDOM();
+      }
+
+      /* 重新布局（面板开合时头像让位移动，带过渡动画） */
+      function relayout() {
+        const layout = computeLayout();
+        Object.entries(layout).forEach(([k, [x, y]]) => {
+          const s = nodeState[k];
+          if (!s) return;
+          s.x = x;
+          s.y = y;
+          s.el.style.left = x + "px";
+          s.el.style.top = y + "px";
+        });
+        requestAnimationFrame(updateEdgesFromDOM);
+      }
+
+      /* 连线端点收缩到头像边缘；直线标签动态避让头像、姓名与其他标签 */
+      function updateEdgesFromDOM() {
+        const cr = graphCanvas.getBoundingClientRect();
+        const S = scaleFactor || 1;
+        const edgeEls = Array.from(graphEdges.querySelectorAll(".edge"));
+        const labelEls = Array.from(graphEdges.querySelectorAll(".edge-label"));
+        const nodeRects = [];
+        const avatarCircles = [];
+        Object.entries(nodeState).forEach(([key, s]) => {
+          const r = s.el.getBoundingClientRect();
+          const pad = isSmallCanvas() ? 5 : 8;
+          nodeRects.push({
+            key,
+            left: (r.left - cr.left) / S - pad,
+            right: (r.right - cr.left) / S + pad,
+            top: (r.top - cr.top) / S - pad,
+            bottom: (r.bottom - cr.top) / S + pad,
+          });
+          const ar = s.el.querySelector(".avatar").getBoundingClientRect();
+          avatarCircles.push({
+            key,
+            x: (ar.left + ar.width / 2 - cr.left) / S,
+            y: (ar.top + ar.height / 2 - cr.top) / S,
+            r: ar.width / (2 * S) + (s.el.classList.contains("big") ? 12 : 5),
+          });
+        });
+        const pointInRect = (x, y, r) =>
+          x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        const rectsOverlap = (a, b) =>
+          a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        const rectCircleOverlap = (rect, c) => {
+          const x = Math.max(rect.left, Math.min(c.x, rect.right));
+          const y = Math.max(rect.top, Math.min(c.y, rect.bottom));
+          return Math.hypot(x - c.x, y - c.y) < c.r;
+        };
+        const linePoint = (d, t) => ({
+          x: d.x1 + (d.x2 - d.x1) * t,
+          y: d.y1 + (d.y2 - d.y1) * t,
+        });
+        const pathHitsRect = (d, rect) => {
+          for (let i = 3; i < 18; i++) {
+            const p = linePoint(d, i / 20);
+            if (pointInRect(p.x, p.y, rect)) return true;
+          }
+          return false;
+        };
+        const clampLabelRect = (rect) => {
+          const crW = cr.width / S;
+          const crH = cr.height / S;
+          const dx = rect.left < 4 ? 4 - rect.left : rect.right > crW - 4 ? crW - 4 - rect.right : 0;
+          const dy = rect.top < 4 ? 4 - rect.top : rect.bottom > crH - 4 ? crH - 4 - rect.bottom : 0;
+          rect.left += dx;
+          rect.right += dx;
+          rect.top += dy;
+          rect.bottom += dy;
+          rect.x += dx;
+          rect.y += dy;
+          return rect;
+        };
+
+        const routeSlots = [];
+        const routeSamples = [];
+        const edgeData = edgeEls.map((path) => {
+          const A = nodeState[path.dataset.a];
+          const B = nodeState[path.dataset.b];
+          if (!A || !B) return null;
+          const target = (nodeEl) => nodeEl.querySelector(".avatar") || nodeEl;
+          const ar = target(A.el).getBoundingClientRect();
+          const br = target(B.el).getBoundingClientRect();
+          const ax = (ar.left + ar.width / 2 - cr.left) / S;
+          const ay = (ar.top + ar.height / 2 - cr.top) / S;
+          const bx = (br.left + br.width / 2 - cr.left) / S;
+          const by = (br.top + br.height / 2 - cr.top) / S;
+          const dx = bx - ax;
+          const dy = by - ay;
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          const nx = -uy;
+          const ny = ux;
+          const idx = Number(path.dataset.idx || 0);
+          const terminalShift = ((idx % 5) - 2) * (isSmallCanvas() ? 1.2 : 2);
+          const x1 = ax + ux * (ar.width / (2 * S) + 5) + nx * terminalShift;
+          const y1 = ay + uy * (ar.height / (2 * S) + 5) + ny * terminalShift;
+          const x2 = bx - ux * (br.width / (2 * S) + 5) + nx * terminalShift;
+          const y2 = by - uy * (br.height / (2 * S) + 5) + ny * terminalShift;
+          const data = {
+            x1,
+            y1,
+            x2,
+            y2,
+            cx: (x1 + x2) / 2,
+            cy: (y1 + y2) / 2,
+            nx,
+            ny,
+            idx,
+          };
+          routeSlots.push({ x: data.cx, y: data.cy });
+          routeSamples.push(Array.from({ length: 13 }, (_, i) => linePoint(data, (i + 4) / 20)));
+          path.setAttribute("d", 'M \${x1} \${y1} L \${x2} \${y2}');
+          return { path, ...data };
+        }).filter(Boolean);
+
+        const labelRects = [];
+        labelEls.forEach((label) => {
+          const idx = Number(label.dataset.idx || 0);
+          const d = edgeData.find((e) => e.idx === idx);
+          if (!d) return;
+          const text = label.textContent || "";
+          const font = currentBase.w <= 400 ? 9.5 : isSmallCanvas() ? 10.5 : 12;
+          const w = Math.min(Math.max(text.length * font * 0.78 + 16, 34), isSmallCanvas() ? 72 : 92);
+          const h = font * 1.7 + 8;
+          const candidates = [
+            { t: 0.5, off: 0 },
+            { t: 0.42, off: 18 },
+            { t: 0.58, off: -18 },
+            { t: 0.46, off: -34 },
+            { t: 0.54, off: 34 },
+            { t: 0.34, off: 28 },
+            { t: 0.66, off: -28 },
+            { t: 0.3, off: -42 },
+            { t: 0.7, off: 42 },
+          ];
+          let best = null;
+          candidates.forEach((c) => {
+            const p = linePoint(d, c.t);
+            const x = p.x + d.nx * c.off;
+            const y = p.y + d.ny * c.off;
+            const rect = clampLabelRect({ x, y, left: x - w / 2, right: x + w / 2, top: y - h / 2, bottom: y + h / 2 });
+            let score = Math.abs(c.t - 0.5) * 20 + Math.abs(c.off) * 0.2;
+            nodeRects.forEach((r) => {
+              if (rectsOverlap(rect, r)) score += 1000;
+            });
+            avatarCircles.forEach((c) => {
+              if (rectCircleOverlap(rect, c)) score += 1200;
+            });
+            labelRects.forEach((r) => {
+              if (rectsOverlap(rect, r)) score += 700;
+            });
+            if (!best || score < best.score) best = { ...rect, score };
+          });
+          const bg = graphEdges.querySelector('.edge-label-bg[data-idx="\${idx}"]');
+          if (!best || best.score >= 1000) {
+            label.classList.add("lbl-hide");
+            if (bg) bg.classList.add("lbl-hide");
+            return;
+          }
+          label.classList.remove("lbl-hide");
+          if (bg) bg.classList.remove("lbl-hide");
+          labelRects.push(best);
+          label.setAttribute("x", best.x);
+          label.setAttribute("y", best.y);
+          if (bg) {
+            bg.setAttribute("x", best.left);
+            bg.setAttribute("y", best.top);
+            bg.setAttribute("width", best.right - best.left);
+            bg.setAttribute("height", best.bottom - best.top);
+          }
+        });
+      }
+
+      /* 拖拽 */
+      function attachDrag(el, key) {
+        let startX = 0,
+          startY = 0,
+          origX = 0,
+          origY = 0,
+          moved = false;
+        const state = () => nodeState[key];
+        function onDown(clientX, clientY) {
+          moved = false;
+          startX = clientX;
+          startY = clientY;
+          origX = state().x;
+          origY = state().y;
+          el.classList.add("grabbing", "dragging-now");
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onUp);
+          document.addEventListener("touchmove", onTouchMove, {
+            passive: false,
+          });
+          document.addEventListener("touchend", onUp);
+        }
+        function onMove(clientX, clientY) {
+          // 外层 transform:scale(S) 后，clientX/Y 位移在视觉像素空间；
+          // 内部坐标（el.style.left/top、state.x/y）是画布逻辑坐标 —— 增量需除以 S 还原
+          const S = scaleFactor || 1;
+          const dx = (clientX - startX) / S,
+            dy = (clientY - startY) / S;
+          if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+          let nx = Math.max(40, Math.min(bounds.w - 40, origX + dx));
+          let ny = Math.max(40, Math.min(bounds.h - 40, origY + dy));
+          state().x = nx;
+          state().y = ny;
+          el.style.left = nx + "px";
+          el.style.top = ny + "px";
+          updateEdgesFromDOM();
+        }
+        function onUp() {
+          el.classList.remove("grabbing", "dragging-now");
+          if (moved) el.dataset.dragged = "1";
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onUp);
+          document.removeEventListener("touchmove", onTouchMove);
+          document.removeEventListener("touchend", onUp);
+        }
+        const onMouseMove = (e) => onMove(e.clientX, e.clientY);
+        const onTouchMove = (e) => {
+          e.preventDefault();
+          const t = e.touches[0];
+          onMove(t.clientX, t.clientY);
+        };
+        el.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          onDown(e.clientX, e.clientY);
+        });
+        el.addEventListener(
+          "touchstart",
+          (e) => {
+            const t = e.touches[0];
+            onDown(t.clientX, t.clientY);
+          },
+          { passive: true },
+        );
+      }
+
+      /* 摆动 + 连线跟随 */
+      let reqId = null;
+      function edgeSyncLoop() {
+        updateEdgesFromDOM();
+        reqId = requestAnimationFrame(edgeSyncLoop);
+      }
+      function startPhysics() {
+        document
+          .querySelectorAll(".float-inner")
+          .forEach((n) => (n.style.animationPlayState = "running"));
+        if (!reqId) reqId = requestAnimationFrame(edgeSyncLoop);
+      }
+      function stopPhysics() {
+        document
+          .querySelectorAll(".float-inner")
+          .forEach((n) => (n.style.animationPlayState = "paused"));
+        if (reqId) {
+          cancelAnimationFrame(reqId);
+          reqId = null;
+        }
+      }
+
+      /* 右侧角色面板 */
+      function highlightRelated(k) {
+        const related = new Set([k]);
+        edges.forEach((e) => {
+          if (e.a === k) related.add(e.b);
+          if (e.b === k) related.add(e.a);
+        });
+        Object.entries(nodeState).forEach(([key, s]) => {
+          s.el.classList.toggle("active", key === k);
+          s.el.classList.toggle("dim", !related.has(key));
+        });
+        Array.from(graphEdges.children).forEach((el) => {
+          const on = el.dataset.a === k || el.dataset.b === k;
+          el.classList.toggle("hl", on);
+          el.classList.toggle("dim", !on);
+        });
+      }
+      function clearHighlight() {
+        Object.values(nodeState).forEach((s) =>
+          s.el.classList.remove("active", "dim"),
+        );
+        Array.from(graphEdges.children).forEach((line) =>
+          line.classList.remove("hl", "dim"),
+        );
+      }
+
+      function getCharDescText(c) {
+        const fullText =
+          c.desc && c.desc !== c.storyDesc
+            ? '\${c.storyDesc} \${c.desc}'
+            : c.storyDesc;
+        return fullText.replace(/\s+/g, " ").trim();
+      }
+      function fitCharPanel() {
+        if (!isSmallCanvas() || !graphWrap.classList.contains("panel-open")) return;
+        const fitClasses = ["fit-compact", "fit-tight", "fit-ultra"];
+        charPanel.classList.remove(...fitClasses);
+        charPanel.style.removeProperty("--char-fit-scale");
+        for (const cls of fitClasses) {
+          if (charPanel.scrollHeight <= charPanel.clientHeight) return;
+          charPanel.classList.add(cls);
+        }
+        let scale = 1;
+        for (let i = 0; i < 8 && charPanel.scrollHeight > charPanel.clientHeight; i++) {
+          scale = Math.max(0.62, scale * (charPanel.clientHeight / charPanel.scrollHeight));
+          charPanel.style.setProperty("--char-fit-scale", String(scale));
+        }
+      }
+      function showChar(k) {
+        const c = getStoryChar(k);
+        if (!c) return;
+        currentCharKey = k;
+        setBgImage(document.getElementById("cAvt"), c.img);
+        document.getElementById("cName").textContent = c.name;
+        document.getElementById("cActor").textContent = c.actor;
+        document.getElementById("cDesc").textContent = getCharDescText(c);
+        const tagEl = document.getElementById("cRelTag");
+        const coreKey = activeStory.chars.includes(HERO)
+          ? HERO
+          : activeStory.chars[0];
+        const coreName = chars[coreKey]?.name || "主角";
+        if (k === coreKey) {
+          tagEl.textContent = "核心人物 · 本人";
+          tagEl.style.background =
+            "linear-gradient(135deg, var(--primary), #7b96f7)";
+        } else {
+          const edgeToCore = edges.find(
+            (e) =>
+              (e.a === k && e.b === coreKey) || (e.b === k && e.a === coreKey),
+          );
+          if (edgeToCore) {
+            tagEl.textContent =
+              "与" + coreName + "：" + (edgeToCore.label || RELN[edgeToCore.type]);
+            tagEl.style.background = REL_COLORS[edgeToCore.type];
+          } else if (c.storyRel.length) {
+            tagEl.textContent = c.storyRel[0];
+            tagEl.style.background =
+              "linear-gradient(135deg, var(--primary), #7b96f7)";
+          } else {
+            tagEl.textContent = "本模块人物";
+            tagEl.style.background =
+              "linear-gradient(135deg, var(--primary), #7b96f7)";
+          }
+        }
+
+        graphWrap.classList.add("panel-open");
+        highlightRelated(k);
+        requestAnimationFrame(fitCharPanel);
+        // 画布让位后重新测量并重排头像（带过渡）
+        setTimeout(() => {
+          relayout();
+          fitCharPanel();
+        }, 60);
+      }
+      function closeChar() {
+        currentCharKey = null;
+        charPanel.classList.remove("fit-compact", "fit-tight", "fit-ultra");
+        charPanel.style.removeProperty("--char-fit-scale");
+        graphWrap.classList.remove("panel-open");
+        clearHighlight();
+        setTimeout(() => {
+          relayout();
+        }, 60);
+      }
+      document.getElementById("charClose").addEventListener("click", closeChar);
+      /* =========================================================
+         视图 3：作品推荐 —— 4 tab + 每页4个 + 翻页
+         ========================================================= */
+      const worksGrid = document.getElementById("worksGrid");
+      const worksPageInfo = document.getElementById("worksPageInfo");
+      const worksPrev = document.getElementById("worksPrev");
+      const worksNext = document.getElementById("worksNext");
+      const worksScrollHint = document.getElementById("worksScrollHint");
+      const worksTabs = document.getElementById("worksTabs");
+      const worksCats = Object.keys(WORKS_TAB_LABELS).filter(
+        (k) => Array.isArray(works[k]) && works[k].length > 0,
+      );
+      let worksCat = worksCats[0] || "";
+      let worksPage = 0;
+      const WORKS_PER_PAGE = 4;
+
+      function renderWorksTabs() {
+        if (!worksTabs) return;
+        worksTabs.innerHTML = worksCats
+          .map(
+            (k) =>
+              '<button class="works-tab\${k === worksCat ? " active" : ""}" data-cat="\${k}" type="button">\${WORKS_TAB_LABELS[k]}</button>',
+          )
+          .join("");
+        worksTabs.querySelectorAll(".works-tab").forEach((t) => {
+          t.addEventListener("click", () => {
+            worksTabs
+              .querySelectorAll(".works-tab")
+              .forEach((x) => x.classList.remove("active"));
+            t.classList.add("active");
+            worksCat = t.dataset.cat;
+            worksPage = 0;
+            renderWorks();
+          });
+        });
+      }
+
+      function renderWorks() {
+        const list = works[worksCat] || [];
+        const pageCount = Math.max(1, Math.ceil(list.length / WORKS_PER_PAGE));
+        worksPage = Math.min(worksPage, pageCount - 1);
+        worksGrid.dataset.cat = worksCat;
+        const items = list.slice(
+          worksPage * WORKS_PER_PAGE,
+          worksPage * WORKS_PER_PAGE + WORKS_PER_PAGE,
+        );
+        worksGrid.innerHTML = items
+          .map(
+            (w) => '
+            <div class="work-card \${w.up ? "upcoming" : ""}">
+              <div class="cover" data-bg-src="\${IMG}\${w.cover}" style="background-image:\${imageUrl(IMG + w.cover)}">
+                \${w.ep ? '<div class="tag">\${w.ep}</div>' : ""}
+              </div>
+              <div class="info">
+                <div class="n">\${w.n}</div>
+                <div class="m">\${w.m
+                  .split("/")
+                  .slice(0, 2)
+                  .map((s) => s.trim())
+                  .join(" / ")}</div>
+                <div class="r">▸ \${w.r}</div>
+              </div>
+            </div>',
+          )
+          .join("");
+        worksPageInfo.textContent = '\${worksPage + 1}/\${pageCount}';
+        const showPager = pageCount > 1;
+        worksPrev.classList.toggle("hidden", !showPager);
+        worksNext.classList.toggle("hidden", !showPager);
+        worksPageInfo.classList.toggle("hidden", !showPager);
+        worksPrev.disabled = worksPage === 0;
+        worksNext.disabled = worksPage === pageCount - 1;
+        worksGrid.querySelectorAll("[data-bg-src]").forEach((el) => {
+          setBgImage(el, el.dataset.bgSrc);
+        });
+        // 重置横向滚动并按是否有右侧内容更新提示箭头（移动端）
+        worksGrid.scrollLeft = 0;
+        requestAnimationFrame(updateWorksHint);
+      }
+      worksPrev.addEventListener("click", () => {
+        worksPage--;
+        renderWorks();
+      });
+      worksNext.addEventListener("click", () => {
+        worksPage++;
+        renderWorks();
+      });
+      // 更新向右提示箭头：右侧仍有内容时显示，已滚动到最右端则隐藏
+      function updateWorksHint() {
+        if (!worksScrollHint) return;
+        const canScrollRight =
+          worksGrid.scrollLeft + worksGrid.clientWidth <
+          worksGrid.scrollWidth - 4;
+        worksScrollHint.classList.toggle("hide", !canScrollRight);
+      }
+      // 滚动时实时更新箭头显隐
+      worksGrid.addEventListener("scroll", updateWorksHint, { passive: true });
+      function updateStoryHint() {
+        if (!storyScrollHint) return;
+        const canScrollRight =
+          storyBar.scrollLeft + storyBar.clientWidth < storyBar.scrollWidth - 4;
+        storyScrollHint.classList.toggle("hide", !canScrollRight);
+      }
+      function scrollActiveStoryButton(behavior = "smooth") {
+        if (!isSmallCanvas()) return;
+        const btns = Array.from(storyBar.querySelectorAll(".story-btn"));
+        const activeIndex = btns.findIndex((btn) => btn.dataset.story === currentStoryKey);
+        const activeBtn = btns[activeIndex];
+        if (!activeBtn) return;
+        const nextBtn = btns[Math.min(activeIndex + 1, btns.length - 1)] || activeBtn;
+        const targetLeft = Math.max(
+          0,
+          Math.min(
+            storyBar.scrollWidth - storyBar.clientWidth,
+            nextBtn.offsetLeft + nextBtn.offsetWidth - storyBar.clientWidth,
+          ),
+        );
+        storyBar.scrollTo({ left: targetLeft, behavior });
+      }
+      storyBar.addEventListener("scroll", updateStoryHint, { passive: true });
+      if (storyScrollHint) {
+        storyScrollHint.addEventListener("click", () => {
+          storyBar.scrollBy({
+            left: storyBar.clientWidth * 0.7,
+            behavior: "smooth",
+          });
+        });
+      }
+      // 点击向右提示箭头：平滑向右滚动半个窗口宽度
+      if (worksScrollHint) {
+        worksScrollHint.addEventListener("click", () => {
+          worksGrid.scrollBy({
+            left: worksGrid.clientWidth / 2,
+            behavior: "smooth",
+          });
+        });
+      }
+      function getStoryDescText(story) {
+        return story.desc || "";
+      }
+      function renderStoryButtons() {
+        storyDesc.textContent = getStoryDescText(activeStory);
+        storyBar.innerHTML = storyModules
+          .map(
+            (s, idx) =>
+              '<button class="story-btn \${s.key === currentStoryKey ? "active" : ""}" data-story="\${s.key}"><span class="story-index">\${idx + 1}</span><span>\${s.name}</span></button>',
+          )
+          .join("");
+        storyBar.querySelectorAll(".story-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const next = btn.dataset.story;
+            if (!next || next === currentStoryKey) return;
+            currentStoryKey = next;
+            activeStory = storyByKey[currentStoryKey];
+            edges = activeStory.edges;
+            currentCharKey = null;
+            charPanel.classList.remove("fit-compact", "fit-tight", "fit-ultra");
+            charPanel.style.removeProperty("--char-fit-scale");
+            graphWrap.classList.remove("panel-open");
+            clearHighlight();
+            renderStoryButtons();
+            requestAnimationFrame(() => scrollActiveStoryButton());
+            buildGraph();
+          });
+        });
+        requestAnimationFrame(() => {
+          scrollActiveStoryButton("auto");
+          updateStoryHint();
+        });
+      }
+
+      renderStoryButtons();
+      renderWorksTabs();
+
+      /* =========================================================
+         Tab 切换
+         ========================================================= */
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.tab;
+          document
+            .querySelectorAll(".tab-btn")
+            .forEach((b) => b.classList.toggle("active", b === btn));
+          document
+            .querySelectorAll(".view")
+            .forEach((v) =>
+              v.classList.toggle("active", v.dataset.view === target),
+            );
+          if (target === "graph") {
+            measure();
+            relayout();
+            startPhysics();
+          } else {
+            stopPhysics();
+          }
+        });
+      });
+
+      /* resize 防抖：缩放同步执行，内部重排 debounce */
+      let rzT;
+      window.addEventListener("resize", () => {
+        applyScale();
+        clearTimeout(rzT);
+        rzT = setTimeout(() => {
+          buildGraph();
+          if (graphWrap.classList.contains("panel-open")) {
+            relayout();
+            const c = currentCharKey ? getStoryChar(currentCharKey) : null;
+            if (c) document.getElementById("cDesc").textContent = getCharDescText(c);
+            fitCharPanel();
+          }
+          renderWorks();
+          storyDesc.textContent = getStoryDescText(activeStory);
+          updateStoryHint();
+        }, 150);
+      });
+
+      /* 初始化 */
+      window.addEventListener("load", () => {
+        buildGraph();
+        renderWorks();
+        updateStoryHint();
+        startPhysics();
+        // 预热全部图片：角色头像 + 剧情封面 + 作品封面，避免切换视图时首次加载闪烁
+        const preload = new Set();
+        Object.values(chars).forEach((c) => preload.add(c.img));
+        Object.values(works)
+          .flat()
+          .forEach((w) => w.cover && preload.add(IMG + w.cover));
+        preload.forEach((src) => warmImage(src, () => {}));
+        // 首次进入：主角头像脉冲提示"可点击"，播放结束后移除
+        const heroNode = nodeState[HERO] && nodeState[HERO].el;
+        if (heroNode) {
+          heroNode.classList.add("tap-hint");
+          setTimeout(() => heroNode.classList.remove("tap-hint"), 5600);
+        }
+      });
+    </script>
+  </body>
+</html>

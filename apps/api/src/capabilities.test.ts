@@ -203,6 +203,16 @@ describe('capability plugin registry', () => {
     assert.deepEqual(preset.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
     assert.deepEqual(preset.mcpToolIds, ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
     assert.equal(preset.loopProfileId, 'loop_encyclopedia_spec_review')
+    assert.equal(preset.requirementModuleGraphId, 'requirement_graph_dynamic_encyclopedia_entry')
+    assert.deepEqual(preset.selectionPolicy.requiredTemplatePackIds, ['dtp_dynamic_encyclopedia_card'])
+    assert.deepEqual(preset.selectionPolicy.requiredSkillIds, ['sk_encyclopedia_entry_guidance'])
+    assert.deepEqual(preset.selectionPolicy.requiredMcpToolIds, ['mcp_encyclopedia_democase_readonly'])
+    assert.deepEqual(preset.selectionPolicy.allowedLoopProfileIds, ['loop_standard', 'loop_encyclopedia_spec_review'])
+    assert.deepEqual(preset.explorationDefaults, {
+      level: 40,
+      experimentalConfirmationThreshold: 71,
+      forceReviewAtOrAbove: 71,
+    })
     assert.ok(capabilities.domainTemplates.some(item => item.id === preset.domainTemplateId))
     assert.ok(capabilities.skills.some(item => item.id === preset.skillIds[0]))
     assert.ok(capabilities.skills.some(item => item.id === 'sk_dual_surface_strategy'))

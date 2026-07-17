@@ -68,6 +68,8 @@ describe('officialDesignTemplatePacks', () => {
     assert.equal(pack.designTokens.components['pc-card-frame']?.height, 492)
     assert.equal(pack.designTokens.components['wise-standard-frame']?.width, 380)
     assert.equal(pack.designTokens.components['wise-standard-frame']?.height, 456)
+    assert.equal(pack.designTokens.components['wise-small-frame']?.width, 300)
+    assert.equal(pack.designTokens.components['wise-small-frame']?.height, 360)
     assert.match(pack.rationale.sections.sizing ?? '', /788x492/)
     assert.match(pack.rationale.sections.iframeTouch ?? '', /touchmove/)
     assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_summary_card/)
@@ -75,6 +77,7 @@ describe('officialDesignTemplatePacks', () => {
     assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_relation_card/)
     assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_compare_card/)
     assert.match(pack.rationale.sections.packageChildren ?? '', /dtp_dynamic_encyclopedia_expandable_card/)
+    assert.match(pack.rationale.sections.smallViewport ?? '', /300x360/)
     assert.ok(pack.rationale.donts.some(rule => /touch-action: none/i.test(rule)))
   })
 
@@ -106,6 +109,11 @@ describe('officialDesignTemplatePacks', () => {
       assert.ok((pack.supportedEntryCategories ?? []).length > 0)
       assert.equal(pack.designTokens.components['pc-card-frame']?.width, 788)
       assert.equal(pack.designTokens.components['pc-card-frame']?.height, 492)
+      assert.equal(pack.designTokens.components['wise-small-frame']?.width, 300)
+      assert.equal(pack.designTokens.components['wise-small-frame']?.height, 360)
+      assert.match(pack.rationale.sections.smallViewport ?? '', /primary interaction|primary action|primary reveal action|primary navigation\/control group/)
+      assert.ok(pack.rationale.dos.some(rule => /300x360/.test(rule)))
+      assert.ok(pack.rationale.donts.some(rule => /300x360/.test(rule)))
       assert.equal(pack.designTokens.components['wise-standard-frame']?.width, 380)
       assert.equal(pack.designTokens.components['wise-standard-frame']?.height, 456)
       // 硬性归束（v0.4）：scroll-container 已被 no-scroll-frame + tab-bar / page-switcher / modal 取代。
@@ -175,6 +183,20 @@ describe('officialDesignTemplatePacks', () => {
     }
   })
 
+  it('uses domain-specific compact examples for series and scenic exploration templates', () => {
+    const expectedFiles = new Map([
+      ['dtp_de_film_series_navigation', 'apps/api/src/html-examples/series-navigation-compact-example.html'],
+      ['dtp_de_scenic_spot_route_guide', 'apps/api/src/html-examples/route-guide-compact-example.html'],
+      ['dtp_de_scenic_spot_map_poi', 'apps/api/src/html-examples/map-poi-compact-example.html'],
+    ])
+
+    for (const [templateId, file] of expectedFiles) {
+      const pack = officialDesignTemplatePacks.find(item => item.id === templateId)
+      assert.ok(pack, `${templateId} should exist`)
+      assert.deepEqual(pack.htmlExamples, [{ file }])
+    }
+  })
+
   // 硬性归束（v0.4）— few-shot HTML 示例（demo 模板）
   it('ships a few-shot HTML example on the summary child template', () => {
     const summary = officialDesignTemplatePacks.find(pack => pack.id === 'dtp_dynamic_encyclopedia_summary_card')
@@ -183,12 +205,46 @@ describe('officialDesignTemplatePacks', () => {
     assert.ok(summary.htmlExamples.length >= 1, 'summary card must ship at least one HTML example')
   })
 
+  it('keeps external HTML example references resolvable outside TypeScript source', async () => {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    for (const pack of officialDesignTemplatePacks) {
+      for (const example of pack.htmlExamples ?? []) {
+        if (typeof example === 'string') continue
+        const candidates = [
+          path.resolve(process.cwd(), example.file),
+          path.resolve(process.cwd(), '../..', example.file),
+        ]
+        let html: string | null = null
+        for (const candidate of candidates) {
+          try {
+            html = await fs.readFile(candidate, 'utf8')
+            break
+          } catch {
+            // Try the next repository-relative candidate.
+          }
+        }
+        assert.ok(html, `${pack.id} HTML example file must exist: ${example.file}`)
+        assert.match(html, /<!doctype html|<html\b/i, `${pack.id} HTML example file must contain an HTML document`)
+      }
+    }
+  })
+
+  it('gives every vertical dynamic encyclopedia template a structural HTML example', () => {
+    const verticalTemplates = officialDesignTemplatePacks.filter(pack => pack.id.startsWith('dtp_de_'))
+    assert.ok(verticalTemplates.length > 0)
+    for (const template of verticalTemplates) {
+      assert.ok(template.htmlExamples?.length, `${template.id} must inherit an archetype HTML example`)
+    }
+  })
+
   it('keeps summary HTML examples compliant with the v0.4 spec review', async () => {
     const { reviewDynamicEncyclopediaSpec } = await import('./encyclopediaSpecReview.js')
     const summary = officialDesignTemplatePacks.find(pack => pack.id === 'dtp_dynamic_encyclopedia_summary_card')
     assert.ok(summary?.htmlExamples?.length)
     // 每条 demo HTML 必须通过 spec review（10 条规则全 pass）——这同时是 v0.4 硬性归束的"活文档"。
-    for (const [index, html] of summary.htmlExamples.entries()) {
+    for (const [index, example] of summary.htmlExamples.entries()) {
+      const html = requireInlineHtml(example, `summary htmlExamples[${index}] must be inline HTML`)
       const report = reviewDynamicEncyclopediaSpec({
         html,
         templatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
@@ -207,7 +263,7 @@ describe('officialDesignTemplatePacks', () => {
   it('summary HTML example uses the v0.4 overflow strategy primitives', () => {
     const summary = officialDesignTemplatePacks.find(pack => pack.id === 'dtp_dynamic_encyclopedia_summary_card')
     assert.ok(summary?.htmlExamples?.[0])
-    const html = summary.htmlExamples[0]
+    const html = requireInlineHtml(summary.htmlExamples[0], 'summary demo must be inline HTML')
     // 单屏交付：no-scroll-frame + overflow:hidden
     assert.match(html, /no-scroll-frame/, 'demo must use .no-scroll-frame class')
     assert.match(html, /overflow\s*:\s*hidden/, 'demo must declare overflow:hidden on root frame')
@@ -231,6 +287,11 @@ describe('officialDesignTemplatePacks', () => {
     assert.ok(!html.includes('李白'), 'demo must not embed a specific entry name (李 would be reproduced by LLM)')
   })
 })
+
+function requireInlineHtml(value: unknown, message: string): string {
+  if (typeof value !== 'string') throw new TypeError(message)
+  return value
+}
 
 describe('babelOClient prompt injection of v0.4 few-shot HTML examples', () => {
   it('emits the reference example label, the example body, and the no-copy warning', async () => {

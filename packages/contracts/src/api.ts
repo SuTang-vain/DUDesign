@@ -1,3 +1,14 @@
+import type {
+  BatchExplorationPlanV1,
+  ExplorationRequestV1,
+  RequirementModuleGraphV1,
+  VariationExplorationPlanV1,
+} from './exploration.js'
+import type {
+  EncyclopediaDemocaseExperienceProfile,
+  EncyclopediaGuidanceAnalysisV2,
+} from './guidance.js'
+
 export type ID = string
 
 export type SourceMode = 'new_html' | 'from_existing_html'
@@ -147,6 +158,7 @@ export type ResearchContextArtifactReference = {
   reviewStatus: ResearchContextArtifact['reviewStatus']
   query: string
   sourceCount: number
+  provenance?: 'reviewed_external' | 'mock'
   createdAt?: string
 }
 
@@ -278,6 +290,16 @@ export type DataIntakeArtifactReference = {
 
 export type DesignTemplatePackSource = 'official' | 'user' | 'workspace' | 'imported'
 
+/**
+ * HTML 示例引用，支持内联字符串或外部文件。
+ * 外部文件引用适合大型 React 构建产物，避免在 TS 源码中嵌入巨量模板字符串。
+ */
+export type HtmlExample = string | HtmlExampleFileRef
+
+export type HtmlExampleFileRef = {
+  file: string
+}
+
 export type DesignTemplatePackFormat = 'dudesign-template-v1' | 'design-md'
 
 export type DesignTemplatePackVisibility = 'private' | 'workspace' | 'public'
@@ -338,8 +360,13 @@ export type DesignTemplatePack = {
    * 成熟 HTML 示例（few-shot），供 LLM 借鉴风格/结构。
    * 必须满足 v0.4 硬性归束：no-scroll-frame + 至少一个溢出策略组件 + 中文优先 + 禁英文 UI 短语。
    * LLM **不应复制**示例的具体文案/词条名/事实，只借鉴布局/排版/视觉密度。
+   *
+   * 支持两种形式：
+   * - 内联字符串：直接嵌入 HTML（适合小型、无 $ 符号的示例）
+   * - 外部文件引用：{ file: 'path/to/example.html' }，由构建/运行时从文件系统读取
+   *   （适合大型 React 构建产物，避免在 TS 源码中嵌入巨量模板字符串）
    */
-  htmlExamples?: string[]
+  htmlExamples?: HtmlExample[]
 }
 
 export type DesignTemplatePackLintFinding = {
@@ -395,6 +422,404 @@ export type DesignSkill = {
   negativeRules: string[]
   qualityChecklist: string[]
   allowedTemplateCategories: string[]
+}
+
+export type CapabilityAuthoringSource =
+  | {
+      type: 'design_md'
+      artifactId?: ID
+      contentHash: string
+    }
+  | {
+      type: 'product_spec_markdown'
+      artifactId?: ID
+      contentHash: string
+    }
+  | {
+      type: 'template_pack_json'
+      contentHash: string
+    }
+  | {
+      type: 'capability_bundle_zip'
+      contentHash: string
+      sourceBundleId: ID
+    }
+  | {
+      type: 'variation_artifact'
+      variationId: ID
+      artifactId: ID
+      artifactVersion: number
+      contentHash: string
+    }
+  | {
+      type: 'manual'
+      createdByUserId: ID
+      contentHash: string
+    }
+
+export type CapabilityExtractionEvidence = {
+  sourcePath: string
+  sourceExcerpt: string
+  targetPath: string
+  extractionMethod: 'deterministic' | 'agent_assisted' | 'user_confirmed'
+  confidence: number
+}
+
+export type ResponsiveRule = {
+  id: ID
+  target: DeviceTarget | 'embedded_iframe' | 'custom'
+  minWidth?: number | null
+  maxWidth?: number | null
+  viewport?: { width: number; height: number } | null
+  rules: string[]
+}
+
+export type SectionBlueprint = {
+  id: ID
+  name: string
+  role: string
+  order: number
+  required: boolean
+  layout: string | null
+  evidencePaths: string[]
+}
+
+export type ComponentBlueprint = {
+  id: ID
+  name: string
+  role: string
+  repeatable: boolean
+  states: string[]
+  interactionParadigmIds: ID[]
+  evidencePaths: string[]
+}
+
+export type HtmlExampleReference = {
+  artifactId: ID | null
+  artifactVersion: number | null
+  authoringAssetId?: ID | null
+  contentHash: string
+  entryPath: string
+  sanitizationStatus: 'pending' | 'passed' | 'failed'
+  sanitizedArtifactId?: ID | null
+  sanitization?: {
+    sanitizedContentHash: string | null
+    findings: Array<{
+      severity: 'error' | 'warning' | 'info'
+      code: string
+      path: string
+      message: string
+    }>
+    sanitizedAt: string
+  } | null
+  previewSmoke?: {
+    status: 'pending' | 'passed' | 'warning' | 'failed'
+    staticStatus: 'pass' | 'warn' | 'fail'
+    pixelStatus: 'not_run' | 'pass' | 'warn' | 'fail'
+    issues: string[]
+    checkedAt: string
+  } | null
+  notes: string[]
+}
+
+export type DesignTemplateDraftV2 = {
+  schemaVersion: 'dudesign-template-draft.v2'
+  name: string
+  description: string | null
+  designTokens: DesignTemplatePack['designTokens']
+  rationale: DesignTemplatePack['rationale']
+  responsiveRules: ResponsiveRule[]
+  sectionBlueprints: SectionBlueprint[]
+  componentBlueprints: ComponentBlueprint[]
+  interactionParadigmIds: ID[]
+  htmlExamples: HtmlExampleReference[]
+  sourceEvidence: CapabilityExtractionEvidence[]
+  confidence: Record<string, number>
+}
+
+export type DesignSkillDraft = {
+  schemaVersion: 'dudesign-skill-draft.v1'
+  name: string
+  description: string
+  category: string
+  rules: string[]
+  promptBlocks: string[]
+  negativeRules: string[]
+  qualityChecklist: string[]
+  allowedTemplateCategories: string[]
+  requestedScopes: PluginPermissionScope[]
+  safetyLevel: 'safe' | 'review_required'
+}
+
+export type InteractionParadigmDraft = {
+  schemaVersion: 'dudesign-interaction-draft.v1'
+  name: string
+  category: string
+  description: string
+  bestFor: string[]
+  avoidFor: string[]
+  requiredDataShape: string[]
+  sourceEvidence: CapabilityExtractionEvidence[]
+}
+
+export type DataContractDraft = {
+  schemaVersion: 'dudesign-data-contract-draft.v1'
+  name: string
+  description: string
+  jsonSchema: Record<string, unknown>
+  requiredFields: string[]
+  sourceEvidence: CapabilityExtractionEvidence[]
+}
+
+export type ReviewProfileDraft = {
+  schemaVersion: 'dudesign-review-profile-draft.v1'
+  name: string
+  description: string
+  rules: Array<{
+    id: ID
+    severity: 'error' | 'warning' | 'info'
+    description: string
+    evidenceRequired: boolean
+  }>
+  sourceEvidence: CapabilityExtractionEvidence[]
+}
+
+export type CapabilityProfileDraft = {
+  templateDraftIndexes: number[]
+  skillDraftIndexes: number[]
+  interactionDraftIndexes: number[]
+  dataContractDraftIndexes: number[]
+  reviewProfileDraftIndexes: number[]
+}
+
+export type CapabilityBundleDraft = {
+  templatePacks: DesignTemplateDraftV2[]
+  skills: DesignSkillDraft[]
+  interactionParadigms: InteractionParadigmDraft[]
+  dataContracts: DataContractDraft[]
+  reviewProfiles: ReviewProfileDraft[]
+  recommendedCapabilityProfile: CapabilityProfileDraft
+}
+
+export type CapabilityAuthoringFinding = {
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  path: string
+  message: string
+  evidence?: CapabilityExtractionEvidence[]
+}
+
+export type CapabilityAuthoringDraftStatus =
+  | 'analyzing'
+  | 'needs_confirmation'
+  | 'lint_failed'
+  | 'preview_pending'
+  | 'ready'
+  | 'published_private'
+  | 'submitted_for_review'
+  | 'rejected'
+  | 'archived'
+
+export type CapabilityAuthoringDraft = {
+  id: ID
+  ownerUserId: ID
+  workspaceId: ID
+  source: CapabilityAuthoringSource
+  status: CapabilityAuthoringDraftStatus
+  candidateBundle: CapabilityBundleDraft
+  findings: CapabilityAuthoringFinding[]
+  confirmedPaths: string[]
+  publishedTemplateId?: ID | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type CapabilityAuthoringAsset = {
+  id: ID
+  draftId: ID
+  ownerUserId: ID
+  workspaceId: ID
+  kind: 'html_example'
+  storageKey: string
+  entryPath: string
+  contentType: 'text/html'
+  contentHash: string
+  sizeBytes: number
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
+export type CreateCapabilityAuthoringDraftRequest = {
+  workspaceId: ID
+  source:
+    | {
+        type: 'design_md' | 'product_spec_markdown'
+        artifactId?: ID
+        contentHash?: string
+      }
+    | {
+        type: 'variation_artifact'
+        variationId: ID
+        artifactId: ID
+      }
+    | {
+        type: 'manual'
+        contentHash?: string
+      }
+  candidateBundle?: CapabilityBundleDraft
+}
+
+export type UpdateCapabilityAuthoringDraftRequest = {
+  workspaceId: ID
+  candidateBundle?: CapabilityBundleDraft
+  confirmedPaths?: string[]
+}
+
+export type CapabilityAuthoringDraftResponse = {
+  draft: CapabilityAuthoringDraft
+}
+
+export type ListCapabilityAuthoringDraftsResponse = {
+  drafts: CapabilityAuthoringDraft[]
+}
+
+export type PublishCapabilityAuthoringDraftRequest = {
+  workspaceId: ID
+  name?: string
+  description?: string | null
+}
+
+export type PublishCapabilityAuthoringDraftResponse = {
+  draft: CapabilityAuthoringDraft
+  template: DesignTemplatePack
+  audit: unknown
+}
+
+export type RollbackPrivateDesignTemplateRequest = {
+  workspaceId: ID
+  sourceVersion: string
+  reason?: string | null
+}
+
+export type RollbackPrivateDesignTemplateResponse = {
+  template: DesignTemplatePack
+  rolledBackFromVersion: string
+  restoredSourceVersion: string
+  audit: unknown
+}
+
+export type PortableDesignTemplatePack = Pick<
+  DesignTemplatePack,
+  | 'schemaVersion'
+  | 'parentPackId'
+  | 'templateRole'
+  | 'supportedProductModes'
+  | 'supportedEntryCategories'
+  | 'format'
+  | 'name'
+  | 'description'
+  | 'version'
+  | 'designTokens'
+  | 'rationale'
+  | 'lintStatus'
+>
+
+export type DesignTemplatePackExportDocument = {
+  schemaVersion: '2026-07-13.dudesign-template-pack-export.v1'
+  manifest: {
+    format: 'dudesign-template-pack-json'
+    contentHash: string
+    exportedAt: string
+    sourceTemplateId: ID
+    sourceTemplateVersion: string
+    examplesIncluded: false
+    omittedFields: string[]
+  }
+  template: PortableDesignTemplatePack
+}
+
+export type ImportDesignTemplatePackJsonDraftRequest = {
+  workspaceId: ID
+  document: DesignTemplatePackExportDocument
+}
+
+export type ImportDesignMdDraftRequest = {
+  workspaceId: ID
+  designMd: string
+}
+
+export type CapabilityBundleFileKind =
+  | 'portable_draft'
+  | 'provenance'
+  | 'html_example'
+
+export type CapabilityBundleManifestFile = {
+  path: string
+  kind: CapabilityBundleFileKind
+  mediaType: string
+  sizeBytes: number
+  contentHash: string
+}
+
+export type CapabilityBundlePortableTemplateDraft = Omit<DesignTemplateDraftV2, 'htmlExamples'> & {
+  htmlExamplePaths: string[]
+}
+
+export type CapabilityBundlePortableDraft = Omit<CapabilityBundleDraft, 'templatePacks'> & {
+  templatePacks: CapabilityBundlePortableTemplateDraft[]
+}
+
+export type CapabilityBundleProvenance = {
+  schemaVersion: '2026-07-13.dudesign-capability-bundle-provenance.v1'
+  source: {
+    type: CapabilityAuthoringSource['type']
+    contentHash: string
+  }
+  exportedFrom: {
+    draftId: ID
+    draftStatus: CapabilityAuthoringDraftStatus
+    publishedTemplateId: ID | null
+  }
+  license: {
+    declaration: 'user_owned_or_authorized' | 'unspecified'
+    notes: string | null
+  }
+  privacy: {
+    ownerIdentityIncluded: false
+    workspaceIdentityIncluded: false
+    sourceFilesystemPathsIncluded: false
+  }
+  exportedAt: string
+}
+
+export type CapabilityBundleManifest = {
+  schemaVersion: '2026-07-13.dudesign-capability-bundle.v1'
+  bundleId: ID
+  name: string
+  format: 'dudesign-capability-bundle-zip'
+  portableDraftPath: 'capability/draft.json'
+  provenancePath: 'provenance.json'
+  files: CapabilityBundleManifestFile[]
+  counts: {
+    templatePacks: number
+    skills: number
+    interactionParadigms: number
+    dataContracts: number
+    reviewProfiles: number
+    htmlExamples: number
+  }
+  createdAt: string
+}
+
+export type ExportCapabilityBundleRequest = {
+  workspaceId: ID
+  licenseDeclaration?: 'user_owned_or_authorized' | 'unspecified'
+  licenseNotes?: string | null
+}
+
+export type ImportCapabilityBundleDraftRequest = {
+  workspaceId: ID
+  bundleBase64: string
 }
 
 export type McpToolBinding = {
@@ -661,6 +1086,8 @@ export type ConfirmEncyclopediaEntryGuidanceRequest = {
  */
 export type EntryContentLanguage = 'zh' | 'en' | 'fr' | 'ja' | 'ko' | 'other' | 'mixed'
 
+export type EncyclopediaClassificationSource = 'mock_rules' | 'ai_guidance_v2'
+
 export type EncyclopediaClassificationVector = {
   schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1'
   l1: string
@@ -668,7 +1095,7 @@ export type EncyclopediaClassificationVector = {
   l3: string
   confidence: number
   signals: string[]
-  source: 'mock_rules'
+  source: EncyclopediaClassificationSource
   recommendedModulePriorities: string[]
   preferredTemplateIds: ID[]
   riskFlags: string[]
@@ -695,13 +1122,14 @@ export type EncyclopediaEntryGuidanceResponse = {
    * 仅用于 spec review 与未来 i18n 适配，不影响生成。
    */
   entryContentLanguage: EntryContentLanguage
+  analysis: EncyclopediaGuidanceAnalysisV2 | null
   classification: {
     primaryCategory: string
     secondaryCategory: string
     tertiaryCategory: string
     confidence: number
     signals: string[]
-    source: 'mock_rules'
+    source: EncyclopediaClassificationSource
   }
   democaseReferences: Array<{
     caseId: ID
@@ -709,6 +1137,7 @@ export type EncyclopediaEntryGuidanceResponse = {
     score: number
     matchedKeywords: string[]
     summary: string
+    experienceProfile?: EncyclopediaDemocaseExperienceProfile
   }>
   recommendedTemplates: Array<{
     designTemplatePackId: ID
@@ -719,6 +1148,12 @@ export type EncyclopediaEntryGuidanceResponse = {
     selected: boolean
   }>
   interactionParadigm: InteractionParadigm
+  explorationRecommendation: {
+    level: number
+    reason: string
+    confidence: number
+    requirementModuleGraphId: ID
+  }
   capabilityRequirements: CapabilityRequirements
   templateRequirements: NonNullable<CreateDesignJobRequest['templateRequirements']> & {
     interactionParadigm: InteractionParadigm
@@ -736,7 +1171,7 @@ export type EncyclopediaEntryGuidanceResponse = {
         l3: string
         confidence: number
         signals: string[]
-        source: 'mock_rules'
+        source: EncyclopediaClassificationSource
       }
       classificationVector: EncyclopediaClassificationVector
       interactionParadigmId: ID
@@ -748,6 +1183,12 @@ export type EncyclopediaEntryGuidanceResponse = {
         selected: boolean
         confidence: number
         reason: string
+      }>
+      democaseExperienceProfiles: Array<{
+        caseId: ID
+        title: string
+        score: number
+        experienceProfile: EncyclopediaDemocaseExperienceProfile
       }>
       automationMode: 'off' | 'semi_auto' | 'auto'
       reviewMode: 'off' | 'semi_auto' | 'auto'
@@ -777,6 +1218,16 @@ export type CapabilitySnapshot = {
   }
 }
 
+export type UserCapabilityPluginSnapshot = Omit<CapabilityPluginSnapshot, 'mcpToolBindings'> & {
+  mcpToolBindings: Array<Omit<McpToolBinding, 'serverName' | 'toolName'>>
+}
+
+export type UserCapabilitySnapshot = Omit<CapabilitySnapshot, 'plugins'> & {
+  plugins: Omit<CapabilitySnapshot['plugins'], 'pluginSnapshot'> & {
+    pluginSnapshot?: UserCapabilityPluginSnapshot
+  }
+}
+
 export type CapabilityPreset = {
   id: ID
   productMode: ProductMode
@@ -787,6 +1238,38 @@ export type CapabilityPreset = {
   skillIds: ID[]
   mcpToolIds: ID[]
   loopProfileId: ID
+  requirementModuleGraphId?: ID
+  selectionPolicy: {
+    requiredTemplatePackIds: ID[]
+    requiredSkillIds: ID[]
+    requiredMcpToolIds: ID[]
+    allowedLoopProfileIds: ID[]
+  }
+  explorationDefaults: {
+    level: number
+    experimentalConfirmationThreshold: number
+    forceReviewAtOrAbove: number
+  }
+}
+
+export type CapabilitySelectionSource =
+  | 'official_preset'
+  | 'entry_guidance'
+  | 'user_override'
+  | 'job_snapshot'
+
+export type CapabilitySelectionSnapshotV1 = {
+  schemaVersion: '2026-07-14.dudesign-capability-selection.v1'
+  presetId: ID
+  guidanceId: ID | null
+  confirmedAt: string
+  selectedTemplatePackIds: ID[]
+  selectedSkillIds: ID[]
+  selectedMcpToolIds: ID[]
+  loopProfileId: ID
+  reviewMode: 'off' | 'semi_auto' | 'auto'
+  explorationRequest: ExplorationRequestV1
+  sourceByCapabilityId: Record<ID, CapabilitySelectionSource>
 }
 
 export type ListCapabilitiesResponse = {
@@ -988,6 +1471,18 @@ export type CreateSessionResponse = {
   }
 }
 
+export type UpdateSessionRequest = {
+  title: string
+}
+
+export type UpdateSessionResponse = {
+  session: unknown
+}
+
+export type DeleteSessionResponse = {
+  ok: true
+}
+
 export type ResumeSessionResponse = {
   session: unknown
   messages: unknown[]
@@ -1009,6 +1504,9 @@ export type CreateDesignJobRequest = {
   sourceArtifactId?: ID | null
   modelServiceId?: ID | null
   variationCount: number
+  requirementModuleGraphId?: ID
+  exploration?: ExplorationRequestV1
+  explorationDataContext?: Record<string, unknown>
   capabilityRequirements?: CapabilityRequirements
   templateRequirements?: {
     styles?: string[]
@@ -1016,6 +1514,7 @@ export type CreateDesignJobRequest = {
     notes?: string
     advancedConstraints?: AdvancedTemplateConstraints
     capabilitySnapshot?: CapabilitySnapshot
+    capabilitySelectionSnapshot?: CapabilitySelectionSnapshotV1
     designTemplatePackIds?: ID[]
     designTemplatePacks?: DesignTemplatePack[]
     interactionParadigm?: InteractionParadigm
@@ -1048,7 +1547,7 @@ export type CreateDesignJobRequest = {
         l3: string
         confidence: number
         signals: string[]
-        source: 'mock_rules'
+        source: EncyclopediaClassificationSource
       }
       interactionParadigmId?: ID
       interactionParadigm?: InteractionParadigm
@@ -1060,6 +1559,12 @@ export type CreateDesignJobRequest = {
         confidence: number
         reason: string
       }>
+      democaseExperienceProfiles?: Array<{
+        caseId: ID
+        title: string
+        score: number
+        experienceProfile: EncyclopediaDemocaseExperienceProfile
+      }>
       automationMode?: 'off' | 'semi_auto' | 'auto'
       reviewMode?: 'off' | 'semi_auto' | 'auto'
     }
@@ -1067,6 +1572,8 @@ export type CreateDesignJobRequest = {
       variationIndex: number
       designTemplatePackId: ID
       designTemplatePack: DesignTemplatePack
+      interactionParadigmId?: ID
+      interactionParadigm?: InteractionParadigm
     }>
   }
 }
@@ -1076,12 +1583,27 @@ export type CreateDesignJobResponse = {
     id: ID
     status: 'queued'
     variationCount: number
+    explorationPlan: BatchExplorationPlanV1 | null
+    capabilitySelectionSnapshot: CapabilitySelectionSnapshotV1 | null
   }
   variations: Array<{
     id: ID
     index: number
     status: 'queued'
   }>
+}
+
+export type PreviewExplorationPlanRequest = {
+  sessionId: ID
+  requirementModuleGraphId: ID
+  variationCount: number
+  exploration: ExplorationRequestV1
+  dataContext?: Record<string, unknown>
+}
+
+export type PreviewExplorationPlanResponse = {
+  requirementModuleGraph: RequirementModuleGraphV1
+  explorationPlan: BatchExplorationPlanV1
 }
 
 export type CreateSourceArtifactRequest = {
@@ -1166,8 +1688,11 @@ export type DesignJobSnapshotResponse = {
     prompt: string
     productMode: ProductMode
     variationCount: number
-    capabilitySnapshot: CapabilitySnapshot | null
+    capabilitySnapshot: UserCapabilitySnapshot | null
     designTemplatePacks: DesignTemplatePack[]
+    requirementModuleGraph: RequirementModuleGraphV1 | null
+    explorationPlan: BatchExplorationPlanV1 | null
+    capabilitySelectionSnapshot: CapabilitySelectionSnapshotV1 | null
   }
   variations: Array<{
     id: ID
@@ -1178,6 +1703,7 @@ export type DesignJobSnapshotResponse = {
     previewUrl: string | null
     screenshotUrl: string | null
     designTemplatePack: DesignTemplatePack | null
+    explorationPlan: VariationExplorationPlanV1 | null
     execution: UserVariationExecution
     inputTokens: number
     outputTokens: number
@@ -1206,6 +1732,7 @@ export type DesignJobSnapshotResponse = {
 }
 
 export type RefineVariationRequest = {
+  requestId?: ID
   prompt: string
   baseArtifactId: ID
   annotationPromptSuffix?: string
@@ -1213,12 +1740,15 @@ export type RefineVariationRequest = {
 }
 
 export type RefineVariationResponse = {
+  requestId?: ID
   variation: {
     id: ID
-    status: 'streaming' | 'rendering_preview' | 'completed' | 'failed'
+    status: 'streaming' | 'rendering_preview' | 'completed' | 'failed' | 'cancelled'
     currentArtifactId: ID | null
     previewUrl: string | null
     screenshotUrl: string | null
+    errorCode: string | null
+    errorMessage: string | null
   }
   artifact?: {
     id: ID
@@ -1239,6 +1769,7 @@ export type VariationDetailResponse = {
     previewUrl: string | null
     screenshotUrl: string | null
     designTemplatePack: DesignTemplatePack | null
+    explorationPlan: VariationExplorationPlanV1 | null
     inputTokens: number
     outputTokens: number
     costCents: number
@@ -1250,8 +1781,11 @@ export type VariationDetailResponse = {
     prompt: string
     status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
     productMode: ProductMode
-    capabilitySnapshot: CapabilitySnapshot | null
+    capabilitySnapshot: UserCapabilitySnapshot | null
     designTemplatePacks: DesignTemplatePack[]
+    requirementModuleGraph: RequirementModuleGraphV1 | null
+    explorationPlan: BatchExplorationPlanV1 | null
+    capabilitySelectionSnapshot: CapabilitySelectionSnapshotV1 | null
   }
   currentArtifact: {
     id: ID
@@ -1404,6 +1938,7 @@ export type AnnotationShape =
     }
 
 export type CreateAnnotationBatchRequest = {
+  requestId?: ID
   artifactId: ID
   shapes: AnnotationShape[]
   prompt?: string
@@ -1415,6 +1950,39 @@ export type CreateAnnotationBatchResponse = RefineVariationResponse & {
     shapeCount: number
     promptSuffix: string
   }
+}
+
+export type CancelVariationRefineRequest = {
+  reason?: string
+}
+
+export type CancelVariationRefineResponse = {
+  requestId: ID
+  variationId: ID
+  status: 'cancelling' | 'cancelled' | 'already_finished'
+  runtime: {
+    cancelled: boolean
+    message?: string
+    cancelledVariationCount?: number
+    failedVariationCount?: number
+  }
+}
+
+export type VariationRefineOperationSnapshot = {
+  requestId: ID
+  variationId: ID
+  kind: 'prompt' | 'annotations'
+  prompt: string
+  baseArtifactId: ID
+  status: 'starting' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
+  cancelRequested: boolean
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
+export type GetVariationRefineOperationResponse = {
+  operation: VariationRefineOperationSnapshot | null
 }
 
 export type ShareVariationRequest = {

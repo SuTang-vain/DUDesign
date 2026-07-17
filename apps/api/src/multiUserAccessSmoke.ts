@@ -68,6 +68,7 @@ export async function runMultiUserAccessSmoke(harness: ApiFlowHarness): Promise<
     },
   }, 201, cookieA)
   const variationId = jobA.variations[0]!.id
+  await harness.service.flushBackgroundTasks()
   const artifact = await attachPinnedHtmlArtifact({
     workspaceId: userA.workspace.id,
     sessionId: sessionA.session.id,

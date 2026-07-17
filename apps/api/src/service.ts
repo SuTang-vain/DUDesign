@@ -1,4 +1,12 @@
-import { createDesignEvent } from '@dudesign/contracts'
+import {
+  createDesignEvent,
+  defaultEncyclopediaDemocaseExperienceProfile,
+  encyclopediaDemocaseStageForInteractionParadigm,
+  validateBatchExplorationPlan,
+  validateRequirementModuleGraph,
+  type BatchExplorationPlanV1,
+  type RequirementModuleGraphV1,
+} from '@dudesign/contracts'
 import type {
   AdvancedTemplateConstraints,
   AdminMcpInvocationAuditResponse,
@@ -8,7 +16,12 @@ import type {
   AnalyzeDataIntakeResponse,
   AuthorizeMcpInvocationRequest,
   AutomationLoopProfile,
+  CapabilitySnapshot,
+  CapabilitySelectionSnapshotV1,
+  CapabilitySelectionSource,
   CapabilityPlugin,
+  CreateCapabilityAuthoringDraftRequest,
+  ExportCapabilityBundleRequest,
   CreateDesignJobRequest,
   CreateAnnotationBatchRequest,
   DataIntakeAnalysis,
@@ -17,17 +30,30 @@ import type {
   DataIntakeInputSource,
   DataIntakeRecommendation,
   EncyclopediaClassificationVector,
+  EncyclopediaClassificationSource,
+  EncyclopediaDemocaseExperienceProfile,
   EncyclopediaEntryGuidanceResponse,
+  EncyclopediaGuidanceAnalysisV2,
   ExecuteMcpInvocationResponse,
   ImageGenerationArtifact,
   CreateSourceArtifactRequest,
   CreateSessionRequest,
+  UpdateSessionRequest,
+  UpdateCapabilityAuthoringDraftRequest,
+  PublishCapabilityAuthoringDraftRequest,
+  RollbackPrivateDesignTemplateRequest,
   DesignTemplatePack,
   DesignSkill,
   DesignEvent,
   InteractionParadigm,
   ImportDesignTemplatePackRequest,
+  ImportDesignMdDraftRequest,
+  ImportCapabilityBundleDraftRequest,
+  ImportDesignTemplatePackJsonDraftRequest,
+  CancelVariationRefineRequest,
+  CancelVariationRefineResponse,
   RefineVariationRequest,
+  RefineVariationResponse,
   ReplayMcpInvocationResponse,
   ResearchContextArtifact,
   ResearchContextArtifactReference,
@@ -36,6 +62,7 @@ import type {
   ShareVariationRequest,
   UpdateUserPreferencesRequest,
   UserCapabilityPreference,
+  UserCapabilitySnapshot,
   McpInvocationRequest,
   McpInvocationResult,
   McpInvocationAuditRecord,
@@ -44,12 +71,16 @@ import type {
 import { LocalArtifactStore, type ArtifactStore } from '@dudesign/artifact-store'
 import {
   authorizeMcpInvocation,
+  compileRuntimeExplorationContexts,
   DUDESIGN_RUNTIME_CONTRACT_VERSION,
+  GuidanceAnalysisGatewayError,
   type McpInvocationAuthorization,
   mcpToolPromptContext,
   MockRuntimeGateway,
   type RuntimeGateway,
   type RuntimeModels,
+  type RuntimeExplorationContextV1,
+  type GuidanceAnalysisGateway,
 } from '@dudesign/runtime-gateway'
 import type { Artifact, DesignVariation, DesignVariationStatus, EntryContentLanguage, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
 import type { EncyclopediaEntryGuidance } from '@dudesign/domain'
@@ -65,7 +96,7 @@ import { reviewDynamicEncyclopediaSpec } from './encyclopediaSpecReview.js'
 import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
-import type { ApplicationRepository } from './repository.js'
+import type { ApplicationRepository, RefineOperationRecord } from './repository.js'
 import type { RequestContext } from './auth.js'
 import type { OAuthProvider } from './oauth.js'
 import { createId } from './id.js'
@@ -81,17 +112,26 @@ import {
 import { attachDesignJobWorker } from './designJobWorker.js'
 import { MockMcpExecutor, type McpExecutor } from './mcpExecutor.js'
 import {
+  automationIssueFingerprint,
   buildAutomationRepairPrompt,
   evaluateAutomationLoopStop,
   type AutomationRepairFinding,
   type AutomationLoopStopReason,
 } from './automationLoop.js'
 import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
+import { resolveEncyclopediaDemocaseEvidence } from './encyclopediaGuidanceEvidence.js'
 import { detectEntryLanguage } from './entryLanguage.js'
 import { AuthApplicationService } from './application/authApplicationService.js'
 import { AdminRuntimeGovernanceService } from './application/adminRuntimeGovernanceService.js'
 import { ArtifactApplicationService } from './application/artifactApplicationService.js'
 import { AdminArtifactGovernanceService } from './application/adminArtifactGovernanceService.js'
+import { CapabilityAuthoringApplicationService } from './application/capabilityAuthoringApplicationService.js'
+import { EncyclopediaGuidanceApplicationService } from './application/encyclopediaGuidanceApplicationService.js'
+import {
+  ExplorationPlanningApplicationService,
+  type PreviewExplorationPlanInput,
+} from './application/explorationPlanningApplicationService.js'
+import { getAuthorizedRequirementModuleGraphById } from './requirementModuleGraphs.js'
 
 type ReviewMode = 'off' | 'semi_auto' | 'auto'
 const AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH = 1200
@@ -322,7 +362,16 @@ export class ApplicationService {
   readonly adminRuntimeGovernance: AdminRuntimeGovernanceService
   readonly artifactService: ArtifactApplicationService
   readonly adminArtifactGovernance: AdminArtifactGovernanceService
+  readonly capabilityAuthoring: CapabilityAuthoringApplicationService
+  readonly explorationPlanning: ExplorationPlanningApplicationService
+  readonly encyclopediaGuidance: EncyclopediaGuidanceApplicationService | null
   private readonly backgroundTasks = new Set<Promise<unknown>>()
+  /**
+   * A design runtime can finish before its artifact quality loop has settled.
+   * Keep the parent job open while an automatic review/repair is still active
+   * so clients do not stop polling on the first runtime completion event.
+   */
+  private readonly pendingAutomationReviews = new Map<string, Set<string>>()
   private readonly disabledCapabilityPluginIds = new Set<string>()
   private readonly capabilityGovernanceReady: Promise<void>
 
@@ -333,6 +382,7 @@ export class ApplicationService {
     artifacts?: ArtifactStore
     queue?: DesignJobQueue
     mcpExecutor?: McpExecutor
+    guidanceAnalysis?: GuidanceAnalysisGateway | null
     consumeQueue?: boolean
   } = {}) {
     this.store = options.store ?? new InMemoryStore()
@@ -347,6 +397,16 @@ export class ApplicationService {
     this.adminRuntimeGovernance = new AdminRuntimeGovernanceService(this.store, this.runtime)
     this.artifactService = new ArtifactApplicationService(this.store, this.artifacts, this.queue)
     this.adminArtifactGovernance = new AdminArtifactGovernanceService(this.store, this.artifacts, this.queue)
+    this.capabilityAuthoring = new CapabilityAuthoringApplicationService(this.store, this.artifacts)
+    this.encyclopediaGuidance = options.guidanceAnalysis
+      ? new EncyclopediaGuidanceApplicationService(this.store, options.guidanceAnalysis)
+      : null
+    this.explorationPlanning = new ExplorationPlanningApplicationService(
+      this.store,
+      ({ requirementModuleGraphId, userId, workspaceId }) => (
+        getAuthorizedRequirementModuleGraphById(requirementModuleGraphId, userId, workspaceId)
+      ),
+    )
     this.capabilityGovernanceReady = this.loadCapabilityGovernanceOverrides()
     if (options.consumeQueue ?? true) {
       attachDesignJobWorker(this.queue, this)
@@ -438,36 +498,85 @@ export class ApplicationService {
     const rawInput = typeof input.entry === 'string' ? input.entry.trim() : ''
     if (!rawInput) throw createHttpError(400, 'ENTRY_REQUIRED', 'entry is required.')
 
-    const title = normalizeEntryTitle(rawInput)
     const context = typeof input.context === 'string' && input.context.trim().length > 0
       ? input.context.trim()
       : null
-    const democaseMatches = lookupEncyclopediaDemocases(`${rawInput}\n${context ?? ''}`)
-    const classification = applyDemocaseClassification(
-      classifyEncyclopediaEntry(`${rawInput}\n${context ?? ''}`),
-      democaseMatches,
-    )
     const maxTemplateRecommendations = typeof input.maxTemplateRecommendations === 'number'
       ? Math.max(1, Math.min(3, Math.trunc(input.maxTemplateRecommendations)))
       : 3
+    let analysis: EncyclopediaGuidanceAnalysisV2 | null = null
+    if (this.encyclopediaGuidance) {
+      try {
+        analysis = await this.encyclopediaGuidance.analyzeEntry(ctx, {
+          workspaceId,
+          entry: rawInput,
+          context,
+          maxTemplateRecommendations,
+        })
+      } catch (error) {
+        if (error instanceof GuidanceAnalysisGatewayError) {
+          const status = error.code === 'GUIDANCE_TIMEOUT'
+            ? 504
+            : error.code === 'GUIDANCE_CONTRACT_MISMATCH'
+              ? 409
+              : error.code === 'GUIDANCE_INVALID_RESPONSE'
+                ? 502
+                : 503
+          throw createHttpError(status, error.code, error.message)
+        }
+        throw error
+      }
+    }
+    const title = analysis?.entity.canonicalTitle ?? normalizeEntryTitle(rawInput)
+    const democaseMatches = lookupEncyclopediaDemocases(`${rawInput}\n${context ?? ''}`)
+    const democaseEvidence = resolveEncyclopediaDemocaseEvidence(`${rawInput}\n${context ?? ''}`, 12).evidence
+    const selectedDemocaseIds = new Set(analysis?.evidence.democaseIds ?? [])
+    const democaseExperienceProfiles = democaseEvidence
+      .filter(item => item.experienceProfile)
+      .sort((left, right) => {
+        const leftSelected = selectedDemocaseIds.has(left.caseId) ? 1 : 0
+        const rightSelected = selectedDemocaseIds.has(right.caseId) ? 1 : 0
+        return rightSelected - leftSelected || right.score - left.score
+      })
+      .slice(0, 3)
+      .map(item => ({
+        caseId: item.caseId,
+        title: item.title,
+        score: item.score,
+        experienceProfile: item.experienceProfile!,
+      }))
+    const classification = analysis
+      ? classificationFromGuidanceAnalysis(analysis)
+      : applyDemocaseClassification(
+          classifyEncyclopediaEntry(`${rawInput}\n${context ?? ''}`),
+          democaseMatches,
+        )
     const automationMode = input.automationMode ?? 'auto'
-    const recommendedTemplates = await this.recommendDynamicEncyclopediaTemplates(
-      ctx.userId,
-      workspaceId,
-      classification.primaryCategory,
-      classification.secondaryCategory,
-      maxTemplateRecommendations,
-      democaseMatches,
-    )
+    const recommendedTemplates = analysis
+      ? await this.recommendDynamicEncyclopediaTemplatesFromAnalysis(ctx.userId, workspaceId, analysis)
+      : await this.recommendDynamicEncyclopediaTemplates(
+          ctx.userId,
+          workspaceId,
+          classification.primaryCategory,
+          classification.secondaryCategory,
+          maxTemplateRecommendations,
+          democaseMatches,
+        )
+    if (recommendedTemplates.length === 0) {
+      throw createHttpError(502, 'GUIDANCE_AI_TEMPLATE_EMPTY', 'Guidance analysis did not return an available template recommendation.')
+    }
     const selectedTemplateIds = recommendedTemplates
       .filter(template => template.selected)
       .map(template => template.designTemplatePackId)
-    const interactionParadigmId = democaseMatches[0]?.interactionParadigmId
+    const interactionParadigmId = analysis?.templateRecommendations[0]?.interactionParadigmId
+      ?? democaseMatches[0]?.interactionParadigmId
       ?? recommendedTemplates.find(template => selectedTemplateIds.includes(template.designTemplatePackId))?.interactionParadigmId
       ?? recommendedInteractionParadigmId(classification.primaryCategory, classification.secondaryCategory)
+    const classificationSource: EncyclopediaClassificationSource = analysis ? 'ai_guidance_v2' : 'mock_rules'
     const classificationVector = buildEncyclopediaClassificationVector(
       classification,
       recommendedTemplates.map(template => template.designTemplatePackId),
+      classificationSource,
     )
 
     // 词条语言识别（在 guidance 落地前完成，结果会进入 businessContext，
@@ -475,7 +584,9 @@ export class ApplicationService {
     const languageDetection = detectEntryLanguage(title, context)
 
     const now = new Date().toISOString()
-    const requiresConfirmation = classification.confidence < LOW_CONFIDENCE_GUIDANCE_THRESHOLD
+    const requiresConfirmation = (analysis !== null && analysis.status !== 'completed')
+      || analysis?.clarification.required === true
+      || classification.confidence < LOW_CONFIDENCE_GUIDANCE_THRESHOLD
     const guidance = await this.store.saveEncyclopediaEntryGuidance({
       id: createId('eg'),
       userId: ctx.userId,
@@ -498,11 +609,13 @@ export class ApplicationService {
       status: requiresConfirmation ? 'needs_confirmation' : 'draft',
       confirmedAt: null,
       metadata: {
-        classificationSource: 'mock_rules',
+        classificationSource,
+        guidanceAnalysis: analysis,
         classificationVector,
         requiresConfirmation,
         languageDetection, // 保留字符区块分布与触发信号，便于 admin 面板与 audit
         democaseReferences: democaseMatches,
+        democaseExperienceProfiles,
       },
       createdAt: now,
       updatedAt: now,
@@ -569,7 +682,7 @@ export class ApplicationService {
       tertiaryCategory,
       confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
       signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
-    }, classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds)
+    }, classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds, guidanceClassificationSource(guidance))
     const now = new Date().toISOString()
     const confirmed = await this.store.saveEncyclopediaEntryGuidance({
       ...guidance,
@@ -599,6 +712,86 @@ export class ApplicationService {
     return {
       templates: await this.store.listDesignTemplatePacks(ctx.userId, workspaceId ?? null),
     }
+  }
+
+  async createCapabilityAuthoringDraft(ctx: RequestContext, input: CreateCapabilityAuthoringDraftRequest) {
+    return this.capabilityAuthoring.createDraft(ctx, input)
+  }
+
+  async listCapabilityAuthoringDrafts(ctx: RequestContext, workspaceId: string) {
+    return this.capabilityAuthoring.listDrafts(ctx, workspaceId)
+  }
+
+  async getCapabilityAuthoringDraft(ctx: RequestContext, draftId: string, workspaceId: string) {
+    return this.capabilityAuthoring.getDraft(ctx, draftId, workspaceId)
+  }
+
+  async updateCapabilityAuthoringDraft(
+    ctx: RequestContext,
+    draftId: string,
+    input: UpdateCapabilityAuthoringDraftRequest,
+  ) {
+    return this.capabilityAuthoring.updateDraft(ctx, draftId, input)
+  }
+
+  async lintCapabilityAuthoringDraft(ctx: RequestContext, draftId: string, workspaceId: string) {
+    return this.capabilityAuthoring.lintDraft(ctx, draftId, workspaceId)
+  }
+
+  async analyzeCapabilityAuthoringDraft(ctx: RequestContext, draftId: string, workspaceId: string) {
+    return this.capabilityAuthoring.analyzeDraft(ctx, draftId, workspaceId)
+  }
+
+  async sanitizeCapabilityAuthoringDraft(ctx: RequestContext, draftId: string, workspaceId: string) {
+    return this.capabilityAuthoring.sanitizeDraft(ctx, draftId, workspaceId)
+  }
+
+  async previewCapabilityAuthoringDraft(ctx: RequestContext, draftId: string, workspaceId: string) {
+    return this.capabilityAuthoring.previewDraft(ctx, draftId, workspaceId)
+  }
+
+  async publishPrivateCapabilityAuthoringDraft(
+    ctx: RequestContext,
+    draftId: string,
+    input: PublishCapabilityAuthoringDraftRequest,
+  ) {
+    return this.capabilityAuthoring.publishPrivateDraft(ctx, draftId, input)
+  }
+
+  async rollbackPrivateDesignTemplate(
+    ctx: RequestContext,
+    templateId: string,
+    input: RollbackPrivateDesignTemplateRequest,
+  ) {
+    return this.capabilityAuthoring.rollbackPrivateTemplate(ctx, templateId, input)
+  }
+
+  async exportDesignTemplateDesignMd(ctx: RequestContext, templateId: string, workspaceId: string) {
+    return this.capabilityAuthoring.exportTemplateDesignMd(ctx, templateId, workspaceId)
+  }
+
+  async exportDesignTemplatePackJson(ctx: RequestContext, templateId: string, workspaceId: string) {
+    return this.capabilityAuthoring.exportTemplatePackJson(ctx, templateId, workspaceId)
+  }
+
+  async importDesignMdAuthoringDraft(ctx: RequestContext, input: ImportDesignMdDraftRequest) {
+    return this.capabilityAuthoring.importDesignMdDraft(ctx, input)
+  }
+
+  async importTemplatePackJsonAuthoringDraft(ctx: RequestContext, input: ImportDesignTemplatePackJsonDraftRequest) {
+    return this.capabilityAuthoring.importTemplatePackJsonDraft(ctx, input)
+  }
+
+  async exportCapabilityAuthoringBundle(
+    ctx: RequestContext,
+    draftId: string,
+    input: ExportCapabilityBundleRequest,
+  ) {
+    return this.capabilityAuthoring.exportCapabilityBundle(ctx, draftId, input)
+  }
+
+  async importCapabilityBundleAuthoringDraft(ctx: RequestContext, input: ImportCapabilityBundleDraftRequest) {
+    return this.capabilityAuthoring.importCapabilityBundleDraft(ctx, input)
   }
 
   async importDesignTemplatePack(ctx: RequestContext, input: ImportDesignTemplatePackRequest) {
@@ -836,11 +1029,34 @@ export class ApplicationService {
     const sessions = await this.store.listSessions()
     const visibleSessions = []
     for (const session of sessions) {
-      if (await this.canAccessWorkspace(session.workspaceId, ctx.userId, 'viewer')) visibleSessions.push(session)
+      if (session.status === 'active' && await this.canAccessWorkspace(session.workspaceId, ctx.userId, 'viewer')) visibleSessions.push(session)
     }
     return {
       sessions: visibleSessions,
     }
+  }
+
+  async updateSession(ctx: RequestContext, sessionId: string, input: UpdateSessionRequest) {
+    const session = await this.store.getSessionById(sessionId)
+    if (!session || session.status !== 'active') throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
+    await this.requireSessionAccess(session.id, ctx.userId, 'editor')
+    const title = input.title.trim().replace(/\s+/g, ' ').slice(0, 120)
+    if (!title) throw createHttpError(400, 'SESSION_TITLE_REQUIRED', 'Session title is required.')
+    const updated = {
+      ...session,
+      title,
+      updatedAt: new Date().toISOString(),
+    }
+    await this.store.saveSession(updated)
+    return { session: updated }
+  }
+
+  async deleteSession(ctx: RequestContext, sessionId: string) {
+    const session = await this.store.getSessionById(sessionId)
+    if (!session || session.status !== 'active') throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
+    await this.requireSessionAccess(session.id, ctx.userId, 'editor')
+    await this.store.archiveSession(session.id, new Date().toISOString())
+    return { ok: true as const }
   }
 
   private async tryCreateRuntimeSession(input: Parameters<RuntimeGateway['createSession']>[0]) {
@@ -856,7 +1072,7 @@ export class ApplicationService {
 
   async resumeSession(ctx: RequestContext, sessionId: string) {
     const snapshot = await this.store.getSessionSnapshot(sessionId)
-    if (!snapshot) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
+    if (!snapshot || snapshot.session.status !== 'active') throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${sessionId}`)
     await this.requireSessionAccess(snapshot.session.id, ctx.userId, 'editor')
     const workspace = await this.store.getWorkspaceById(snapshot.session.workspaceId)
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${snapshot.session.workspaceId}`)
@@ -887,18 +1103,42 @@ export class ApplicationService {
   }
 
   async createDesignJob(ctx: RequestContext, input: CreateDesignJobRequest) {
+    return this.createDesignJobInternal(ctx, input, null)
+  }
+
+  private async createDesignJobInternal(
+    ctx: RequestContext,
+    input: CreateDesignJobRequest,
+    inheritedExplorationSnapshot: ExplorationSnapshot | null,
+  ) {
     validateVariationCount(input.variationCount)
     const context = await this.store.getSessionWorkspaceContext(input.sessionId)
     if (!context) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${input.sessionId}`)
     const { session, workspace } = context
     await this.requireSessionAccess(session.id, ctx.userId, 'editor')
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
-    const jobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
+    const guidedJobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
+    const jobInput = normalizeDynamicEncyclopediaJobInput(guidedJobInput)
     const selectedModel = await this.resolveUserModel(ctx.userId, jobInput.modelServiceId ?? null)
     await this.ensureCapabilityGovernanceReady()
     const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements, this.capabilityGovernanceOptions())
+    const explorationSnapshot = inheritedExplorationSnapshot
+      ?? (jobInput.requirementModuleGraphId
+        ? await this.explorationPlanning.createPlanForDesignJob(ctx, {
+          sessionId: jobInput.sessionId,
+          requirementModuleGraphId: jobInput.requirementModuleGraphId,
+          variationCount: jobInput.variationCount,
+          exploration: jobInput.exploration ?? { level: 40 },
+          dataContext: jobInput.explorationDataContext ?? {},
+        })
+        : null)
     const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, jobInput)
-    const variationTemplateAssignments = assignDesignTemplatePacks(jobInput.variationCount, designTemplatePacks)
+    const capabilitySelectionSnapshot = createCapabilitySelectionSnapshot(jobInput, capabilitySnapshot, designTemplatePacks)
+    const variationTemplateAssignments = assignDesignTemplatePacks(
+      jobInput.variationCount,
+      designTemplatePacks,
+      explorationSnapshot?.explorationPlan ?? null,
+    )
     const dataIntake = await this.resolveDataIntakeArtifactReference(workspace.id, jobInput.templateRequirements?.dataIntakeArtifactId ?? jobInput.templateRequirements?.dataIntake?.artifactId ?? null)
     const researchContexts = await this.resolveResearchContextArtifactReferences(workspace.id, [
       ...(jobInput.templateRequirements?.researchContextArtifactIds ?? []),
@@ -925,7 +1165,11 @@ export class ApplicationService {
         variationTemplateAssignments: variationTemplateAssignments.map(assignment => ({
           variationIndex: assignment.variationIndex,
           designTemplatePackId: assignment.designTemplatePackId,
+          interactionParadigmId: assignment.interactionParadigmId ?? null,
         })),
+        requirementModuleGraphId: explorationSnapshot?.requirementModuleGraph.id ?? null,
+        explorationPlan: explorationSnapshot?.explorationPlan ?? null,
+        capabilitySelectionSnapshot,
       },
     })
     const job = await this.store.createJob({
@@ -945,6 +1189,9 @@ export class ApplicationService {
         })),
         designTemplatePacks,
         variationTemplateAssignments,
+        requirementModuleGraph: explorationSnapshot?.requirementModuleGraph ?? null,
+        explorationPlan: explorationSnapshot?.explorationPlan ?? null,
+        capabilitySelectionSnapshot,
         ...(dataIntake ? { dataIntakeArtifactId: dataIntake.artifactId, dataIntake } : {}),
         ...(researchContexts.length > 0
           ? {
@@ -985,6 +1232,8 @@ export class ApplicationService {
         id: job.id,
         status: job.status,
         variationCount: job.variationCount,
+        explorationPlan: explorationSnapshot?.explorationPlan ?? null,
+        capabilitySelectionSnapshot,
       },
       variations: variations.map(variation => ({
         id: variation.id,
@@ -992,6 +1241,10 @@ export class ApplicationService {
         status: variation.status,
       })),
     }
+  }
+
+  async previewExplorationPlan(ctx: RequestContext, input: PreviewExplorationPlanInput) {
+    return this.explorationPlanning.previewPlan(ctx, input)
   }
 
   async getDesignJob(ctx: RequestContext, jobId: string) {
@@ -1002,11 +1255,19 @@ export class ApplicationService {
     const designTemplatePacks = templateRequirements?.designTemplatePacks ?? []
     const assignments = templateRequirements?.variationTemplateAssignments ?? []
     const reviewActionsByVariation = latestVariationReviewActions(snapshot.messages)
+    const explorationPlan = templateRequirements?.explorationPlan ?? null
     return {
       job: {
-        ...snapshot.job,
-        capabilitySnapshot: templateRequirements?.capabilitySnapshot ?? null,
+        id: snapshot.job.id,
+        status: snapshot.job.status,
+        prompt: snapshot.job.prompt,
+        productMode: snapshot.job.productMode,
+        variationCount: snapshot.job.variationCount,
+        capabilitySnapshot: toUserCapabilitySnapshot(templateRequirements?.capabilitySnapshot ?? null),
         designTemplatePacks,
+        requirementModuleGraph: templateRequirements?.requirementModuleGraph ?? null,
+        explorationPlan,
+        capabilitySelectionSnapshot: templateRequirements?.capabilitySelectionSnapshot ?? null,
       },
       variations: snapshot.variations.map(variation => ({
         id: variation.id,
@@ -1021,6 +1282,7 @@ export class ApplicationService {
         errorCode: variation.errorCode,
         errorMessage: variation.errorMessage,
         designTemplatePack: assignedTemplatePackForVariation(variation.index, assignments),
+        explorationPlan: explorationPlan?.variations.find(plan => plan.variationIndex === variation.index) ?? null,
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
         execution: userVariationExecution(variation),
         reviewAction: reviewActionsByVariation.get(variation.id) ?? null,
@@ -1203,21 +1465,38 @@ export class ApplicationService {
     await this.requireJobAccess(job.id, ctx.userId, 'viewer')
     const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
     const variationTemplatePack = assignedTemplatePackForVariation(variation.index, templateRequirements?.variationTemplateAssignments ?? [])
+    const explorationPlan = templateRequirements?.explorationPlan ?? null
     const capabilityNotices = (await this.store.listMcpInvocationAuditRecords({ variationId, limit: 5 }))
       .map(record => record.result)
       .filter(result => result.status !== 'ok')
     return {
       variation: {
-        ...variation,
+        id: variation.id,
+        jobId: variation.jobId,
+        sessionId: variation.sessionId,
+        index: variation.index,
+        title: variation.title,
+        status: variation.status,
+        currentArtifactId: variation.currentArtifactId,
+        previewUrl: variation.previewUrl,
         screenshotUrl: screenshotUrlForArtifactId(variation.screenshotArtifactId, variation.id),
         designTemplatePack: variationTemplatePack,
+        explorationPlan: explorationPlan?.variations.find(plan => plan.variationIndex === variation.index) ?? null,
+        inputTokens: variation.inputTokens,
+        outputTokens: variation.outputTokens,
+        costCents: variation.costCents,
+        errorCode: variation.errorCode,
+        errorMessage: variation.errorMessage,
       },
       job: {
         id: job.id,
         prompt: job.prompt,
         status: job.status,
-        capabilitySnapshot: templateRequirements?.capabilitySnapshot ?? null,
+        capabilitySnapshot: toUserCapabilitySnapshot(templateRequirements?.capabilitySnapshot ?? null),
         designTemplatePacks: templateRequirements?.designTemplatePacks ?? [],
+        requirementModuleGraph: templateRequirements?.requirementModuleGraph ?? null,
+        explorationPlan,
+        capabilitySelectionSnapshot: templateRequirements?.capabilitySelectionSnapshot ?? null,
       },
       currentArtifact: currentArtifact
         ? {
@@ -1388,7 +1667,7 @@ export class ApplicationService {
     }
   }
 
-  async refineVariation(ctx: RequestContext, variationId: string, input: RefineVariationRequest) {
+  async refineVariation(ctx: RequestContext, variationId: string, input: RefineVariationRequest): Promise<RefineVariationResponse> {
     const context = await this.store.getVariationRefineContext(variationId, input.baseArtifactId)
     if (!context) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const { variation, job, session, workspace, baseArtifact } = context
@@ -1398,8 +1677,52 @@ export class ApplicationService {
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${job.workspaceId}`)
     if (!input.prompt.trim()) throw createHttpError(400, 'INVALID_PROMPT', 'prompt is required.')
     if (!baseArtifact) throw createHttpError(404, 'ARTIFACT_NOT_FOUND', `Artifact not found: ${input.baseArtifactId}`)
+    const requestId = input.requestId?.trim() || createId('rfn')
+    if (requestId.length > 128) throw createHttpError(400, 'INVALID_REFINE_REQUEST_ID', 'Refine requestId must be 128 characters or fewer.')
+    const duplicate = await this.store.getRefineOperationById(requestId)
+    if (duplicate) throw createHttpError(409, 'REFINE_REQUEST_ALREADY_EXISTS', `Refine request already exists: ${requestId}`)
+    const activeForVariation = await this.store.getActiveRefineOperationByVariation(variationId)
+    if (activeForVariation) {
+      throw createHttpError(409, 'REFINE_ALREADY_RUNNING', `Variation ${variationId} already has an active refine request.`)
+    }
+    let operation: RefineOperationRecord = {
+      requestId,
+      kind: input.annotationPromptSuffix ? 'annotations' : 'prompt',
+      prompt: input.prompt,
+      variationId,
+      jobId: job.id,
+      sessionId: session.id,
+      workspaceId: workspace.id,
+      userId: ctx.userId,
+      baseArtifactId: baseArtifact.id,
+      basePreviewUrl: variation.previewUrl,
+      runtimeChildSessionId: variation.runtimeChildSessionId,
+      runtimeAgentJobId: variation.runtimeAgentJobId,
+      status: 'starting',
+      cancelRequested: false,
+      cancelReason: null,
+      runtimeCancelResult: null,
+      cancellationRecorded: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      completedAt: null,
+      reconcileOwner: null,
+      reconcileLeaseUntil: null,
+      reconcileAttempts: 0,
+      lastReconcileError: null,
+    }
+    try {
+      operation = await this.store.createRefineOperation(operation)
+    } catch (error) {
+      if (isRefineOperationConflict(error)) {
+        throw createHttpError(409, 'REFINE_ALREADY_RUNNING', `Variation ${variationId} already has an active refine request.`)
+      }
+      throw error
+    }
     const baseArtifactHtml = await this.readArtifactHtml(baseArtifact.storageKey)
     const modelContext = modelContextFromTemplateRequirements(job.templateRequirements)
+    const explorationContext = runtimeExplorationContextForJobVariation(job.templateRequirements, variation.index)
+    const runtimeTemplateRequirements = normalizeTemplateRequirements(job.templateRequirements)
 
     await this.store.appendMessage({
       sessionId: session.id,
@@ -1407,47 +1730,342 @@ export class ApplicationService {
       content: input.prompt,
       metadata: {
         kind: 'variation_refine',
+        requestId,
         variationId,
         baseArtifactId: input.baseArtifactId,
         deviceContext: input.deviceContext ?? null,
       },
     })
 
-    for await (const event of this.runtime.refineVariation({
-      userId: session.userId,
-      workspaceId: workspace.id,
-      sessionId: session.id,
-      jobId: job.id,
-      variationId,
-      variationIndex: variation.index,
-      runtimeChildSessionId: variation.runtimeChildSessionId,
-      runtimeLaneId: variation.runtimeLaneId,
-      baseArtifactId: input.baseArtifactId,
-      baseArtifactHtml,
-      baseArtifactEntryPath: baseArtifact.entryPath,
-      baseArtifactVersion: baseArtifact.version,
-      prompt: input.prompt,
-      annotationPromptSuffix: input.annotationPromptSuffix,
-      workspaceRoot: workspace.storageKey,
-      deviceContext: input.deviceContext,
-      modelServiceId: modelContext.modelServiceId,
-      modelId: modelContext.modelId,
-      modelProvider: modelContext.modelProvider,
-    })) {
-      await this.applyEventSideEffects(event)
-      await this.publishDesignEvent(event)
+    try {
+      operation = await this.updateRefineOperation(operation, { status: 'running' })
+      for await (const event of this.runtime.refineVariation({
+        requestId,
+        userId: session.userId,
+        workspaceId: workspace.id,
+        sessionId: session.id,
+        jobId: job.id,
+        productMode: job.productMode,
+        variationId,
+        variationIndex: variation.index,
+        runtimeChildSessionId: variation.runtimeChildSessionId,
+        runtimeLaneId: variation.runtimeLaneId,
+        baseArtifactId: input.baseArtifactId,
+        baseArtifactHtml,
+        baseArtifactEntryPath: baseArtifact.entryPath,
+        baseArtifactVersion: baseArtifact.version,
+        prompt: input.prompt,
+        annotationPromptSuffix: input.annotationPromptSuffix,
+        workspaceRoot: workspace.storageKey,
+        deviceContext: input.deviceContext,
+        modelServiceId: modelContext.modelServiceId,
+        modelId: modelContext.modelId,
+        modelProvider: modelContext.modelProvider,
+        explorationContext,
+        templateRequirements: runtimeTemplateRequirements,
+      })) {
+        operation = await this.refreshRefineOperation(operation)
+        if (operation.cancelRequested) break
+        await this.applyEventSideEffects(event)
+        await this.publishDesignEvent(event)
+        operation = await this.refreshRefineOperation(operation)
+        if (operation.cancelRequested) break
+      }
+
+      operation = await this.refreshRefineOperation(operation)
+      if (operation.cancelRequested) {
+        operation = await this.updateRefineOperation(operation, { status: 'cancelled', completedAt: new Date().toISOString() })
+        await this.restoreCancelledRefineOperation(operation, session.id)
+        return this.refineResponse(variationId, requestId, 'cancelled')
+      }
+
+      let response = await this.refineResponse(variationId, requestId)
+      const currentAfterRefine = await this.store.getCurrentVariationArtifactSnapshot(variationId)
+      if (!refineProducedChangedArtifact(currentAfterRefine.artifact, baseArtifact)) {
+        await this.store.setVariationCurrentArtifact(
+          variationId,
+          baseArtifact.id,
+          variation.previewUrl ?? `/api/variations/${variationId}/preview`,
+        )
+        await this.store.applyVariationEvent({ variationId, status: 'completed' })
+        response = await this.refineResponse(variationId, requestId)
+        const failedResponse = refineNoArtifactChangeResponse(response)
+        await this.updateRefineOperation(operation, {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          lastReconcileError: failedResponse.variation.errorMessage,
+        })
+        return failedResponse
+      }
+      operation = await this.updateRefineOperation(operation, {
+        status: response.variation.status === 'failed' ? 'failed' : 'completed',
+        completedAt: new Date().toISOString(),
+      })
+      return response
+    } catch (error) {
+      operation = await this.refreshRefineOperation(operation)
+      if (operation.cancelRequested) {
+        operation = await this.updateRefineOperation(operation, { status: 'cancelled', completedAt: new Date().toISOString() })
+        await this.restoreCancelledRefineOperation(operation, session.id)
+        return this.refineResponse(variationId, requestId, 'cancelled')
+      }
+      await this.updateRefineOperation(operation, { status: 'failed', completedAt: new Date().toISOString() })
+      throw error
+    }
+  }
+
+  async cancelVariationRefine(
+    ctx: RequestContext,
+    variationId: string,
+    requestId: string,
+    input: CancelVariationRefineRequest = {},
+  ): Promise<CancelVariationRefineResponse> {
+    let operation = await this.store.getRefineOperationById(requestId)
+    if (!operation || operation.variationId !== variationId) {
+      throw createHttpError(404, 'REFINE_OPERATION_NOT_FOUND', `Active refine request not found: ${requestId}`)
+    }
+    if (operation.userId !== ctx.userId) await this.requireJobAccess(operation.jobId, ctx.userId, 'editor')
+    if (operation.status === 'cancelled') {
+      return {
+        requestId,
+        variationId,
+        status: 'cancelled',
+        runtime: operation.runtimeCancelResult ?? { cancelled: true, message: 'Refine request was already cancelled.' },
+      }
+    }
+    if (operation.status === 'completed' || operation.status === 'failed') {
+      return {
+        requestId,
+        variationId,
+        status: 'already_finished',
+        runtime: operation.runtimeCancelResult ?? { cancelled: false, message: `Refine request is already ${operation.status}.` },
+      }
     }
 
+    operation.cancelRequested = true
+    operation.cancelReason = input.reason?.trim() || 'Cancelled by user.'
+    operation = await this.updateRefineOperation(operation, {
+      status: 'cancelling',
+      cancelRequested: true,
+      cancelReason: operation.cancelReason,
+    })
+    try {
+      const runtime = await this.runtime.cancelRuntimeJob({
+        jobId: operation.jobId,
+        requestId,
+        reason: operation.cancelReason ?? undefined,
+        variations: [{
+          variationId,
+          runtimeChildSessionId: operation.runtimeChildSessionId,
+          runtimeAgentJobId: operation.runtimeAgentJobId,
+        }],
+      })
+      operation = await this.updateRefineOperation(operation, {
+        runtimeCancelResult: runtime,
+      })
+      if (!runtime.cancelled) {
+        await this.updateRefineOperation(operation, { cancelRequested: false, status: 'running' })
+        throw createHttpError(409, 'REFINE_CANCEL_NOT_ACCEPTED', runtime.message ?? 'Runtime did not accept the refine cancellation request.')
+      }
+      operation = await this.updateRefineOperation(operation, { status: 'cancelled', completedAt: new Date().toISOString() })
+      await this.restoreCancelledRefineOperation(operation, operation.sessionId)
+      return { requestId, variationId, status: 'cancelled', runtime }
+    } catch (error) {
+      if ((error as { code?: string }).code === 'REFINE_CANCEL_NOT_ACCEPTED') throw error
+      await this.updateRefineOperation(operation, { cancelRequested: false, status: 'running' })
+      throw createHttpError(502, 'REFINE_CANCEL_FAILED', error instanceof Error ? error.message : 'Runtime cancellation failed.')
+    }
+  }
+
+  async getVariationRefineOperation(ctx: RequestContext, variationId: string, requestId?: string | null) {
+    await this.requireVariationAccess(variationId, ctx.userId, 'viewer')
+    const operation = requestId
+      ? await this.store.getRefineOperationById(requestId)
+      : await this.store.getLatestRefineOperationByVariation(variationId)
+    if (!operation || operation.variationId !== variationId) return { operation: null }
+    return {
+      operation: {
+        requestId: operation.requestId,
+        variationId: operation.variationId,
+        kind: operation.kind,
+        prompt: operation.prompt,
+        baseArtifactId: operation.baseArtifactId,
+        status: operation.status,
+        cancelRequested: operation.cancelRequested,
+        createdAt: operation.createdAt,
+        updatedAt: operation.updatedAt,
+        completedAt: operation.completedAt,
+      },
+    }
+  }
+
+  async reconcileRefineOperations(options: {
+    ownerId?: string
+    limit?: number
+    leaseMs?: number
+    orphanAfterMs?: number
+  } = {}): Promise<{ claimed: number; completed: number; failed: number; cancelled: number; deferred: number }> {
+    const ownerId = options.ownerId ?? createId('refine_reconciler')
+    const operations = await this.store.claimActiveRefineOperations(
+      ownerId,
+      options.limit ?? 20,
+      options.leaseMs ?? 30_000,
+      options.orphanAfterMs ?? 300_000,
+    )
+    const summary = { claimed: operations.length, completed: 0, failed: 0, cancelled: 0, deferred: 0 }
+    for (const operation of operations) {
+      let lastError: string | null = null
+      try {
+        const outcome = await this.reconcileRefineOperation(operation, options.orphanAfterMs ?? 300_000)
+        summary[outcome] += 1
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Refine operation reconciliation failed.'
+        summary.deferred += 1
+      } finally {
+        await this.store.releaseRefineOperationLease(operation.requestId, ownerId, lastError)
+      }
+    }
+    return summary
+  }
+
+  private async reconcileRefineOperation(
+    operation: RefineOperationRecord,
+    orphanAfterMs: number,
+  ): Promise<'completed' | 'failed' | 'cancelled' | 'deferred'> {
+    const input = {
+      requestId: operation.requestId,
+      sessionId: operation.sessionId,
+      jobId: operation.jobId,
+      variationId: operation.variationId,
+    }
+    const snapshot = this.runtime.getRefineOperation
+      ? await this.runtime.getRefineOperation(input)
+      : { status: 'unsupported' as const }
+
+    if (snapshot.status === 'cancelled') {
+      const cancelled = await this.updateRefineOperation(operation, { status: 'cancelled', completedAt: new Date().toISOString() })
+      await this.restoreCancelledRefineOperation(cancelled, operation.sessionId)
+      return 'cancelled'
+    }
+
+    if (operation.cancelRequested || operation.status === 'cancelling') {
+      const runtime = await this.runtime.cancelRuntimeJob({
+        jobId: operation.jobId,
+        requestId: operation.requestId,
+        reason: operation.cancelReason ?? 'Recovered cancellation request.',
+        variations: [{
+          variationId: operation.variationId,
+          runtimeChildSessionId: operation.runtimeChildSessionId,
+          runtimeAgentJobId: operation.runtimeAgentJobId,
+        }],
+      })
+      if (!runtime.cancelled) return 'deferred'
+      const cancelled = await this.updateRefineOperation(operation, {
+        status: 'cancelled',
+        runtimeCancelResult: runtime,
+        completedAt: new Date().toISOString(),
+      })
+      await this.restoreCancelledRefineOperation(cancelled, operation.sessionId)
+      return 'cancelled'
+    }
+
+    if (snapshot.terminalEvent) {
+      return this.finalizeRecoveredRefineOperation(operation, snapshot.terminalEvent)
+    }
+
+    if ((snapshot.status === 'queued' || snapshot.status === 'running') && this.runtime.recoverRefineOperation) {
+      for await (const event of this.runtime.recoverRefineOperation(input)) {
+        await this.applyEventSideEffects(event)
+        await this.publishDesignEvent(event)
+        if (event.type === 'design.variation_completed' || event.type === 'design.variation_failed') {
+          return this.finalizeRecoveredRefineOperation(operation, event, { sideEffectsApplied: true })
+        }
+      }
+      if (this.runtime.getRefineOperation) {
+        const refreshed = await this.runtime.getRefineOperation(input)
+        if (refreshed.status === 'cancelled') {
+          const cancelled = await this.updateRefineOperation(operation, { status: 'cancelled', completedAt: new Date().toISOString() })
+          await this.restoreCancelledRefineOperation(cancelled, operation.sessionId)
+          return 'cancelled'
+        }
+        if (refreshed.terminalEvent) return this.finalizeRecoveredRefineOperation(operation, refreshed.terminalEvent)
+      }
+      return 'deferred'
+    }
+
+    if (snapshot.status === 'not_found' && Date.now() - Date.parse(operation.updatedAt) >= Math.max(0, orphanAfterMs)) {
+      await this.updateRefineOperation(operation, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        lastReconcileError: 'Runtime no longer recognizes this refine request.',
+      })
+      return 'failed'
+    }
+    return 'deferred'
+  }
+
+  private async finalizeRecoveredRefineOperation(
+    operation: RefineOperationRecord,
+    event: DesignEvent,
+    options: { sideEffectsApplied?: boolean } = {},
+  ): Promise<'completed' | 'failed'> {
+    if (event.type !== 'design.variation_completed' && event.type !== 'design.variation_failed') return 'failed'
+    if (!options.sideEffectsApplied) {
+      let alreadyApplied = false
+      if (event.type === 'design.variation_completed' && event.payload.artifactId) {
+        const current = await this.store.getCurrentVariationArtifactSnapshot(operation.variationId)
+        alreadyApplied = current.artifact?.metadata.runtimeArtifactId === event.payload.artifactId
+      }
+      if (!alreadyApplied) {
+        await this.applyEventSideEffects(event)
+        await this.publishDesignEvent(event)
+      }
+    }
+    let status: 'completed' | 'failed' = event.type === 'design.variation_completed' ? 'completed' : 'failed'
+    let lastReconcileError: string | null = null
+    if (status === 'completed') {
+      const current = await this.store.getCurrentVariationArtifactSnapshot(operation.variationId)
+      const baseArtifact = await this.store.getArtifactById(operation.baseArtifactId)
+      if (!refineProducedChangedArtifact(current.artifact, baseArtifact)) {
+        status = 'failed'
+        lastReconcileError = 'Runtime reported refinement completion without producing a new artifact.'
+        if (baseArtifact) {
+          await this.store.setVariationCurrentArtifact(
+            operation.variationId,
+            baseArtifact.id,
+            operation.basePreviewUrl ?? `/api/variations/${operation.variationId}/preview`,
+          )
+          await this.store.applyVariationEvent({ variationId: operation.variationId, status: 'completed' })
+        }
+      }
+    }
+    await this.updateRefineOperation(operation, {
+      status,
+      completedAt: new Date().toISOString(),
+      ...(lastReconcileError ? { lastReconcileError } : {}),
+    })
+    return status
+  }
+
+  private async refineResponse(
+    variationId: string,
+    requestId: string,
+    statusOverride?: 'cancelled',
+  ): Promise<RefineVariationResponse> {
     const current = await this.store.getCurrentVariationArtifactSnapshot(variationId)
-    const updated = current.variation!
+    const updated = current.variation
+    if (!updated) throw createHttpError(404, 'VARIATION_NOT_FOUND', `Variation not found: ${variationId}`)
     const artifact = current.artifact
     return {
+      requestId,
       variation: {
         id: updated.id,
-        status: updated.status,
+        status: statusOverride ?? refineResponseVariationStatus(updated.status),
         currentArtifactId: updated.currentArtifactId,
         previewUrl: updated.previewUrl,
         screenshotUrl: screenshotUrlForArtifactId(updated.screenshotArtifactId, updated.id),
+        errorCode: updated.errorCode,
+        errorMessage: updated.errorMessage,
       },
       ...(artifact && {
         artifact: {
@@ -1457,6 +2075,44 @@ export class ApplicationService {
         },
       }),
     }
+  }
+
+  private async restoreCancelledRefineOperation(operation: RefineOperationRecord, sessionId: string | null): Promise<void> {
+    await this.store.setVariationCurrentArtifact(
+      operation.variationId,
+      operation.baseArtifactId,
+      operation.basePreviewUrl ?? `/api/variations/${operation.variationId}/preview`,
+    )
+    await this.store.applyVariationEvent({ variationId: operation.variationId, status: 'completed' })
+    if (!sessionId || operation.cancellationRecorded) return
+    await this.store.appendMessage({
+      sessionId,
+      role: 'system',
+      content: `Cancelled refine request ${operation.requestId}; the previous artifact remains current.`,
+      metadata: {
+        kind: 'variation_refine_cancelled',
+        requestId: operation.requestId,
+        variationId: operation.variationId,
+        baseArtifactId: operation.baseArtifactId,
+        reason: operation.cancelReason,
+      },
+    })
+    await this.updateRefineOperation(operation, { cancellationRecorded: true })
+  }
+
+  private async refreshRefineOperation(operation: RefineOperationRecord): Promise<RefineOperationRecord> {
+    return await this.store.getRefineOperationById(operation.requestId) ?? operation
+  }
+
+  private async updateRefineOperation(
+    operation: RefineOperationRecord,
+    patch: Partial<RefineOperationRecord>,
+  ): Promise<RefineOperationRecord> {
+    return this.store.saveRefineOperation({
+      ...operation,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    })
   }
 
   async annotateVariation(ctx: RequestContext, variationId: string, input: CreateAnnotationBatchRequest) {
@@ -1481,6 +2137,7 @@ export class ApplicationService {
       promptSuffix,
     })
     const refined = await this.refineVariation(ctx, variationId, {
+      requestId: input.requestId,
       prompt: promptSuffix,
       baseArtifactId: input.artifactId,
       annotationPromptSuffix: promptSuffix,
@@ -1992,16 +2649,19 @@ export class ApplicationService {
     if (!original) throw createHttpError(404, 'JOB_NOT_FOUND', `Design job not found: ${jobId}`)
     const session = await this.store.getSessionById(original.sessionId)
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${original.sessionId}`)
-    const retry = await this.createDesignJob(
+    const templateRequirements = normalizeTemplateRequirements(original.templateRequirements)
+    const retry = await this.createDesignJobInternal(
       { ...ctx, userId: original.userId },
       {
         sessionId: original.sessionId,
         prompt: original.prompt,
         sourceMode: original.sourceMode,
+        productMode: original.productMode,
         variationCount: original.variationCount,
-        templateRequirements: normalizeTemplateRequirements(original.templateRequirements),
+        templateRequirements,
         modelServiceId: stringValue(original.templateRequirements.modelServiceId) ?? undefined,
       },
+      explorationSnapshotFromTemplateRequirements(templateRequirements),
     )
     const audit = await this.store.createAuditLog({
       requestId: ctx.requestId,
@@ -2033,12 +2693,13 @@ export class ApplicationService {
     if (!session) throw createHttpError(404, 'SESSION_NOT_FOUND', `Session not found: ${original.sessionId}`)
     const templateRequirements = normalizeTemplateRequirements(original.templateRequirements)
     const retryNote = `Admin variation retry: job=${original.id}; variation=${variation.id}; index=${variation.index}.`
-    const retry = await this.createDesignJob(
+    const retry = await this.createDesignJobInternal(
       { ...ctx, userId: original.userId },
       {
         sessionId: original.sessionId,
         prompt: original.prompt,
         sourceMode: original.sourceMode,
+        productMode: original.productMode,
         variationCount: 1,
         templateRequirements: {
           ...templateRequirements,
@@ -2046,6 +2707,7 @@ export class ApplicationService {
         },
         modelServiceId: stringValue(original.templateRequirements.modelServiceId) ?? undefined,
       },
+      deriveVariationRetryExplorationSnapshot(templateRequirements, variation.index),
     )
     const audit = await this.store.createAuditLog({
       requestId: ctx.requestId,
@@ -2189,22 +2851,33 @@ export class ApplicationService {
       },
       isLanguageCategory: guidance.isLanguageCategory,
       entryContentLanguage: guidance.entryContentLanguage,
+      analysis: guidanceAnalysisSnapshot(guidance),
       classification: {
         primaryCategory: guidance.primaryCategory,
         secondaryCategory: guidance.secondaryCategory,
         tertiaryCategory: guidance.tertiaryCategory,
         confidence: guidance.confidence,
         signals: guidance.signals,
-        source: 'mock_rules',
+        source: guidanceClassificationSource(guidance),
       },
       democaseReferences: guidanceDemocaseReferences(guidance),
       recommendedTemplates,
       interactionParadigm,
+      explorationRecommendation: {
+        level: DYNAMIC_ENCYCLOPEDIA_PRESET.explorationDefaults.level,
+        reason: `Use balanced design exploration for ${guidance.primaryCategory} / ${guidance.secondaryCategory} while keeping factual invariants locked.`,
+        confidence: guidance.confidence,
+        requirementModuleGraphId: DYNAMIC_ENCYCLOPEDIA_PRESET.requirementModuleGraphId!,
+      },
       capabilityRequirements: {
         template: {
           domainTemplateId: DYNAMIC_ENCYCLOPEDIA_PRESET.domainTemplateId,
           designTemplatePackIds: guidance.selectedTemplateIds,
-          autoDistributeTemplatePacks: true,
+          aestheticProfileId: 'aes_topic_interactive_card',
+          colorPaletteId: 'pal_minimal_mono',
+          // Repeat confirmed recommendations across sibling variations instead
+          // of filling extra slots with unrelated templates from the registry.
+          autoDistributeTemplatePacks: false,
         },
         plugins: {
           skillIds: [...DYNAMIC_ENCYCLOPEDIA_PRESET.skillIds],
@@ -2243,7 +2916,7 @@ export class ApplicationService {
             l3: guidance.tertiaryCategory,
             confidence: guidance.confidence,
             signals: guidance.signals,
-            source: 'mock_rules',
+            source: guidanceClassificationSource(guidance),
           },
           classificationVector,
           interactionParadigmId: guidance.interactionParadigmId,
@@ -2256,6 +2929,7 @@ export class ApplicationService {
             confidence: template.confidence,
             reason: template.reason,
           })),
+          democaseExperienceProfiles: guidanceDemocaseExperienceProfiles(guidance),
           automationMode: guidance.automationMode,
           reviewMode: guidance.automationMode,
         },
@@ -2349,6 +3023,26 @@ export class ApplicationService {
     return results
   }
 
+  private async recommendDynamicEncyclopediaTemplatesFromAnalysis(
+    userId: string,
+    workspaceId: string,
+    analysis: EncyclopediaGuidanceAnalysisV2,
+  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
+    const templates = await this.store.listDesignTemplatePacks(userId, workspaceId)
+    return analysis.templateRecommendations.flatMap(recommendation => {
+      const template = templates.find(candidate => candidate.id === recommendation.templatePackId)
+      if (!template || template.status !== 'published') return []
+      return [{
+        designTemplatePackId: template.id,
+        name: template.name,
+        interactionParadigmId: recommendation.interactionParadigmId,
+        reason: recommendation.reason,
+        confidence: recommendation.score,
+        selected: true,
+      }]
+    })
+  }
+
   private async resolveDesignTemplatePacksForJob(
     userId: string,
     workspaceId: string,
@@ -2364,6 +3058,11 @@ export class ApplicationService {
       const template = await this.store.getDesignTemplatePackById(templateId, userId, workspaceId)
       if (!template) throw createHttpError(404, 'DESIGN_TEMPLATE_NOT_FOUND', `Design template not found: ${templateId}`)
       resolved.push(template)
+    }
+
+    if (input.productMode === 'dynamic_encyclopedia_card') {
+      const expanded = await this.expandDynamicEncyclopediaParentTemplatePacks(userId, workspaceId, resolved)
+      resolved.splice(0, resolved.length, ...expanded)
     }
 
     const shouldAutoDistribute = input.capabilityRequirements?.template?.autoDistributeTemplatePacks
@@ -2388,6 +3087,33 @@ export class ApplicationService {
     }
 
     return resolved.slice(0, Math.max(input.variationCount, explicitIds.length))
+  }
+
+  private async expandDynamicEncyclopediaParentTemplatePacks(
+    userId: string,
+    workspaceId: string,
+    templates: DesignTemplatePack[],
+  ): Promise<DesignTemplatePack[]> {
+    const requiredParentIds = new Set(DYNAMIC_ENCYCLOPEDIA_PRESET.selectionPolicy.requiredTemplatePackIds)
+    if (!templates.some(template => requiredParentIds.has(template.id))) return templates
+
+    const available = await this.store.listDesignTemplatePacks(userId, workspaceId)
+    const expanded: DesignTemplatePack[] = []
+    const append = (template: DesignTemplatePack): void => {
+      if (!expanded.some(existing => existing.id === template.id)) expanded.push(template)
+    }
+
+    for (const template of templates) {
+      if (!requiredParentIds.has(template.id)) {
+        append(template)
+        continue
+      }
+      const children = available.filter(candidate => candidate.parentPackId === template.id && templatePackSupportsProductMode(candidate, 'dynamic_encyclopedia_card'))
+      for (const child of children) append(child)
+      if (children.length === 0) append(template)
+    }
+
+    return expanded
   }
 
   async processQueuedDesignJob(payload: DesignJobQueuePayload): Promise<void> {
@@ -2546,6 +3272,8 @@ export class ApplicationService {
     }
     const baseArtifactHtml = await this.readArtifactHtml(baseArtifact.storageKey)
     const modelContext = modelContextFromTemplateRequirements(job.templateRequirements)
+    const explorationContext = runtimeExplorationContextForJobVariation(job.templateRequirements, variation.index)
+    const runtimeTemplateRequirements = normalizeTemplateRequirements(job.templateRequirements)
     const attempt = _payload.attempt ?? Math.max(1, baseArtifact.version)
 
     if (_payload.source === 'automation_loop') {
@@ -2593,6 +3321,7 @@ export class ApplicationService {
         workspaceId: workspace.id,
         sessionId: session.id,
         jobId: job.id,
+        productMode: job.productMode,
         variationId: variation.id,
         variationIndex: variation.index,
         runtimeChildSessionId: variation.runtimeChildSessionId,
@@ -2608,9 +3337,26 @@ export class ApplicationService {
         modelServiceId: _payload.modelServiceId ?? modelContext.modelServiceId,
         modelId: modelContext.modelId,
         modelProvider: modelContext.modelProvider,
+        explorationContext,
+        templateRequirements: runtimeTemplateRequirements,
       })) {
         await this.applyEventSideEffects(event)
         await this.publishDesignEvent(event)
+        if (_payload.source === 'automation_loop' && event.type === 'design.variation_failed') {
+          await this.publishAutomationLoopStoppedForRepair(
+            {
+              sessionId: session.id,
+              job,
+              variation,
+              artifact: baseArtifact,
+              attempt,
+            },
+            event.payload.errorCode === 'RUNTIME_CONTRACT_MISMATCH'
+              ? 'runtime_contract_mismatch'
+              : 'runtime_unavailable',
+            event.payload.message,
+          )
+        }
       }
     } catch (error) {
       if (_payload.source === 'automation_loop') {
@@ -2665,6 +3411,7 @@ export class ApplicationService {
         modelServiceId: input.modelServiceId,
         modelId: input.modelId,
         modelProvider: input.modelProvider,
+        explorationContexts: runtimeExplorationContextsFromTemplateRequirements(input.templateRequirements),
       })) {
         const normalized = this.rewriteRuntimeVariationId(event, input.variationIdsByIndex)
         if (normalized.type === 'design.job_completed') {
@@ -2919,6 +3666,7 @@ export class ApplicationService {
   }
 
   private async finalizeQueuedDesignJob(jobId: string): Promise<void> {
+    if (this.pendingAutomationReviews.has(jobId)) return
     let snapshot = await this.store.getJobSnapshot(jobId)
     if (!snapshot) return
     await this.reconcileArtifactBackedVariationsBeforeFinalization(snapshot)
@@ -2928,6 +3676,10 @@ export class ApplicationService {
     const failedVariationCount = snapshot.variations.filter(variation => variation.status === 'failed').length
     const cancelledVariationCount = snapshot.variations.filter(variation => variation.status === 'cancelled').length
     const terminalCount = completedVariationCount + failedVariationCount + cancelledVariationCount
+    // A successful variation must not make a still-streaming sibling job look
+    // complete. The parent job is terminal only after every variation has
+    // reached a terminal state and any quality review lock has been released.
+    if (terminalCount < snapshot.variations.length) return
     const status = completedVariationCount > 0
       ? 'completed'
       : terminalCount === snapshot.variations.length && cancelledVariationCount === snapshot.variations.length
@@ -3447,13 +4199,41 @@ export class ApplicationService {
     quality: ArtifactQualityReport,
   ): void {
     if (!jobId) return
-    this.trackBackgroundTask(this.publishAutomationLoopEventsForArtifactNow({
+    if (quality.status !== 'pass') {
+      this.markAutomationReviewPending(jobId, variationId)
+      void this.store.applyVariationEvent({
+        variationId,
+        status: 'rendering_preview',
+        artifactId: artifact.id,
+        previewUrl: `/api/variations/${variationId}/preview`,
+      })
+    }
+    const task = this.publishAutomationLoopEventsForArtifactNow({
       sessionId,
       jobId,
       variationId,
       artifact,
       quality,
-    }))
+    }).catch(error => {
+      this.finishAutomationReview(jobId, variationId)
+      throw error
+    })
+    this.trackBackgroundTask(task)
+  }
+
+  private markAutomationReviewPending(jobId: string, variationId: string): void {
+    const variations = this.pendingAutomationReviews.get(jobId) ?? new Set<string>()
+    variations.add(variationId)
+    this.pendingAutomationReviews.set(jobId, variations)
+  }
+
+  private finishAutomationReview(jobId: string, variationId: string): void {
+    const variations = this.pendingAutomationReviews.get(jobId)
+    if (!variations) return
+    variations.delete(variationId)
+    if (variations.size > 0) return
+    this.pendingAutomationReviews.delete(jobId)
+    this.trackBackgroundTask(this.finalizeQueuedDesignJob(jobId))
   }
 
   private async publishAutomationLoopEventsForArtifactNow(input: {
@@ -3465,11 +4245,17 @@ export class ApplicationService {
   }): Promise<void> {
     const job = await this.store.getJobById(input.jobId)
     const variation = await this.store.getVariationById(input.variationId)
-    if (!job || !variation) return
+    if (!job || !variation) {
+      this.finishAutomationReview(input.jobId, input.variationId)
+      return
+    }
     const templateRequirements = normalizeTemplateRequirements(job.templateRequirements)
     const capabilitySnapshot = templateRequirements?.capabilitySnapshot
     const automation = capabilitySnapshot?.automation
-    if (!automation) return
+    if (!automation) {
+      this.finishAutomationReview(input.jobId, input.variationId)
+      return
+    }
     const reviewMode = reviewModeFromTemplateRequirements(templateRequirements)
 
     const profile = automation.loopProfile
@@ -3477,6 +4263,15 @@ export class ApplicationService {
     const startedAt = job.startedAt ? Date.parse(job.startedAt) : Date.parse(job.createdAt)
     const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : 0
     const costCents = Math.max(job.totalCostCents, variation.costCents)
+    const variationSnapshot = await this.store.getVariationDetailSnapshot(input.variationId)
+    const previousIssueFingerprints = variationSnapshot?.artifacts
+      .filter(artifact => artifact.kind === 'html' && artifact.version < input.artifact.version)
+      .flatMap(artifact => {
+        const previousQuality = artifactQualitySummary(artifact.metadata.quality)
+        return previousQuality?.issues.length
+          ? [automationIssueFingerprint(previousQuality.issues)]
+          : []
+      }) ?? []
     const decision = evaluateAutomationLoopStop({
       profile: {
         ...profile,
@@ -3488,6 +4283,7 @@ export class ApplicationService {
       elapsedMs,
       costCents,
       quality: input.quality,
+      previousIssueFingerprints,
     })
 
     await this.publishDesignEvent(createDesignEvent({
@@ -3534,6 +4330,9 @@ export class ApplicationService {
         reason: `quality_${input.quality.status}`,
         reviewMode,
       })
+      if (reviewMode !== 'auto') {
+        this.finishAutomationReview(input.jobId, input.variationId)
+      }
       return
     }
 
@@ -3549,6 +4348,7 @@ export class ApplicationService {
           reason: 'quality_passed',
         },
       }))
+      this.finishAutomationReview(input.jobId, input.variationId)
       return
     }
 
@@ -3565,6 +4365,7 @@ export class ApplicationService {
         recoverable: decision.recoverable,
       },
     }))
+    this.finishAutomationReview(input.jobId, input.variationId)
   }
 
   private async enqueueAutomationLoopRepair(input: {
@@ -3695,6 +4496,7 @@ export class ApplicationService {
         recoverable: reason !== 'cancelled',
       },
     }))
+    this.finishAutomationReview(input.job.id, input.variation.id)
   }
 
   private async analyzeArtifactQuality(
@@ -3710,6 +4512,7 @@ export class ApplicationService {
     const baseQuality = await analyzeHtmlArtifactQualityWithPixelGate(html, {
       enabled: profileGate ? profileGate.qualityGates.includes('pixel') : pixelQualityGateEnabled(),
       timeoutMs: pixelQualityGateTimeoutMs(),
+      experienceProfile: profileGate?.experienceProfile,
     })
     if (!profileGate?.qualityGates.includes('spec')) return baseQuality
     const specReview = reviewDynamicEncyclopediaSpec({
@@ -3740,6 +4543,7 @@ export class ApplicationService {
     qualityGates: Array<'static' | 'pixel' | 'spec'>
     designTemplatePackIds: string[]
     interactionParadigmId: string | null
+    experienceProfile: EncyclopediaDemocaseExperienceProfile | null
     /**
      * 词条上下文（用于百科规范审查的"中文优先"判断）。
      * 仅当 productMode === 'dynamic_encyclopedia_card' 时有意义。
@@ -3757,8 +4561,8 @@ export class ApplicationService {
     const businessContext = job.templateRequirements.businessContext as Record<string, unknown> | undefined
     const automation = requirements?.capabilitySnapshot?.automation
     if (!automation) return null
-    const assignedTemplatePackId = typeof variationIndex === 'number'
-      ? assignedTemplatePackIdForVariation(variationIndex, requirements?.variationTemplateAssignments ?? [])
+    const assignedTemplate = typeof variationIndex === 'number'
+      ? assignedTemplateAssignmentForVariation(variationIndex, requirements?.variationTemplateAssignments ?? [])
       : null
     const qualityGates = [
       ...new Set([
@@ -3781,12 +4585,16 @@ export class ApplicationService {
             : null,
         }
       : null
+    const interactionParadigmId = assignedTemplate?.interactionParadigmId
+      ?? (typeof businessContext?.interactionParadigmId === 'string' ? businessContext.interactionParadigmId : null)
     return {
       qualityGates,
-      designTemplatePackIds: assignedTemplatePackId ? [assignedTemplatePackId] : requirements?.designTemplatePackIds ?? [],
-      interactionParadigmId: typeof businessContext?.interactionParadigmId === 'string'
-        ? businessContext.interactionParadigmId
-        : null,
+      designTemplatePackIds: assignedTemplate ? [assignedTemplate.designTemplatePackId] : requirements?.designTemplatePackIds ?? [],
+      interactionParadigmId,
+      experienceProfile: selectDemocaseExperienceProfileForParadigm(
+        requirements?.businessContext?.democaseExperienceProfiles,
+        interactionParadigmId,
+      ),
       entryContext,
     }
   }
@@ -3950,6 +4758,9 @@ export class ApplicationService {
       reviewStatus: researchContext.reviewStatus,
       query: researchContext.query,
       sourceCount: researchContext.sources.length,
+      provenance: researchContext.riskFlags.includes('mock-source-review-required')
+        ? 'mock'
+        : 'reviewed_external',
       createdAt,
     }
     return {
@@ -4082,7 +4893,55 @@ function validateVariationCount(count: number): void {
   }
 }
 
-function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDesignJobRequest['templateRequirements'] {
+function refineProducedChangedArtifact(
+  currentArtifact: Artifact | null,
+  baseArtifact: Artifact | null,
+): boolean {
+  return Boolean(
+    currentArtifact
+    && baseArtifact
+    && currentArtifact.id !== baseArtifact.id
+    && currentArtifact.version > baseArtifact.version
+    && currentArtifact.contentHash !== baseArtifact.contentHash,
+  )
+}
+
+function refineResponseVariationStatus(
+  status: DesignVariationStatus,
+): RefineVariationResponse['variation']['status'] {
+  if (status === 'queued' || status === 'running') return 'streaming'
+  return status
+}
+
+function refineNoArtifactChangeResponse(
+  response: RefineVariationResponse,
+): RefineVariationResponse {
+  return {
+    ...response,
+    variation: {
+      ...response.variation,
+      status: 'failed',
+      errorCode: 'REFINE_NO_ARTIFACT_CHANGE',
+      errorMessage: 'The runtime completed without producing a changed HTML artifact. The previous version remains available; retry with a more explicit modification request.',
+    },
+    artifact: undefined,
+  }
+}
+
+type StoredTemplateRequirements = NonNullable<CreateDesignJobRequest['templateRequirements']> & {
+  requirementModuleGraph?: RequirementModuleGraphV1
+  explorationPlan?: BatchExplorationPlanV1
+}
+
+type ExplorationSnapshot = {
+  requirementModuleGraph: RequirementModuleGraphV1
+  explorationPlan: BatchExplorationPlanV1
+}
+
+function normalizeTemplateRequirements(value: Record<string, unknown>): StoredTemplateRequirements {
+  const requirementModuleGraph = isRequirementModuleGraph(value.requirementModuleGraph)
+    ? value.requirementModuleGraph
+    : undefined
   return {
     styles: Array.isArray(value.styles) ? value.styles.filter((item): item is string => typeof item === 'string') : undefined,
     deviceTargets: Array.isArray(value.deviceTargets)
@@ -4091,6 +4950,9 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
     notes: typeof value.notes === 'string' ? value.notes : undefined,
     advancedConstraints: normalizeAdvancedTemplateConstraints(value.advancedConstraints),
     capabilitySnapshot: isCapabilitySnapshot(value.capabilitySnapshot) ? value.capabilitySnapshot : undefined,
+    capabilitySelectionSnapshot: isCapabilitySelectionSnapshot(value.capabilitySelectionSnapshot)
+      ? value.capabilitySelectionSnapshot
+      : undefined,
     designTemplatePackIds: Array.isArray(value.designTemplatePackIds)
       ? value.designTemplatePackIds.filter((item): item is string => typeof item === 'string')
       : undefined,
@@ -4113,22 +4975,201 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): CreateDe
     variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
       ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
       : undefined,
+    requirementModuleGraph,
+    explorationPlan: requirementModuleGraph && isBatchExplorationPlan(value.explorationPlan, requirementModuleGraph)
+      ? value.explorationPlan
+      : undefined,
   }
 }
 
-function assignDesignTemplatePacks(
+function toUserCapabilitySnapshot(snapshot: CapabilitySnapshot | null): UserCapabilitySnapshot | null {
+  if (!snapshot) return null
+  const pluginSnapshot = snapshot.plugins.pluginSnapshot
+  return {
+    ...snapshot,
+    plugins: {
+      skillIds: snapshot.plugins.skillIds,
+      mcpToolIds: snapshot.plugins.mcpToolIds,
+      pluginSnapshot: pluginSnapshot
+        ? {
+            plugins: pluginSnapshot.plugins,
+            skills: pluginSnapshot.skills,
+            mcpToolBindings: pluginSnapshot.mcpToolBindings.map(binding => ({
+              id: binding.id,
+              pluginId: binding.pluginId,
+              scopes: binding.scopes,
+              requiresUserAuth: binding.requiresUserAuth,
+              allowedTemplateCategories: binding.allowedTemplateCategories,
+            })),
+            toolPolicy: pluginSnapshot.toolPolicy,
+          }
+        : undefined,
+    },
+  }
+}
+
+function isRequirementModuleGraph(value: unknown): value is RequirementModuleGraphV1 {
+  return Boolean(value && typeof value === 'object'
+    && validateRequirementModuleGraph(value as RequirementModuleGraphV1).length === 0)
+}
+
+function isBatchExplorationPlan(
+  value: unknown,
+  graph: RequirementModuleGraphV1,
+): value is BatchExplorationPlanV1 {
+  return Boolean(value && typeof value === 'object'
+    && validateBatchExplorationPlan(value as BatchExplorationPlanV1, graph).length === 0)
+}
+
+function explorationSnapshotFromTemplateRequirements(
+  requirements: StoredTemplateRequirements,
+): ExplorationSnapshot | null {
+  if (!requirements.requirementModuleGraph || !requirements.explorationPlan) return null
+  return {
+    requirementModuleGraph: requirements.requirementModuleGraph,
+    explorationPlan: requirements.explorationPlan,
+  }
+}
+
+function deriveVariationRetryExplorationSnapshot(
+  requirements: StoredTemplateRequirements,
+  variationIndex: number,
+): ExplorationSnapshot | null {
+  const snapshot = explorationSnapshotFromTemplateRequirements(requirements)
+  if (!snapshot) return null
+  const source = snapshot.explorationPlan.variations.find(variation => variation.variationIndex === variationIndex)
+  if (!source) return null
+  const selected = new Set([...source.requiredModuleIds, ...source.sampledModuleIds])
+  const omittedSampledModuleIds = snapshot.requirementModuleGraph.modules
+    .filter(module => module.mode === 'sampled' && !selected.has(module.id))
+    .map(module => module.id)
+  const variation = {
+    ...source,
+    variationIndex: 1,
+    excludedModuleIds: [...new Set([...source.excludedModuleIds, ...omittedSampledModuleIds])].sort(),
+    rationale: `${source.rationale} Retried from variation ${variationIndex}.`,
+  }
+  const coverageSummary = Object.fromEntries(
+    [...new Set([...variation.requiredModuleIds, ...variation.sampledModuleIds])]
+      .sort()
+      .map(moduleId => [moduleId, 1]),
+  )
+  const plan: BatchExplorationPlanV1 = {
+    ...snapshot.explorationPlan,
+    seed: `${snapshot.explorationPlan.seed}:variation-retry:${variationIndex}`,
+    variations: [variation],
+    coverageSummary,
+  }
+  const findings = validateBatchExplorationPlan(plan, snapshot.requirementModuleGraph)
+  if (findings.length > 0) {
+    throw createHttpError(
+      409,
+      'EXPLORATION_RETRY_SNAPSHOT_INVALID',
+      `Stored exploration snapshot cannot be retried: ${findings.map(finding => finding.code).join(', ')}`,
+    )
+  }
+  return {
+    requirementModuleGraph: snapshot.requirementModuleGraph,
+    explorationPlan: plan,
+  }
+}
+
+function runtimeExplorationContextsFromTemplateRequirements(
+  requirements: CreateDesignJobRequest['templateRequirements'] | StoredTemplateRequirements,
+): RuntimeExplorationContextV1[] | undefined {
+  if (!requirements) return undefined
+  const stored = 'explorationPlan' in requirements
+    ? requirements as StoredTemplateRequirements
+    : normalizeTemplateRequirements(requirements as Record<string, unknown>)
+  if (!stored.requirementModuleGraph || !stored.explorationPlan) return undefined
+  return compileRuntimeExplorationContexts(stored.requirementModuleGraph, stored.explorationPlan)
+}
+
+function runtimeExplorationContextForJobVariation(
+  requirements: Record<string, unknown>,
+  variationIndex: number,
+): RuntimeExplorationContextV1 | undefined {
+  return runtimeExplorationContextsFromTemplateRequirements(normalizeTemplateRequirements(requirements))
+    ?.find(context => context.source.variationIndex === variationIndex)
+}
+
+export function assignDesignTemplatePacks(
   variationCount: number,
   designTemplatePacks: DesignTemplatePack[],
+  explorationPlan: BatchExplorationPlanV1 | null = null,
 ): NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']> {
   if (designTemplatePacks.length === 0) return []
+  let available = [...designTemplatePacks]
   return Array.from({ length: variationCount }, (_, index) => {
-    const template = designTemplatePacks[index % designTemplatePacks.length]!
+    if (available.length === 0) available = [...designTemplatePacks]
+    const variationIndex = index + 1
+    const variationPlan = explorationPlan?.variations.find(variation => variation.variationIndex === variationIndex)
+    const template = bestTemplatePackForExploration(available, variationPlan)
+    available = available.filter(candidate => candidate.id !== template.id)
+    const interactionParadigm = interactionParadigmForTemplatePack(template.id)
     return {
-      variationIndex: index + 1,
+      variationIndex,
       designTemplatePackId: template.id,
       designTemplatePack: template,
+      ...(interactionParadigm
+        ? {
+            interactionParadigmId: interactionParadigm.id,
+            interactionParadigm,
+          }
+        : {}),
     }
   })
+}
+
+function bestTemplatePackForExploration(
+  templates: DesignTemplatePack[],
+  variationPlan: BatchExplorationPlanV1['variations'][number] | undefined,
+): DesignTemplatePack {
+  if (!variationPlan || templates.length === 1) return templates[0]!
+  return templates.reduce((best, candidate) => {
+    const bestScore = templateExplorationCompatibilityScore(best, variationPlan)
+    const candidateScore = templateExplorationCompatibilityScore(candidate, variationPlan)
+    return candidateScore > bestScore ? candidate : best
+  })
+}
+
+function templateExplorationCompatibilityScore(
+  template: DesignTemplatePack,
+  variationPlan: BatchExplorationPlanV1['variations'][number],
+): number {
+  const paradigmId = interactionParadigmIdForTemplatePack(template.id)
+  const paradigmFamily = interactionParadigmFamily(paradigmId)
+  const directionFamilies = variationPlan.interactionDirectionIds.map(interactionParadigmFamily)
+  let score = 0
+  if (paradigmId && variationPlan.interactionDirectionIds.includes(paradigmId)) score += 120
+  else if (paradigmFamily && directionFamilies.includes(paradigmFamily)) score += 90
+
+  const focusFamily = explorationFocusFamily(variationPlan.focusId)
+  if (paradigmFamily && focusFamily === paradigmFamily) score += 60
+  if (template.id.includes('timeline') && variationPlan.focusId.includes('timeline')) score += 30
+  if ((template.id.includes('relation') || template.id.includes('member_map')) && variationPlan.focusId.includes('relationship')) score += 30
+  if ((template.id.includes('summary') || template.id.includes('expandable')) && variationPlan.focusId.includes('expandable')) score += 30
+  if (template.id.includes('compare') && variationPlan.focusId.includes('comparison')) score += 30
+  return score
+}
+
+function interactionParadigmFamily(paradigmId: string | null | undefined): string | null {
+  if (!paradigmId) return null
+  if (paradigmId.includes('timeline')) return 'timeline'
+  if (paradigmId.includes('relation')) return 'relation'
+  if (paradigmId.includes('comparison')) return 'comparison'
+  if (paradigmId.includes('summary') || paradigmId.includes('expandable')) return 'summary'
+  if (paradigmId.includes('route') || paradigmId.includes('map')) return 'spatial'
+  return paradigmId
+}
+
+function explorationFocusFamily(focusId: string): string | null {
+  if (focusId.includes('timeline') || focusId.includes('event_chain')) return 'timeline'
+  if (focusId.includes('relationship') || focusId.includes('member')) return 'relation'
+  if (focusId.includes('comparison')) return 'comparison'
+  if (focusId.includes('summary') || focusId.includes('facts') || focusId.includes('expandable')) return 'summary'
+  if (focusId.includes('route') || focusId.includes('map') || focusId.includes('poi')) return 'spatial'
+  return null
 }
 
 function templatePackSupportsProductMode(
@@ -4149,6 +5190,13 @@ function assignedTemplatePackForVariation(
   assignments: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']>,
 ): DesignTemplatePack | null {
   return assignments.find(assignment => assignment.variationIndex === variationIndex)?.designTemplatePack ?? null
+}
+
+function assignedTemplateAssignmentForVariation(
+  variationIndex: number,
+  assignments: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['variationTemplateAssignments']>,
+) {
+  return assignments.find(assignment => assignment.variationIndex === variationIndex) ?? null
 }
 
 function assignedTemplatePackIdForVariation(
@@ -4190,6 +5238,8 @@ function isVariationTemplateAssignment(value: unknown): value is NonNullable<Non
   return typeof record.variationIndex === 'number'
     && typeof record.designTemplatePackId === 'string'
     && isDesignTemplatePack(record.designTemplatePack)
+    && (!('interactionParadigmId' in record) || typeof record.interactionParadigmId === 'string')
+    && (!('interactionParadigm' in record) || isInteractionParadigm(record.interactionParadigm))
 }
 
 function isInteractionParadigm(value: unknown): value is InteractionParadigm {
@@ -4218,6 +5268,7 @@ function isDynamicEncyclopediaBusinessContext(value: unknown): value is NonNulla
     && (!('interactionParadigm' in record) || isInteractionParadigm(record.interactionParadigm))
     && (!('recommendedTemplateIds' in record) || (Array.isArray(record.recommendedTemplateIds) && record.recommendedTemplateIds.every(item => typeof item === 'string')))
     && (!('childTemplates' in record) || (Array.isArray(record.childTemplates) && record.childTemplates.every(isDynamicEncyclopediaChildTemplateSnapshot)))
+    && (!('democaseExperienceProfiles' in record) || (Array.isArray(record.democaseExperienceProfiles) && record.democaseExperienceProfiles.every(isDemocaseExperienceProfileSnapshot)))
     && (!('automationMode' in record) || record.automationMode === 'off' || record.automationMode === 'semi_auto' || record.automationMode === 'auto')
     && (!('reviewMode' in record) || record.reviewMode === 'off' || record.reviewMode === 'semi_auto' || record.reviewMode === 'auto')
 }
@@ -4231,7 +5282,7 @@ function isDynamicEncyclopediaClassificationSnapshot(value: unknown): boolean {
     && typeof record.confidence === 'number'
     && Array.isArray(record.signals)
     && record.signals.every(item => typeof item === 'string')
-    && record.source === 'mock_rules'
+    && (record.source === 'mock_rules' || record.source === 'ai_guidance_v2')
 }
 
 function isDynamicEncyclopediaChildTemplateSnapshot(value: unknown): boolean {
@@ -4242,6 +5293,41 @@ function isDynamicEncyclopediaChildTemplateSnapshot(value: unknown): boolean {
     && typeof record.selected === 'boolean'
     && typeof record.confidence === 'number'
     && typeof record.reason === 'string'
+}
+
+function isDemocaseExperienceProfileSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  const profile = record.experienceProfile
+  if (!profile || typeof profile !== 'object') return false
+  const profileRecord = profile as Record<string, unknown>
+  const attentionBudget = profileRecord.attentionBudget
+  return typeof record.caseId === 'string'
+    && typeof record.title === 'string'
+    && typeof record.score === 'number'
+    && typeof profileRecord.dominantStage === 'string'
+    && typeof profileRecord.firstViewPromise === 'string'
+    && typeof profileRecord.primaryInteraction === 'string'
+    && typeof profileRecord.secondaryReveal === 'string'
+    && Boolean(attentionBudget && typeof attentionBudget === 'object')
+    && Array.isArray(profileRecord.preserveAt300x360)
+    && profileRecord.preserveAt300x360.every(item => typeof item === 'string')
+    && Array.isArray(profileRecord.deferAt300x360)
+    && profileRecord.deferAt300x360.every(item => typeof item === 'string')
+    && Array.isArray(profileRecord.forbiddenPatterns)
+    && profileRecord.forbiddenPatterns.every(item => typeof item === 'string')
+}
+
+function selectDemocaseExperienceProfileForParadigm(
+  profiles: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['businessContext']>['democaseExperienceProfiles'],
+  interactionParadigmId: string | null,
+): EncyclopediaDemocaseExperienceProfile | null {
+  const dominantStage = encyclopediaDemocaseStageForInteractionParadigm(interactionParadigmId)
+  if (dominantStage) {
+    return profiles?.find(item => item.experienceProfile.dominantStage === dominantStage)?.experienceProfile
+      ?? defaultEncyclopediaDemocaseExperienceProfile(dominantStage)
+  }
+  return profiles?.[0]?.experienceProfile ?? null
 }
 
 function isDataIntakeArtifactReference(value: unknown): value is DataIntakeArtifactReference {
@@ -4265,6 +5351,7 @@ function isResearchContextArtifactReference(value: unknown): value is ResearchCo
     && typeof record.schemaVersion === 'string'
     && typeof record.query === 'string'
     && typeof record.sourceCount === 'number'
+    && (!('provenance' in record) || record.provenance === 'reviewed_external' || record.provenance === 'mock')
     && (record.reviewStatus === 'auto_reviewed' || record.reviewStatus === 'human_review_required' || record.reviewStatus === 'rejected')
 }
 
@@ -4450,6 +5537,25 @@ function slugId(value: string): string {
 
 function isCapabilitySnapshot(value: unknown): value is NonNullable<CreateDesignJobRequest['templateRequirements']>['capabilitySnapshot'] {
   return Boolean(value && typeof value === 'object' && typeof (value as Record<string, unknown>).schemaVersion === 'string')
+}
+
+function isCapabilitySelectionSnapshot(value: unknown): value is CapabilitySelectionSnapshotV1 {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return record.schemaVersion === '2026-07-14.dudesign-capability-selection.v1'
+    && typeof record.presetId === 'string'
+    && (record.guidanceId === null || typeof record.guidanceId === 'string')
+    && typeof record.confirmedAt === 'string'
+    && Array.isArray(record.selectedTemplatePackIds)
+    && record.selectedTemplatePackIds.every(item => typeof item === 'string')
+    && Array.isArray(record.selectedSkillIds)
+    && record.selectedSkillIds.every(item => typeof item === 'string')
+    && Array.isArray(record.selectedMcpToolIds)
+    && record.selectedMcpToolIds.every(item => typeof item === 'string')
+    && typeof record.loopProfileId === 'string'
+    && (record.reviewMode === 'off' || record.reviewMode === 'semi_auto' || record.reviewMode === 'auto')
+    && Boolean(record.explorationRequest && typeof record.explorationRequest === 'object')
+    && Boolean(record.sourceByCapabilityId && typeof record.sourceByCapabilityId === 'object')
 }
 
 function auditAuthorizationMetadata(authorization: McpInvocationAuthorization): Record<string, unknown> {
@@ -4793,7 +5899,7 @@ function classifyEncyclopediaEntry(text: string): {
   if (has(['大学', '学院', '学校', '校区', '学科'])) {
     return { primaryCategory: '机构组织', secondaryCategory: '学校', tertiaryCategory: normalized.includes('校区') ? '校区院系' : '教育机构', confidence: 0.82, signals: [...new Set(signals)] }
   }
-  if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员'])) {
+  if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员', '组合', '男团', '女团', '乐队', '成员', '出道', '队长', '主唱', '主舞', 'rapper', '门面', '退团', '解散', '休团', '限定团', '小分队', 'unit', '子团', '专辑', '单曲', '演唱会', '团综', '粉丝名', '经纪公司'])) {
     return { primaryCategory: '名人', secondaryCategory: normalized.includes('历史') ? '历史人物' : '娱乐明星', tertiaryCategory: personTertiaryCategory(normalized), confidence: 0.8, signals: [...new Set(signals)] }
   }
   if (has(['小说', '文学', '作者', '出版', '章节', '诗歌'])) {
@@ -4903,6 +6009,7 @@ function buildEncyclopediaClassificationVector(
     signals: string[]
   },
   preferredTemplateIds: string[],
+  source: EncyclopediaClassificationSource = 'mock_rules',
 ): EncyclopediaClassificationVector {
   const categoryText = `${classification.primaryCategory} ${classification.secondaryCategory} ${classification.tertiaryCategory}`
   return {
@@ -4912,7 +6019,7 @@ function buildEncyclopediaClassificationVector(
     l3: classification.tertiaryCategory,
     confidence: classification.confidence,
     signals: [...new Set(classification.signals)],
-    source: 'mock_rules',
+    source,
     recommendedModulePriorities: encyclopediaModulePriorities(categoryText),
     preferredTemplateIds: [...new Set(preferredTemplateIds)],
     riskFlags: encyclopediaClassificationRiskFlags(categoryText),
@@ -4928,7 +6035,7 @@ function guidanceClassificationVector(guidance: EncyclopediaEntryGuidance): Ency
     tertiaryCategory: guidance.tertiaryCategory,
     confidence: guidance.confidence,
     signals: guidance.signals,
-  }, guidance.recommendedTemplateIds)
+  }, guidance.recommendedTemplateIds, guidanceClassificationSource(guidance))
 }
 
 function isEncyclopediaClassificationVector(value: unknown): value is EncyclopediaClassificationVector {
@@ -4941,13 +6048,48 @@ function isEncyclopediaClassificationVector(value: unknown): value is Encycloped
     && typeof record.confidence === 'number'
     && Array.isArray(record.signals)
     && record.signals.every(item => typeof item === 'string')
-    && record.source === 'mock_rules'
+    && (record.source === 'mock_rules' || record.source === 'ai_guidance_v2')
     && Array.isArray(record.recommendedModulePriorities)
     && record.recommendedModulePriorities.every(item => typeof item === 'string')
     && Array.isArray(record.preferredTemplateIds)
     && record.preferredTemplateIds.every(item => typeof item === 'string')
     && Array.isArray(record.riskFlags)
     && record.riskFlags.every(item => typeof item === 'string')
+}
+
+function classificationFromGuidanceAnalysis(analysis: EncyclopediaGuidanceAnalysisV2): {
+  primaryCategory: string
+  secondaryCategory: string
+  tertiaryCategory: string
+  confidence: number
+  signals: string[]
+} {
+  const classification = analysis.entity.classification
+  return {
+    primaryCategory: classification.l1,
+    secondaryCategory: classification.l2,
+    tertiaryCategory: classification.l3,
+    confidence: classification.confidence,
+    signals: [...new Set([
+      `taxonomy:${classification.taxonomyNodeId}`,
+      `intent:${analysis.intent.primaryIntent}`,
+      ...analysis.intent.secondaryIntents.map(intent => `intent:${intent}`),
+      ...analysis.evidence.democaseIds.map(caseId => `democase:${caseId}`),
+    ])],
+  }
+}
+
+function guidanceClassificationSource(guidance: EncyclopediaEntryGuidance): EncyclopediaClassificationSource {
+  return guidance.metadata.classificationSource === 'ai_guidance_v2' ? 'ai_guidance_v2' : 'mock_rules'
+}
+
+function guidanceAnalysisSnapshot(guidance: EncyclopediaEntryGuidance): EncyclopediaGuidanceAnalysisV2 | null {
+  const value = guidance.metadata.guidanceAnalysis
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  return record.schemaVersion === '2026-07-15.dudesign-encyclopedia-guidance-analysis.v2'
+    ? value as EncyclopediaGuidanceAnalysisV2
+    : null
 }
 
 function encyclopediaModulePriorities(categoryText: string): string[] {
@@ -5007,6 +6149,14 @@ function guidanceDemocaseReferences(guidance: EncyclopediaEntryGuidance): Encycl
       matchedKeywords: item.matchedKeywords,
       summary: item.summary,
     }))
+}
+
+function guidanceDemocaseExperienceProfiles(
+  guidance: EncyclopediaEntryGuidance,
+): EncyclopediaEntryGuidanceResponse['templateRequirements']['businessContext']['democaseExperienceProfiles'] {
+  const value = guidance.metadata.democaseExperienceProfiles
+  if (!Array.isArray(value)) return []
+  return value.filter(isDemocaseExperienceProfileSnapshot)
 }
 
 function guidanceDemocaseMatches(guidance: EncyclopediaEntryGuidance): EncyclopediaDemocaseMatch[] {
@@ -5246,10 +6396,13 @@ function dynamicEncyclopediaTemplateRecommendation(templatePackId: string, categ
 }
 
 function interactionParadigmIdForTemplatePack(templatePackId: string): string | null {
-  const paradigm = listCapabilities().interactionParadigms.find(candidate =>
+  return interactionParadigmForTemplatePack(templatePackId)?.id ?? null
+}
+
+function interactionParadigmForTemplatePack(templatePackId: string): InteractionParadigm | null {
+  return listCapabilities().interactionParadigms.find(candidate =>
     candidate.compatibleTemplatePackIds.includes(templatePackId),
-  )
-  return paradigm?.id ?? null
+  ) ?? null
 }
 
 function stringValue(value: unknown): string | null {
@@ -6271,6 +7424,150 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
   }
 }
 
+function normalizeDynamicEncyclopediaJobInput(input: CreateDesignJobRequest): CreateDesignJobRequest {
+  if (input.productMode !== 'dynamic_encyclopedia_card') return input
+  const preset = DYNAMIC_ENCYCLOPEDIA_PRESET
+  const requested = input.capabilityRequirements
+  const requestedSkillIds = requested?.plugins?.skillIds
+  const requestedMcpToolIds = requested?.plugins?.mcpToolIds
+  const requestedTemplateIds = requested?.template?.designTemplatePackIds
+    ?? input.templateRequirements?.designTemplatePackIds
+
+  assertRequiredCapabilityIds(requestedSkillIds, preset.selectionPolicy.requiredSkillIds, 'REQUIRED_SKILL_REMOVED')
+  assertRequiredCapabilityIds(requestedMcpToolIds, preset.selectionPolicy.requiredMcpToolIds, 'REQUIRED_MCP_TOOL_REMOVED')
+  if (requestedTemplateIds && requestedTemplateIds.length === 0) {
+    throw createHttpError(400, 'DYNAMIC_TEMPLATE_REQUIRED', 'Dynamic encyclopedia jobs require at least one compatible template.')
+  }
+
+  const loopProfileId = requested?.automation?.loopProfileId ?? preset.loopProfileId
+  if (!preset.selectionPolicy.allowedLoopProfileIds.includes(loopProfileId)) {
+    throw createHttpError(400, 'DYNAMIC_LOOP_NOT_ALLOWED', `Loop profile is not allowed for dynamic encyclopedia jobs: ${loopProfileId}`)
+  }
+  const exploration = input.exploration ?? { level: preset.explorationDefaults.level }
+  if (!Number.isFinite(exploration.level) || exploration.level < 0 || exploration.level > 100) {
+    throw createHttpError(400, 'INVALID_EXPLORATION_LEVEL', 'Exploration level must be between 0 and 100.')
+  }
+  const reviewMode = dynamicReviewMode(input, loopProfileId)
+  if (exploration.level >= preset.explorationDefaults.forceReviewAtOrAbove
+    && (reviewMode === 'off' || loopProfileId !== preset.loopProfileId)) {
+    throw createHttpError(
+      409,
+      'EXPERIMENTAL_REVIEW_REQUIRED',
+      'Experimental dynamic encyclopedia exploration requires encyclopedia specification review.',
+    )
+  }
+
+  return {
+    ...input,
+    requirementModuleGraphId: input.requirementModuleGraphId ?? preset.requirementModuleGraphId,
+    exploration,
+    capabilityRequirements: {
+      ...requested,
+      template: {
+        ...requested?.template,
+        domainTemplateId: requested?.template?.domainTemplateId ?? preset.domainTemplateId,
+        designTemplatePackIds: requestedTemplateIds ?? [...preset.designTemplatePackIds],
+        aestheticProfileId: requested?.template?.aestheticProfileId ?? 'aes_topic_interactive_card',
+        colorPaletteId: requested?.template?.colorPaletteId ?? 'pal_minimal_mono',
+      },
+      plugins: {
+        ...requested?.plugins,
+        skillIds: requestedSkillIds ?? [...preset.skillIds],
+        mcpToolIds: requestedMcpToolIds ?? [...preset.mcpToolIds],
+      },
+      automation: {
+        ...requested?.automation,
+        loopProfileId,
+      },
+    },
+  }
+}
+
+function assertRequiredCapabilityIds(
+  requestedIds: string[] | undefined,
+  requiredIds: string[],
+  code: string,
+): void {
+  if (!requestedIds) return
+  const missing = requiredIds.filter(id => !requestedIds.includes(id))
+  if (missing.length > 0) {
+    throw createHttpError(400, code, `Required dynamic encyclopedia capabilities cannot be removed: ${missing.join(', ')}`)
+  }
+}
+
+function createCapabilitySelectionSnapshot(
+  input: CreateDesignJobRequest,
+  capabilitySnapshot: ReturnType<typeof resolveCapabilitySnapshot>,
+  templatePacks: DesignTemplatePack[],
+): CapabilitySelectionSnapshotV1 | null {
+  if (input.productMode !== 'dynamic_encyclopedia_card') return null
+  validateDynamicTemplateSelection(templatePacks)
+  const preset = DYNAMIC_ENCYCLOPEDIA_PRESET
+  const guidanceId = stringValue(input.templateRequirements?.businessContext?.guidanceId)
+  const recommendedTemplateIds = input.templateRequirements?.businessContext?.recommendedTemplateIds ?? []
+  const requestedSourceByCapabilityId = input.templateRequirements?.capabilitySelectionSnapshot?.sourceByCapabilityId ?? {}
+  const sourceByCapabilityId: Record<string, CapabilitySelectionSource> = {}
+
+  for (const template of templatePacks) {
+    sourceByCapabilityId[template.id] = requestedSourceByCapabilityId[template.id] ?? (guidanceId && recommendedTemplateIds.includes(template.id)
+      ? 'entry_guidance'
+      : preset.designTemplatePackIds.includes(template.id)
+        ? 'official_preset'
+        : 'user_override')
+  }
+  for (const skillId of capabilitySnapshot.plugins.skillIds) {
+    sourceByCapabilityId[skillId] = requestedSourceByCapabilityId[skillId]
+      ?? (preset.skillIds.includes(skillId) ? 'official_preset' : 'user_override')
+  }
+  for (const mcpToolId of capabilitySnapshot.plugins.mcpToolIds) {
+    sourceByCapabilityId[mcpToolId] = requestedSourceByCapabilityId[mcpToolId]
+      ?? (preset.mcpToolIds.includes(mcpToolId) ? 'official_preset' : 'user_override')
+  }
+  sourceByCapabilityId[capabilitySnapshot.automation.loopProfile.id] = requestedSourceByCapabilityId[capabilitySnapshot.automation.loopProfile.id]
+    ?? (capabilitySnapshot.automation.loopProfile.id === preset.loopProfileId ? 'official_preset' : 'user_override')
+
+  return {
+    schemaVersion: '2026-07-14.dudesign-capability-selection.v1',
+    presetId: preset.id,
+    guidanceId: guidanceId || null,
+    confirmedAt: new Date().toISOString(),
+    selectedTemplatePackIds: templatePacks.map(template => template.id),
+    selectedSkillIds: [...capabilitySnapshot.plugins.skillIds],
+    selectedMcpToolIds: [...capabilitySnapshot.plugins.mcpToolIds],
+    loopProfileId: capabilitySnapshot.automation.loopProfile.id,
+    reviewMode: dynamicReviewMode(input, capabilitySnapshot.automation.loopProfile.id),
+    explorationRequest: input.exploration ?? { level: preset.explorationDefaults.level },
+    sourceByCapabilityId,
+  }
+}
+
+function validateDynamicTemplateSelection(templatePacks: DesignTemplatePack[]): void {
+  const requiredParentIds = DYNAMIC_ENCYCLOPEDIA_PRESET.selectionPolicy.requiredTemplatePackIds
+  if (templatePacks.length === 0) {
+    throw createHttpError(400, 'DYNAMIC_TEMPLATE_REQUIRED', 'Dynamic encyclopedia jobs require at least one compatible template.')
+  }
+  for (const template of templatePacks) {
+    const belongsToRequiredPackage = requiredParentIds.includes(template.id)
+      || Boolean(template.parentPackId && requiredParentIds.includes(template.parentPackId))
+    if (!belongsToRequiredPackage || !templatePackSupportsProductMode(template, 'dynamic_encyclopedia_card')) {
+      throw createHttpError(400, 'DYNAMIC_TEMPLATE_NOT_ALLOWED', `Template is not part of the dynamic encyclopedia package: ${template.id}`)
+    }
+  }
+}
+
+function dynamicReviewMode(
+  input: CreateDesignJobRequest,
+  loopProfileId: string,
+): 'off' | 'semi_auto' | 'auto' {
+  const reviewMode = input.templateRequirements?.businessContext?.reviewMode
+  if (reviewMode === 'off' || reviewMode === 'semi_auto' || reviewMode === 'auto') return reviewMode
+  const maxRepairAttempts = input.capabilityRequirements?.automation?.maxRepairAttempts
+  if (loopProfileId === DYNAMIC_ENCYCLOPEDIA_PRESET.loopProfileId) {
+    return typeof maxRepairAttempts === 'number' && maxRepairAttempts > 1 ? 'auto' : 'semi_auto'
+  }
+  return 'off'
+}
+
 export type HttpError = Error & {
   status: number
   code: string
@@ -6281,6 +7578,13 @@ export function createHttpError(status: number, code: string, message: string): 
   error.status = status
   error.code = code
   return error
+}
+
+function isRefineOperationConflict(error: unknown): boolean {
+  const record = error as { code?: string; message?: string }
+  return record.code === '23505'
+    || Boolean(record.message?.includes('active refine request'))
+    || Boolean(record.message?.includes('Refine request already exists'))
 }
 
 const WORKSPACE_ROLE_RANK: Record<WorkspaceMemberRole, number> = {

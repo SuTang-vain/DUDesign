@@ -63,6 +63,8 @@ describe('Dynamic encyclopedia spec review', () => {
       <h1>百度百科词条</h1>
       <section>百科概览与关键事实</section>
       <section>时间线 2000 成立 2010 发展 2020 里程碑</section>
+      <button type="button" id="nextPhase">下一阶段</button>
+      <script>document.getElementById('nextPhase').addEventListener('click', function () {});</script>
     </main>
   </body>
 </html>`,
@@ -73,6 +75,55 @@ describe('Dynamic encyclopedia spec review', () => {
 
     assert.equal(report.status, 'pass')
     assert.deepEqual(report.findings, [])
+  })
+
+  it('accepts topic-card semantics without requiring traditional encyclopedia labels', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <section class="member-stage">成员探索舞台与作品关系</section>
+        <button type="button">选择成员 JISOO</button>
+        <button type="button">选择成员 LISA</button>
+        <script>document.querySelector('button').addEventListener('click', function () {});</script>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.required_content_missing'), false)
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.primary_interaction_missing'), false)
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.member_template_mismatch'), false)
+  })
+
+  it('flags a child template that renders unrelated content instead of its primary surface', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <section class="timeline">2016 出道，2020 作品阶段</section>
+        <button type="button">查看阶段</button>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.status, 'warn')
+    assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.member_template_mismatch'))
+  })
+
+  it('warns when a topic card falls back to SaaS proof and conversion structures', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <section class="member-stage">成员探索舞台</section>
+        <div class="proof-row">客户见证与社会证明</div>
+        <button type="button">选择成员</button>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.status, 'warn')
+    assert.ok(report.findings.some(finding => finding.id === 'encyclopedia.marketing_pattern_risk'))
   })
 
   it('does not flag touch-action:none when it only appears in comments or safety notes', () => {
@@ -201,7 +252,7 @@ describe('Dynamic encyclopedia spec review', () => {
     const report = reviewDynamicEncyclopediaSpec({
       html: BASE_HTML(`
         <h1>李白</h1>
-        <section>词条概览：李白是 Tang Dynasty 著名诗人，写过 Quiet Night Thoughts 和 Hard Road To Shu 等作品，享有 Immortal Poet 之美誉。</section>
+        <section>词条概览：李白是 Famous Tang Dynasty Poet，作品常被写成 Quiet Night Thoughts Poem，也被描述为 Great Romantic Chinese Writer。</section>
       `),
       templatePackIds: [SUMMARY_TEMPLATE],
       entryTitle: '李白',
@@ -211,6 +262,49 @@ describe('Dynamic encyclopedia spec review', () => {
     const finding = report.findings.find(item => item.id === 'encyclopedia.excessive_english_phrases')
     assert.ok(finding, 'expected excessive_english_phrases finding')
     assert.equal(finding!.severity, 'warning')
+  })
+
+  it('does not treat quoted work titles as excessive English UI copy', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <section>《Playing with Fire》与《How You Like That》是公开作品名称。</section>
+        <button type="button">选择成员</button>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.excessive_english_phrases'), false)
+  })
+
+  it('does not join repeated member names across adjacent DOM elements into English phrases', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <button type="button"><strong>Jisoo</strong><span>Jisoo</span></button>
+        <button type="button"><strong>Jennie</strong><span>Jennie</span></button>
+        <section class="member-stage">成员探索与团体关系</section>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.excessive_english_phrases'), false)
+  })
+
+  it('accepts a caveated first-event fact without treating it as marketing copy', () => {
+    const report = reviewDynamicEncyclopediaSpec({
+      html: BASE_HTML(`
+        <h1>BLACKPINK</h1>
+        <section>曾举办首个世界巡回演唱会，具体场次与范围待核实。</section>
+        <button type="button">选择成员</button>
+      `),
+      templatePackIds: ['dtp_de_star_group_member_map'],
+      entryTitle: 'BLACKPINK',
+    })
+
+    assert.equal(report.findings.some(finding => finding.id === 'encyclopedia.neutral_tone_risk'), false)
   })
 
   it('detects Cyrillic script as a warning in non-language-category cards', () => {

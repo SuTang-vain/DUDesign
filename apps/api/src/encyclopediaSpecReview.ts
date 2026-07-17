@@ -56,8 +56,14 @@ const ENFORCEMENT: Record<string, 'error' | 'warning' | 'disabled'> = {
   'encyclopedia.global_touch_blocked': 'error',
   'encyclopedia.touch_intercept_risk': 'warning',
   'encyclopedia.required_content_missing': 'warning',
+  'encyclopedia.primary_interaction_missing': 'warning',
+  'encyclopedia.marketing_pattern_risk': 'warning',
   'encyclopedia.neutral_tone_risk': 'warning',
   'encyclopedia.timeline_template_mismatch': 'error',
+  'encyclopedia.member_template_mismatch': 'warning',
+  'encyclopedia.relation_template_mismatch': 'warning',
+  'encyclopedia.compare_template_mismatch': 'warning',
+  'encyclopedia.expandable_template_mismatch': 'warning',
 
   // Stage 1 新增（warning 形态）：禁内部滚动（取代旧的 scroll_container_missing）
   'encyclopedia.no_scroll_frame_required': 'warning',
@@ -144,14 +150,34 @@ export function reviewDynamicEncyclopediaSpec(input: EncyclopediaSpecReviewInput
     message: 'Touch event interception can break iframe scrolling and native page gestures.',
     repairHint: 'Allow normal touch scrolling; if event handling is needed, scope it to precise controls and do not intercept .scroll-container gestures.',
   })
-  addFindingIf(findings, !/(词条|百科|概览|简介|摘要|事实|基本信息|关键事实|时间线|发展|里程碑|相关|来源)/i.test(text), {
+  const hasTopicIdentity = /<h1\b|data-(?:topic|entry)-title|class=["'][^"']*(?:topic|entry)-(?:title|name)/i.test(body)
+  const hasCuratedContent = /<(section|article)\b|class=["'][^"']*(?:timeline|relation|member|fact|compare|detail|story)/i.test(body)
+  addFindingIf(findings, !hasTopicIdentity || !hasCuratedContent, {
     id: 'encyclopedia.required_content_missing',
     source: 'template_rule',
     severity: severityOf('encyclopedia.required_content_missing'),
-    message: 'The artifact does not expose recognizable encyclopedia content structure.',
-    repairHint: 'Add a compact entry title, neutral summary, key facts, and a source/fact hint section suited to the selected child template.',
+    message: 'The artifact does not expose a recognizable topic identity and curated content structure.',
+    repairHint: 'Add a clear topic title plus the selected template\'s primary timeline, relation, member, comparison, or progressive-detail surface. Do not fall back to a long encyclopedia article.',
   })
-  addFindingIf(findings, /全球第一|行业第一|国内第一|唯一|首个|最佳|最强|顶级|领先全球|革命性|颠覆|震撼|必看|完美|无敌|权威认证/i.test(text), {
+  addFindingIf(findings, !/<button\b|role=["'](?:button|tab)["']|<input\b|<select\b|<details\b/i.test(body), {
+    id: 'encyclopedia.primary_interaction_missing',
+    source: 'template_rule',
+    severity: severityOf('encyclopedia.primary_interaction_missing'),
+    message: 'The topic card does not expose a visible primary local interaction.',
+    repairHint: 'Add one meaningful local interaction suited to the assigned template, such as member selection, phase switching, relation filtering, comparison switching, or progressive reveal.',
+  })
+  addFindingIf(findings, /class=["'][^"']*(?:proof-(?:row|block|pill)|testimonial|pricing|cta(?:-|_))/i.test(body)
+    || /(客户见证|社会证明|立即注册|免费试用|价格方案|转化率)/i.test(text), {
+    id: 'encyclopedia.marketing_pattern_risk',
+    source: 'template_rule',
+    severity: severityOf('encyclopedia.marketing_pattern_risk'),
+    message: 'The topic card contains landing-page marketing or conversion patterns.',
+    repairHint: 'Remove proof blocks, testimonials, CTA rhythms, pricing, signup, and conversion language. Use the space for the topic-specific primary interaction.',
+  })
+  const hasFactBoundary = /来源|官方|公开资料|待核实|待补充|资料不足|以.*为准/i.test(text)
+  const strongPromotionalClaim = /全球第一|行业第一|国内第一|最佳|最强|顶级|领先全球|革命性|颠覆|震撼|必看|完美|无敌|权威认证/i.test(text)
+  const unsupportedUniqueClaim = !hasFactBoundary && /唯一|首个/i.test(text)
+  addFindingIf(findings, strongPromotionalClaim || unsupportedUniqueClaim, {
     id: 'encyclopedia.neutral_tone_risk',
     source: 'static_rule',
     severity: severityOf('encyclopedia.neutral_tone_risk'),
@@ -166,6 +192,46 @@ export function reviewDynamicEncyclopediaSpec(input: EncyclopediaSpecReviewInput
       severity: severityOf('encyclopedia.timeline_template_mismatch'),
       message: 'The selected timeline child template needs visible timeline or milestone content.',
       repairHint: 'Add a timeline section with dated or phased milestones; group sparse dates into phases rather than inventing exact dates.',
+    })
+  }
+
+  if (input.templatePackIds.includes('dtp_de_star_group_member_map')) {
+    addFindingIf(findings, !/(成员|member|组合|团体|关系)/i.test(text) || countMatches(body, /<button\b|role=["']button["']/gi) < 2, {
+      id: 'encyclopedia.member_template_mismatch',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.member_template_mismatch'),
+      message: 'The member-map child template needs a visible member selection surface with relationship context.',
+      repairHint: 'Add at least two local member selectors and a bounded detail panel that explains the selected member\'s role in the group or relationship map.',
+    })
+  }
+
+  if (input.templatePackIds.includes('dtp_dynamic_encyclopedia_relation_card')) {
+    addFindingIf(findings, !/(关系|关联|关系图|网络|节点|relation|network)/i.test(text), {
+      id: 'encyclopedia.relation_template_mismatch',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.relation_template_mismatch'),
+      message: 'The relation child template needs visible relationship or network content.',
+      repairHint: 'Add labeled relationship nodes or edges and one local relation filter/selection interaction; do not replace the graph with unrelated summary sections.',
+    })
+  }
+
+  if (input.templatePackIds.includes('dtp_dynamic_encyclopedia_compare_card')) {
+    addFindingIf(findings, !/(对比|比较|差异|相同|维度|矩阵|compare)/i.test(text), {
+      id: 'encyclopedia.compare_template_mismatch',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.compare_template_mismatch'),
+      message: 'The comparison child template needs a visible comparison dimension or difference surface.',
+      repairHint: 'Add two or more comparable entities and explicit labeled dimensions or differences with a local switch/highlight interaction.',
+    })
+  }
+
+  if (input.templatePackIds.includes('dtp_dynamic_encyclopedia_expandable_card')) {
+    addFindingIf(findings, !/(展开|收起|详情|更多|事实|accordion|aria-expanded)/i.test(text), {
+      id: 'encyclopedia.expandable_template_mismatch',
+      source: 'template_rule',
+      severity: severityOf('encyclopedia.expandable_template_mismatch'),
+      message: 'The expandable child template needs a visible bounded progressive-disclosure surface.',
+      repairHint: 'Add concise expandable fact sections with a local expanded state; keep the expanded content inside the fixed card without scrolling.',
     })
   }
 
@@ -407,8 +473,24 @@ function applyStage1ChineseOnlyRules(
   })
 
   // 4) 连续 2+ 词首字母大写的英文短语（疑似过度使用外语，非专有名词）
+  // Quoted work titles are proper nouns, not English UI copy. Remove quoted
+  // spans before counting multi-word phrases to avoid flagging song/film/book
+  // names such as 《Playing with Fire》 or “How You Like That”.
   const proseWithoutTags = stripTags(bodyHtml)
-  const excessiveEnglish = countMatches(proseWithoutTags, /\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,}/g)
+    .replace(/《[^》]*》/g, ' ')
+    .replace(/[“”"'][^“”"']*[“”"']/g, ' ')
+  // Two-word title-cased names are overwhelmingly organizations, people,
+  // groups, brands, or works (for example Red Velvet or Interscope Records).
+  // Leave those to the Chinese-share and explicit UI-phrase rules; this
+  // heuristic targets longer English prose/UI fragments only.
+  const englishPhraseMatches = proseWithoutTags.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){2,}/g) ?? []
+  const excessiveEnglish = englishPhraseMatches.filter(phrase => {
+    const words = phrase.trim().split(/\s+/).map(word => word.toLocaleLowerCase())
+    // Repeated proper names can become adjacent after HTML tags are removed,
+    // e.g. a member button label followed by its detail heading. That is not
+    // an English UI phrase and must not consume the language warning budget.
+    return new Set(words).size > 1
+  }).length
   addFindingIf(findings, excessiveEnglish >= 2, {
     id: 'encyclopedia.excessive_english_phrases',
     source: 'static_rule',

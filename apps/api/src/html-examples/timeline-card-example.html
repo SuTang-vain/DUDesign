@@ -1,0 +1,2164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>孙綝 · 五阶段人物生平与人物关系</title>
+    <style>
+      /* ===== Cosmic design tokens（对齐 cosmic-lab 组件库） ===== */
+      :root {
+        --primary: #4e6ef2;
+        --primary-hover: #4662d9;
+        --primary-light: rgba(78, 110, 242, 0.1);
+        --primary-tint: rgba(78, 110, 242, 0.16);
+        --bg-white: #ffffff;
+        --bg-dent: #f5f6fa;
+        --text-main: #1e1f24;
+        --text-minor: #848691;
+        --text-tiny: #b7b9c1;
+        --border-light: rgba(30, 31, 36, 0.08);
+        --shadow-sm: 0 2px 8px rgba(30, 31, 36, 0.06);
+        --shadow-md: 0 6px 20px rgba(30, 31, 36, 0.12);
+        --shadow-lg: 0 12px 36px rgba(30, 31, 36, 0.16);
+        --radius-xs: 6px;
+        --radius-sm: 9px;
+        --radius-md: 12px;
+        --radius-lg: 15px;
+        /* 关系类型配色 */
+        --rel-family: #d94b4b;
+        --rel-ruler: #c8a35a;
+        --rel-ally: #3fae74;
+        --rel-enemy: #55585f;
+        --rel-plot: #e8720c;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        color: var(--text-main);
+      }
+      body {
+        display: block;
+      }
+      button {
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-family: inherit;
+        color: inherit;
+      }
+      img {
+        display: block;
+        -webkit-user-drag: none;
+        user-drag: none;
+      }
+
+      #app-container {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--radius-lg);
+        background: var(--bg-white);
+        box-shadow: none;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ========== 顶部：事件简介 ========== */
+      .event-intro {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: linear-gradient(180deg, #ffffff 0%, var(--bg-dent) 100%);
+        border-bottom: 1px solid var(--border-light);
+      }
+      .intro-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: var(--radius-md);
+        object-fit: cover;
+        flex-shrink: 0;
+        border: 1px solid var(--border-light);
+        box-shadow: var(--shadow-sm);
+      }
+      .intro-text {
+        min-width: 0;
+        flex: 1;
+      }
+      .intro-title-line {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .intro-name {
+        font-size: 18px;
+        font-weight: 800;
+        color: var(--text-main);
+        line-height: 1.15;
+      }
+      .intro-period {
+        font-size: 12px;
+        color: var(--primary);
+        font-weight: 700;
+        background: var(--primary-light);
+        padding: 2px 8px;
+        border-radius: var(--radius-xs);
+      }
+      .intro-summary {
+        margin-top: 5px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text-minor);
+        font-weight: 500;
+      }
+      .intro-index {
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-tiny);
+        align-self: flex-start;
+        white-space: nowrap;
+      }
+      .intro-index b {
+        color: var(--primary);
+        font-size: 16px;
+      }
+
+      /* ========== 中部：人物关系图谱 ========== */
+      .graph-wrap {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            circle at 50% 42%,
+            rgba(78, 110, 242, 0.05),
+            transparent 60%
+          ),
+          var(--bg-white);
+      }
+      /* 图例 */
+      .graph-legend {
+        position: absolute;
+        top: 10px;
+        left: 12px;
+        z-index: 30;
+        display: flex;
+        gap: 12px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        font-size: 11px;
+        color: var(--text-minor);
+        background: rgba(255, 255, 255, 0.85);
+        padding: 6px 12px;
+        border-radius: var(--radius-md);
+        backdrop-filter: blur(8px);
+        box-shadow: var(--shadow-sm);
+        pointer-events: none;
+        border: 1px solid var(--border-light);
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      .lg-svg {
+        flex-shrink: 0;
+        display: block;
+      }
+      .lg-svg line {
+        stroke-width: 3.2;
+      }
+      .lg-svg.family line {
+        stroke: var(--rel-family);
+      }
+      .lg-svg.ruler line {
+        stroke: var(--rel-ruler);
+        stroke-dasharray: 7 5;
+      }
+      .lg-svg.ally line {
+        stroke: var(--rel-ally);
+        stroke-dasharray: 14 6;
+      }
+      .lg-svg.enemy line {
+        stroke: var(--rel-enemy);
+        stroke-dasharray: 9 4 2 4;
+      }
+
+      .graph-canvas {
+        position: absolute;
+        inset: 0;
+      }
+      svg.edges {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .edge {
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        transition: opacity 0.25s;
+      }
+      .edge.family {
+        stroke: var(--rel-family);
+        opacity: 0.72;
+      }
+      .edge.ruler {
+        stroke: var(--rel-ruler);
+        stroke-dasharray: 7 5;
+        opacity: 0.8;
+      }
+      .edge.ally {
+        stroke: var(--rel-ally);
+        stroke-dasharray: 13 6;
+        opacity: 0.68;
+      }
+      .edge.enemy {
+        stroke: var(--rel-enemy);
+        stroke-dasharray: 9 4 2 4;
+        opacity: 0.55;
+      }
+      .edge-label {
+        font-size: 11px;
+        font-weight: 700;
+        fill: var(--text-minor);
+        pointer-events: none;
+        transition: opacity 0.25s;
+      }
+      .edge-label-bg {
+        fill: #fff;
+        stroke: var(--border-light);
+        stroke-width: 1;
+        transition: opacity 0.25s;
+      }
+      .edge.dim,
+      .edge-label.dim,
+      .edge-label-bg.dim {
+        opacity: 0.06 !important;
+      }
+      .edge.hl {
+        opacity: 1 !important;
+        stroke-width: 3;
+      }
+      .edge-label.hl {
+        opacity: 1 !important;
+        fill: var(--text-main);
+      }
+      .edge-label-bg.hl {
+        opacity: 1 !important;
+        stroke: rgba(78, 110, 242, 0.35);
+      }
+      /* 无处安放的连线标签：彻底隐藏（优先级最高，压过 hl/dim） */
+      .edge-label.lbl-hide,
+      .edge-label-bg.lbl-hide {
+        opacity: 0 !important;
+      }
+
+      .node {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        cursor: pointer;
+        touch-action: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        z-index: 2;
+        will-change: left, top;
+        transition:
+          left 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+          top 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .node.dragging-now {
+        transition: none;
+      }
+      .node.grabbing {
+        cursor: grabbing;
+        z-index: 20;
+      }
+      .node .float-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        will-change: transform;
+        animation-name: floatMotion;
+        animation-iteration-count: infinite;
+        animation-timing-function: ease-in-out;
+        animation-direction: alternate;
+      }
+      .node.grabbing .float-inner {
+        animation-play-state: paused;
+      }
+      @keyframes floatMotion {
+        0% {
+          transform: translate(0, 0);
+        }
+        50% {
+          transform: translate(0.5px, -1.5px);
+        }
+        100% {
+          transform: translate(-0.5px, 1px);
+        }
+      }
+      .node .avatar {
+        position: relative;
+        width: 66px;
+        height: 66px;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        background-size: cover;
+        background-position: center top;
+        background-color: #eee;
+        /* 头像本身持续“呼吸”脉冲光环，提示可点击（含基础投影） */
+        box-shadow:
+          0 4px 14px rgba(30, 31, 36, 0.18),
+          0 0 0 0 rgba(78, 110, 242, 0.45);
+        animation: avatarBreath 2.4s ease-out infinite;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+      }
+      .node .avatar::after {
+        content: none;
+      }
+      .node.big .avatar {
+        width: 84px;
+        height: 84px;
+        border-width: 4px;
+      }
+      /* 错开各头像的呼吸节奏，视觉更自然 */
+      .node:nth-child(2) .avatar {
+        animation-delay: -0.5s;
+      }
+      .node:nth-child(3) .avatar {
+        animation-delay: -1s;
+      }
+      .node:nth-child(4) .avatar {
+        animation-delay: -1.5s;
+      }
+      .node:nth-child(5) .avatar {
+        animation-delay: -0.8s;
+      }
+      .node:nth-child(6) .avatar {
+        animation-delay: -1.8s;
+      }
+      @keyframes avatarBreath {
+        0% {
+          box-shadow:
+            0 4px 14px rgba(30, 31, 36, 0.18),
+            0 0 0 0 rgba(78, 110, 242, 0.45);
+        }
+        70% {
+          box-shadow:
+            0 4px 14px rgba(30, 31, 36, 0.18),
+            0 0 0 12px rgba(78, 110, 242, 0);
+        }
+        100% {
+          box-shadow:
+            0 4px 14px rgba(30, 31, 36, 0.18),
+            0 0 0 0 rgba(78, 110, 242, 0);
+        }
+      }
+      .node .name {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-main);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 1px 8px;
+        border-radius: var(--radius-xs);
+        white-space: nowrap;
+        box-shadow: 0 1px 3px rgba(30, 31, 36, 0.08);
+      }
+      .node .role-chip {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-minor);
+        white-space: nowrap;
+        margin-top: -1px;
+      }
+      /* 悬停/拖拽/选中：停掉呼吸，改为静态高亮环 */
+      .node:hover .avatar,
+      .node.grabbing .avatar {
+        animation: none;
+        transform: scale(1.08);
+        box-shadow:
+          0 0 0 3px var(--primary-tint),
+          0 6px 18px rgba(30, 31, 36, 0.25);
+      }
+      .node.active .avatar {
+        animation: none;
+        box-shadow:
+          0 0 0 4px var(--primary-tint),
+          0 6px 18px rgba(30, 31, 36, 0.25);
+      }
+      .node.dim {
+        opacity: 0.32;
+      }
+      /* 图谱操作提示：一眼看出头像可点击（首次交互后淡出） */
+      .graph-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--primary);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(78, 110, 242, 0.28);
+        padding: 5px 12px;
+        border-radius: 20px;
+        box-shadow: var(--shadow-sm);
+        pointer-events: none;
+        white-space: nowrap;
+        transition: opacity 0.4s;
+      }
+      .graph-hint.hide {
+        opacity: 0;
+      }
+      .graph-hint .gh-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--primary);
+        box-shadow: 0 0 0 0 rgba(78, 110, 242, 0.5);
+        animation: ghPulse 1.6s ease-out infinite;
+      }
+      @keyframes ghPulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(78, 110, 242, 0.5);
+        }
+        70% {
+          box-shadow: 0 0 0 8px rgba(78, 110, 242, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(78, 110, 242, 0);
+        }
+      }
+      /* ========== 人物详情弹窗 ========== */
+      .modal-overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(20, 22, 30, 0.5);
+        backdrop-filter: blur(3px);
+        z-index: 100;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+      .modal-overlay.active {
+        display: flex;
+      }
+      .modal-content {
+        background: var(--bg-white);
+        border-radius: var(--radius-lg);
+        width: 380px;
+        max-width: 100%;
+        max-height: 100%;
+        overflow: hidden;
+        transform: scale(0.92);
+        opacity: 0;
+        transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        box-shadow: var(--shadow-lg);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+      .modal-overlay.active .modal-content {
+        transform: scale(1);
+        opacity: 1;
+      }
+      .modal-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 18px 18px 14px;
+        background: linear-gradient(
+          135deg,
+          rgba(78, 110, 242, 0.1),
+          rgba(78, 110, 242, 0.02)
+        );
+      }
+      .modal-avatar {
+        width: 62px;
+        height: 62px;
+        border-radius: 14px;
+        object-fit: cover;
+        object-position: center top;
+        flex-shrink: 0;
+        border: 2px solid #fff;
+        box-shadow: var(--shadow-sm);
+      }
+      .modal-head-info {
+        min-width: 0;
+        flex: 1;
+      }
+      .modal-person-name {
+        font-size: 18px;
+        font-weight: 800;
+        color: var(--text-main);
+        line-height: 1.2;
+      }
+      .modal-person-role {
+        font-size: 12px;
+        color: var(--primary);
+        font-weight: 700;
+        margin-top: 3px;
+      }
+      .modal-rel-tag {
+        display: inline-block;
+        margin-top: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        padding: 2px 10px;
+        border-radius: 20px;
+      }
+      .modal-close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.7);
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        color: var(--text-minor);
+        z-index: 2;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.2s;
+      }
+      .modal-close:hover {
+        background: #fff;
+        color: var(--text-main);
+      }
+      .modal-body {
+        padding: 14px 18px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .modal-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-minor);
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .modal-section-title::before {
+        content: "";
+        width: 3px;
+        height: 12px;
+        border-radius: 2px;
+        background: var(--primary);
+      }
+      .modal-section-text {
+        margin-top: 5px;
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--text-main);
+      }
+      .modal-section:nth-child(2) .modal-section-title::before {
+        background: var(--rel-plot);
+      }
+
+      /* ========== 底部：事件切换按钮 ========== */
+      .event-bar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px 12px;
+        border-top: 1px solid var(--border-light);
+        background: linear-gradient(0deg, #ffffff 0%, var(--bg-dent) 100%);
+      }
+      .bar-arrow {
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--bg-white);
+        border: 1px solid var(--border-light);
+        color: var(--primary);
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.2s;
+      }
+      .bar-arrow:hover:not(:disabled) {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+      }
+      .bar-arrow:active:not(:disabled) {
+        transform: scale(0.92);
+      }
+      .bar-arrow:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+      .event-btns {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        scroll-behavior: smooth;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        padding: 2px;
+      }
+      .event-btns::-webkit-scrollbar {
+        display: none;
+      }
+      .event-btn {
+        position: relative;
+        flex: 0 0 auto;
+        scroll-snap-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1px;
+        padding: 7px 14px;
+        border-radius: var(--radius-md);
+        background: var(--bg-white);
+        border: 1px solid rgba(78, 110, 242, 0.28);
+        box-shadow: var(--shadow-sm);
+        transition: all 0.2s;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .event-btn .eb-name {
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--text-main);
+        line-height: 1.2;
+      }
+      .event-btn .eb-year {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-minor);
+        line-height: 1.1;
+      }
+      .event-btn:hover:not(.active) {
+        border-color: var(--primary);
+        background: var(--primary-light);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(78, 110, 242, 0.16);
+      }
+      .event-btn:active {
+        transform: scale(0.96);
+      }
+      .event-btn.active {
+        background: var(--primary);
+        border-color: var(--primary);
+        box-shadow: 0 6px 14px rgba(78, 110, 242, 0.28);
+      }
+      .event-btn.active .eb-name {
+        color: #fff;
+      }
+      .event-btn.active .eb-year {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      /* PC端：7个tab按钮自动布满容器 */
+      @media (min-width: 769px) {
+        .event-btns {
+          display: flex;
+          justify-content: space-between;
+          gap: 6px;
+          overflow-x: visible;
+        }
+        .event-btn {
+          flex: 1 1 0;
+          min-width: 0;
+          padding: 7px 8px;
+          align-items: center;
+          text-align: center;
+        }
+        .event-btn .eb-name {
+          font-size: 13px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
+        }
+        .event-btn .eb-year {
+          font-size: 10px;
+        }
+      }
+
+      /* 移动端：底部滑动提示箭头（右侧脉冲，滑到底自动隐藏） */
+      .swipe-hint {
+        display: none;
+      }
+      @media (max-width: 480px), (max-height: 480px) {
+        .swipe-hint {
+          position: absolute;
+          right: 6px;
+          bottom: 14px;
+          z-index: 8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background: rgba(78, 110, 242, 0.94);
+          box-shadow: 0 3px 12px rgba(78, 110, 242, 0.5);
+          color: #fff;
+          font-size: 16px;
+          pointer-events: none;
+          animation: swipeNudge 1.4s ease-in-out infinite;
+          transition: opacity 0.4s;
+        }
+        .swipe-hint.hide {
+          opacity: 0;
+        }
+      }
+      @keyframes swipeNudge {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        50% {
+          transform: translateX(5px);
+        }
+      }
+      /* ========== 移动端 / 小屏适配 ========== */
+      @media (max-width: 480px), (max-height: 480px) {
+        #app-container {
+          border-radius: 12px;
+        }
+        .event-intro {
+          padding: 9px 12px;
+          gap: 9px;
+        }
+        .intro-icon {
+          width: 38px;
+          height: 38px;
+        }
+        .intro-name {
+          font-size: 16px;
+        }
+        .intro-period {
+          font-size: 11px;
+          padding: 1px 6px;
+        }
+        .intro-summary {
+          font-size: 12px;
+          line-height: 1.4;
+          margin-top: 3px;
+        }
+        .intro-index {
+          display: none;
+        }
+        .graph-legend {
+          left: 8px;
+          right: 8px;
+          top: 8px;
+          justify-content: space-between;
+          gap: 4px;
+          padding: 5px 8px;
+          font-size: 11px;
+        }
+        .lg-svg {
+          width: 20px;
+        }
+        .node .avatar {
+          width: 52px;
+          height: 52px;
+          border-width: 2px;
+        }
+        .node.big .avatar {
+          width: 66px;
+          height: 66px;
+          border-width: 3px;
+        }
+        .node .name {
+          font-size: 11px;
+          padding: 1px 6px;
+        }
+        .node .role-chip {
+          display: none;
+        }
+        .event-bar {
+          padding: 8px 8px 10px;
+          gap: 5px;
+        }
+        .bar-arrow {
+          display: none;
+        }
+        .event-btns {
+          gap: 6px;
+        }
+        .event-btn {
+          padding: 6px 12px;
+        }
+        .modal-content {
+          width: 320px;
+        }
+        .modal-head {
+          padding: 16px 16px 12px;
+          gap: 12px;
+        }
+        .modal-avatar {
+          width: 54px;
+          height: 54px;
+        }
+        .modal-person-name {
+          font-size: 16px;
+        }
+        .modal-body {
+          padding: 12px 16px 16px;
+          gap: 10px;
+        }
+        .modal-section-text {
+          font-size: 12px;
+          line-height: 1.6;
+        }
+      }
+      @media (max-width: 320px), (max-height: 365px) {
+        .event-intro {
+          padding: 7px 10px;
+          gap: 7px;
+        }
+        .intro-icon {
+          width: 32px;
+          height: 32px;
+        }
+        .intro-name {
+          font-size: 14px;
+        }
+        .intro-summary {
+          font-size: 11px;
+          line-height: 1.4;
+        }
+        .node .avatar {
+          width: 42px;
+          height: 42px;
+        }
+        .node.big .avatar {
+          width: 54px;
+          height: 54px;
+        }
+        .node .name {
+          font-size: 11px;
+          padding: 0 5px;
+        }
+        .event-btn .eb-name {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: 10px;
+        }
+        .event-btn .eb-year {
+          display: none;
+        }
+        .event-btns {
+          display: flex;
+          gap: 3px;
+          overflow: hidden;
+        }
+        .event-btn {
+          flex: 1 1 0;
+          min-width: 0;
+          padding: 5px 2px;
+        }
+        .modal-content {
+          width: 268px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-container">
+      <!-- 顶部：事件简介 -->
+      <div class="event-intro" id="eventIntro"></div>
+
+      <!-- 中部：人物关系图谱 -->
+      <div class="graph-wrap" id="graphWrap">
+        <div class="graph-legend">
+          <div class="legend-item">
+            <svg class="lg-svg family" width="26" height="8">
+              <line x1="1" y1="4" x2="25" y2="4" /></svg
+            >亲族
+          </div>
+          <div class="legend-item">
+            <svg class="lg-svg ruler" width="26" height="8">
+              <line x1="1" y1="4" x2="25" y2="4" /></svg
+            >倚任
+          </div>
+          <div class="legend-item">
+            <svg class="lg-svg ally" width="26" height="8">
+              <line x1="1" y1="4" x2="25" y2="4" /></svg
+            >同盟
+          </div>
+          <div class="legend-item">
+            <svg class="lg-svg enemy" width="26" height="8">
+              <line x1="1" y1="4" x2="25" y2="4" /></svg
+            >对立
+          </div>
+        </div>
+        <div class="graph-canvas" id="graphCanvas">
+          <svg class="edges" id="graphEdges"></svg>
+        </div>
+        <div class="graph-hint" id="graphHint">
+          <span class="gh-dot"></span>点击头像查看人物详情，可拖动
+        </div>
+      </div>
+
+      <!-- 底部：事件切换按钮 -->
+      <div class="event-bar">
+        <button class="bar-arrow" id="barPrev" title="上一个事件">‹</button>
+        <div class="event-btns" id="eventBtns"></div>
+        <button class="bar-arrow" id="barNext" title="下一个事件">›</button>
+        <div class="swipe-hint" id="swipeHint" aria-hidden="true">›</div>
+      </div>
+
+      <!-- 人物详情弹窗 -->
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-content">
+          <button class="modal-close" id="modalClose">✕</button>
+          <div class="modal-head">
+            <img class="modal-avatar" id="modalAvatar" alt="" />
+            <div class="modal-head-info">
+              <div class="modal-person-name" id="modalName"></div>
+              <div class="modal-person-role" id="modalRole"></div>
+              <span class="modal-rel-tag" id="modalRelTag"></span>
+            </div>
+          </div>
+          <div class="modal-body">
+            <div class="modal-section">
+              <div class="modal-section-title">在本事件中的作为</div>
+              <div class="modal-section-text" id="modalDeed"></div>
+            </div>
+            <div class="modal-section">
+              <div class="modal-section-title">影响</div>
+              <div class="modal-section-text" id="modalImpact"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      /* ========= 关系类型 ========= */
+      const REL = {
+        family: { name: "亲族", color: "var(--rel-family)" },
+        ruler: { name: "倚任", color: "var(--rel-ruler)" },
+        ally: { name: "同盟", color: "var(--rel-ally)" },
+        enemy: { name: "对立", color: "var(--rel-enemy)" },
+      };
+
+      const events = [
+        {
+          "name": "峻死继柄",
+          "year": "256年",
+          "period": "武卫将军",
+          "image": "./images/峻死继柄.webp",
+          "summary": "孙綝为孙坚弟孙静曾孙，与权臣孙峻为从兄弟。太平元年九月孙峻北伐途中卒，托后事于二十六岁的偏将军孙綝。朝廷命孙綝侍中兼武卫将军、领中外诸军事，代理朝政，召还前线军队。",
+          "summaryShort": "孙峻卒，綝继其权。",
+          "people": [
+            {
+              "name": "孙綝",
+              "px": 50,
+              "py": 65,
+              "role": "武卫将军",
+              "avatar": "./images/孙綝.webp",
+              "big": true,
+              "deed": "孙峻卒后受托，领中外诸军事，代理朝政。",
+              "impact": "年仅二十六岁，执掌东吴大权。"
+            },
+            {
+              "name": "孙峻",
+              "px": 78,
+              "py": 22,
+              "role": "权臣",
+              "avatar": "./images/孙峻.webp",
+              "rel": "family",
+              "deed": "北伐途中卒，将后事托付孙綝。",
+              "impact": "孙綝从兄，前代权臣。"
+            }
+          ],
+          "links": []
+        },
+        {
+          "name": "讨吕灭胤",
+          "year": "256年",
+          "period": "大将军",
+          "image": "./images/讨吕灭胤.webp",
+          "summary": "吕据、滕胤等联名推滕胤为相以分孙綝之权，吕据返建业谋变。孙綝遣孙宪、丁奉等拒吕据，围杀滕胤灭其三族，吕据新州自杀亦诛三族。后孙宪因待遇不满谋诛孙綝，被逼迫服药自杀。",
+          "summaryShort": "灭吕据滕胤，诛孙宪。",
+          "people": [
+            {
+              "name": "孙綝",
+              "px": 50,
+              "py": 66,
+              "role": "大将军",
+              "avatar": "./images/孙綝.webp",
+              "big": true,
+              "deed": "攻灭吕据、滕胤，又逼死从兄孙宪。",
+              "impact": "暂控局面，封永宁侯。"
+            },
+            {
+              "name": "吕据",
+              "px": 18,
+              "py": 28,
+              "role": "骠骑将军",
+              "avatar": "./images/吕据.webp",
+              "rel": "enemy",
+              "deed": "闻孙綝掌权大怒，返建业谋变，终自杀。",
+              "impact": "讨綝主将，灭族。"
+            },
+            {
+              "name": "滕胤",
+              "px": 18,
+              "py": 72,
+              "role": "大司马",
+              "avatar": "./images/滕胤.webp",
+              "rel": "enemy",
+              "deed": "与吕据密谋讨孙綝，被围杀，灭三族。",
+              "impact": "孙綝初政之敌。"
+            },
+            {
+              "name": "丁奉",
+              "px": 78,
+              "py": 22,
+              "role": "右将军",
+              "avatar": "./images/丁奉.webp",
+              "rel": "ally",
+              "deed": "与孙宪等率舟兵抵御吕据大军。",
+              "impact": "此时佐綝平乱。"
+            },
+            {
+              "name": "孙宪",
+              "px": 78,
+              "py": 72,
+              "role": "右将军",
+              "avatar": "./images/孙宪.webp",
+              "rel": "family",
+              "deed": "助平吕据后待遇不满，谋诛孙綝被逼死。",
+              "impact": "孙綝从兄，功高见忌。"
+            }
+          ],
+          "links": [
+            { "a": "吕据", "b": "滕胤", "type": "ally", "label": "讨綝" },
+            { "a": "丁奉", "b": "孙宪", "type": "ally", "label": "平乱" }
+          ]
+        },
+        {
+          "name": "寿春失利",
+          "year": "257年",
+          "period": "永宁侯",
+          "image": "./images/寿春失利.webp",
+          "summary": "诸葛诞寿春叛魏求援，孙綝遣文钦等救之，朱异屡战大败。孙綝怒召朱异，陆抗劝止未果，朱异坚持往见被拉杀。寿春终陷，诸葛诞被杀，孙綝退兵建业，朝野愤恨。",
+          "summaryShort": "救寿春败，杀朱异。",
+          "people": [
+            {
+              "name": "孙綝",
+              "px": 50,
+              "py": 65,
+              "role": "永宁侯",
+              "avatar": "./images/孙綝.webp",
+              "big": true,
+              "deed": "寿春救援不成，怒杀大将朱异，大失人心。",
+              "impact": "权臣专横，怨声载道。"
+            },
+            {
+              "name": "朱异",
+              "px": 78,
+              "py": 22,
+              "role": "大都督",
+              "avatar": "./images/朱异.webp",
+              "rel": "ally",
+              "deed": "率军救寿春屡败，被孙綝召见后拉杀。",
+              "impact": "吴国重将，冤死。"
+            }
+          ],
+          "links": []
+        },
+        {
+          "name": "废亮立休",
+          "year": "258年",
+          "period": "丞相",
+          "image": "./images/废亮立休.webp",
+          "summary": "孙亮亲政问责孙綝，谋诛事泄。孙綝夜擒全尚、杀刘丞，围宫废孙亮为会稽王，迎琅邪王孙休即位。孙綝一门五侯，掌禁军，权逾皇帝。孙休表面褒赏，实则提防。",
+          "summaryShort": "废亮迎休，五侯专权。",
+          "people": [
+            {
+              "name": "孙綝",
+              "px": 50,
+              "py": 65,
+              "role": "丞相",
+              "avatar": "./images/孙綝.webp",
+              "big": true,
+              "deed": "废孙亮，立孙休，一门五侯权倾朝野。",
+              "impact": "擅行废立，权臣极盛。"
+            },
+            {
+              "name": "孙亮",
+              "px": 18,
+              "py": 28,
+              "role": "吴帝",
+              "avatar": "./images/孙亮.webp",
+              "rel": "enemy",
+              "deed": "亲政谋诛孙綝，事泄被废为会稽王。",
+              "impact": "孙綝所废之君。"
+            },
+            {
+              "name": "孙休",
+              "px": 18,
+              "py": 72,
+              "role": "吴帝",
+              "avatar": "./images/孙休.webp",
+              "rel": "ruler",
+              "deed": "被孙綝迎立为帝，表面褒赏实则提防。",
+              "impact": "孙綝所立之君，后诛綝。"
+            },
+            {
+              "name": "全公主",
+              "px": 78,
+              "py": 22,
+              "role": "公主",
+              "avatar": "./images/全公主.webp",
+              "rel": "ally",
+              "deed": "向孙綝密报孙亮诛綝之谋。",
+              "impact": "孙綝外甥女，告密关键。"
+            }
+          ],
+          "links": [
+            { "a": "孙亮", "b": "孙休", "type": "family", "label": "易位" }
+          ]
+        },
+        {
+          "name": "腊祭伏诛",
+          "year": "259年",
+          "period": "故綝",
+          "image": "./images/腊祭伏诛.webp",
+          "summary": "孙休密与丁奉、张布谋，于腊祭宴会擒杀孙綝。孙綝求流交州、愿为官奴皆不许，斩首示众，时年二十八。弟孙闿北降魏途中被杀，夷三族。孙休削峻綝宗族名，为滕胤等平反。",
+          "summaryShort": "腊祭被诛，夷灭三族。",
+          "people": [
+            {
+              "name": "孙綝",
+              "px": 50,
+              "py": 63,
+              "role": "丞相",
+              "avatar": "./images/孙綝.webp",
+              "big": true,
+              "deed": "腊祭宴上为丁奉、张布所擒，斩首示众。",
+              "impact": "权臣末路，年仅二十八。"
+            },
+            {
+              "name": "孙休",
+              "px": 78,
+              "py": 22,
+              "role": "吴帝",
+              "avatar": "./images/孙休.webp",
+              "rel": "ruler",
+              "deed": "密谋腊祭诛孙綝，夷其三族。",
+              "impact": "孙綝所立之君，终除之。"
+            },
+            {
+              "name": "丁奉",
+              "px": 18,
+              "py": 28,
+              "role": "左将军",
+              "avatar": "./images/丁奉.webp",
+              "rel": "enemy",
+              "deed": "与张布定计，腊祭宴上捆绑诛杀孙綝。",
+              "impact": "诛綝执行者。"
+            },
+            {
+              "name": "张布",
+              "px": 18,
+              "py": 72,
+              "role": "左将军",
+              "avatar": "./images/张布.webp",
+              "rel": "enemy",
+              "deed": "闻孙綝怨言告孙休，与丁奉共谋伏诛。",
+              "impact": "诛綝主谋之一。"
+            }
+          ],
+          "links": [
+            { "a": "丁奉", "b": "张布", "type": "ally", "label": "诛綝" }
+          ]
+        }
+      ];
+      let currentIndex = 0;
+      let modalOpenKey = null;
+      const isMobile = () =>
+        window.innerWidth <= 480 || window.innerHeight <= 480;
+
+      const graphWrap = document.getElementById("graphWrap");
+      const graphCanvas = document.getElementById("graphCanvas");
+      const graphEdges = document.getElementById("graphEdges");
+      const SVGNS = "http://www.w3.org/2000/svg";
+
+      let bounds = { w: 0, h: 0 };
+      let nodeState = {}; // name -> {x,y,el,inner}
+      let edgeEls = []; // {path, bg, text, a, b}
+      const LABEL_H = 16; // 连线标签高度（含内边距）
+
+      /* 动态测量图例占用区（画布坐标），桌面端仅避让左上角区域，移动端整条横幅 */
+      function getLegendMetrics() {
+        const fallback = 38;
+        const legendEl = document.querySelector(".graph-legend");
+        if (!legendEl) {
+          return { left: 0, right: 0, bottom: fallback, clearY: fallback };
+        }
+        const style = getComputedStyle(legendEl);
+        if (style.display === "none" || style.visibility === "hidden") {
+          return { left: 0, right: 0, bottom: fallback, clearY: fallback };
+        }
+        const lr = legendEl.getBoundingClientRect();
+        const gr = graphWrap.getBoundingClientRect();
+        if (lr.height <= 0) {
+          return { left: 0, right: 0, bottom: fallback, clearY: fallback };
+        }
+        const bottom = Math.max(0, lr.bottom - gr.top);
+        const left = Math.max(0, lr.left - gr.left);
+        const right = Math.min(bounds.w || gr.width, lr.right - gr.left);
+        return { left, right, bottom, clearY: bottom + 10 };
+      }
+
+      function nodeExtents(name, people) {
+        const p = people.find((pp) => pp.name === name);
+        const { av, big, nf } = avatarSizes();
+        const aw = p?.big ? big : av;
+        const nameW = name.length * nf * 0.95 + 14;
+        return [Math.max(aw, nameW) / 2, (aw + nf + 12) / 2];
+      }
+
+      function nodeInLegendZone(x, y, ext, legend, mob) {
+        if (y - ext[1] >= legend.clearY) return false;
+        if (mob) return true;
+        const left = x - ext[0];
+        const right = x + ext[0];
+        return right > legend.left && left < legend.right;
+      }
+
+      function minCenterY(x, ext, legend, mob) {
+        let topClear = 4;
+        if (mob) topClear = Math.max(topClear, legend.clearY);
+        else if (x - ext[0] < legend.right && x + ext[0] > legend.left) {
+          topClear = Math.max(topClear, legend.clearY);
+        }
+        return topClear + ext[1];
+      }
+
+      /* ===== 顶部事件简介 ===== */
+      function renderIntro() {
+        const e = events[currentIndex];
+        // 不同端展示不同长度文案，保证完整显示、不省略
+        const summary =
+          isMobile() && e.summaryShort ? e.summaryShort : e.summary;
+        document.getElementById("eventIntro").innerHTML = `
+          <img class="intro-icon" src="${e.image}" alt="${e.name}" loading="lazy" />
+          <div class="intro-text">
+            <div class="intro-title-line">
+              <span class="intro-name">${e.name}</span>
+              <span class="intro-period">${e.year} · ${e.period}</span>
+            </div>
+            <div class="intro-summary">${summary}</div>
+          </div>
+          <div class="intro-index"><b>${currentIndex + 1}</b>/${events.length}</div>`;
+      }
+
+      /* ===== 底部事件按钮 ===== */
+      const eventBtns = document.getElementById("eventBtns");
+      const barPrev = document.getElementById("barPrev");
+      const barNext = document.getElementById("barNext");
+      const swipeHint = document.getElementById("swipeHint");
+
+      function renderEventBtns() {
+        eventBtns.innerHTML = events
+          .map(
+            (e, i) => `
+          <button class="event-btn ${i === currentIndex ? "active" : ""}" data-i="${i}" title="查看：${e.name}">
+            <span class="eb-name">${e.name}</span>
+            <span class="eb-year">${e.year}</span>
+          </button>`,
+          )
+          .join("");
+        eventBtns.querySelectorAll(".event-btn").forEach((b) => {
+          b.addEventListener("click", () => goTo(+b.dataset.i));
+        });
+        requestAnimationFrame(() => {
+          eventBtns
+            .querySelector(".event-btn.active")
+            ?.scrollIntoView({
+              inline: "center",
+              block: "nearest",
+              behavior: "smooth",
+            });
+          updateArrows();
+        });
+      }
+      function updateArrows() {
+        const maxScroll = eventBtns.scrollWidth - eventBtns.clientWidth;
+        const scrollable = maxScroll > 2;
+        barPrev.disabled = !scrollable || eventBtns.scrollLeft <= 1;
+        barNext.disabled = !scrollable || eventBtns.scrollLeft >= maxScroll - 1;
+        // 移动端滑动提示：还能继续右滑时显示
+        if (swipeHint) {
+          const canRight = scrollable && eventBtns.scrollLeft < maxScroll - 4;
+          swipeHint.classList.toggle("hide", !canRight);
+        }
+      }
+      barPrev.addEventListener("click", () =>
+        eventBtns.scrollBy({ left: -180, behavior: "smooth" }),
+      );
+      barNext.addEventListener("click", () =>
+        eventBtns.scrollBy({ left: 180, behavior: "smooth" }),
+      );
+      eventBtns.addEventListener("scroll", updateArrows, { passive: true });
+      /* ===== 关系图谱 ===== */
+      function avatarSizes() {
+        const w = window.innerWidth,
+          h = window.innerHeight;
+        if (w <= 320 || h <= 365) return { av: 42, big: 54, nf: 10 };
+        if (w <= 480 || h <= 480) return { av: 50, big: 64, nf: 11 };
+        return { av: 66, big: 84, nf: 12 };
+      }
+
+      function measure() {
+        const rect = graphWrap.getBoundingClientRect();
+        bounds = {
+          w: Math.max(rect.width, 120),
+          h: Math.max(rect.height, 120),
+        };
+      }
+
+      function currentEdges() {
+        const e = events[currentIndex];
+        const core = e.people[0].name;
+        // 核心↔他人：仅用连线颜色表达关系（图例已说明），不加标签以减少拥挤
+        const es = e.people.slice(1).map((p) => ({
+          a: core,
+          b: p.name,
+          type: p.rel || "ally",
+          label: "",
+        }));
+        // 人物↔人物：额外关系，直线 + 文字标签点明
+        (e.links || []).forEach((l) => es.push(l));
+        return es;
+      }
+
+      /* 环形排序：暴力枚举所有排列（人数≤6，开销极小），
+         选“连线交叉 + 跨越节点数”最小的顺序，让人物↔人物的直线尽量贴外缘、
+         不穿过中心、不与放射线/彼此重合。 */
+      function orderRing(others, links) {
+        const names = others.map((p) => p.name);
+        const n = names.length;
+        if (n <= 2) return names;
+        const rel = (links || []).filter(
+          (l) => names.includes(l.a) && names.includes(l.b),
+        );
+        if (!rel.length) return names;
+
+        // 两条弦 (a,b)(c,d) 在环上是否交叉（恰好一个端点落在另一条的弧内）
+        const between = (x, a, b, n) => {
+          // x 是否在从 a 顺时针到 b 的开区间内
+          let i = (a + 1) % n;
+          while (i !== b) {
+            if (i === x) return true;
+            i = (i + 1) % n;
+          }
+          return false;
+        };
+        function cost(order) {
+          const pos = {};
+          order.forEach((nm, i) => (pos[nm] = i));
+          let c = 0;
+          // 每条弦跨越的中间节点数（≈穿过的放射线数）
+          rel.forEach((l) => {
+            const i = pos[l.a],
+              j = pos[l.b];
+            const d = Math.min(Math.abs(i - j), n - Math.abs(i - j));
+            c += (d - 1) * 2;
+          });
+          // 弦两两交叉
+          for (let x = 0; x < rel.length; x++) {
+            for (let y = x + 1; y < rel.length; y++) {
+              const a = pos[rel[x].a],
+                b = pos[rel[x].b];
+              const c1 = pos[rel[y].a],
+                d1 = pos[rel[y].b];
+              if (a === c1 || a === d1 || b === c1 || b === d1) continue;
+              const cIn = between(c1, a, b, n),
+                dIn = between(d1, a, b, n);
+              if (cIn !== dIn) c += 3;
+            }
+          }
+          return c;
+        }
+        // 全排列（固定首元素消除旋转对称，降到 (n-1)!）
+        let best = names.slice(),
+          bestCost = Infinity;
+        const first = names[0];
+        const rest = names.slice(1);
+        const permute = (arr, k) => {
+          if (k === arr.length) {
+            const order = [first, ...arr];
+            const c = cost(order);
+            if (c < bestCost) {
+              bestCost = c;
+              best = order.slice();
+            }
+            return;
+          }
+          for (let i = k; i < arr.length; i++) {
+            [arr[k], arr[i]] = [arr[i], arr[k]];
+            permute(arr, k + 1);
+            [arr[k], arr[i]] = [arr[i], arr[k]];
+          }
+        };
+        permute(rest, 0);
+        return best;
+      }
+
+      function preferredPeripheralAngles(n) {
+        const deg = (d) => (d * Math.PI) / 180;
+        const presets = {
+          1: [0],
+          2: [48, 132],
+          3: [-78, 28, 152],
+          4: [-92, -16, 66, 170],
+          5: [-104, -38, 18, 88, 164],
+          6: [-112, -58, -4, 48, 114, 176],
+        };
+        if (presets[n]) return presets[n].map(deg);
+        const start = -Math.PI / 2 + Math.PI / (n + 1);
+        return Array.from({ length: n }, (_, i) => start + (i / n) * Math.PI * 2);
+      }
+
+      const rotateArray = (arr, shift) =>
+        arr.map((_, i) => arr[(i + shift + arr.length) % arr.length]);
+
+      function quadMidPoint(x1, y1, cx, cy, x2, y2) {
+        return [
+          0.25 * x1 + 0.5 * cx + 0.25 * x2,
+          0.25 * y1 + 0.5 * cy + 0.25 * y2,
+        ];
+      }
+
+      function edgePriorityPenalty(layout, ext, evt, coreName, corePos, w, h, topSafe, botSafe) {
+        let penalty = 0;
+        const [coreX, coreY] = corePos;
+        const coreExt = ext[coreName] || [36, 36];
+        const avoidNodeRect = (cx, cy, hw, hh, nodeName, gap = 10) => {
+          const node = layout[nodeName];
+          const box = ext[nodeName];
+          if (!node || !box) return 0;
+          const ox = Math.abs(cx - node[0]) - (hw + box[0] + gap);
+          const oy = Math.abs(cy - node[1]) - (hh + box[1] + gap);
+          return ox < 0 && oy < 0 ? (Math.abs(ox) + Math.abs(oy)) * 12 : 0;
+        };
+
+        (evt.links || []).forEach((link) => {
+          const A = layout[link.a];
+          const B = layout[link.b];
+          if (!A || !B) return;
+          const dx = B[0] - A[0];
+          const dy = B[1] - A[1];
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          const rA = ((ext[link.a] && ext[link.a][0]) || 26) * 0.68;
+          const rB = ((ext[link.b] && ext[link.b][0]) || 26) * 0.68;
+          const x1 = A[0] + ux * rA;
+          const y1 = A[1] + uy * rA;
+          const x2 = B[0] - ux * rB;
+          const y2 = B[1] - uy * rB;
+          const mx = (x1 + x2) / 2;
+          const my = (y1 + y2) / 2;
+          const outDx = mx - w / 2;
+          const outDy = my - h / 2;
+          const outLen = Math.hypot(outDx, outDy) || 1;
+          const bend = Math.min(Math.max(dist * 0.42, 34), isMobile() ? 64 : 92);
+          const cpx = mx + (outDx / outLen) * bend;
+          const cpy = my + (outDy / outLen) * bend;
+          const [midX, midY] = quadMidPoint(x1, y1, cpx, cpy, x2, y2);
+          const labelW = ((link.label || "").length || 2) * 10 + 10;
+          const labelH = LABEL_H;
+          const hw = labelW / 2;
+          const hh = labelH / 2;
+          const tangentX = x2 - x1;
+          const tangentY = y2 - y1;
+          const tangentLen = Math.hypot(tangentX, tangentY) || 1;
+          const nx = -tangentY / tangentLen;
+          const ny = tangentX / tangentLen;
+          const sign = nx * (midX - w / 2) + ny * (midY - h / 2) >= 0 ? 1 : -1;
+          const labelX = midX + nx * 22 * sign;
+          const labelY = midY + ny * 22 * sign;
+
+          const coreDx = midX - coreX;
+          const coreDy = midY - coreY;
+          const coreGap = Math.hypot(coreDx, coreDy) - (Math.max(coreExt[0], coreExt[1]) + 18);
+          if (coreGap < 0) penalty += Math.abs(coreGap) * 20;
+
+          penalty += avoidNodeRect(labelX, labelY, hw, hh, coreName, 12);
+          Object.keys(layout).forEach((name) => {
+            penalty += avoidNodeRect(labelX, labelY, hw, hh, name, 8);
+          });
+
+          if (labelY + hh > h - botSafe - 8) penalty += (labelY + hh - (h - botSafe - 8)) * 16;
+          if (labelY - hh < topSafe + 8) penalty += ((topSafe + 8) - (labelY - hh)) * 16;
+
+          const centerLineGap = Math.hypot(mx - coreX, my - coreY) - (Math.max(coreExt[0], coreExt[1]) + 12);
+          if (centerLineGap < 0) penalty += Math.abs(centerLineGap) * 12;
+        });
+
+        return penalty;
+      }
+
+      function applyLayoutConstraints(layout, people, w, h, topSafe, botSafe) {
+        const mob = isMobile();
+        const legend = getLegendMetrics();
+        const keys = Object.keys(layout);
+        const ext = {};
+        keys.forEach((k) => {
+          ext[k] = nodeExtents(k, people);
+        });
+
+        keys.forEach((k) => {
+          if (nodeInLegendZone(layout[k][0], layout[k][1], ext[k], legend, mob)) {
+            layout[k][1] = legend.clearY + ext[k][1];
+          }
+        });
+
+        const clamp = (k) => {
+          layout[k][0] = Math.max(
+            ext[k][0] + 4,
+            Math.min(w - ext[k][0] - 4, layout[k][0]),
+          );
+          const yMin = minCenterY(layout[k][0], ext[k], legend, mob);
+          layout[k][1] = Math.max(
+            yMin,
+            Math.min(h - ext[k][1] - botSafe, layout[k][1]),
+          );
+        };
+
+        const mX = 18,
+          mY = 28;
+        for (let it = 0; it < 120; it++) {
+          let moved = false;
+          for (let i = 0; i < keys.length; i++) {
+            for (let j = i + 1; j < keys.length; j++) {
+              const a = keys[i],
+                b = keys[j];
+              const dx = layout[b][0] - layout[a][0];
+              const dy = layout[b][1] - layout[a][1];
+              const ox = ext[a][0] + ext[b][0] + mX - Math.abs(dx);
+              const oy = ext[a][1] + ext[b][1] + mY - Math.abs(dy);
+              if (ox > 0 && oy > 0) {
+                moved = true;
+                if (ox <= oy) {
+                  const s = dx === 0 ? (i % 2 ? 1 : -1) : Math.sign(dx);
+                  layout[a][0] -= (ox / 2) * s;
+                  layout[b][0] += (ox / 2) * s;
+                } else {
+                  const s = dy === 0 ? (i % 2 ? 1 : -1) : Math.sign(dy);
+                  layout[a][1] -= (oy / 2) * s;
+                  layout[b][1] += (oy / 2) * s;
+                }
+                clamp(a);
+                clamp(b);
+              }
+            }
+          }
+          if (!moved) break;
+        }
+        keys.forEach(clamp);
+        return layout;
+      }
+
+      function computeLayout() {
+        measure();
+        const evt = events[currentIndex];
+        const people = evt.people;
+        const { av, big } = avatarSizes();
+        const w = bounds.w,
+          h = bounds.h;
+        // 顶部给图例、底部给操作提示留白，避免头像/名字与它们相互遮挡
+        const topSafe = 38;
+        const botSafe = 40;
+        const usableH = Math.max(h - topSafe - botSafe, 120);
+        const cx = w * 0.5;
+        const cy = topSafe + usableH * 0.5;
+        const layout = {};
+
+        // 【核心更新】优先检查是否包含手动预设的百分比坐标 (px, py)
+        let hasPreset = true;
+        people.forEach(p => {
+          if (p.px === undefined || p.py === undefined) {
+            hasPreset = false;
+          }
+        });
+        if (hasPreset) {
+          people.forEach((p) => {
+            layout[p.name] = [w * p.px / 100, h * p.py / 100];
+          });
+        } else {
+        // 环形排序，使相连人物相邻
+        const orderedNames = orderRing(people.slice(1), evt.links);
+        const others = orderedNames.map((nm) =>
+          people.find((p) => p.name === nm),
+        );
+        const n = others.length;
+        const estimateExt = {};
+        people.forEach((p) => {
+          const aw = p.big ? big : av;
+          const nameW = p.name.length * avatarSizes().nf * 0.95 + 14;
+          estimateExt[p.name] = [Math.max(aw, nameW) / 2, (aw + avatarSizes().nf + 12) / 2];
+        });
+        // 3人关系图（核心+2人）单独排成三角形，避免初始落成一条直线
+        if (people.length === 3) {
+          const coreY = topSafe + usableH * 0.3;
+          const outerY = topSafe + usableH * 0.74;
+          const spread = Math.min(w * 0.24, 132);
+          layout[people[0].name] = [cx, coreY];
+          layout[others[0].name] = [cx - spread, outerY];
+          layout[others[1].name] = [cx + spread, outerY];
+        } else {
+          // 4人及以上：从多组候选位置里选一个“关系线/关系文字最不拥挤”的方案
+          const baseAngles = preferredPeripheralAngles(n);
+          const baseRx = Math.max(w * 0.34 - 18, 118);
+          const baseRy = Math.max(usableH * 0.34 - 8, 94);
+          let bestLayout = null;
+          let bestPenalty = Infinity;
+          const coreYOffsets = [0, -usableH * 0.04, usableH * 0.04];
+          const angleSets = [];
+          for (let r = 0; r < n; r++) {
+            angleSets.push(rotateArray(baseAngles, r));
+            angleSets.push(rotateArray(baseAngles.slice().reverse(), r));
+          }
+          angleSets.forEach((angles) => {
+            coreYOffsets.forEach((coreOffset) => {
+              const candidate = {};
+              const coreY = cy + coreOffset;
+              candidate[people[0].name] = [cx, coreY];
+              others.forEach((p, i) => {
+                const a = angles[i];
+                const stretchX = n >= 4 ? (i % 2 === 0 ? 1.06 : 0.9) : 1;
+                const stretchY = n >= 4 ? (i % 3 === 0 ? 0.9 : 1.04) : 1;
+                candidate[p.name] = [
+                  cx + Math.cos(a) * baseRx * stretchX,
+                  coreY + Math.sin(a) * baseRy * stretchY,
+                ];
+              });
+              const p = edgePriorityPenalty(
+                candidate,
+                estimateExt,
+                evt,
+                people[0].name,
+                candidate[people[0].name],
+                w,
+                h,
+                topSafe,
+                botSafe,
+              );
+              if (p < bestPenalty) {
+                bestPenalty = p;
+                bestLayout = candidate;
+              }
+            });
+          });
+          Object.assign(layout, bestLayout || {});
+        }
+        }
+        return applyLayoutConstraints(layout, people, w, h, topSafe, botSafe);
+      }
+
+      function buildGraph() {
+        graphCanvas.querySelectorAll(".node").forEach((n) => n.remove());
+        graphEdges.innerHTML = "";
+        nodeState = {};
+        edgeEls = [];
+        const people = events[currentIndex].people;
+        const layout = computeLayout();
+
+        people.forEach((p) => {
+          const [x, y] = layout[p.name];
+          const el = document.createElement("div");
+          el.className = "node" + (p.big ? " big" : "");
+          el.dataset.key = p.name;
+          el.innerHTML = `
+            <div class="float-inner">
+              <div class="avatar" style="background-image:url('${p.avatar}')"></div>
+              <div class="name">${p.name}</div>
+              <div class="role-chip">${p.role}</div>
+            </div>`;
+          const inner = el.querySelector(".float-inner");
+          const dur = 6 + Math.random() * 4;
+          inner.style.animationDuration = dur + "s";
+          inner.style.animationDelay = -Math.random() * dur + "s";
+          el.style.left = x + "px";
+          el.style.top = y + "px";
+          graphCanvas.appendChild(el);
+          nodeState[p.name] = { x, y, el, inner };
+          attachDrag(el, p.name);
+          el.addEventListener("mouseenter", () => {
+            if (!modalOpenKey) highlightRelated(p.name);
+          });
+          el.addEventListener("mouseleave", () => {
+            if (!modalOpenKey) clearHighlight();
+          });
+          el.addEventListener("click", () => {
+            if (el.dataset.dragged) {
+              delete el.dataset.dragged;
+              return;
+            }
+            showPerson(p.name);
+          });
+        });
+
+        // 连线：核心人物连线用直线，外围人物彼此关系优先走外弯曲线，避免压到核心头像
+        currentEdges().forEach((e) => {
+          const path = document.createElementNS(SVGNS, "path");
+          path.setAttribute("class", "edge " + e.type);
+          let bg = null,
+            text = null;
+          if (e.label) {
+            bg = document.createElementNS(SVGNS, "rect");
+            bg.setAttribute("class", "edge-label-bg");
+            bg.setAttribute("rx", "5");
+            text = document.createElementNS(SVGNS, "text");
+            text.setAttribute("class", "edge-label");
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("dominant-baseline", "central");
+            text.textContent = e.label;
+          }
+          graphEdges.appendChild(path);
+          if (bg) graphEdges.appendChild(bg);
+          if (text) graphEdges.appendChild(text);
+          edgeEls.push({ path, bg, text, a: e.a, b: e.b, type: e.type });
+        });
+        updateEdgesFromDOM();
+      }
+      function updateEdgesFromDOM() {
+        const cr = graphCanvas.getBoundingClientRect();
+        // 障碍：头像圆 + 名字矩形，标签需避开它们
+        const avCircles = [];
+        const nameRects = [];
+        Object.values(nodeState).forEach((s) => {
+          const ar = s.el.querySelector(".avatar").getBoundingClientRect();
+          // 中心核心人物（big）给更大的避让半径，防止连线标签压到核心人物头像
+          const isBig = s.el.classList.contains("big");
+          avCircles.push({
+            x: ar.left + ar.width / 2 - cr.left,
+            y: ar.top + ar.height / 2 - cr.top,
+            r: ar.width / 2 + (isBig ? 14 : 4),
+          });
+          const nm = s.el.querySelector(".name");
+          if (nm) {
+            const nr = nm.getBoundingClientRect();
+            nameRects.push({
+              cx: nr.left + nr.width / 2 - cr.left,
+              cy: nr.top + nr.height / 2 - cr.top,
+              hw: nr.width / 2 + 2,
+              hh: nr.height / 2 + 2,
+            });
+          }
+          // 职务标签（role-chip）也是障碍：避免连线标签压到核心人物等职务文字
+          // 移动端 role-chip 为 display:none（宽高为 0），跳过以免在左上角生成假障碍
+          const rc = s.el.querySelector(".role-chip");
+          if (rc) {
+            const rr = rc.getBoundingClientRect();
+            if (rr.width > 0 && rr.height > 0) {
+              nameRects.push({
+                cx: rr.left + rr.width / 2 - cr.left,
+                cy: rr.top + rr.height / 2 - cr.top,
+                hw: rr.width / 2 + 2,
+                hh: rr.height / 2 + 2,
+              });
+            }
+          }
+        });
+        const hintEl = document.getElementById("graphHint");
+        if (hintEl && !hintEl.classList.contains("hide")) {
+          const hr = hintEl.getBoundingClientRect();
+          if (hr.width > 0 && hr.height > 0) {
+            nameRects.push({
+              cx: hr.left + hr.width / 2 - cr.left,
+              cy: hr.top + hr.height / 2 - cr.top,
+              hw: hr.width / 2 + 4,
+              hh: hr.height / 2 + 4,
+            });
+          }
+        }
+        const legendEl = document.querySelector(".graph-legend");
+        if (legendEl && getComputedStyle(legendEl).display !== "none") {
+          const lr = legendEl.getBoundingClientRect();
+          if (lr.width > 0 && lr.height > 0) {
+            nameRects.push({
+              cx: lr.left + lr.width / 2 - cr.left,
+              cy: lr.top + lr.height / 2 - cr.top,
+              hw: lr.width / 2 + 4,
+              hh: lr.height / 2 + 4,
+            });
+          }
+        }
+        const placed = []; // 已放置标签矩形 {cx,cy,hw,hh}
+
+        // 候选点与所有障碍的“间隙”评分：越大越好（>=0 表示不重叠）
+        function clearance(cx, cy, hw, hh) {
+          let m = Infinity;
+          for (const c of avCircles) {
+            const dx = Math.abs(cx - c.x) - hw;
+            const dy = Math.abs(cy - c.y) - hh;
+            // 标签矩形到圆心的近似间隙
+            const gap = Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) - c.r;
+            if (dx < 0 && dy < 0) {
+              m = Math.min(m, -(c.r + Math.min(hw + dx, hh + dy)));
+            } else {
+              m = Math.min(m, gap);
+            }
+          }
+          const rectGap = (r) => {
+            const ox = Math.abs(cx - r.cx) - (hw + r.hw);
+            const oy = Math.abs(cy - r.cy) - (hh + r.hh);
+            return Math.max(ox, oy);
+          };
+          for (const r of nameRects) m = Math.min(m, rectGap(r));
+          for (const r of placed) m = Math.min(m, rectGap(r));
+          return m;
+        }
+
+        const coreKey = events[currentIndex].people[0]?.name;
+        const quadPoint = (x1, y1, cx, cy, x2, y2, t) => {
+          const mt = 1 - t;
+          return [
+            mt * mt * x1 + 2 * mt * t * cx + t * t * x2,
+            mt * mt * y1 + 2 * mt * t * cy + t * t * y2,
+          ];
+        };
+        const quadTangent = (x1, y1, cx, cy, x2, y2, t) => [
+          2 * (1 - t) * (cx - x1) + 2 * t * (x2 - cx),
+          2 * (1 - t) * (cy - y1) + 2 * t * (y2 - cy),
+        ];
+        const distancePointToSegment = (px, py, x1, y1, x2, y2) => {
+          const vx = x2 - x1;
+          const vy = y2 - y1;
+          const len2 = vx * vx + vy * vy || 1;
+          const t = Math.max(0, Math.min(1, ((px - x1) * vx + (py - y1) * vy) / len2));
+          const sx = x1 + vx * t;
+          const sy = y1 + vy * t;
+          return Math.hypot(px - sx, py - sy);
+        };
+
+        edgeEls.forEach(({ path, bg, text, a, b }) => {
+          const A = nodeState[a],
+            B = nodeState[b];
+          if (!A || !B) return;
+          const avA = A.el.querySelector(".avatar").getBoundingClientRect();
+          const avB = B.el.querySelector(".avatar").getBoundingClientRect();
+          const ax = avA.left + avA.width / 2 - cr.left;
+          const ay = avA.top + avA.height / 2 - cr.top;
+          const bx = avB.left + avB.width / 2 - cr.left;
+          const by = avB.top + avB.height / 2 - cr.top;
+          const dx = bx - ax,
+            dy = by - ay;
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist,
+            uy = dy / dist;
+          const nx = -uy,
+            ny = ux;
+          const rA = avA.width / 2 + 3,
+            rB = avB.width / 2 + 3;
+          const x1 = ax + ux * rA,
+            y1 = ay + uy * rA;
+          const x2 = bx - ux * rB,
+            y2 = by - uy * rB;
+          const isPeripheralLink = a !== coreKey && b !== coreKey;
+          const measured = text ? text.getComputedTextLength() : 0;
+          const tw = text
+            ? (measured > 0 ? measured : text.textContent.length * 10) + 10
+            : 0;
+          const th = text ? LABEL_H : 0;
+          const hw = tw / 2,
+            hh = th / 2;
+          const coreState = coreKey ? nodeState[coreKey] : null;
+          const coreRect = coreState
+            ? coreState.el.querySelector(".avatar").getBoundingClientRect()
+            : null;
+          const coreX = coreRect ? coreRect.left + coreRect.width / 2 - cr.left : bounds.w / 2;
+          const coreY = coreRect ? coreRect.top + coreRect.height / 2 - cr.top : bounds.h / 2;
+          const coreAvoidR = coreRect ? coreRect.width / 2 + 18 : 44;
+          const straightPointAt = (t) => [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t];
+          const straightNormalAt = () => [nx, ny];
+          const straightAnchor = straightPointAt(0.5);
+          const straightSign =
+            nx * (straightAnchor[0] - bounds.w / 2) + ny * (straightAnchor[1] - bounds.h / 2) >= 0
+              ? 1
+              : -1;
+          const straightLabelX = straightAnchor[0] + nx * 22 * straightSign;
+          const straightLabelY = straightAnchor[1] + ny * 22 * straightSign;
+          const straightLabelBlocked = text
+            ? straightLabelX - hw < 2 ||
+              straightLabelX + hw > bounds.w - 2 ||
+              straightLabelY - hh < 2 ||
+              straightLabelY + hh > bounds.h - 2 ||
+              clearance(straightLabelX, straightLabelY, hw, hh) < 0
+            : false;
+          const straightHitsCore =
+            isPeripheralLink &&
+            distancePointToSegment(coreX, coreY, x1, y1, x2, y2) < coreAvoidR;
+          const shouldCurve = false;
+          let pointAt = (t) => [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t];
+          let normalAt = () => [nx, ny];
+
+          if (shouldCurve) {
+            const mx = (x1 + x2) / 2;
+            const my = (y1 + y2) / 2;
+            const outDx = mx - bounds.w / 2;
+            const outDy = my - bounds.h / 2;
+            const outLen = Math.hypot(outDx, outDy) || 1;
+            const bend = Math.min(Math.max(dist * 0.42, 34), isMobile() ? 64 : 92);
+            const cpx = mx + (outDx / outLen) * bend;
+            const cpy = my + (outDy / outLen) * bend;
+            path.setAttribute("d", 'M ${x1} ${y1} Q ${cpx} ${cpy} ${x2} ${y2}');
+            pointAt = (t) => quadPoint(x1, y1, cpx, cpy, x2, y2, t);
+            normalAt = (t) => {
+              const [tx, ty] = quadTangent(x1, y1, cpx, cpy, x2, y2, t);
+              const tl = Math.hypot(tx, ty) || 1;
+              return [-ty / tl, tx / tl];
+            };
+          } else {
+            path.setAttribute("d", 'M ${x1} ${y1} L ${x2} ${y2}');
+          }
+
+          if (!text || !bg) return;
+
+          // 候选锚点：沿边路径参数 t，并附带法向偏移，避开头像/名字/其它标签
+          const anchor0 = pointAt(0.5);
+          const outX = anchor0[0] - bounds.w / 2,
+            outY = anchor0[1] - bounds.h / 2;
+          const [n0x, n0y] = normalAt(0.5);
+          const outSign = n0x * outX + n0y * outY >= 0 ? 1 : -1;
+          const ts = [0.5];
+          const offs = [0];
+          let best = null;
+          outer: for (const t of ts) {
+            const [px, py] = pointAt(t);
+            const [nnx, nny] = normalAt(t);
+            for (const o of offs) {
+              const cx = px + nnx * o,
+                cy = py + nny * o;
+              if (cx - hw < 2 || cx + hw > bounds.w - 2) continue;
+              if (cy - hh < 2 || cy + hh > bounds.h - 2) continue;
+              const cl = clearance(cx, cy, hw, hh);
+              if (!best || cl > best.cl) best = { cx, cy, cl };
+              if (cl >= 0) break outer;
+            }
+          }
+          // 没有任何不重叠的落点时，隐藏该标签（不硬塞造成遮挡）；
+          // 用户把头像拖开、或换事件重排后腾出空位，会在下次刷新时重新显示。
+          if (!best || best.cl < 0) {
+            bg.classList.add("lbl-hide");
+            text.classList.add("lbl-hide");
+            return;
+          }
+          bg.classList.remove("lbl-hide");
+          text.classList.remove("lbl-hide");
+          placed.push({ cx: best.cx, cy: best.cy, hw, hh });
+          bg.setAttribute("x", best.cx - hw);
+          bg.setAttribute("y", best.cy - hh);
+          bg.setAttribute("width", tw);
+          bg.setAttribute("height", th);
+          text.setAttribute("x", best.cx);
+          text.setAttribute("y", best.cy);
+        });
+      }
+
+      /* 拖拽 */
+      function attachDrag(el, key) {
+        let startX = 0,
+          startY = 0,
+          origX = 0,
+          origY = 0,
+          moved = false;
+        const st = () => nodeState[key];
+        function onMove(cx, cy) {
+          const dx = cx - startX,
+            dy = cy - startY;
+          if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+          const nx = Math.max(24, Math.min(bounds.w - 24, origX + dx));
+          const ny = Math.max(24, Math.min(bounds.h - 24, origY + dy));
+          st().x = nx;
+          st().y = ny;
+          el.style.left = nx + "px";
+          el.style.top = ny + "px";
+          updateEdgesFromDOM();
+        }
+        function onUp() {
+          el.classList.remove("grabbing", "dragging-now");
+          if (moved) el.dataset.dragged = "1";
+          document.removeEventListener("mousemove", mm);
+          document.removeEventListener("mouseup", onUp);
+          document.removeEventListener("touchmove", tm);
+          document.removeEventListener("touchend", onUp);
+        }
+        const mm = (e) => onMove(e.clientX, e.clientY);
+        const tm = (e) => {
+          e.preventDefault();
+          onMove(e.touches[0].clientX, e.touches[0].clientY);
+        };
+        function onDown(cx, cy) {
+          moved = false;
+          startX = cx;
+          startY = cy;
+          origX = st().x;
+          origY = st().y;
+          el.classList.add("grabbing", "dragging-now");
+          document.addEventListener("mousemove", mm);
+          document.addEventListener("mouseup", onUp);
+          document.addEventListener("touchmove", tm, { passive: false });
+          document.addEventListener("touchend", onUp);
+        }
+        el.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          onDown(e.clientX, e.clientY);
+        });
+        el.addEventListener(
+          "touchstart",
+          (e) => onDown(e.touches[0].clientX, e.touches[0].clientY),
+          { passive: true },
+        );
+      }
+      /* 悬停高亮 */
+      function highlightRelated(key) {
+        Object.values(nodeState).forEach((s) => s.el.classList.add("dim"));
+        nodeState[key].el.classList.remove("dim");
+        nodeState[key].el.classList.add("active");
+        edgeEls.forEach(({ path, bg, text, a, b }) => {
+          if (a === key || b === key) {
+            path.classList.add("hl");
+            if (bg) bg.classList.add("hl");
+            if (text) text.classList.add("hl");
+            if (nodeState[a]) nodeState[a].el.classList.remove("dim");
+            if (nodeState[b]) nodeState[b].el.classList.remove("dim");
+          } else {
+            path.classList.add("dim");
+            if (bg) bg.classList.add("dim");
+            if (text) text.classList.add("dim");
+          }
+        });
+      }
+      function clearHighlight() {
+        Object.values(nodeState).forEach((s) =>
+          s.el.classList.remove("dim", "active"),
+        );
+        edgeEls.forEach(({ path, bg, text }) => {
+          path.classList.remove("dim", "hl");
+          if (bg) bg.classList.remove("dim", "hl");
+          if (text) text.classList.remove("dim", "hl");
+        });
+      }
+
+      /* 弹窗 */
+      const modal = document.getElementById("modalOverlay");
+      function showPerson(key) {
+        modalOpenKey = key;
+        const p = events[currentIndex].people.find((x) => x.name === key);
+        if (!p) return;
+        document.getElementById("modalAvatar").src = p.avatar;
+        document.getElementById("modalName").textContent = p.name;
+        document.getElementById("modalRole").textContent = p.role;
+        const rTag = document.getElementById("modalRelTag");
+        if (!p.rel) {
+          rTag.textContent = "核心人物 · 本人";
+          rTag.style.background =
+            "linear-gradient(135deg, var(--primary), #7b96f7)";
+          rTag.style.display = "inline-block";
+        } else {
+          const core = events[currentIndex].people.find((x) => x.big);
+          const coreName = core ? core.name : "核心";
+          rTag.textContent = "与" + coreName + "：" + REL[p.rel].name;
+          rTag.style.background = REL[p.rel].color;
+          rTag.style.display = "inline-block";
+        }
+        document.getElementById("modalDeed").textContent = p.deed;
+        document.getElementById("modalImpact").textContent = p.impact;
+        modal.classList.add("active");
+        highlightRelated(key);
+      }
+      function closeModal() {
+        modal.classList.remove("active");
+        modalOpenKey = null;
+        clearHighlight();
+      }
+      document
+        .getElementById("modalClose")
+        .addEventListener("click", closeModal);
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+      });
+
+      /* 切换事件 */
+      function goTo(idx) {
+        if (idx < 0 || idx >= events.length) return;
+        currentIndex = idx;
+        const hintEl = document.getElementById("graphHint");
+        if (hintEl) hintEl.classList.add("hide"); // 首次切换后隐藏图谱提示
+        renderIntro();
+        renderEventBtns();
+        buildGraph();
+      }
+
+      window.addEventListener("resize", () => {
+        buildGraph();
+        updateArrows();
+      });
+
+      // 初始化
+      renderIntro();
+      renderEventBtns();
+      // 稍微延时等 DOM 真正排布完再计算图谱位置
+      setTimeout(buildGraph, 10);
+    </script>
+  </body>
+</html>

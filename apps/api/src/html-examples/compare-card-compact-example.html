@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主题对比辨析卡 - 参考实现</title>
+  <style>
+    :root { --ink:#17181c; --muted:#6d707a; --line:#e5e7eb; --paper:#fff; --stage:#eef1f6; --accent:#315cdd; --soft:#edf2ff; }
+    * { box-sizing:border-box; }
+    html, body { width:100%; height:100%; margin:0; overflow:hidden; }
+    body { display:grid; place-items:center; background:var(--stage); color:var(--ink); font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+    button { color:inherit; font:inherit; }
+    .pc-card-frame { width:788px; height:492px; display:grid; grid-template-rows:82px 1fr 48px; overflow:hidden; background:var(--paper); border:1px solid rgba(23,24,28,.08); border-radius:14px; box-shadow:0 18px 48px rgba(23,24,28,.12); }
+    .identity { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 20px; border-bottom:1px solid var(--line); }
+    .kicker { color:var(--accent); font-size:11px; font-weight:800; }
+    h1 { margin:4px 0 0; font-size:22px; }
+    .summary { margin:5px 0 0; color:var(--muted); font-size:12px; }
+    .compare-label { padding:7px 10px; border-radius:7px; background:var(--soft); color:var(--accent); font-size:11px; font-weight:800; white-space:nowrap; }
+    .comparison { min-height:0; display:grid; grid-template-rows:auto 1fr auto; gap:10px; padding:14px 20px; }
+    .target-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+    .target-tab { min-width:0; padding:9px 8px; border:1px solid var(--line); border-radius:8px; background:#fafafa; font-size:12px; font-weight:700; cursor:pointer; }
+    .target-tab[aria-selected="true"] { border-color:var(--accent); background:var(--soft); color:var(--accent); }
+    .compare-grid { min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .compare-side { min-width:0; display:grid; grid-template-rows:auto 1fr; gap:8px; padding:13px; border:1px solid var(--line); border-radius:10px; background:#fafafa; }
+    .compare-side h2 { margin:0; font-size:15px; }
+    .compare-side p { margin:4px 0 0; color:var(--muted); font-size:10px; }
+    .facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; align-content:start; }
+    .fact { padding:9px; border-radius:7px; background:#fff; }
+    .fact small { display:block; color:var(--muted); font-size:10px; }
+    .fact b { display:block; margin-top:4px; font-size:12px; }
+    .more { align-self:end; width:max-content; padding:8px 11px; border:0; border-radius:7px; background:var(--ink); color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
+    .tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:6px 20px 8px; border-top:1px solid var(--line); }
+    .tab { min-width:0; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; }
+    .tab[aria-selected="true"] { background:var(--ink); color:#fff; }
+    .modal { position:absolute; inset:0; display:none; place-items:center; padding:18px; background:rgba(23,24,28,.42); }
+    .modal.open { display:grid; }
+    .modal-card { width:min(92%,460px); padding:16px; border-radius:10px; background:#fff; box-shadow:0 18px 40px rgba(0,0,0,.18); }
+    .modal-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .modal-head h2 { margin:0; font-size:16px; }
+    .close { width:30px; height:30px; border:0; border-radius:50%; background:var(--ink); color:#fff; cursor:pointer; }
+    .modal-card p { margin:12px 0 0; color:var(--muted); font-size:11px; line-height:1.5; }
+    @media (max-width:500px) { .pc-card-frame { width:380px; height:456px; grid-template-rows:76px 1fr 46px; } .identity { padding:12px 14px; } .compare-label { display:none; } .comparison { padding:12px 14px; } .tabs { padding-inline:14px; } }
+    @media (max-width:320px), (max-height:365px) {
+      .pc-card-frame { width:300px; height:360px; grid-template-rows:64px 1fr 42px; border-radius:0; }
+      .identity { padding:8px 10px; } h1 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px; } .summary { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
+      .comparison { gap:7px; padding:8px 10px; } .target-tabs { gap:4px; } .target-tab { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:7px 4px; font-size:10px; }
+      .compare-grid { gap:5px; } .compare-side { padding:8px; border-radius:7px; } .compare-side h2 { font-size:12px; } .compare-side p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; } .facts { gap:4px; grid-template-columns:1fr; } .fact { padding:6px; } .fact small { font-size:9px; } .fact b { margin-top:2px; font-size:10px; } .fact:nth-child(n+2) { display:none; } .more { padding:6px 8px; font-size:10px; }
+      .pc-card-frame { grid-template-rows:64px 1fr; }
+      .tabs { display:none; }
+      .tab { font-size:10px; white-space:nowrap; }
+      .modal { padding:10px; } .modal-card { width:280px; padding:11px; } .modal-head h2 { font-size:14px; } .modal-card p { margin-top:8px; font-size:10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="pc-card-frame" data-dudesign-template="dtp_dynamic_encyclopedia_compare_card">
+    <header class="identity"><div><span class="kicker">主题辨析</span><h1>【主题 A】与【主题 B】</h1><p class="summary">【先回答用户要区分的核心问题，再展示可核实差异。】</p></div><span class="compare-label">同一维度比较</span></header>
+    <section class="comparison" aria-label="对比内容">
+      <nav class="target-tabs" role="tablist" aria-label="比较对象"><button class="target-tab" type="button" role="tab" aria-selected="true">【对象 A】</button><button class="target-tab" type="button" role="tab" aria-selected="false">【对象 B】</button><button class="target-tab" type="button" role="tab" aria-selected="false">【对象 C】</button></nav>
+      <div class="compare-grid"><article class="compare-side"><div><h2 id="left-title">【对象 A】</h2><p>【核心定位】</p></div><div class="facts"><div class="fact"><small>当前维度</small><b>【事实】</b></div><div class="fact"><small>范围</small><b>【事实】</b></div><div class="fact"><small>特征</small><b>【事实】</b></div></div></article><article class="compare-side"><div><h2 id="right-title">【对象 B】</h2><p>【核心定位】</p></div><div class="facts"><div class="fact"><small>当前维度</small><b>【事实】</b></div><div class="fact"><small>范围</small><b>【事实】</b></div><div class="fact"><small>特征</small><b>【事实】</b></div></div></article></div>
+      <button class="more" type="button">查看差异说明</button>
+    </section>
+    <nav class="tabs" role="tablist" aria-label="比较视图"><button class="tab" type="button" role="tab" aria-selected="true">概览</button><button class="tab" type="button" role="tab" aria-selected="false">差异</button><button class="tab" type="button" role="tab" aria-selected="false">来源</button></nav>
+    <div class="modal" role="dialog" aria-modal="true" aria-label="差异说明"><div class="modal-card"><div class="modal-head"><h2>差异说明</h2><button class="close" type="button" aria-label="关闭">×</button></div><p>【只展示当前比较对象之间最重要的差异；事实不足时标记待核实，不补造结论。】</p></div></div>
+  </main>
+  <script data-dudesign-example-interaction>
+    const targets = ['【对象 A】', '【对象 B】', '【对象 C】'];
+    document.querySelectorAll('.target-tab').forEach(function (tab, index) { tab.addEventListener('click', function () { document.querySelectorAll('.target-tab').forEach(function (item, itemIndex) { item.setAttribute('aria-selected', itemIndex === index ? 'true' : 'false'); }); document.getElementById('right-title').textContent = targets[(index + 1) % targets.length]; }); });
+    document.querySelectorAll('.more').forEach(function (button) { button.addEventListener('click', function () { document.querySelector('.modal').classList.add('open'); }); });
+    document.querySelector('.close').addEventListener('click', function () { document.querySelector('.modal').classList.remove('open'); });
+    document.querySelectorAll('.tab').forEach(function (tab) { tab.addEventListener('click', function () { document.querySelectorAll('.tab').forEach(function (item) { item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); }); }); });
+  </script>
+</body>
+</html>

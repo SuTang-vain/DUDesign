@@ -1,3 +1,5 @@
 export * from './api.js'
+export * from './encyclopediaExperience.js'
 export * from './events.js'
-
+export * from './exploration.js'
+export * from './guidance.js'
