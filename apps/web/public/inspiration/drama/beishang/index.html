@@ -1,0 +1,3030 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>北上：人物关系与剧情全解析</title>
+    <style>
+      :root {
+        --primary: #6487fa;
+        --primary-dark: #4a6ee0;
+        --primary-light: #8aa5ff;
+        --bg-white: #ffffff;
+        --bg-gray: #f8f8f8;
+        --text-main: #1e1f24;
+        --text-sec: #848691;
+        --text-tri: #b7b9c1;
+        --border: rgba(0, 0, 0, 0.06);
+        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+        --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.18);
+        --gold: #c8a35a;
+        --red: #d94b4b;
+        --blue: #3b7ad9;
+        --green: #4aa06e;
+        --pink: #e07aa8;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        color: var(--text-main);
+        background: #eef1f8;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      button {
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-family: inherit;
+        color: inherit;
+      }
+      img {
+        display: block;
+        -webkit-user-drag: none;
+        user-drag: none;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(
+          160deg,
+          #f5f8ff 0%,
+          #eaeff9 60%,
+          #dee6f4 100%
+        );
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* ===== 主内容区 ===== */
+      .main {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        padding: 12px 14px 4px;
+      }
+      .view {
+        position: absolute;
+        inset: 12px 14px 4px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+        display: flex;
+        flex-direction: column;
+      }
+      .view.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* ===== 底部 Tab（纯文字） ===== */
+      .tabs {
+        flex-shrink: 0;
+        display: flex;
+        gap: 8px;
+        padding: 8px 14px 14px;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 12px 4px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(20px);
+        font-size: 15px;
+        color: var(--text-sec);
+        font-weight: 600;
+        border: 1px solid var(--border);
+        transition: all 0.25s ease;
+      }
+      .tab-btn.active {
+        background: var(--primary);
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.4);
+      }
+      .tab-btn:active {
+        transform: scale(0.96);
+      }
+      /* ============================================
+         视图 1：关系图谱
+         ============================================ */
+      .graph-wrap {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: var(--bg-white);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+      }
+      /* 图例：左上角常驻，单行展示，半透明不遮挡 */
+      .graph-legend {
+        position: absolute;
+        top: 12px;
+        left: 14px;
+        z-index: 30;
+        display: flex;
+        gap: 14px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--text-sec);
+        background: rgba(255, 255, 255, 0.82);
+        padding: 8px 14px;
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        pointer-events: none;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .lg-svg {
+        flex-shrink: 0;
+        display: block;
+      }
+      .lg-svg line {
+        stroke-width: 3.2;
+      }
+      .lg-svg.family line {
+        stroke: var(--red);
+      }
+      .lg-svg.romance line {
+        stroke: var(--pink);
+        stroke-dasharray: 1.5 5;
+        stroke-linecap: round;
+      }
+      .lg-svg.master line {
+        stroke: var(--gold);
+        stroke-dasharray: 7 5;
+      }
+      .lg-svg.friend line {
+        stroke: var(--green);
+        stroke-dasharray: 14 6;
+      }
+      .lg-svg.enemy line {
+        stroke: var(--text-main);
+        stroke-dasharray: 9 4 2 4;
+      }
+
+      /* 画布：图谱头像让位时整体压缩到左侧 */
+      .graph-canvas {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .graph-wrap.panel-open .graph-canvas {
+        right: 340px;
+      }
+      @media (max-width: 900px) {
+        .graph-wrap.panel-open .graph-canvas {
+          right: 300px;
+        }
+      }
+      svg.edges {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .edge {
+        stroke-width: 2;
+        fill: none;
+        transition: opacity 0.25s;
+      }
+      .edge.family {
+        stroke: var(--red);
+        opacity: 0.75;
+      }
+      .edge.romance {
+        stroke: var(--pink);
+        stroke-dasharray: 1.5 5;
+        stroke-linecap: round;
+        opacity: 0.9;
+      }
+      .edge.master {
+        stroke: var(--gold);
+        stroke-dasharray: 7 5;
+        opacity: 0.8;
+      }
+      .edge.enemy {
+        stroke: var(--text-main);
+        stroke-dasharray: 9 4 2 4;
+        opacity: 0.45;
+      }
+      .edge.friend {
+        stroke: var(--green);
+        stroke-dasharray: 14 6;
+        opacity: 0.7;
+      }
+      .edge.dim {
+        opacity: 0.08 !important;
+      }
+      .edge.hl {
+        opacity: 1 !important;
+        stroke-width: 3;
+      }
+
+      .node {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        cursor: pointer;
+        touch-action: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        z-index: 2;
+        will-change: left, top;
+        transition:
+          left 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+          top 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .node.dragging-now {
+        transition: none;
+      }
+      .node.grabbing {
+        cursor: grabbing;
+        z-index: 20;
+      }
+      .node .float-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        will-change: transform;
+        animation-name: floatMotion;
+        animation-iteration-count: infinite;
+        animation-timing-function: ease-in-out;
+        animation-direction: alternate;
+      }
+      .node.grabbing .float-inner {
+        animation-play-state: paused;
+      }
+      @keyframes floatMotion {
+        0% {
+          transform: translate(0, 0);
+        }
+        50% {
+          transform: translate(3px, -5px);
+        }
+        100% {
+          transform: translate(-3px, 4px);
+        }
+      }
+      /* 头像整体放大 */
+      .node .avatar {
+        width: 82px;
+        height: 82px;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+        background-size: cover;
+        background-position: center;
+        background-color: #eee;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+      }
+      .node.big .avatar {
+        width: 104px;
+        height: 104px;
+        border-width: 4px;
+      }
+      .node .name {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-main);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 2px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      .node:hover .avatar,
+      .node.grabbing .avatar {
+        transform: scale(1.08);
+        box-shadow:
+          0 0 0 3px var(--primary-light),
+          0 6px 18px rgba(0, 0, 0, 0.25);
+      }
+      .node.active .avatar {
+        box-shadow:
+          0 0 0 4px var(--primary-light),
+          0 6px 18px rgba(0, 0, 0, 0.25);
+      }
+      .node.dim {
+        opacity: 0.35;
+      }
+
+      /* 首次进入的"可点击"引导：头像脉冲光环，播放数次后自动停止 */
+      @keyframes tapPulse {
+        0% {
+          box-shadow:
+            0 0 0 0 rgba(100, 135, 250, 0.55),
+            0 4px 14px rgba(0, 0, 0, 0.18);
+        }
+        70% {
+          box-shadow:
+            0 0 0 16px rgba(100, 135, 250, 0),
+            0 4px 14px rgba(0, 0, 0, 0.18);
+        }
+        100% {
+          box-shadow:
+            0 0 0 0 rgba(100, 135, 250, 0),
+            0 4px 14px rgba(0, 0, 0, 0.18);
+        }
+      }
+      .node.tap-hint .avatar {
+        animation: tapPulse 1.8s ease-out 3;
+      }
+
+      /* 角色详情：右侧固定面板，不遮挡头像；内容自适应无滚动条 */
+      .char-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 340px;
+        height: 100%;
+        background: #fff;
+        box-shadow: -8px 0 28px rgba(0, 0, 0, 0.12);
+        padding: 20px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        transform: translateX(100%);
+        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 25;
+        overflow: hidden;
+      }
+      .graph-wrap.panel-open .char-panel {
+        transform: translateX(0);
+      }
+      @media (max-width: 900px) {
+        .char-panel {
+          width: 300px;
+          padding: 18px;
+        }
+      }
+      .char-panel .close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        font-size: 22px;
+        line-height: 1;
+        font-weight: 700;
+        color: #fff;
+        background: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        text-align: center;
+        box-shadow: 0 3px 10px rgba(100, 135, 250, 0.4);
+        transition: all 0.2s;
+        z-index: 2;
+      }
+      .char-panel .close:hover {
+        background: var(--primary-dark);
+        transform: scale(1.05);
+      }
+      .char-panel .close:active {
+        transform: scale(0.92);
+      }
+      .char-panel .avt {
+        width: 96px;
+        height: 96px;
+        border-radius: 16px;
+        flex-shrink: 0;
+        background-size: cover;
+        background-position: center;
+        box-shadow: var(--shadow-sm);
+        align-self: flex-start;
+        margin-top: 6px;
+      }
+      /* PC 端：包裹层透明，保持原有纵向排版不变 */
+      .char-panel .char-head {
+        display: contents;
+      }
+      .char-panel .p-name {
+        font-size: 21px;
+        font-weight: 800;
+        line-height: 1.2;
+      }
+      .char-panel .p-actor {
+        font-size: 13px;
+        color: var(--text-sec);
+        margin-top: 4px;
+      }
+      .char-panel .p-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-sec);
+        letter-spacing: 1px;
+        margin-top: 4px;
+      }
+      .char-panel .p-rel-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .rel-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 11px;
+        border-radius: 20px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: #fff;
+      }
+      .rel-tag.self {
+        background: linear-gradient(
+          135deg,
+          var(--primary),
+          var(--primary-light)
+        );
+      }
+      .rel-tag.family {
+        background: var(--red);
+      }
+      .rel-tag.romance {
+        background: var(--pink);
+      }
+      .rel-tag.master {
+        background: var(--gold);
+      }
+      .rel-tag.friend {
+        background: var(--green);
+      }
+      .rel-tag.enemy {
+        background: #55585f;
+      }
+      .char-panel .p-desc {
+        font-size: 14px;
+        color: var(--text-main);
+        line-height: 1.7;
+      }
+      /* ============================================
+         视图 2：剧情因果 —— 横向思维导图
+         ============================================ */
+      .mind-wrap {
+        flex: 1;
+        background: var(--bg-white);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+      }
+      .mind-toolbar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .mind-toolbar .m-hint {
+        font-size: 12px;
+        color: var(--text-tri);
+        margin-left: 2px;
+      }
+
+      .mind-viewport {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+        padding: 20px;
+      }
+      .mind-canvas {
+        position: relative;
+        min-width: 100%;
+        min-height: 100%;
+        transition: transform 0.05s linear;
+      }
+      /* 底部滑杆（参照组件库 slider） */
+      .mind-slider-bar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 22px 14px;
+        border-top: 1px solid var(--border);
+      }
+      .mind-slider-bar .msl-ico {
+        font-size: 15px;
+        color: var(--text-tri);
+        flex-shrink: 0;
+      }
+      .msl-container {
+        flex: 1;
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .msl-track {
+        position: relative;
+        width: 100%;
+        height: 18px;
+        cursor: pointer;
+        touch-action: none;
+      }
+      .msl-track-bg {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        margin-top: -2px;
+        border-radius: 2px;
+        background: rgba(0, 0, 0, 0.1);
+      }
+      .msl-track-active {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 0;
+        height: 4px;
+        margin-top: -2px;
+        border-radius: 2px;
+        background: var(--primary);
+      }
+      .msl-thumb {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 18px;
+        height: 18px;
+        margin-top: -9px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid var(--primary);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+        transform: translateX(-50%);
+        transition: transform 0.12s ease;
+      }
+      .msl-thumb:hover {
+        transform: translateX(-50%) scale(1.12);
+      }
+      .mind-slider-bar.disabled {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      /* 滑杆上的节点点位 */
+      .msl-dots {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        width: 100%;
+        height: 0;
+        pointer-events: none;
+      }
+      .msl-dot {
+        position: absolute;
+        top: 0;
+        width: 11px;
+        height: 11px;
+        margin: -5.5px 0 0 -5.5px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid var(--primary-light);
+        cursor: pointer;
+        pointer-events: auto;
+        transition:
+          transform 0.12s ease,
+          border-color 0.12s;
+      }
+      .msl-dot:hover {
+        transform: scale(1.25);
+      }
+      .msl-dot.active {
+        border-color: var(--primary);
+        background: var(--primary);
+        transform: scale(1.25);
+      }
+      .mind-svg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: visible;
+      }
+      .mind-link {
+        fill: none;
+        stroke: var(--primary);
+        stroke-width: 2.5;
+        opacity: 0.5;
+      }
+      .mind-node {
+        position: absolute;
+        transform: translate(0, -50%);
+        z-index: 2;
+      }
+      /* 根节点 */
+      .mind-node.root .m-card {
+        background: linear-gradient(
+          135deg,
+          var(--primary),
+          var(--primary-light)
+        );
+        color: #fff;
+        border: none;
+      }
+      .mind-node.root .m-card .m-ep,
+      .mind-node.root .m-card .m-name {
+        color: #fff;
+      }
+      .mind-node.root .m-card .m-cause {
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .mind-node.root .m-card .m-cause::before {
+        color: #fff;
+      }
+      .m-card {
+        width: 210px;
+        border-radius: 14px;
+        background: #fff;
+        border: 1.5px solid var(--border);
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+        cursor: pointer;
+        overflow: hidden;
+        transition:
+          transform 0.18s,
+          box-shadow 0.18s;
+        display: flex;
+        flex-direction: column;
+      }
+      .m-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+      }
+      .m-card .m-thumb {
+        width: 100%;
+        height: 84px;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--bg-gray);
+        position: relative;
+      }
+      .m-card .m-badge {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        padding: 2px 8px;
+        border-radius: 8px;
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #fff;
+        background: var(--primary);
+      }
+      .m-card .m-body {
+        padding: 8px 11px 10px;
+      }
+      .m-card .m-ep {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--primary);
+      }
+      .m-card .m-name {
+        font-size: 13.5px;
+        font-weight: 700;
+        line-height: 1.35;
+        color: var(--text-main);
+        margin-top: 2px;
+      }
+      .m-card .m-cause {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--text-sec);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .m-card .m-cause::before {
+        content: "▸";
+        color: var(--primary);
+        font-weight: 700;
+      }
+      /* 折叠按钮 */
+      .m-toggle {
+        position: absolute;
+        right: -13px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fff;
+        border: 1.5px solid var(--primary);
+        color: var(--primary);
+        font-size: 15px;
+        font-weight: 800;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+      }
+
+      /* 剧情节点弹窗 */
+      .plot-modal-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(20, 22, 30, 0.5);
+        backdrop-filter: blur(3px);
+        z-index: 40;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .plot-modal-mask.active {
+        display: flex;
+      }
+      .plot-modal {
+        width: 100%;
+        max-width: 480px;
+        max-height: none;
+        background: #fff;
+        border-radius: 18px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        box-shadow: var(--shadow-lg);
+        animation: modalIn 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+      @keyframes modalIn {
+        from {
+          transform: translateY(24px) scale(0.96);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0) scale(1);
+          opacity: 1;
+        }
+      }
+      .plot-modal .pm-cover {
+        width: 100%;
+        height: 190px;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--bg-gray);
+        position: relative;
+        flex-shrink: 0;
+      }
+      .plot-modal .pm-cover::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          transparent 40%,
+          rgba(0, 0, 0, 0.55) 100%
+        );
+      }
+      .plot-modal .pm-badge {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        padding: 4px 12px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+        background: var(--primary);
+        z-index: 2;
+      }
+      .plot-modal .pm-close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1;
+        color: #fff;
+        background: var(--primary);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 3;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+        transition: all 0.2s;
+      }
+      .plot-modal .pm-close:hover {
+        background: var(--primary-dark);
+        transform: scale(1.06);
+      }
+      .plot-modal .pm-close:active {
+        transform: scale(0.92);
+      }
+      .plot-modal .pm-title {
+        position: absolute;
+        left: 14px;
+        bottom: 12px;
+        right: 14px;
+        color: #fff;
+        font-size: 19px;
+        font-weight: 800;
+        z-index: 2;
+        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+      }
+      .plot-modal .pm-body {
+        padding: 16px 18px 20px;
+        overflow-y: visible;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .pm-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-sec);
+        letter-spacing: 1px;
+      }
+      .pm-desc {
+        font-size: 14px;
+        color: var(--text-main);
+        line-height: 1.7;
+      }
+      .pm-roles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .pm-role {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-gray);
+        padding: 6px 12px 6px 6px;
+        border-radius: 24px;
+      }
+      .pm-role .pr-av {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background-size: cover;
+        background-position: center;
+        flex-shrink: 0;
+      }
+      .pm-role .pr-info .pr-n {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .pm-role .pr-info .pr-a {
+        font-size: 11px;
+        color: var(--text-sec);
+      }
+      /* ============================================
+         视图 3：作品推荐（合并系列作品 + 相似推荐）
+         ============================================ */
+      .works-wrap {
+        flex: 1;
+        background: var(--bg-white);
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        padding: 14px 16px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .works-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+        margin-bottom: 12px;
+      }
+      .works-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .works-tab {
+        padding: 9px 18px;
+        border-radius: 22px;
+        font-size: 14.5px;
+        font-weight: 700;
+        background: #fff;
+        color: var(--primary);
+        border: 2px solid var(--primary);
+        transition: all 0.2s;
+      }
+      .works-tab:hover {
+        background: rgba(100, 135, 250, 0.08);
+      }
+      .works-tab.active {
+        background: linear-gradient(
+          135deg,
+          var(--primary),
+          var(--primary-light)
+        );
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.45);
+      }
+      .works-pager {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .works-pageinfo {
+        font-size: 13px;
+        color: var(--text-sec);
+        min-width: 42px;
+        text-align: center;
+      }
+      .works-btn {
+        padding: 7px 14px;
+        border-radius: 10px;
+        font-size: 13.5px;
+        font-weight: 600;
+        background: var(--primary);
+        color: #fff;
+        box-shadow: 0 3px 10px rgba(100, 135, 250, 0.3);
+        transition: all 0.2s;
+      }
+      .works-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+      .works-btn:not(:disabled):active {
+        transform: scale(0.95);
+      }
+
+      .works-viewport {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+      }
+      /* 一行4个，恒定单行，图片尽量铺满窗口 */
+      .works-grid {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: 100%;
+        grid-auto-flow: column;
+        gap: 14px;
+      }
+      .works-grid.dragging {
+        cursor: grabbing;
+      }
+      .work-card {
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--bg-gray);
+        display: flex;
+        flex-direction: column;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.25s;
+        position: relative;
+        min-height: 0;
+        cursor: pointer;
+      }
+      .work-card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-md);
+      }
+      .work-card .cover {
+        width: 100%;
+        flex: 1;
+        min-height: 0;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--bg-gray);
+        position: relative;
+      }
+      .work-card .cover::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          transparent 55%,
+          rgba(0, 0, 0, 0.5) 100%
+        );
+      }
+      .work-card .tag {
+        position: absolute;
+        top: 9px;
+        left: 9px;
+        padding: 3px 10px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        font-weight: 700;
+        z-index: 2;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--text-main);
+      }
+      .work-card.upcoming .tag {
+        background: var(--gold);
+        color: #fff;
+      }
+      .work-card .info {
+        padding: 9px 11px 11px;
+        background: #fff;
+        flex-shrink: 0;
+      }
+      .work-card .info .n {
+        font-size: 14.5px;
+        font-weight: 700;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .work-card .info .ep-badge {
+        font-size: 11px;
+        color: var(--primary);
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: rgba(100, 135, 250, 0.1);
+      }
+      /* 第二行统一展示主演信息 */
+      .work-card .info .m {
+        font-size: 12px;
+        color: var(--text-main);
+        margin-top: 4px;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .work-card .info .r {
+        font-size: 11.5px;
+        color: var(--primary);
+        margin-top: 4px;
+        font-weight: 600;
+        line-height: 1.35;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* 作品推荐：移动端向右滑动提示箭头（PC 端隐藏） */
+      .works-scroll-hint {
+        display: none;
+      }
+
+      /* ===== 响应式 ===== */
+      @media (max-width: 900px) {
+        .works-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+        .node .avatar {
+          width: 66px;
+          height: 66px;
+        }
+        .node.big .avatar {
+          width: 84px;
+          height: 84px;
+        }
+      }
+      @media (max-width: 768px) {
+        .main {
+          padding: 10px 10px 4px;
+        }
+        .view {
+          inset: 10px 10px 4px;
+        }
+        .tabs {
+          padding: 6px 10px 10px;
+          gap: 6px;
+        }
+        .tab-btn {
+          font-size: 14px;
+          padding: 10px 4px;
+        }
+
+        /* 关系图谱：头像/字体更小；图例整行完整展示 */
+        .graph-legend {
+          left: 8px;
+          right: 8px;
+          top: 8px;
+          max-width: none;
+          justify-content: space-between;
+          gap: 3px;
+          padding: 6px 8px;
+          font-size: 10.5px;
+        }
+        .graph-legend .legend-item {
+          gap: 3px;
+        }
+        .lg-svg {
+          width: 20px;
+        }
+        .node .avatar {
+          width: 57px;
+          height: 57px;
+          border-width: 2px;
+        }
+        .node.big .avatar {
+          width: 73px;
+          height: 73px;
+        }
+        .node .name {
+          font-size: 11px;
+          padding: 1px 5px;
+        }
+        .graph-wrap.panel-open .graph-canvas {
+          right: 0;
+        }
+
+        /* 角色详情：移动端改为居中弹窗（替代右侧固定面板），内容全展示 */
+        .char-panel {
+          top: 50%;
+          left: 50%;
+          right: auto;
+          bottom: auto;
+          width: 88%;
+          max-width: 360px;
+          height: auto;
+          max-height: 88%;
+          padding: 22px 18px 22px;
+          gap: 10px;
+          border-radius: 20px;
+          transform: translate(-50%, -50%) scale(0.92);
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          overflow: hidden;
+          transition:
+            opacity 0.28s,
+            transform 0.28s,
+            visibility 0.28s;
+        }
+        .graph-wrap.panel-open .char-panel {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+          visibility: visible;
+          pointer-events: auto;
+        }
+        .graph-wrap.panel-open::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: rgba(20, 22, 30, 0.45);
+          backdrop-filter: blur(2px);
+          z-index: 24;
+        }
+        /* 弹窗打开时隐藏图例 */
+        .graph-wrap.panel-open .graph-legend {
+          display: none;
+        }
+        .char-panel .avt {
+          width: 66px;
+          height: 66px;
+          border-radius: 14px;
+          margin-top: 0;
+        }
+        .char-panel .p-name {
+          font-size: 19px;
+        }
+        .char-panel .p-desc {
+          font-size: 13.5px;
+          line-height: 1.6;
+        }
+        /* 移动端弹窗：姓名/演员放头像右侧；隐藏"与主角的关系""人物简介"标题 */
+        .char-panel .char-head {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .char-panel .char-head-info {
+          flex: 1;
+          min-width: 0;
+        }
+        .char-panel #cRelTitle,
+        .char-panel #cDescTitle {
+          display: none;
+        }
+
+        /* 剧情因果：整体上移，避免节点被遮挡 */
+        .m-card {
+          width: 168px;
+        }
+        .mind-viewport {
+          padding: 8px 12px;
+          align-items: flex-start;
+        }
+        /* 弹窗：移动端改为纵向阅读卡，保留剧情解析与关键人物 */
+        .plot-modal-mask {
+          padding: 12px;
+          align-items: center;
+        }
+        .plot-modal {
+          max-height: 88dvh;
+          border-radius: 20px;
+        }
+        .plot-modal .pm-cover {
+          height: 116px;
+        }
+        .plot-modal .pm-badge {
+          top: 10px;
+          left: 10px;
+          padding: 3px 9px;
+          font-size: 11.5px;
+          border-radius: 9px;
+        }
+        .plot-modal .pm-close {
+          top: 10px;
+          right: 10px;
+          width: 34px;
+          height: 34px;
+          font-size: 20px;
+        }
+        .plot-modal .pm-title {
+          left: 12px;
+          right: 56px;
+          bottom: 10px;
+          font-size: 15.5px;
+          line-height: 1.3;
+        }
+        .plot-modal .pm-body {
+          overflow-y: auto;
+          padding: 12px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+          gap: 10px;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior: contain;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .plot-modal .pm-body::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+        .pm-section-title {
+          font-size: 11px;
+          letter-spacing: 0.6px;
+        }
+        .pm-desc {
+          font-size: 12.5px;
+          line-height: 1.65;
+        }
+        #pmRolesBlock {
+          display: block;
+          padding-top: 6px;
+          border-top: 1px solid rgba(19, 26, 44, 0.08);
+        }
+        .pm-roles {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .pm-roles[data-count="3"] {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+        }
+        .pm-roles[data-count="4"] {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 6px;
+        }
+        .pm-role {
+          width: calc(50% - 3px);
+          min-width: 0;
+          gap: 6px;
+          padding: 6px 7px 6px 6px;
+          border-radius: 999px;
+          background: #f7f8fc;
+        }
+        .pm-role .pr-av {
+          width: 28px;
+          height: 28px;
+        }
+        .pm-role .pr-info {
+          min-width: 0;
+        }
+        .pm-role .pr-info .pr-n {
+          font-size: 11.5px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .pm-role .pr-info .pr-a {
+          display: none;
+        }
+        .pm-roles[data-count="3"] .pm-role,
+        .pm-roles[data-count="4"] .pm-role {
+          width: auto;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 4px;
+          padding: 0;
+          border-radius: 0;
+          background: transparent;
+        }
+        .pm-roles[data-count="3"] .pm-role .pr-av,
+        .pm-roles[data-count="4"] .pm-role .pr-av {
+          width: 28px;
+          height: 28px;
+        }
+        .pm-roles[data-count="3"] .pm-role .pr-info,
+        .pm-roles[data-count="4"] .pm-role .pr-info {
+          width: 100%;
+        }
+        .pm-roles[data-count="3"] .pm-role .pr-info .pr-n,
+        .pm-roles[data-count="4"] .pm-role .pr-info .pr-n {
+          font-size: 10.5px;
+          text-align: center;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        /* 作品推荐：tab 一行、横向滑动，默认 1 个 + 第二个露 50%；无滚动条；文案全展示 */
+        .works-head {
+          gap: 6px;
+        }
+        .works-tabs {
+          flex-wrap: nowrap;
+          gap: 6px;
+          width: 100%;
+        }
+        .works-tab {
+          font-size: 12px;
+          /* 高度缩小为原来的约 80%（原 ~32px → 26px），空出更多纵向空间 */
+          padding: 0;
+          height: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex: 1;
+          text-align: center;
+        }
+        .works-pager {
+          display: none;
+        }
+        .works-viewport {
+          overflow: visible;
+        }
+        .works-grid {
+          display: flex;
+          align-items: stretch;
+          grid-template-columns: none;
+          grid-auto-flow: row;
+          grid-auto-rows: auto;
+          overflow-x: auto;
+          overflow-y: hidden;
+          gap: 12px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+          cursor: grab;
+          touch-action: pan-x;
+        }
+        .works-grid::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+        .work-card {
+          flex: 0 0 48%;
+          scroll-snap-align: start;
+          /* 竖向居中，图片按需收缩后上下留白均匀 */
+          justify-content: center;
+        }
+        /* 图片容器以 高:宽 = 3:2 为上限；空间不足时自动收缩，保证下方文字始终完整可见 */
+        .work-card .cover {
+          flex: 0 1 auto;
+          width: 100%;
+          aspect-ratio: 2 / 3;
+          min-height: 0;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+        /* 卡片文案固定三行：标题 / 主演 / 推荐语，各自单行超出省略 */
+        .work-card .info .n {
+          font-size: 13.5px;
+        }
+        .work-card .info .m {
+          font-size: 11.5px;
+        }
+        .work-card .info .r {
+          font-size: 11.5px;
+          /* 推荐语允许两行展示，超出两行再省略 */
+          white-space: normal;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        /* 向右滑动提示箭头：右侧边缘、脉冲动画、滑动后淡出 */
+        .works-scroll-hint {
+          display: flex;
+          position: absolute;
+          top: 50%;
+          right: 4px;
+          transform: translateY(-50%);
+          min-width: 34px;
+          height: 34px;
+          padding: 0 10px;
+          border-radius: 999px;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          background: rgba(100, 135, 250, 0.92);
+          box-shadow: 0 3px 12px rgba(100, 135, 250, 0.5);
+          z-index: 5;
+          pointer-events: none;
+          opacity: 1;
+          transition: opacity 0.4s ease;
+          animation: hintNudge 1.4s ease-in-out infinite;
+        }
+        .works-scroll-hint.hide {
+          opacity: 0;
+        }
+        .works-scroll-hint .hint-text {
+          font-size: 11px;
+          font-weight: 700;
+          color: #fff;
+          letter-spacing: 0.3px;
+          white-space: nowrap;
+        }
+        @keyframes hintNudge {
+          0%,
+          100% {
+            transform: translateY(-50%) translateX(0);
+          }
+          50% {
+            transform: translateY(-50%) translateX(6px);
+          }
+        }
+      }
+      @media (max-width: 480px) {
+        .m-card {
+          width: 150px;
+        }
+      }
+      /* 超小屏（如 320/360）：头像与名字缩小、连线更细更淡、图例更紧凑，降低重叠与杂乱 */
+      @media (max-width: 400px) {
+        .graph-legend {
+          font-size: 9.5px;
+          gap: 2px;
+          padding: 5px 6px;
+        }
+        .graph-legend .legend-item {
+          gap: 2px;
+        }
+        .lg-svg {
+          width: 16px;
+        }
+        .node .avatar {
+          width: 47px;
+          height: 47px;
+          border-width: 2px;
+        }
+        .node.big .avatar {
+          width: 62px;
+          height: 62px;
+        }
+        .node .name {
+          font-size: 10px;
+          padding: 1px 4px;
+          border-radius: 5px;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        }
+        svg.edges {
+          opacity: 0.6;
+        }
+        .edge {
+          stroke-width: 1.4;
+        }
+        .edge.hl {
+          stroke-width: 2.2;
+        }
+        .works-scroll-hint {
+          padding: 0 8px;
+        }
+        .works-scroll-hint .hint-text {
+          display: none;
+        }
+      }
+      /* 极小屏且窗口很矮（如 300×360）：适当缩小头像，为顶部图例与四行节点留出空间，避免图例遮挡头像 */
+      @media (max-width: 400px) and (max-height: 420px) {
+        .node .avatar {
+          width: 38px;
+          height: 38px;
+        }
+        .node.big .avatar {
+          width: 50px;
+          height: 50px;
+        }
+        .node .name {
+          font-size: 9.5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="main">
+        <!-- 视图 1：关系图谱 -->
+        <div class="view active" data-view="graph">
+          <div class="graph-wrap" id="graphWrap">
+            <div class="graph-legend">
+              <div class="legend-item">
+                <svg class="lg-svg family" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >血缘
+              </div>
+              <div class="legend-item">
+                <svg class="lg-svg romance" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >情感
+              </div>
+              <div class="legend-item">
+                <svg class="lg-svg master" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >师徒
+              </div>
+              <div class="legend-item">
+                <svg class="lg-svg friend" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >盟友
+              </div>
+              <div class="legend-item">
+                <svg class="lg-svg enemy" width="26" height="8">
+                  <line x1="1" y1="4" x2="25" y2="4" /></svg
+                >对立
+              </div>
+            </div>
+            <div class="graph-canvas" id="graphCanvas">
+              <svg class="edges" id="graphEdges"></svg>
+            </div>
+            <!-- 角色详情：右侧面板 -->
+            <div class="char-panel" id="charPanel">
+              <button class="close" id="charClose" title="关闭">×</button>
+              <div class="char-head">
+                <div class="avt" id="cAvt"></div>
+                <div class="char-head-info">
+                  <div class="p-name" id="cName"></div>
+                  <div class="p-actor" id="cActor"></div>
+                </div>
+              </div>
+              <div class="p-section-title" id="cRelTitle">与主角的关系</div>
+              <div class="p-rel-tags" id="cRelTags"></div>
+              <div class="p-section-title" id="cDescTitle">人物简介</div>
+              <div class="p-desc" id="cDesc"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图 2：剧情因果 思维导图 -->
+        <div class="view" data-view="mind">
+          <div class="mind-wrap">
+            <div class="mind-toolbar">
+              <span class="m-hint">拖动节点、点击剧情查看详情</span>
+            </div>
+            <div class="mind-viewport" id="mindViewport">
+              <div class="mind-canvas" id="mindCanvas">
+                <svg class="mind-svg" id="mindSvg"></svg>
+              </div>
+            </div>
+            <!-- 底部滑杆：控制思维导图左右滑动 + 节点点位 -->
+            <div class="mind-slider-bar" id="mindSliderBar">
+              <span class="msl-ico">⇤</span>
+              <div class="msl-container" id="mslContainer">
+                <div class="msl-track" id="mslTrack">
+                  <div class="msl-track-bg"></div>
+                  <div class="msl-track-active" id="mslActive"></div>
+                  <div class="msl-dots" id="mslDots"></div>
+                  <div class="msl-thumb" id="mslThumb"></div>
+                </div>
+              </div>
+              <span class="msl-ico">⇥</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 视图 3：作品推荐 -->
+        <div class="view" data-view="works">
+          <div class="works-wrap">
+            <div class="works-head">
+              <div class="works-tabs" id="worksTabs">
+                <button class="works-tab active" data-cat="series">
+                  同系列
+                </button>
+                <button class="works-tab" data-cat="theme">同题材</button>
+                <button class="works-tab" data-cat="cast">同主演</button>
+                <button class="works-tab" data-cat="author">同作者</button>
+              </div>
+              <div class="works-pager">
+                <button class="works-btn" id="worksPrev">← 上一页</button>
+                <span class="works-pageinfo" id="worksPageInfo">1/1</span>
+                <button class="works-btn" id="worksNext">下一页 →</button>
+              </div>
+            </div>
+            <div class="works-viewport">
+              <div class="works-grid" id="worksGrid"></div>
+              <div
+                class="works-scroll-hint"
+                id="worksScrollHint"
+                aria-hidden="true"
+              >
+                <span class="hint-text">左右滑动</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M9 5l7 7-7 7"
+                    stroke="#fff"
+                    stroke-width="2.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="graph">关系图谱</button>
+        <button class="tab-btn" data-tab="mind">剧情因果</button>
+        <button class="tab-btn" data-tab="works">作品推荐</button>
+      </div>
+    </div>
+
+    <!-- 剧情节点弹窗（挂 body 内 app 外便于居中） -->
+    <div class="plot-modal-mask" id="plotModalMask">
+      <div class="plot-modal" id="plotModal">
+        <div class="pm-cover" id="pmCover">
+          <div class="pm-badge" id="pmBadge"></div>
+          <button class="pm-close" id="pmClose" title="关闭">×</button>
+          <div class="pm-title" id="pmTitle"></div>
+        </div>
+        <div class="pm-body">
+          <div>
+            <div class="pm-section-title">剧情解析</div>
+            <div class="pm-desc" id="pmDesc" style="margin-top: 6px"></div>
+          </div>
+          <div id="pmRolesBlock">
+            <div class="pm-section-title">关键人物</div>
+            <div class="pm-roles" id="pmRoles" style="margin-top: 8px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /* ========= 数据 ========= */
+      const IMG = "./images/";
+      const chars = {
+        xiewanghe: {
+          name: "谢望和",
+          actor: "欧豪 饰",
+          img: IMG + "角色_谢望和_占位.webp",
+          big: true,
+          desc: "花街少年中的主心骨，脑子活、胆子大，少年时爱闯祸，长大后一路北上打拼，在理想、责任与故乡之间反复抉择。",
+        },
+        xiafenghua: {
+          name: "夏凤华",
+          actor: "白鹿 饰",
+          img: IMG + "角色_夏凤华_占位.webp",
+          big: true,
+          desc: "运河边长大的花街小太阳，爽利倔强，做事有冲劲。她对家人和伙伴都极讲义气，也是谢望和成长路上最坚定的同行者。",
+        },
+        masiyi: {
+          name: "马思艺",
+          actor: "李宛妲 饰",
+          img: IMG + "角色_马思艺_占位.webp",
+          desc: "身世成谜的女孩，因异域面孔与寡言气质格外醒目。童年寄居花街，成年后在失散、漂泊与回归之间，牵动着众人的记忆与情感。",
+        },
+        shaoxingchi: {
+          name: "邵星池",
+          actor: "翟子路 饰",
+          img: IMG + "角色_邵星池_占位.webp",
+          desc: "谢望和的铁杆发小，热闹爱闹，表面吊儿郎当，内里重情重义。北上后屡屡受挫，也在跌撞中找到自己的手艺和位置。",
+        },
+        zhouhaikuo: {
+          name: "周海阔",
+          actor: "高至霆 饰",
+          img: IMG + "角色_周海阔_占位.webp",
+          desc: "花街少年中的稳重派，温和聪明，兼具理性与义气。从技术行业回望家乡后，他逐渐走上守护花街文化的道路。",
+        },
+        chenrui: {
+          name: "陈睿",
+          actor: "刘恒甫 饰",
+          img: IMG + "角色_陈睿_占位.webp",
+          desc: "六人中最安静也最执着的一个，留在花街读书与考察。对历史与运河线索格外敏感，后来成为连接过去与当下的重要见证者。",
+        },
+        xietiancheng: {
+          name: "谢天成",
+          actor: "胡军 饰",
+          img: IMG + "角色_谢天成_占位.webp",
+          desc: "谢望和的父亲，花街老船老大。曾经意气风发，随着运河生计式微而失落，却始终撑着一家人的骨气。",
+        },
+        lianghaihong: {
+          name: "梁海泓",
+          actor: "齐欢 饰",
+          img: IMG + "角色_梁海泓_占位.webp",
+          desc: "谢望和的母亲，嘴硬心热，干练要强。既护着儿子，也对他的婚恋与前途有自己的判断。",
+        },
+        xiamaotian: {
+          name: "夏茂田",
+          actor: "褚栓忠 饰",
+          img: IMG + "角色_夏茂田_占位.webp",
+          desc: "夏凤华的父亲，老实厚道，跟着运河讨生活。面对家计与时代变化，总想守住一家人的安稳。",
+        },
+        liyan: {
+          name: "李燕",
+          actor: "涂凌 饰",
+          img: IMG + "角色_李燕_占位.webp",
+          desc: "夏凤华的母亲，泼辣直爽，烟火气十足。她把日子过得风风火火，也把女儿的倔劲与韧劲带到了成长里。",
+        },
+        zhouyanlin: {
+          name: "周宴临",
+          actor: "李乃文 饰",
+          img: IMG + "角色_周宴临_占位.webp",
+          desc: "周海阔的父亲，花街饭馆的掌勺人，懂手艺也懂人情。与儿子的代际碰撞和婚姻起伏，都折射出一代人的困境。",
+        },
+        luozhimei: {
+          name: "罗之梅",
+          actor: "童蕾 饰",
+          img: IMG + "角色_罗之梅_占位.webp",
+          desc: "周海阔的母亲，曾向往更广阔的舞台，也因此与家庭发生拉扯。她的离开与回返，是花街另一种北上与归来的映照。",
+        },
+        mananai: {
+          name: "马奶奶",
+          actor: "萨日娜 饰",
+          img: IMG + "角色_马奶奶_占位.webp",
+          desc: "马思艺最重要的亲人，花街院子里的老辈支点。命运多舛却始终护着孙女，是马思艺最深的牵挂与来处。",
+        },
+      };
+
+      const HERO = "xiewanghe";
+      const RELN = {
+        family: "血缘",
+        romance: "情感",
+        master: "师徒",
+        friend: "盟友",
+        enemy: "对立",
+      };
+      const edges = [
+        { a: "xiewanghe", b: "xiafenghua", type: "romance", label: "相守" },
+        { a: "xiewanghe", b: "masiyi", type: "friend", label: "羁绊" },
+        { a: "xiewanghe", b: "shaoxingchi", type: "friend", label: "发小" },
+        { a: "xiewanghe", b: "zhouhaikuo", type: "friend", label: "发小" },
+        { a: "xiewanghe", b: "chenrui", type: "friend", label: "同伴" },
+        { a: "xiewanghe", b: "xietiancheng", type: "family", label: "父子" },
+        { a: "xiewanghe", b: "lianghaihong", type: "family", label: "母子" },
+        { a: "xietiancheng", b: "lianghaihong", type: "romance", label: "夫妻" },
+        { a: "xiafenghua", b: "masiyi", type: "friend", label: "姐妹" },
+        { a: "shaoxingchi", b: "zhouhaikuo", type: "friend", label: "兄弟" },
+        { a: "shaoxingchi", b: "chenrui", type: "friend", label: "伙伴" },
+        { a: "zhouhaikuo", b: "chenrui", type: "friend", label: "伙伴" },
+      ];
+
+      /* 与主角的直接关系标签（用于右侧面板） */
+      const heroRel = {
+        xiafenghua: { type: "romance", text: "青梅恋人" },
+        masiyi: { type: "friend", text: "旧日牵挂" },
+        shaoxingchi: { type: "friend", text: "铁杆发小" },
+        zhouhaikuo: { type: "friend", text: "并肩兄弟" },
+        chenrui: { type: "friend", text: "少年同伴" },
+        xietiancheng: { type: "family", text: "船老大父亲" },
+        lianghaihong: { type: "family", text: "刀子嘴母亲" },
+      };
+
+      const plots = [
+        {
+          ep: "01-03",
+          title: "花街初见 · 少年结伴",
+          cover: "剧情_01_花街初见_占位.webp",
+          type: "开端",
+          desc: "2000年夏天，马思艺来到运河边的花街，谢望和、夏凤华等少年围着她认识彼此。花街小院的友情、好奇与保护欲，自此把六个人绑在了一起。",
+          roles: ["xiewanghe", "masiyi", "xiafenghua"],
+          causeNext: "伙伴情谊成形",
+        },
+        {
+          ep: "04-07",
+          title: "运河渐冷 · 家计转向",
+          cover: "剧情_02_运河渐冷_占位.webp",
+          type: "变迁",
+          desc: "随着运河旧生计走弱，船运、饭馆和小生意都开始受冲击。孩子们第一次意识到，父辈的日子和自己的未来，都不可能永远停在花街的夏天里。",
+          roles: ["xiewanghe", "xietiancheng", "zhouyanlin"],
+          causeNext: "成长压力袭来",
+        },
+        {
+          ep: "08-11",
+          title: "青春分岔 · 情愫暗生",
+          cover: "剧情_03_青春分岔_占位.webp",
+          type: "成长",
+          desc: "升学、家庭期待与朦胧情感同时压来，夏凤华对谢望和的追随、马思艺的沉默心事、几位少年的性格差异也逐渐显现。少年情谊开始出现微妙分叉。",
+          roles: ["xiewanghe", "xiafenghua", "masiyi"],
+          causeNext: "命运突生裂口",
+        },
+        {
+          ep: "12-15",
+          title: "骤变来袭 · 思艺失踪",
+          cover: "剧情_04_思艺失踪_占位.webp",
+          type: "裂变",
+          desc: "高中时期的意外接连夺走马思艺最重要的亲人，也让她从花街突然消失。原本紧紧拧在一起的六个人，被现实猛地推向了各自不同的人生轨道。",
+          roles: ["masiyi", "mananai", "chenrui"],
+          causeNext: "众人各自北上",
+        },
+        {
+          ep: "16-19",
+          title: "离乡北上 · 北京重逢",
+          cover: "剧情_05_北京重逢_占位.webp",
+          type: "北上",
+          desc: "成年后的谢望和、夏凤华、邵星池、周海阔在北京再度汇合，带着花街出身与各自理想闯进大城市。北上既像追梦，也像一次被生活逼出的远行。",
+          roles: ["xiewanghe", "xiafenghua", "shaoxingchi", "zhouhaikuo"],
+          causeNext: "理想碰上现实",
+        },
+        {
+          ep: "20-23",
+          title: "职场沉浮 · 旧情回潮",
+          cover: "剧情_06_职场沉浮_占位.webp",
+          type: "打拼",
+          desc: "谢望和进入互联网企业，夏凤华经营快递点，周海阔在大厂做工程师，邵星池却始终找不到稳定位置。马思艺的再度出现，也让旧日感情与现实压力重新交缠。",
+          roles: ["xiewanghe", "xiafenghua", "zhouhaikuo", "masiyi"],
+          causeNext: "压力挤压关系",
+        },
+        {
+          ep: "24-27",
+          title: "危机翻涌 · 华子托底",
+          cover: "剧情_07_华子托底_占位.webp",
+          type: "转折",
+          desc: "谢望和遭遇公司危机，连带所有人的生活都被冲击。夏凤华为了帮他渡过难关，不惜卖掉自己辛苦撑起来的快递点，把最重的一笔代价先扛在了肩上。",
+          roles: ["xiewanghe", "xiafenghua", "chenrui"],
+          causeNext: "代价引爆低谷",
+        },
+        {
+          ep: "28-31",
+          title: "病痛压顶 · 众人返航",
+          cover: "剧情_08_众人返航_占位.webp",
+          type: "低谷",
+          desc: "夏凤华病倒、邵星池受挫、周海阔失业失恋，北上的人一个个被现实击退。离开北京并不等于失败，却逼着他们重新面对故乡、亲情和真正想留下的东西。",
+          roles: ["xiafenghua", "shaoxingchi", "zhouhaikuo", "xiewanghe"],
+          causeNext: "返乡重看花街",
+        },
+        {
+          ep: "32-35",
+          title: "花街重聚 · 旧脉再续",
+          cover: "剧情_09_花街重聚_占位.webp",
+          type: "回流",
+          desc: "回到花街后，陈睿继续追查运河与家族线索，周海阔重新理解父母与评话，邵星池也在手艺里找到新的方向。众人开始意识到，真正的答案也许一直在来处。",
+          roles: ["chenrui", "zhouhaikuo", "shaoxingchi", "zhouyanlin"],
+          causeNext: "真相带回归人",
+        },
+        {
+          ep: "36-38",
+          title: "归人到岸 · 运河新生",
+          cover: "剧情_10_运河新生_占位.webp",
+          type: "收束",
+          desc: "马思艺归来，年轻人再度聚齐，花街的旧人旧业也被重新点亮。经历北上与返乡后，他们终于把个人命运和运河记忆接到了一起，开始建设新的花街生活。",
+          roles: ["masiyi", "xiewanghe", "xiafenghua", "chenrui"],
+          causeNext: "",
+        },
+      ];
+
+      /* 作品推荐：四类 tab，统一字段 { n 名称, m 主演, r 推荐理由, cover, ep?, up? } */
+      const works = {
+        series: [
+          {
+            n: "北上",
+            m: "白鹿 / 欧豪 / 翟子路",
+            r: "运河青春群像 · 出走又归来",
+            cover: "推荐_北上_占位.webp",
+            ep: "38集",
+          },
+        ],
+        theme: [
+          {
+            n: "人世间",
+            m: "雷佳音 / 殷桃 / 辛柏青",
+            r: "时代洪流中的家国与亲情",
+            cover: "推荐_人世间_占位.webp",
+          },
+          {
+            n: "大江大河",
+            m: "王凯 / 杨烁 / 董子健",
+            r: "时代转型里的青年奋进",
+            cover: "推荐_大江大河_占位.webp",
+          },
+          {
+            n: "山海情",
+            m: "黄轩 / 张嘉益 / 闫妮",
+            r: "乡土群像与奋斗热血并行",
+            cover: "推荐_山海情_占位.webp",
+          },
+          {
+            n: "我的阿勒泰",
+            m: "马伊琍 / 周依然 / 于适",
+            r: "地域文化里的成长与回望",
+            cover: "推荐_我的阿勒泰_占位.webp",
+          },
+        ],
+        cast: [
+          {
+            n: "警察荣誉",
+            m: "张若昀 / 白鹿",
+            r: "白鹿的生活流群像代表作",
+            cover: "推荐_警察荣誉_占位.webp",
+          },
+          {
+            n: "长月烬明",
+            m: "罗云熙 / 白鹿",
+            r: "白鹿反差感极强的古装代表",
+            cover: "推荐_长月烬明_占位.webp",
+          },
+          {
+            n: "胆小鬼",
+            m: "欧豪 / 王砚辉 / 王玉雯",
+            r: "欧豪的青春悬疑成长线",
+            cover: "推荐_胆小鬼_占位.webp",
+          },
+          {
+            n: "风吹半夏",
+            m: "赵丽颖 / 欧豪 / 李光洁",
+            r: "欧豪的年代质感与工业气息",
+            cover: "推荐_风吹半夏_占位.webp",
+          },
+        ],
+        author: [],
+      };
+      /* =========================================================
+         视图 1：关系图谱 —— 放射式布局 + 可拖动 + 摆动
+         ========================================================= */
+      const graphWrap = document.getElementById("graphWrap");
+      const graphCanvas = document.getElementById("graphCanvas");
+      const graphEdges = document.getElementById("graphEdges");
+
+      const nodeState = {};
+      let bounds = { w: 0, h: 0 };
+
+      /* 空间散布式布局：主角居中偏左，按剧情族群成簇分布，
+         非椭圆、非放射；相关角色聚拢，尽量利用整块画布空间 */
+      // 归一化坐标 (0~1)，参照目标图排版：主角居中，相关角色环绕成簇、整体铺散
+      const layoutRel = {
+        xiewanghe: [0.47, 0.5],
+        xiafenghua: [0.68, 0.2],
+        masiyi: [0.76, 0.78],
+        shaoxingchi: [0.7, 0.5],
+        zhouhaikuo: [0.56, 0.92],
+        chenrui: [0.31, 0.9],
+        xietiancheng: [0.14, 0.18],
+        lianghaihong: [0.2, 0.43],
+      };
+
+      function measure() {
+        // 用不参与过渡的 graph-wrap 宽度减去面板宽度，得到画布最终宽度，
+        // 避免在 right 过渡动画过程中测到中间态尺寸导致头像挤在左侧
+        const rect = graphWrap.getBoundingClientRect();
+        const panelW = graphWrap.classList.contains("panel-open")
+          ? window.innerWidth <= 768
+            ? 0
+            : window.innerWidth <= 900
+              ? 300
+              : 340
+          : 0;
+        bounds = { w: Math.max(rect.width - panelW, 120), h: rect.height };
+      }
+
+      /* 根据当前画布尺寸计算像素坐标（画布让位收窄时自动压缩到左侧） */
+      function computeLayout() {
+        measure();
+        const isMobile = window.innerWidth <= 768;
+        const padX = isMobile ? 28 : 52;
+        const padY = isMobile ? 32 : 48;
+        // 移动端用画布真实尺寸（floor 更小），避免小屏被强行拉到 320 导致右侧/底部节点溢出裁切
+        const w = Math.max(bounds.w, isMobile ? 200 : 320);
+        const h = Math.max(bounds.h, isMobile ? 200 : 320);
+        const usableW = Math.max(w - padX * 2, 120);
+        const usableH = Math.max(h - padY * 2, 120);
+        // 图例大致占用的矩形（左上角），落入其中的节点下移避让
+        const legendRight = 400;
+        const legendBottom = 58;
+        const layout = {};
+        Object.entries(layoutRel).forEach(([k, [nx0, ny0]]) => {
+          let nx = nx0,
+            ny = ny0;
+          // 移动端：以中心为基准向四边扩散，头像不聚集在中间
+          if (isMobile) {
+            const spread = 1.18;
+            nx = Math.min(1, Math.max(0, 0.5 + (nx0 - 0.5) * spread));
+            ny = Math.min(1, Math.max(0, 0.5 + (ny0 - 0.5) * spread));
+          }
+          let x, y;
+          if (isMobile) {
+            // 左右安全边距：容纳头像半径与名字宽度，防止小屏时左右两侧头像/名字被裁切
+            const sideSafe = 40;
+            const xL = sideSafe;
+            const xR = Math.max(w - sideSafe, xL + 120);
+            x = xL + nx * (xR - xL);
+            // 顶部为图例留白、底部为头像+名字留白，整体上移并充分利用上部空间
+            const topSafe = 60;
+            const bottomSafe = Math.max(h - 46, topSafe + 120);
+            y = topSafe + ny * (bottomSafe - topSafe);
+          } else {
+            x = padX + nx * usableW;
+            y = padY + ny * usableH;
+            if (x < legendRight && y < legendBottom + 46) {
+              y = legendBottom + 46;
+            }
+          }
+          layout[k] = [x, y];
+        });
+
+        // 防遮挡：估算每个节点（头像+名字）的包围盒，迭代分离相互重叠的节点
+        let av, avBig, nameF;
+        const wI = window.innerWidth;
+        const hI = window.innerHeight;
+        if (wI <= 400 && hI <= 420) {
+          av = 38;
+          avBig = 50;
+          nameF = 9.5;
+        } else if (wI <= 400) {
+          av = 47;
+          avBig = 62;
+          nameF = 10;
+        } else if (wI <= 768) {
+          av = 57;
+          avBig = 73;
+          nameF = 11;
+        } else if (wI <= 900) {
+          av = 66;
+          avBig = 84;
+          nameF = 13;
+        } else {
+          av = 82;
+          avBig = 104;
+          nameF = 13;
+        }
+        const ext = {};
+        Object.keys(layout).forEach((k) => {
+          const c = chars[k];
+          const aw = c.big ? avBig : av;
+          const nameW = c.name.length * nameF * 0.92 + 12;
+          const halfW = Math.max(aw, nameW) / 2;
+          const nameH = nameF * 1.2 + 6;
+          const halfH = (aw + 4 + nameH) / 2;
+          ext[k] = [halfW, halfH];
+        });
+        const keys = Object.keys(layout);
+        // 额外留白：吸收头像浮动动画（±5px）带来的瞬时靠近，避免视觉上相互遮挡
+        const marginX = 10,
+          marginY = 14;
+        // 顶部图例实际底部（画布坐标），移动端图例为整条横幅，需让所有顶部节点避让
+        let legendClearY = 0;
+        const legendEl = document.querySelector(".graph-legend");
+        if (
+          isMobile &&
+          legendEl &&
+          getComputedStyle(legendEl).display !== "none"
+        ) {
+          const lr = legendEl.getBoundingClientRect();
+          const cr = graphCanvas.getBoundingClientRect();
+          if (lr.height > 0)
+            legendClearY = Math.max(0, lr.bottom - cr.top) + 12;
+        }
+        const clamp = (k) => {
+          layout[k][0] = Math.max(
+            ext[k][0] + 2,
+            Math.min(w - ext[k][0] - 2, layout[k][0]),
+          );
+          const yMin = Math.max(ext[k][1] + 4, legendClearY + ext[k][1]);
+          layout[k][1] = Math.max(
+            yMin,
+            Math.min(h - ext[k][1] - 4, layout[k][1]),
+          );
+        };
+        for (let it = 0; it < 80; it++) {
+          let moved = false;
+          for (let i = 0; i < keys.length; i++) {
+            for (let j = i + 1; j < keys.length; j++) {
+              const a = keys[i],
+                b = keys[j];
+              const dx = layout[b][0] - layout[a][0];
+              const dy = layout[b][1] - layout[a][1];
+              const ox = ext[a][0] + ext[b][0] + marginX - Math.abs(dx);
+              const oy = ext[a][1] + ext[b][1] + marginY - Math.abs(dy);
+              if (ox > 0 && oy > 0) {
+                moved = true;
+                if (ox <= oy) {
+                  const s = dx === 0 ? (i % 2 ? 1 : -1) : Math.sign(dx);
+                  const p = (ox / 2) * s;
+                  layout[a][0] -= p;
+                  layout[b][0] += p;
+                } else {
+                  const s = dy === 0 ? 1 : Math.sign(dy);
+                  const p = (oy / 2) * s;
+                  layout[a][1] -= p;
+                  layout[b][1] += p;
+                }
+                clamp(a);
+                clamp(b);
+              }
+            }
+          }
+          if (!moved) break;
+        }
+        // 收边 + PC 端图例避让
+        keys.forEach((k) => {
+          clamp(k);
+          if (
+            !isMobile &&
+            layout[k][0] - ext[k][0] < legendRight &&
+            layout[k][1] - ext[k][1] < legendBottom + 8
+          ) {
+            layout[k][1] = legendBottom + 8 + ext[k][1];
+          }
+        });
+        return layout;
+      }
+
+      function buildGraph() {
+        graphCanvas.querySelectorAll(".node").forEach((n) => n.remove());
+        graphEdges.innerHTML = "";
+        const layout = computeLayout();
+
+        Object.entries(chars).forEach(([k, c]) => {
+          const pos = layout[k];
+          if (!pos) return;
+          const [x, y] = pos;
+          const el = document.createElement("div");
+          el.className = "node" + (c.big ? " big" : "");
+          el.dataset.key = k;
+          el.innerHTML = `
+            <div class="float-inner">
+              <div class="avatar" style="background-image:url('${c.img}')"></div>
+              <div class="name">${c.name}</div>
+            </div>`;
+          const inner = el.querySelector(".float-inner");
+          const dur = 6 + Math.random() * 4;
+          inner.style.animationDuration = dur + "s";
+          inner.style.animationDelay = -Math.random() * dur + "s";
+          el.style.left = x + "px";
+          el.style.top = y + "px";
+          graphCanvas.appendChild(el);
+          nodeState[k] = { x, y, el, inner };
+          attachDrag(el, k);
+          el.addEventListener("click", () => {
+            if (!el.dataset.dragged) showChar(k);
+            delete el.dataset.dragged;
+          });
+        });
+
+        edges.forEach((e) => {
+          const line = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "line",
+          );
+          line.setAttribute("class", "edge " + e.type);
+          line.dataset.a = e.a;
+          line.dataset.b = e.b;
+          graphEdges.appendChild(line);
+        });
+        updateEdgesFromDOM();
+      }
+
+      /* 重新布局（面板开合时头像让位移动，带过渡动画） */
+      function relayout() {
+        const layout = computeLayout();
+        Object.entries(layout).forEach(([k, [x, y]]) => {
+          const s = nodeState[k];
+          if (!s) return;
+          s.x = x;
+          s.y = y;
+          s.el.style.left = x + "px";
+          s.el.style.top = y + "px";
+        });
+      }
+
+      /* 连线端点收缩到头像边缘：不遮挡头像 */
+      function updateEdgesFromDOM() {
+        const cr = graphCanvas.getBoundingClientRect();
+        Array.from(graphEdges.children).forEach((line) => {
+          const A = nodeState[line.dataset.a];
+          const B = nodeState[line.dataset.b];
+          if (!A || !B) return;
+          const target = (el) => el.querySelector(".avatar") || el;
+          const ar = target(A.el).getBoundingClientRect();
+          const br = target(B.el).getBoundingClientRect();
+          let ax = ar.left + ar.width / 2 - cr.left;
+          let ay = ar.top + ar.height / 2 - cr.top;
+          let bx = br.left + br.width / 2 - cr.left;
+          let by = br.top + br.height / 2 - cr.top;
+          // 端点后退到各自头像半径之外，避免线压在头像上
+          const dx = bx - ax,
+            dy = by - ay;
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist,
+            uy = dy / dist;
+          const rA = ar.width / 2 + 3;
+          const rB = br.width / 2 + 3;
+          line.setAttribute("x1", ax + ux * rA);
+          line.setAttribute("y1", ay + uy * rA);
+          line.setAttribute("x2", bx - ux * rB);
+          line.setAttribute("y2", by - uy * rB);
+        });
+      }
+
+      /* 拖拽 */
+      function attachDrag(el, key) {
+        let startX = 0,
+          startY = 0,
+          origX = 0,
+          origY = 0,
+          moved = false;
+        const state = () => nodeState[key];
+        function onDown(clientX, clientY) {
+          moved = false;
+          startX = clientX;
+          startY = clientY;
+          origX = state().x;
+          origY = state().y;
+          el.classList.add("grabbing", "dragging-now");
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onUp);
+          document.addEventListener("touchmove", onTouchMove, {
+            passive: false,
+          });
+          document.addEventListener("touchend", onUp);
+        }
+        function onMove(clientX, clientY) {
+          const dx = clientX - startX,
+            dy = clientY - startY;
+          if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+          let nx = Math.max(40, Math.min(bounds.w - 40, origX + dx));
+          let ny = Math.max(40, Math.min(bounds.h - 40, origY + dy));
+          state().x = nx;
+          state().y = ny;
+          el.style.left = nx + "px";
+          el.style.top = ny + "px";
+          updateEdgesFromDOM();
+        }
+        function onUp() {
+          el.classList.remove("grabbing", "dragging-now");
+          if (moved) el.dataset.dragged = "1";
+          document.removeEventListener("mousemove", onMouseMove);
+          document.removeEventListener("mouseup", onUp);
+          document.removeEventListener("touchmove", onTouchMove);
+          document.removeEventListener("touchend", onUp);
+        }
+        const onMouseMove = (e) => onMove(e.clientX, e.clientY);
+        const onTouchMove = (e) => {
+          e.preventDefault();
+          const t = e.touches[0];
+          onMove(t.clientX, t.clientY);
+        };
+        el.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          onDown(e.clientX, e.clientY);
+        });
+        el.addEventListener(
+          "touchstart",
+          (e) => {
+            const t = e.touches[0];
+            onDown(t.clientX, t.clientY);
+          },
+          { passive: true },
+        );
+      }
+
+      /* 摆动 + 连线跟随 */
+      let reqId = null;
+      function edgeSyncLoop() {
+        updateEdgesFromDOM();
+        reqId = requestAnimationFrame(edgeSyncLoop);
+      }
+      function startPhysics() {
+        document
+          .querySelectorAll(".float-inner")
+          .forEach((n) => (n.style.animationPlayState = "running"));
+        if (!reqId) reqId = requestAnimationFrame(edgeSyncLoop);
+      }
+      function stopPhysics() {
+        document
+          .querySelectorAll(".float-inner")
+          .forEach((n) => (n.style.animationPlayState = "paused"));
+        if (reqId) {
+          cancelAnimationFrame(reqId);
+          reqId = null;
+        }
+      }
+
+      /* 右侧角色面板 */
+      function highlightRelated(k) {
+        const related = new Set([k]);
+        edges.forEach((e) => {
+          if (e.a === k) related.add(e.b);
+          if (e.b === k) related.add(e.a);
+        });
+        Object.entries(nodeState).forEach(([key, s]) => {
+          s.el.classList.toggle("active", key === k);
+          s.el.classList.toggle("dim", !related.has(key));
+        });
+        Array.from(graphEdges.children).forEach((line) => {
+          const on = line.dataset.a === k || line.dataset.b === k;
+          line.classList.toggle("hl", on);
+          line.classList.toggle("dim", !on);
+        });
+      }
+      function clearHighlight() {
+        Object.values(nodeState).forEach((s) =>
+          s.el.classList.remove("active", "dim"),
+        );
+        Array.from(graphEdges.children).forEach((line) =>
+          line.classList.remove("hl", "dim"),
+        );
+      }
+
+      function showChar(k) {
+        const c = chars[k];
+        if (!c) return;
+        document.getElementById("cAvt").style.backgroundImage =
+          `url('${c.img}')`;
+        document.getElementById("cName").textContent = c.name;
+        document.getElementById("cActor").textContent = c.actor;
+        document.getElementById("cDesc").textContent = c.desc;
+        // 与主角关系标签
+        const tagBox = document.getElementById("cRelTags");
+        if (k === HERO) {
+          tagBox.innerHTML = `<span class="rel-tag self">本人 · 主角</span>`;
+        } else {
+          const r = heroRel[k];
+          const html = [];
+          if (r)
+            html.push(
+              `<span class="rel-tag ${r.type}">${RELN[r.type]} · ${r.text}</span>`,
+            );
+          // 附带该角色其它主要关系
+          edges.forEach((e) => {
+            const other = e.a === k ? e.b : e.b === k ? e.a : null;
+            if (other && other !== HERO && chars[other]) {
+              html.push(
+                `<span class="rel-tag ${e.type}">${chars[other].name} · ${e.label}</span>`,
+              );
+            }
+          });
+          tagBox.innerHTML = html.join("");
+        }
+        graphWrap.classList.add("panel-open");
+        highlightRelated(k);
+        // 画布让位后重新测量并重排头像（带过渡）
+        setTimeout(() => {
+          relayout();
+        }, 60);
+      }
+      function closeChar() {
+        graphWrap.classList.remove("panel-open");
+        clearHighlight();
+        setTimeout(() => {
+          relayout();
+        }, 60);
+      }
+      document.getElementById("charClose").addEventListener("click", closeChar);
+      /* =========================================================
+         视图 2：剧情因果 —— 横向因果思维导图
+         ========================================================= */
+      const mindViewport = document.getElementById("mindViewport");
+      const mindCanvas = document.getElementById("mindCanvas");
+      const mindSvg = document.getElementById("mindSvg");
+
+      const ROOT = {
+        root: true,
+        ep: "起点",
+        title: "北上 · 运河起笔",
+        desc: "花街少年沿运河北上，兜转一圈后才懂得归乡与传承的重量。",
+      };
+      function getDisplayEpisode(ep) {
+        const match = String(ep || "").match(/\d+/);
+        if (!match) return ep;
+        return String(Number(match[0]));
+      }
+      // cutoff：可见到第几个剧情节点（-1 只显示根，plots.length-1 全展开）
+      let mindCutoff = plots.length - 1;
+
+      const M_CARD_W = 210;
+      const M_COL_GAP = 88; // 列间距（含连线）
+      let mCardW = M_CARD_W; // 当前生效的卡片宽度（随屏幕变化）
+
+      function renderMind() {
+        mindCanvas.querySelectorAll(".mind-node").forEach((n) => n.remove());
+        mindSvg.innerHTML = "";
+
+        // 列表：根 + 可见剧情
+        const visiblePlots = plots.slice(0, mindCutoff + 1);
+        const cols = [ROOT, ...visiblePlots.map((p, i) => ({ ...p, _i: i }))];
+
+        // 视口内容区（去掉上下 padding）真正的垂直中线，保证卡片上下居中。
+        // 注意：不要给 innerH 设过大的下限（如 300），否则在 300×360 这类矮屏上
+        // baseY 会被抬高、卡片被推到中线以下 —— 仅留一个极小兜底防止未布局时为 0。
+        const cs = getComputedStyle(mindViewport);
+        const padTop = parseFloat(cs.paddingTop) || 0;
+        const padBottom = parseFloat(cs.paddingBottom) || 0;
+        const innerH = Math.max(
+          mindViewport.clientHeight - padTop - padBottom,
+          120,
+        );
+        // 卡片宽度/列间距随屏幕变化：移动端与 CSS 中 .m-card 宽度保持一致，
+        // 否则连线起点(卡片右缘)会与卡片脱节导致“断线”；移动端列间距更小，连线更短
+        const isMobile = window.innerWidth <= 768;
+        const cardW =
+          window.innerWidth <= 480 ? 150 : isMobile ? 168 : M_CARD_W;
+        const colGap = isMobile ? 40 : M_COL_GAP;
+        mCardW = cardW;
+        const colStep = cardW + colGap;
+        // 卡片垂直居中展示：以内容区真实中线为基准，不偏上也不偏下
+        const baseY = innerH / 2;
+        // 主线为单一因果链，无实际分叉 —— 全部节点保持同一水平线
+        const yOf = () => baseY;
+
+        const positions = cols.map((item, c) => ({
+          x: 24 + c * colStep,
+          y: yOf(item),
+          item,
+        }));
+        mindPositions = positions;
+
+        // 画布尺寸
+        const totalW = 24 + cols.length * colStep + 40;
+        const maxY = Math.max(...positions.map((p) => p.y)) + 120;
+        mindCanvas.style.width = totalW + "px";
+        mindCanvas.style.height =
+          Math.max(maxY, mindViewport.clientHeight) + "px";
+        mindSvg.setAttribute("width", totalW);
+        mindSvg.setAttribute(
+          "height",
+          Math.max(maxY, mindViewport.clientHeight),
+        );
+        mindContentW = totalW;
+
+        // 连线（贝塞尔，从上一节点右侧到下一节点左侧）
+        for (let c = 0; c < positions.length - 1; c++) {
+          const a = positions[c],
+            b = positions[c + 1];
+          const x1 = a.x + cardW,
+            y1 = a.y;
+          const x2 = b.x,
+            y2 = b.y;
+          const mx = (x1 + x2) / 2;
+          const path = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          );
+          path.setAttribute("class", "mind-link");
+          path.setAttribute(
+            "d",
+            `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
+          );
+          mindSvg.appendChild(path);
+        }
+
+        // 节点卡片
+        positions.forEach((pos, c) => {
+          const item = pos.item;
+          const el = document.createElement("div");
+          const cls = item.root ? "root" : "";
+          el.className = "mind-node " + cls;
+          el.style.left = pos.x + "px";
+          el.style.top = pos.y + "px";
+
+          if (item.root) {
+            el.innerHTML = `
+              <div class="m-card">
+                <div class="m-body">
+                  <div class="m-ep">${item.ep}</div>
+                  <div class="m-name">${item.title}</div>
+                  <div class="m-cause">${item.desc}</div>
+                </div>
+              </div>`;
+          } else {
+            const badge = item.type || "剧情";
+            el.innerHTML = `
+              <div class="m-card" data-i="${item._i}">
+                <div class="m-thumb" style="background-image:url('${IMG}${item.cover}')">
+                  <div class="m-badge">${badge}</div>
+                </div>
+                <div class="m-body">
+                  <div class="m-ep">第 ${getDisplayEpisode(item.ep)} 集</div>
+                  <div class="m-name">${item.title}</div>
+                  ${item.causeNext ? `<div class="m-cause">${item.causeNext}</div>` : ""}
+                </div>
+              </div>`;
+          }
+
+          // 折叠/展开按钮（该节点有后继时显示）
+          const idx = item.root ? -1 : item._i;
+          const hasNext = idx < plots.length - 1;
+          if (hasNext) {
+            const collapsedHere = mindCutoff === idx;
+            const tg = document.createElement("button");
+            tg.className = "m-toggle";
+            tg.textContent = collapsedHere ? "+" : "−";
+            tg.title = collapsedHere ? "展开后续" : "收起后续";
+            tg.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              mindCutoff = collapsedHere ? plots.length - 1 : idx;
+              renderMind();
+            });
+            el.appendChild(tg);
+          }
+
+          if (!item.root) {
+            el.querySelector(".m-card").addEventListener("click", () => {
+              // 刚发生横向滑动时，屏蔽这一次卡片点击，避免误开弹窗
+              if (mindSwipeConsumed) return;
+              openPlotModal(item._i);
+            });
+          }
+          mindCanvas.appendChild(el);
+        });
+
+        // 重排后同步滑杆可用范围与位置
+        syncMindSlider();
+      }
+
+      /* 底部滑杆：控制思维导图水平滚动（translateX） */
+      const mindSliderBar = document.getElementById("mindSliderBar");
+      const mslTrack = document.getElementById("mslTrack");
+      const mslActive = document.getElementById("mslActive");
+      const mslThumb = document.getElementById("mslThumb");
+      const mslDots = document.getElementById("mslDots");
+      let mindContentW = 0; // 画布内容总宽
+      let mindScrollMax = 0; // 最大可滚动距离
+      let mindScrollPos = 0; // 当前滚动距离
+      let mslDragging = false;
+      let mindPositions = []; // 各节点 { x, y, item }（renderMind 中赋值）
+
+      // 让某个节点在视口正中展示所需的滚动距离
+      function scrollForNodeCenter(pos) {
+        const viewW = mindViewport.clientWidth;
+        // 画布左侧 padding 20px；节点卡片宽 mCardW（随屏幕变化）
+        const nodeCenterX = 20 + pos.x + mCardW / 2;
+        return Math.max(0, Math.min(mindScrollMax, nodeCenterX - viewW / 2));
+      }
+      function applyMindScroll() {
+        mindCanvas.style.transform = `translateX(${-mindScrollPos}px)`;
+        const ratio = mindScrollMax > 0 ? mindScrollPos / mindScrollMax : 0;
+        const tw = mslTrack.getBoundingClientRect().width;
+        mslThumb.style.left = ratio * tw + "px";
+        mslActive.style.width = ratio * tw + "px";
+        // 高亮距当前滚动位置最近的点位
+        let best = -1,
+          bestD = Infinity;
+        mindPositions.forEach((p, i) => {
+          const d = Math.abs(scrollForNodeCenter(p) - mindScrollPos);
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        });
+        mslDots
+          .querySelectorAll(".msl-dot")
+          .forEach((d, i) => d.classList.toggle("active", i === best));
+      }
+      function renderMslDots() {
+        const tw =
+          mslTrack.getBoundingClientRect().width || mslTrack.clientWidth;
+        mslDots.innerHTML = "";
+        if (mindScrollMax <= 1) return;
+        mindPositions.forEach((p, i) => {
+          const sc = scrollForNodeCenter(p);
+          const ratio = mindScrollMax > 0 ? sc / mindScrollMax : 0;
+          const dot = document.createElement("div");
+          dot.className = "msl-dot";
+          dot.style.left = ratio * tw + "px";
+          dot.title = p.item.root
+            ? p.item.title
+            : `第 ${p.item.ep} 集 · ${p.item.title}`;
+          dot.addEventListener("click", (e) => {
+            e.stopPropagation();
+            mindScrollPos = sc;
+            applyMindScroll();
+          });
+          mslDots.appendChild(dot);
+        });
+      }
+      function syncMindSlider() {
+        mindScrollMax = Math.max(0, mindContentW - mindViewport.clientWidth);
+        mindScrollPos = Math.min(mindScrollPos, mindScrollMax);
+        const enabled = mindScrollMax > 1;
+        mindSliderBar.classList.toggle("disabled", !enabled);
+        renderMslDots();
+        applyMindScroll();
+      }
+      function setMindScrollByRatio(r) {
+        r = Math.max(0, Math.min(1, r));
+        mindScrollPos = r * mindScrollMax;
+        applyMindScroll();
+      }
+      function mslPointerRatio(clientX) {
+        const rect = mslTrack.getBoundingClientRect();
+        return (clientX - rect.left) / rect.width;
+      }
+      mslTrack.addEventListener("pointerdown", (e) => {
+        mslDragging = true;
+        mslTrack.setPointerCapture(e.pointerId);
+        setMindScrollByRatio(mslPointerRatio(e.clientX));
+      });
+      mslTrack.addEventListener("pointermove", (e) => {
+        if (mslDragging) setMindScrollByRatio(mslPointerRatio(e.clientX));
+      });
+      const mslEnd = (e) => {
+        mslDragging = false;
+        try {
+          mslTrack.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      };
+      mslTrack.addEventListener("pointerup", mslEnd);
+      mslTrack.addEventListener("pointercancel", mslEnd);
+      // 鼠标滚轮也可横向滚动
+      let wheelRaf = null;
+      mindViewport.addEventListener(
+        "wheel",
+        (e) => {
+          if (mindScrollMax <= 0) return;
+          e.preventDefault();
+          mindScrollPos = Math.max(
+            0,
+            Math.min(mindScrollMax, mindScrollPos + (e.deltaY || e.deltaX)),
+          );
+          if (wheelRaf) return;
+          wheelRaf = requestAnimationFrame(() => {
+            wheelRaf = null;
+            applyMindScroll();
+          });
+        },
+        { passive: false },
+      );
+
+      /* 移动端：在思维导图画布上手指左右滑动（与作品推荐一致的滑动手势） */
+      let mindTouchActive = false;
+      let mindTouchStartX = 0;
+      let mindTouchStartY = 0;
+      let mindTouchStartPos = 0;
+      let mindTouchMoved = false;
+      let mindSwipeRaf = null;
+      let mindSwipeConsumed = false; // 本次触摸是否已判定为滑动（用于屏蔽卡片点击）
+      mindViewport.addEventListener(
+        "touchstart",
+        (e) => {
+          if (mindScrollMax <= 0 || e.touches.length !== 1) return;
+          mindTouchActive = true;
+          mindTouchMoved = false;
+          mindSwipeConsumed = false;
+          mindTouchStartX = e.touches[0].clientX;
+          mindTouchStartY = e.touches[0].clientY;
+          mindTouchStartPos = mindScrollPos;
+        },
+        { passive: true },
+      );
+      mindViewport.addEventListener(
+        "touchmove",
+        (e) => {
+          if (!mindTouchActive) return;
+          const dx = e.touches[0].clientX - mindTouchStartX;
+          const dy = e.touches[0].clientY - mindTouchStartY;
+          // 判定为横向滑动才接管，纵向手势交还页面
+          if (!mindTouchMoved) {
+            if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            if (Math.abs(dx) <= Math.abs(dy)) {
+              mindTouchActive = false;
+              return;
+            }
+            mindTouchMoved = true;
+            mindSwipeConsumed = true;
+          }
+          e.preventDefault();
+          mindScrollPos = Math.max(
+            0,
+            Math.min(mindScrollMax, mindTouchStartPos - dx),
+          );
+          if (mindSwipeRaf) return;
+          mindSwipeRaf = requestAnimationFrame(() => {
+            mindSwipeRaf = null;
+            applyMindScroll();
+          });
+        },
+        { passive: false },
+      );
+      const mindTouchEnd = () => {
+        mindTouchActive = false;
+        // 滑动结束后稍延迟再复位，确保紧随其后的 click 被屏蔽
+        if (mindSwipeConsumed) {
+          setTimeout(() => {
+            mindSwipeConsumed = false;
+          }, 80);
+        }
+      };
+      mindViewport.addEventListener("touchend", mindTouchEnd, {
+        passive: true,
+      });
+      mindViewport.addEventListener("touchcancel", mindTouchEnd, {
+        passive: true,
+      });
+
+      /* 剧情节点弹窗 */
+      const plotModalMask = document.getElementById("plotModalMask");
+      const plotModal = document.getElementById("plotModal");
+      function openPlotModal(i) {
+        const p = plots[i];
+        if (!p) return;
+        plotModal.className = "plot-modal";
+        document.getElementById("pmCover").style.backgroundImage =
+          `url('${IMG}${p.cover}')`;
+        document.getElementById("pmBadge").textContent =
+          `第 ${getDisplayEpisode(p.ep)} 集 · ${p.type || "剧情"}`;
+        document.getElementById("pmTitle").textContent = p.title;
+        document.getElementById("pmDesc").textContent = p.desc;
+        const visibleRoles = (p.roles || []).filter(
+          (r) => chars[r] && layoutRel[r],
+        );
+        const pmRolesBlock = document.getElementById("pmRolesBlock");
+        const pmRoles = document.getElementById("pmRoles");
+        pmRoles.dataset.count = String(visibleRoles.length);
+        pmRoles.innerHTML = visibleRoles
+          .map((r) => {
+            const c = chars[r];
+            if (!c) return "";
+            return `<div class="pm-role"><div class="pr-av" style="background-image:url('${c.img}')"></div><div class="pr-info"><div class="pr-n">${c.name}</div><div class="pr-a">${c.actor}</div></div></div>`;
+          })
+          .join("");
+        pmRolesBlock.classList.toggle("hidden", visibleRoles.length === 0);
+        plotModalMask.classList.add("active");
+      }
+      function closePlotModal() {
+        plotModalMask.classList.remove("active");
+      }
+      document
+        .getElementById("pmClose")
+        .addEventListener("click", closePlotModal);
+      plotModalMask.addEventListener("click", (e) => {
+        if (e.target === plotModalMask) closePlotModal();
+      });
+
+      /* =========================================================
+         视图 3：作品推荐 —— 4 tab + 每页4个 + 翻页
+         ========================================================= */
+      const worksTabs = document.getElementById("worksTabs");
+      const worksGrid = document.getElementById("worksGrid");
+      const worksPageInfo = document.getElementById("worksPageInfo");
+      const worksPrev = document.getElementById("worksPrev");
+      const worksNext = document.getElementById("worksNext");
+      const worksScrollHint = document.getElementById("worksScrollHint");
+      let worksCat = "theme";
+      let worksPage = 0;
+      const WORKS_PER_PAGE = 4;
+      let worksDragActive = false;
+      let worksDragStartX = 0;
+      let worksDragStartLeft = 0;
+
+      function getEnabledWorkCats() {
+        const cats = ["theme", "cast"];
+        if ((works.series || []).length > 1) cats.unshift("series");
+        if ((works.author || []).length > 0) cats.push("author");
+        return cats;
+      }
+      function syncWorksTabs() {
+        const enabledCats = getEnabledWorkCats();
+        if (!enabledCats.includes(worksCat)) {
+          worksCat = enabledCats[0];
+          worksPage = 0;
+        }
+        worksTabs.querySelectorAll(".works-tab").forEach((tab) => {
+          const show = enabledCats.includes(tab.dataset.cat);
+          tab.classList.toggle("hidden", !show);
+          tab.classList.toggle("active", show && tab.dataset.cat === worksCat);
+        });
+      }
+
+      function worksCanScroll() {
+        return worksGrid.scrollWidth - worksGrid.clientWidth > 8;
+      }
+      function updateWorksHint() {
+        if (!worksScrollHint) return;
+        worksScrollHint.classList.toggle("hidden", !worksCanScroll());
+        if (!worksCanScroll()) worksScrollHint.classList.add("hide");
+      }
+      function hideWorksHint() {
+        if (worksScrollHint) worksScrollHint.classList.add("hide");
+      }
+
+      function renderWorks() {
+        syncWorksTabs();
+        const list = works[worksCat] || [];
+        const pageCount = Math.max(1, Math.ceil(list.length / WORKS_PER_PAGE));
+        worksPage = Math.min(worksPage, pageCount - 1);
+        worksGrid.dataset.cat = worksCat;
+        const items = list.slice(
+          worksPage * WORKS_PER_PAGE,
+          worksPage * WORKS_PER_PAGE + WORKS_PER_PAGE,
+        );
+        worksGrid.innerHTML = items
+          .map(
+            (w) => `
+            <div class="work-card ${w.up ? "upcoming" : ""}">
+              <div class="cover" style="background-image:url('${IMG}${w.cover}')">
+                ${w.ep ? `<div class="tag">${w.ep}</div>` : ""}
+              </div>
+              <div class="info">
+                <div class="n">${w.n}</div>
+                <div class="m">${w.m
+                  .split("/")
+                  .slice(0, 2)
+                  .map((s) => s.trim())
+                  .join(" / ")}</div>
+                <div class="r">▸ ${w.r}</div>
+              </div>
+            </div>`,
+          )
+          .join("");
+        worksPageInfo.textContent = `${worksPage + 1}/${pageCount}`;
+        const showPager = pageCount > 1;
+        worksPrev.classList.toggle("hidden", !showPager);
+        worksNext.classList.toggle("hidden", !showPager);
+        worksPageInfo.classList.toggle("hidden", !showPager);
+        worksPrev.disabled = worksPage === 0;
+        worksNext.disabled = worksPage === pageCount - 1;
+        // 重置横向滚动并重新显示滑动提示箭头（移动端）
+        worksGrid.scrollLeft = 0;
+        if (worksScrollHint) {
+          worksScrollHint.classList.remove("hide", "hidden");
+          requestAnimationFrame(updateWorksHint);
+        }
+      }
+      worksPrev.addEventListener("click", () => {
+        worksPage--;
+        renderWorks();
+      });
+      worksNext.addEventListener("click", () => {
+        worksPage++;
+        renderWorks();
+      });
+      // 用户开始横向滑动后淡出提示箭头
+      worksGrid.addEventListener(
+        "scroll",
+        () => {
+          if (worksGrid.scrollLeft > 8) hideWorksHint();
+        },
+        { passive: true },
+      );
+      worksGrid.addEventListener(
+        "wheel",
+        (e) => {
+          if (!worksCanScroll()) return;
+          const delta =
+            Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+          if (!delta) return;
+          e.preventDefault();
+          worksGrid.scrollLeft += delta;
+          hideWorksHint();
+        },
+        { passive: false },
+      );
+      worksGrid.addEventListener("pointerdown", (e) => {
+        if (!worksCanScroll() || e.button !== 0) return;
+        worksDragActive = true;
+        worksDragStartX = e.clientX;
+        worksDragStartLeft = worksGrid.scrollLeft;
+        worksGrid.classList.add("dragging");
+        worksGrid.setPointerCapture(e.pointerId);
+      });
+      worksGrid.addEventListener("pointermove", (e) => {
+        if (!worksDragActive) return;
+        worksGrid.scrollLeft = worksDragStartLeft - (e.clientX - worksDragStartX);
+        hideWorksHint();
+      });
+      const endWorksDrag = (e) => {
+        if (!worksDragActive) return;
+        worksDragActive = false;
+        worksGrid.classList.remove("dragging");
+        try {
+          worksGrid.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      };
+      worksGrid.addEventListener("pointerup", endWorksDrag);
+      worksGrid.addEventListener("pointercancel", endWorksDrag);
+      worksGrid.addEventListener("pointerleave", endWorksDrag);
+      document.querySelectorAll(".works-tab").forEach((t) => {
+        t.addEventListener("click", () => {
+          document
+            .querySelectorAll(".works-tab")
+            .forEach((x) => x.classList.remove("active"));
+          t.classList.add("active");
+          worksCat = t.dataset.cat;
+          worksPage = 0;
+          renderWorks();
+        });
+      });
+
+      /* =========================================================
+         Tab 切换
+         ========================================================= */
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.tab;
+          document
+            .querySelectorAll(".tab-btn")
+            .forEach((b) => b.classList.toggle("active", b === btn));
+          document
+            .querySelectorAll(".view")
+            .forEach((v) =>
+              v.classList.toggle("active", v.dataset.view === target),
+            );
+          if (target === "graph") {
+            measure();
+            relayout();
+            startPhysics();
+          } else {
+            stopPhysics();
+          }
+          if (target === "mind") requestAnimationFrame(renderMind);
+        });
+      });
+
+      /* resize 防抖 */
+      let rzT;
+      window.addEventListener("resize", () => {
+        clearTimeout(rzT);
+        rzT = setTimeout(() => {
+          buildGraph();
+          if (graphWrap.classList.contains("panel-open")) relayout();
+          renderMind();
+          renderWorks();
+        }, 150);
+      });
+
+      /* 初始化 */
+      window.addEventListener("load", () => {
+        buildGraph();
+        renderMind();
+        renderWorks();
+        startPhysics();
+        // 预热全部图片：角色头像 + 剧情封面 + 作品封面，避免切换视图时首次加载闪烁
+        const preload = new Set();
+        Object.values(chars).forEach((c) => preload.add(c.img));
+        plots.forEach((p) => p.cover && preload.add(IMG + p.cover));
+        Object.values(works)
+          .flat()
+          .forEach((w) => w.cover && preload.add(IMG + w.cover));
+        preload.forEach((src) => {
+          const im = new Image();
+          im.src = src;
+        });
+        // 首次进入：主角头像脉冲提示"可点击"，播放结束后移除
+        const heroNode = nodeState[HERO] && nodeState[HERO].el;
+        if (heroNode) {
+          heroNode.classList.add("tap-hint");
+          setTimeout(() => heroNode.classList.remove("tap-hint"), 5600);
+        }
+      });
+    </script>
+  </body>
+</html>

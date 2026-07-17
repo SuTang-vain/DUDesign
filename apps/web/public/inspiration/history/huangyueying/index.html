@@ -1,0 +1,2242 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>如果没有这7件事，读懂三国才女黄月英藏于卧龙身后的智慧传奇</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #f8f8f8;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+      }
+
+      :root {
+        --primary: #6487fa;
+        --primary-dark: #5274f2;
+        --primary-light: rgba(100, 135, 250, 0.1);
+        --bg-white: #ffffff;
+        --bg-gray: #f8f8f8;
+        --text-main: #1e1f24;
+        --text-secondary: #848691;
+        --text-tertiary: #b7b9c1;
+        --border-light: rgba(30, 31, 36, 0.06);
+        --shadow-sm: 0 2px 8px rgba(30, 31, 36, 0.06);
+        --shadow-lg: 0 12px 36px rgba(30, 31, 36, 0.12);
+        --radius-md: 10px;
+        --radius-lg: 12px;
+        --cause-color: #6487fa;
+      }
+
+      #app-container {
+        width: 788px;
+        height: 492px;
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--radius-lg);
+        background: var(--bg-white);
+        box-shadow: var(--shadow-lg);
+      }
+
+      /* ========== Timeline (top) ========== */
+      .timeline-nav {
+        height: 66px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: stretch;
+        gap: 6px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
+        border-bottom: 1px solid var(--border-light);
+      }
+      .timeline-node {
+        flex: 1;
+        min-width: 0;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        padding: 6px 4px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-light);
+        background: #fff;
+        transition:
+          transform 0.22s ease,
+          box-shadow 0.22s ease,
+          border-color 0.22s ease,
+          background 0.22s ease;
+      }
+      .timeline-node:hover {
+        transform: translateY(-2px);
+        background: #fff;
+        border-color: rgba(100, 135, 250, 0.28);
+        box-shadow: 0 6px 14px rgba(100, 135, 250, 0.1);
+      }
+      .timeline-node.active {
+        background: var(--primary-light);
+        border-color: rgba(100, 135, 250, 0.42);
+        box-shadow: 0 8px 18px rgba(100, 135, 250, 0.14);
+      }
+      .timeline-node .tname {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        line-height: 1.25;
+        color: var(--text-main);
+        font-weight: 800;
+      }
+      .timeline-node .year {
+        margin-top: 3px;
+        font-size: 11px;
+        line-height: 1.15;
+        color: var(--text-secondary);
+        font-weight: 600;
+      }
+      .timeline-node.active .tname {
+        color: var(--primary);
+      }
+      .timeline-node.active .year {
+        color: var(--text-main);
+      }
+      .timeline-arrow {
+        color: var(--text-tertiary);
+        font-size: 11px;
+        flex-shrink: 0;
+        align-self: center;
+      }
+
+      /* ========== Main ========== */
+      .main-area {
+        height: calc(100% - 66px);
+        display: flex;
+        padding: 10px 12px;
+        gap: 10px;
+      }
+
+      /* Horizontal category buttons */
+      .tabs-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        width: 100%;
+        flex-shrink: 0;
+        margin-bottom: 8px;
+      }
+      .tab-btn {
+        font-size: 13px;
+        font-weight: 800;
+        padding: 8px 10px;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        color: var(--text-main);
+        background: #fff;
+        border: 1px solid rgba(100, 135, 250, 0.22);
+        transition: all 0.2s;
+        letter-spacing: 0;
+        box-shadow: var(--shadow-sm);
+      }
+      .tab-btn.active {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+        box-shadow: 0 6px 14px rgba(100, 135, 250, 0.24);
+      }
+      .tab-btn:hover:not(.active) {
+        background: var(--primary-light);
+        color: var(--primary);
+      }
+
+      /* Content area */
+      .content-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        min-width: 0;
+      }
+
+      /* Event header */
+      .event-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 8px;
+        padding: 8px 10px;
+        border-radius: var(--radius-md);
+        background: var(--bg-gray);
+        border: 1px solid var(--border-light);
+      }
+      .event-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 17px;
+        flex-shrink: 0;
+        background: linear-gradient(
+          135deg,
+          var(--primary),
+          var(--primary-dark)
+        );
+        color: #fff;
+        object-fit: cover;
+        border: 1px solid var(--border-light);
+      }
+      .event-title {
+        min-width: 0;
+        flex: 1;
+      }
+      .event-title-line {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .event-name {
+        font-size: 18px;
+        font-weight: 900;
+        color: var(--text-main);
+        line-height: 1.15;
+      }
+      .event-period {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 700;
+      }
+      .event-summary {
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.4;
+        color: var(--text-main);
+        font-weight: 500;
+      }
+      .summary-time {
+        display: none;
+        color: var(--primary);
+        font-weight: 800;
+      }
+
+      /* Four modules */
+      .module-area {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .modules-grid {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .info-module {
+        min-height: 0;
+        padding: 9px 10px;
+        border-radius: var(--radius-md);
+        background: #fff;
+        border: 1px solid rgba(100, 135, 250, 0.14);
+        box-shadow: var(--shadow-sm);
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        overflow: hidden;
+      }
+      .info-module.compact {
+        padding: 8px 10px;
+        gap: 5px;
+      }
+      .module-title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-shrink: 0;
+        height: 24px;
+        border-radius: 8px;
+        color: var(--primary);
+        background: var(--primary-light);
+        font-size: 13px;
+        line-height: 1;
+        font-weight: 900;
+      }
+      .module-title::before,
+      .module-title::after {
+        content: "";
+        width: 18px;
+        height: 1px;
+        background: rgba(100, 135, 250, 0.35);
+      }
+      .module-list {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 5px;
+        list-style: none;
+      }
+      .module-list-item {
+        position: relative;
+        padding-left: 14px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text-main);
+        font-weight: 500;
+        word-break: normal;
+        overflow-wrap: normal;
+        white-space: normal;
+      }
+      .module-list-item::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.62em;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--primary);
+        transform: translateY(-50%);
+      }
+      .module-list-label {
+        display: inline-block;
+        margin-right: 4px;
+        font-size: 13px;
+        font-weight: 900;
+        color: var(--primary);
+        white-space: nowrap;
+      }
+
+      /* Highlight tags */
+      .hl {
+        font-weight: 700;
+        color: var(--primary);
+      }
+      .hl-year {
+        display: inline-block;
+        background: rgba(100, 135, 250, 0.12);
+        color: var(--primary);
+        padding: 0 5px;
+        border-radius: 3px;
+        font-weight: 700;
+        font-size: 11px;
+      }
+      .hl-place {
+        display: inline-block;
+        background: rgba(100, 135, 250, 0.1);
+        color: var(--primary);
+        padding: 0 5px;
+        border-radius: 3px;
+        font-weight: 600;
+        font-size: 11px;
+      }
+      .hl-num {
+        display: inline-block;
+        background: rgba(100, 135, 250, 0.12);
+        color: var(--primary);
+        padding: 0 5px;
+        border-radius: 3px;
+        font-weight: 700;
+        font-size: 11px;
+      }
+      .hl-person {
+        display: inline-block;
+        background: rgba(100, 135, 250, 0.1);
+        color: var(--primary);
+        padding: 0 5px;
+        border-radius: 3px;
+        font-weight: 600;
+        font-size: 11px;
+      }
+
+      /* ========== Right panel ========== */
+      .right-col {
+        width: 190px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .event-image {
+        height: 164px;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        position: relative;
+        border: 1px solid var(--border-light);
+        background: var(--bg-gray);
+        box-shadow: var(--shadow-sm);
+      }
+      .event-image img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .event-image .img-caption {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 22px 10px 7px;
+        font-size: 13px;
+        line-height: 1.25;
+        color: #fff;
+        text-align: center;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.68));
+        font-weight: 800;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .people-box {
+        flex: 1;
+        padding: 10px;
+        background: var(--bg-gray);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-light);
+        display: flex;
+        flex-direction: column;
+      }
+      .people-box .p-title {
+        font-size: 13px;
+        font-weight: 900;
+        color: var(--text-main);
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .people-box .p-title .p-hint {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--primary);
+        background: var(--primary-light);
+        padding: 2px 7px;
+        border-radius: 999px;
+      }
+      .people-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: 1;
+      }
+      .people-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 8px;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid rgba(100, 135, 250, 0.18);
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(30, 31, 36, 0.04);
+      }
+      .people-item:hover {
+        background: var(--primary-light);
+        border-color: var(--primary);
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px rgba(100,135,250,0.18);
+      }
+      .people-item::after {
+        content: "查看 ›";
+        font-size: 11px;
+        color: var(--primary);
+        margin-left: auto;
+        font-weight: 800;
+        background: var(--primary-light);
+        padding: 2px 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+      }
+      .people-item:hover::after {
+        background: var(--primary);
+        color: #fff;
+      }
+      .people-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid var(--border-light);
+        flex-shrink: 0;
+      }
+      .people-item-name {
+        font-size: 14px;
+        color: var(--text-main);
+        font-weight: 800;
+      }
+      .people-item-role {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 1px;
+      }
+
+      /* ========== Modal ========== */
+      .modal-overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(3px);
+        z-index: 100;
+        justify-content: center;
+        align-items: center;
+      }
+      .modal-overlay.active {
+        display: flex;
+      }
+      .modal-content {
+        background: var(--bg-white);
+        border-radius: var(--radius-lg);
+        width: 340px;
+        padding: 20px;
+        transform: scale(0.92);
+        opacity: 0;
+        transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        box-shadow: var(--shadow-lg);
+        position: relative;
+        display: flex;
+        gap: 14px;
+      }
+      .modal-overlay.active .modal-content {
+        transform: scale(1);
+        opacity: 1;
+      }
+      .modal-close {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.06);
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: var(--text-main);
+        font-weight: 700;
+      }
+      .modal-close:hover {
+        background: rgba(0, 0, 0, 0.12);
+      }
+      .modal-avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 10px;
+        object-fit: cover;
+        flex-shrink: 0;
+        border: 2px solid var(--primary-light);
+      }
+      .modal-info {
+        flex: 1;
+      }
+      .modal-person-name {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .modal-person-role {
+        font-size: 12px;
+        color: var(--primary);
+        font-weight: 600;
+        margin: 2px 0 8px;
+      }
+      .modal-person-desc {
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--text-main);
+      }
+
+      /* ========== WISE Mobile ========== */
+      .mobile-hero,
+      .mobile-people {
+        display: none;
+      }
+      @media (max-width: 480px), (max-height: 480px) {
+        #app-container {
+          width: 380px;
+          height: 456px;
+          border-radius: 10px;
+        }
+
+        .timeline-nav {
+          height: 52px;
+          padding: 5px 7px;
+          gap: 6px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          scroll-snap-type: x proximity;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .timeline-nav::-webkit-scrollbar {
+          display: none;
+        }
+        .timeline-node {
+          flex: 0 0 calc((100% - 18px) / 3.5);
+          padding: 5px 6px;
+          border-radius: 8px;
+          scroll-snap-align: start;
+          border: 1px solid rgba(100, 135, 250, 0.35);
+          box-shadow: 0 1px 3px rgba(100,135,250,0.08);
+        }
+        .timeline-node.active {
+          background: var(--primary);
+        }
+        .timeline-node.active .tname {
+          color: #fff;
+        }
+        .timeline-node .tname {
+          font-size: 12.5px;
+          line-height: 1.15;
+          font-weight: 900;
+        }
+        .timeline-node .year {
+          display: none;
+        }
+        .timeline-arrow {
+          display: none;
+        }
+
+        .main-area {
+          height: calc(100% - 52px);
+          padding: 7px 8px;
+          gap: 0;
+          flex-direction: column;
+        }
+        .content-area {
+          flex: 1;
+          gap: 0;
+          min-height: 0;
+        }
+        .event-header {
+          display: none;
+        }
+        .mobile-hero {
+          display: grid;
+          grid-template-columns: 118px 1fr;
+          gap: 8px;
+          margin-bottom: 6px;
+          height: 100px;
+          min-height: 100px;
+        }
+        .mobile-event-image {
+          position: relative;
+          overflow: hidden;
+          border-radius: 9px;
+          border: 1px solid var(--border-light);
+          box-shadow: var(--shadow-sm);
+          height: 100px;
+        }
+        .mobile-event-image img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .mobile-event-image .img-caption {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          padding: 12px 5px 3px;
+          font-size: 10px;
+          line-height: 1.1;
+          color: #fff;
+          text-align: center;
+          background: linear-gradient(transparent, rgba(0, 0, 0, 0.68));
+          font-weight: 800;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .mobile-title-card {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          min-width: 0;
+          padding: 7px 8px;
+          border-radius: 9px;
+          background: var(--bg-gray);
+          border: 1px solid var(--border-light);
+        }
+        .mobile-title-card .event-title {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-self: stretch;
+        }
+        .mobile-title-card .event-icon {
+          width: 28px;
+          height: 28px;
+          font-size: 14px;
+          border-radius: 8px;
+        }
+        .mobile-title-card .event-name {
+          font-size: 15px;
+        }
+        .mobile-title-card .event-period {
+          font-size: 10px;
+        }
+        .mobile-title-card .event-summary {
+          font-size: 12.5px;
+          line-height: 1.45;
+          margin-top: 4px;
+        }
+
+        .module-area {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          flex: 1;
+        }
+        .module-tabs {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 5px;
+          margin-bottom: 6px;
+          flex-shrink: 0;
+        }
+        .module-tab {
+          height: 28px;
+          border-radius: 8px;
+          border: 1px solid rgba(100, 135, 250, 0.22);
+          background: #fff;
+          color: var(--text-main);
+          font-size: 12px;
+          font-weight: 900;
+          box-shadow: var(--shadow-sm);
+          cursor: pointer;
+        }
+        .module-tab.active {
+          background: var(--primary);
+          color: #fff;
+          border-color: var(--primary);
+        }
+        .modules-grid {
+          display: block;
+          flex: 1;
+          min-height: 0;
+        }
+        .info-module {
+          height: 100%;
+          padding: 7px 9px;
+          gap: 4px;
+          border-radius: 9px;
+          overflow: hidden;
+        }
+        .info-module .module-list,
+        .info-module.open .module-list {
+          max-height: none;
+          opacity: 1;
+          overflow: hidden;
+          justify-content: flex-start;
+          gap: 4px;
+        }
+        .info-module .module-title .arrow {
+          display: none;
+        }
+        .module-title {
+          display: none;
+        }
+        .module-list {
+          justify-content: flex-start;
+          gap: 4px;
+        }
+        .module-list-item {
+          padding-left: 12px;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+        .module-list-item::before {
+          width: 5px;
+          height: 5px;
+          top: 0.65em;
+        }
+        .module-list-label {
+          font-size: 12px;
+          margin-right: 3px;
+        }
+        .module-list .hl,
+        .module-list .hl-year,
+        .module-list .hl-place,
+        .module-list .hl-num,
+        .module-list .hl-person {
+          background: transparent;
+          padding: 0;
+          color: var(--primary);
+          font-weight: 900;
+        }
+
+        .right-col {
+          display: none;
+        }
+        .mobile-people {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+          margin-top: 6px;
+          padding: 6px;
+          background: var(--bg-gray);
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-light);
+        }
+        .mobile-people .mp-label {
+          font-size: 11px;
+          color: var(--text-main);
+          font-weight: 900;
+          white-space: nowrap;
+        }
+        .mobile-people .mp-list {
+          display: flex;
+          gap: 4px;
+          flex-wrap: nowrap;
+          flex: 1;
+          min-width: 0;
+        }
+        .mobile-people .mp-tag {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 3px;
+          flex: 1;
+          min-width: 0;
+          padding: 4px 6px;
+          border-radius: 12px;
+          font-size: 11.5px;
+          font-weight: 800;
+          background: var(--primary-light);
+          color: var(--primary);
+          border: 1px solid var(--primary);
+          cursor: pointer;
+          white-space: nowrap;
+          box-shadow: 0 2px 6px rgba(100,135,250,0.18);
+        }
+        .mobile-people .mp-tag::after {
+          content: "›";
+          font-weight: 900;
+          margin-left: 2px;
+        }
+        .mobile-people .mp-tag.opponent {
+          background: rgba(232, 89, 12, 0.08);
+          color: var(--cause-color);
+          border-color: rgba(232, 89, 12, 0.2);
+        }
+        .mobile-people .mp-tag .mp-dot {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: currentColor;
+          flex-shrink: 0;
+        }
+
+        .modal-content {
+          width: 300px;
+          padding: 16px;
+          gap: 10px;
+        }
+        .modal-avatar {
+          width: 44px;
+          height: 44px;
+        }
+        .modal-person-name {
+          font-size: 15px;
+        }
+        .modal-person-desc {
+          font-size: 13px;
+          line-height: 1.6;
+        }
+      }
+
+      @media (max-width: 320px), (max-height: 365px) {
+        #app-container {
+          width: 300px;
+          height: 360px;
+        }
+        .timeline-nav {
+          height: 42px;
+          padding: 4px 5px;
+          gap: 5px;
+        }
+        .timeline-node {
+          flex-basis: calc((100% - 15px) / 3.5);
+          padding: 4px 5px;
+        }
+        .timeline-node .tname {
+          font-size: 11px;
+          line-height: 1.12;
+        }
+        .timeline-node .year {
+          display: none;
+        }
+        .main-area {
+          height: calc(100% - 38px);
+          padding: 4px 5px;
+        }
+        .mobile-hero {
+          grid-template-columns: 92px 1fr;
+          gap: 5px;
+          margin-bottom: 4px;
+          height: 100px;
+          min-height: 100px;
+        }
+        .mobile-event-image .img-caption {
+          font-size: 8px;
+          padding: 10px 3px 2px;
+        }
+        .mobile-title-card {
+          padding: 4px 5px;
+          gap: 4px;
+          align-items: center;
+          justify-content: center;
+        }
+        .mobile-title-card .event-icon {
+          display: none;
+        }
+        .mobile-title-card .event-name {
+          font-size: 13px;
+          line-height: 1.05;
+        }
+        .mobile-title-card .event-period {
+          display: none;
+        }
+        .summary-time {
+          display: inline;
+        }
+        .mobile-title-card .event-summary {
+          font-size: 10.5px;
+          line-height: 1.4;
+          margin-top: 3px;
+        }
+        .module-tabs {
+          gap: 4px;
+          margin-bottom: 4px;
+        }
+        .module-tab {
+          height: 23px;
+          border-radius: 7px;
+          font-size: 10px;
+        }
+        .modules-grid {
+          display: block;
+        }
+        .info-module {
+          height: 100%;
+          padding: 6px 7px;
+          gap: 4px;
+        }
+        .module-title {
+          display: none;
+        }
+        .module-list {
+          gap: 5px;
+        }
+        .module-list-item {
+          padding-left: 12px;
+          font-size: clamp(11.5px, 3.8vw, 12.5px);
+          line-height: 1.5;
+        }
+        .module-list-item::before {
+          width: 5px;
+          height: 5px;
+          top: 0.68em;
+        }
+        .module-list-label {
+          font-size: clamp(11.5px, 3.8vw, 12.5px);
+          margin-right: 3px;
+        }
+        .mobile-people {
+          padding: 3px 4px;
+          gap: 3px;
+          margin-top: 3px;
+        }
+        .mobile-people .mp-label {
+          font-size: 12px;
+        }
+        .mobile-people .mp-tag {
+          font-size: 11px;
+          padding: 3px 4px;
+        }
+        .modal-content {
+          width: 260px;
+          padding: 14px;
+          gap: 8px;
+        }
+        .modal-avatar {
+          width: 40px;
+          height: 40px;
+        }
+      }
+    </style>
+    <style>
+      /* ========== Splash (first screen) ========== */
+      .splash {
+        position: absolute;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 30px 36px;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(100,135,250,0.18), transparent 55%),
+          radial-gradient(circle at 80% 80%, rgba(232,89,12,0.10), transparent 55%),
+          linear-gradient(180deg, #ffffff 0%, #f4f6ff 100%);
+        text-align: center;
+        transition: opacity .35s ease, transform .35s ease;
+      }
+      .splash.hide {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-6px);
+      }
+      .splash-eyebrow {
+        font-size: 12px;
+        letter-spacing: 4px;
+        color: var(--text-secondary);
+        font-weight: 800;
+        margin-bottom: 14px;
+      }
+      .splash-title {
+        font-size: 28px;
+        line-height: 1.25;
+        font-weight: 900;
+        color: var(--text-main);
+        max-width: 620px;
+        margin-bottom: 8px;
+      }
+      .splash-title .accent {
+        color: var(--primary);
+      }
+      .splash-sub {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 22px;
+      }
+      .splash-question {
+        background: #fff;
+        border: 1px solid rgba(100,135,250,0.25);
+        border-radius: var(--radius-lg);
+        padding: 16px 18px 14px;
+        box-shadow: var(--shadow-sm);
+        max-width: 520px;
+        width: 100%;
+        margin-bottom: 18px;
+      }
+      .splash-question .q-title {
+        font-size: 14px;
+        font-weight: 900;
+        color: var(--text-main);
+        margin-bottom: 10px;
+      }
+      .splash-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .splash-opt {
+        cursor: pointer;
+        padding: 10px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(100,135,250,0.25);
+        background: #fff;
+        font-size: 12.5px;
+        font-weight: 800;
+        color: var(--text-main);
+        text-align: center;
+        transition: all .2s;
+      }
+      .splash-opt:hover {
+        background: var(--primary-light);
+        color: var(--primary);
+        border-color: var(--primary);
+      }
+      .splash-opt.picked {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+      }
+      .splash-cta {
+        margin-top: 4px;
+        padding: 12px 28px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #fff;
+        border: none;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 900;
+        cursor: pointer;
+        box-shadow: 0 8px 22px rgba(100,135,250,0.32);
+        transition: transform .2s ease;
+      }
+      .splash-cta:hover {
+        transform: translateY(-2px);
+      }
+      .splash-hint {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--text-tertiary);
+      }
+
+      /* ========== Progress bar ========== */
+      .progress-wrap {
+        position: absolute;
+        top: 8px;
+        right: 14px;
+        z-index: 80;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 8px;
+        background: rgba(255,255,255,0.85);
+        backdrop-filter: blur(6px);
+        border-radius: 999px;
+        border: 1px solid rgba(100,135,250,0.18);
+        box-shadow: var(--shadow-sm);
+      }
+      .progress-text {
+        font-size: 11px;
+        color: var(--text-secondary);
+        font-weight: 800;
+        white-space: nowrap;
+      }
+      .progress-text .pcount {
+        color: var(--primary);
+      }
+      .progress-bar {
+        width: 80px;
+        height: 5px;
+        background: rgba(100,135,250,0.12);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+        border-radius: 3px;
+        transition: width .4s cubic-bezier(.4,0,.2,1);
+      }
+
+      /* ========== Cause-chain overlay arrows on timeline ========== */
+      .timeline-nav {
+        position: relative;
+      }
+      .cause-chain-svg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .cause-chain-svg path {
+        fill: none;
+        stroke: rgba(100,135,250,0.25);
+        stroke-width: 1.5;
+        stroke-dasharray: 3 3;
+        transition: stroke .3s, stroke-width .3s;
+      }
+      .cause-chain-svg path.lit {
+        stroke: var(--primary);
+        stroke-width: 2;
+        stroke-dasharray: none;
+        filter: drop-shadow(0 0 4px rgba(100,135,250,0.5));
+      }
+      .timeline-node.in-chain {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(100,135,250,0.18), 0 6px 14px rgba(100,135,250,0.18);
+      }
+
+      /* ========== Module accordion (PC) ========== */
+      .modules-grid {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .info-module {
+        flex: 0 0 auto;
+        min-height: 0;
+        padding: 8px 12px;
+        border-radius: var(--radius-md);
+        background: #fff;
+        border: 1px solid rgba(100, 135, 250, 0.18);
+        box-shadow: var(--shadow-sm);
+        cursor: pointer;
+        transition: all .25s ease;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .info-module:hover:not(.open) {
+        background: var(--primary-light);
+        border-color: rgba(100, 135, 250, 0.4);
+      }
+      .info-module.open {
+        flex: 1 1 0;
+        min-height: 0;
+        background: linear-gradient(180deg, #fff, #f7f9ff);
+        border-color: rgba(100, 135, 250, 0.4);
+        box-shadow: 0 6px 18px rgba(100,135,250,0.16);
+      }
+      .module-title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex-shrink: 0;
+        height: 22px;
+        color: var(--primary);
+        font-size: 14px;
+        font-weight: 900;
+      }
+      .module-title::before,
+      .module-title::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: rgba(100, 135, 250, 0.25);
+      }
+      .module-title .arrow {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 900;
+        margin-left: 4px;
+        transition: transform .25s ease;
+      }
+      .info-module.open .module-title .arrow {
+        transform: rotate(180deg);
+      }
+      .module-list {
+        flex: 1;
+        min-height: 0;
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 6px;
+        list-style: none;
+        transition: max-height .35s ease, opacity .25s ease;
+      }
+      .info-module.open .module-list {
+        max-height: 600px;
+        opacity: 1;
+      }
+      .module-list-item {
+        position: relative;
+        padding-left: 14px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--text-main);
+        font-weight: 500;
+      }
+
+      /* ========== What-if button ========== */
+      .whatif-btn {
+        margin-left: 8px;
+        padding: 3px 10px;
+        font-size: 11px;
+        font-weight: 800;
+        color: #fff;
+        background: linear-gradient(135deg, #ff8a3d, #e8590c);
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(232,89,12,0.25);
+        transition: transform .2s;
+        white-space: nowrap;
+      }
+      .whatif-btn:hover {
+        transform: translateY(-1px) scale(1.04);
+      }
+
+      /* ========== What-if modal ========== */
+      .whatif-modal {
+        background: var(--bg-white);
+        border-radius: var(--radius-lg);
+        width: 380px;
+        max-width: 92%;
+        padding: 22px 22px 18px;
+        box-shadow: var(--shadow-lg);
+        transform: scale(0.92);
+        opacity: 0;
+        transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        position: relative;
+      }
+      .modal-overlay.active .whatif-modal {
+        transform: scale(1);
+        opacity: 1;
+      }
+      .whatif-emoji {
+        font-size: 28px;
+        margin-bottom: 6px;
+      }
+      .whatif-q {
+        font-size: 16px;
+        font-weight: 900;
+        color: var(--text-main);
+        margin-bottom: 12px;
+      }
+      .whatif-cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .whatif-card {
+        padding: 10px 10px;
+        border-radius: var(--radius-md);
+        font-size: 12.5px;
+        line-height: 1.5;
+        font-weight: 600;
+      }
+      .whatif-card.real {
+        background: var(--primary-light);
+        color: var(--primary);
+        border: 1px solid rgba(100,135,250,0.3);
+      }
+      .whatif-card.alt {
+        background: rgba(232,89,12,0.08);
+        color: #c54708;
+        border: 1px solid rgba(232,89,12,0.25);
+      }
+      .whatif-card .wc-h {
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        opacity: 0.7;
+        margin-bottom: 4px;
+      }
+      .whatif-foot {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+      }
+      /* ========== Splash mobile compact ========== */
+      @media (max-width: 480px), (max-height: 480px) {
+        .splash {
+          padding: 16px 18px;
+        }
+        .splash-eyebrow {
+          font-size: 10px;
+          letter-spacing: 2px;
+          margin-bottom: 8px;
+        }
+        .splash-title {
+          font-size: 19px;
+          line-height: 1.25;
+          margin-bottom: 4px;
+        }
+        .splash-sub {
+          font-size: 11px;
+          margin-bottom: 12px;
+        }
+        .splash-question {
+          padding: 10px 12px 10px;
+          margin-bottom: 12px;
+        }
+        .splash-question .q-title {
+          font-size: 12px;
+          margin-bottom: 8px;
+        }
+        .splash-options {
+          gap: 6px;
+        }
+        .splash-opt {
+          padding: 7px 6px;
+          font-size: 12px;
+          border-radius: 8px;
+        }
+        .splash-cta {
+          padding: 10px 22px;
+          font-size: 13px;
+        }
+        .splash-hint {
+          font-size: 10px;
+          margin-top: 6px;
+        }
+      }
+      @media (max-width: 320px), (max-height: 365px) {
+        .splash {
+          padding: 12px 14px;
+        }
+        .splash-eyebrow {
+          display: none;
+        }
+        .splash-title {
+          font-size: 16px;
+          margin-bottom: 2px;
+        }
+        .splash-sub {
+          display: none;
+        }
+        .splash-question {
+          padding: 8px 10px;
+          margin-bottom: 8px;
+        }
+        .splash-options {
+          grid-template-columns: 1fr 1fr;
+          gap: 5px;
+        }
+        .splash-opt {
+          padding: 6px 4px;
+          font-size: 11.5px;
+        }
+        .splash-cta {
+          padding: 8px 16px;
+          font-size: 12.5px;
+        }
+        .splash-hint {
+          display: none;
+        }
+      }
+    </style>
+  <body>
+    <div id="app-container">
+      <div class="splash" id="splash">
+        <div class="splash-eyebrow">黄月英 东汉三国才女、黄承彦之女、诸葛亮之妻、蜀汉贤内助</div>
+        <div class="splash-title">如果没有这 <span class="accent">7 件事</span>，<br/>读懂黄月英貌不显俗、才冠三国的隐世智慧</div>
+        <div class="splash-sub">名士之女、才堪卧龙、智嫁孔明、巧创机械、辅夫立业、教子有方、流芳后世</div>
+        <div class="splash-question">
+          <div class="q-title">先告诉我：你心中的黄月英是？</div>
+          <div class="splash-options" id="splashOptions">
+            <div class="splash-opt" data-v="talent">才学过人的三国才女</div>
+            <div class="splash-opt" data-v="support">低调隐忍的贤内助</div>
+            <div class="splash-opt" data-v="inventor">精通巧思的发明家</div>
+            <div class="splash-opt" data-v="unknown">了解不多</div>
+          </div>
+        </div>
+        <button class="splash-cta" id="splashStart">开始解锁 7 件事 →</button>
+        <div class="splash-hint">点击任一选项，读懂黄月英隐匿盛名、智辅蜀汉的传奇一生</div>
+      </div>
+      <div class="timeline-nav" id="timelineNav"></div>
+      <div class="main-area" id="mainArea"></div>
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-content" id="personModal">
+          <button class="modal-close" id="modalClose">✕</button>
+          <div id="modalBody"></div>
+        </div>
+      </div>
+      <div class="modal-overlay" id="whatifOverlay">
+        <div class="whatif-modal">
+          <button class="modal-close" id="whatifClose">✕</button>
+          <div class="whatif-q" id="whatifQ"></div>
+          <div class="whatif-cards">
+            <div class="whatif-card real">
+              <div class="wc-h">史实</div>
+              <div id="whatifReal"></div>
+            </div>
+            <div class="whatif-card alt">
+              <div class="wc-h">如果没发生</div>
+              <div id="whatifAlt"></div>
+            </div>
+          </div>
+          <div class="whatif-foot" id="whatifFoot"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const events = [
+        {
+          name: "名士之女",
+          year: "东汉末年",
+          time: "家世成长时期",
+          summary: "黄月英为沔南名士黄承彦独女，出身荆州书香世家，自幼得名师教导，底蕴深厚。",
+          image: "黄月英名士之女.JPG",
+          imageCaption: "名士书香育慧心",
+          flows: {
+            背景: [
+              { type: "cause", text: "汉末荆州文风鼎盛，名士云集" },
+              { type: "step", label: "家学", text: '<span class="hl-person">黄承彦</span>学识渊博，深耕士林' },
+              { type: "step", label: "熏陶", text: "黄月英自幼博览群书" },
+              { type: "step", label: "积淀", text: "得名师教导，底蕴深厚" },
+              { type: "effect", text: "积淀深厚学识，聪慧过人" },
+            ],
+            经过: [
+              { type: "cause", text: "生长名士书香第，饱读诗书" },
+              { type: "step", label: "研习", text: "跟随父亲研习天文地理" },
+              { type: "step", label: "潜心", text: "摒弃闺阁娇柔习气" },
+              { type: "step", label: "成才", text: "年少身怀奇才，才学过人" },
+              { type: "effect", text: "才学远超当世多数世人" },
+            ],
+            结果: [
+              { type: "cause", text: "优渥家学与悉心教导" },
+              { type: "step", label: "修心", text: "深耕学识技艺" },
+              { type: "step", label: "不慕", text: "不重容貌浮华" },
+              { type: "step", label: "品性", text: "养成沉稳睿智品性" },
+              { type: "effect", text: "具备匹配卧龙之才" },
+            ],
+            影响: [
+              { type: "cause", text: "深厚家学底蕴" },
+              { type: "step", label: "根基", text: "成一生智慧核心根基" },
+              { type: "step", label: "远播", text: "才学声名远播" },
+              { type: "step", label: "伏笔", text: "引名士关注结缘卧龙" },
+              { type: "effect", text: "为后续辅佐夫君埋下伏笔" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "汉末才女、名士之女",
+              desc: "出身荆州名士世家，饱读诗书、精通谋略巧思，才情卓绝。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "才冠乡里",
+          year: "青年时期",
+          time: "才情展露时期",
+          summary: "黄月英传闻容貌质朴，却天资卓绝、才学高深，智谋见识冠绝荆州乡里。",
+          image: "黄月英才冠乡里.JPG",
+          imageCaption: "满腹经纶冠荆州",
+          flows: {
+            背景: [
+              { type: "cause", text: "汉末世人重容貌浮华" },
+              { type: "step", label: "风气", text: "荆州名士推崇真才实学" },
+              { type: "step", label: "研学", text: "黄月英潜心深耕智识" },
+              { type: "step", label: "出众", text: "不重妆容专攻学问" },
+              { type: "effect", text: "虽容貌质朴才学远超同辈" },
+            ],
+            经过: [
+              { type: "cause", text: "貌拙才高藏慧心" },
+              { type: "step", label: "辩理", text: "与荆州名士论学辩理" },
+              { type: "step", label: "深耕", text: "深耕兵法天文机械" },
+              { type: "step", label: "扬名", text: "练就实用奇才" },
+              { type: "effect", text: "成为荆州知名奇女子" },
+            ],
+            结果: [
+              { type: "cause", text: "才貌反差鲜明" },
+              { type: "step", label: "蜕变", text: "摆脱世俗偏见" },
+              { type: "step", label: "立足", text: "以真才实学立足" },
+              { type: "step", label: "敬重", text: "赢得众人敬重" },
+              { type: "effect", text: "获其父认可可配大才" },
+            ],
+            影响: [
+              { type: "cause", text: "才名远传荆州" },
+              { type: "step", label: "听闻", text: "让诸葛亮听闻其智慧" },
+              { type: "step", label: "佳话", text: "打破世俗择偶标准" },
+              { type: "step", label: "基础", text: "成重才不重貌佳话" },
+              { type: "effect", text: "为与诸葛亮结缘奠定基础" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "绝世才女、智冠荆州",
+              desc: "貌拙才高，博览百家、精通谋略巧思，才情冠绝汉末乡里。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "智嫁孔明",
+          year: "207年",
+          time: "姻缘缔结时期",
+          summary: "黄承彦向诸葛亮举荐女儿，称其才堪匹配，诸葛亮重才不重貌，欣然应允成婚。",
+          image: "黄月英智嫁孔明.JPG",
+          imageCaption: "才女配得卧龙才",
+          flows: {
+            背景: [
+              { type: "cause", text: "诸葛亮隐居隆中潜心治学" },
+              { type: "step", label: "风气", text: "汉末婚恋多重容貌家世" },
+              { type: "step", label: "契合", text: "黄月英才德兼备" },
+              { type: "step", label: "举荐", text: "与诸葛亮志趣相契合" },
+              { type: "effect", text: "黄承彦主动为女举荐" },
+            ],
+            经过: [
+              { type: "cause", text: "良才遇得知音配" },
+              { type: "step", label: "相处", text: "与诸葛亮论道研学" },
+              { type: "step", label: "坚守", text: "摒弃世俗浮华" },
+              { type: "step", label: "知己", text: "以才德立身互为知己" },
+              { type: "effect", text: "二人结为夫妻传为佳话" },
+            ],
+            结果: [
+              { type: "cause", text: "姻缘打破世俗偏见" },
+              { type: "step", label: "蜕变", text: "从名士之女" },
+              { type: "step", label: "贤妻", text: "成为卧龙知己贤妻" },
+              { type: "step", label: "相伴", text: "开启半生相伴生涯" },
+              { type: "effect", text: "成诸葛亮最坚实后盾" },
+            ],
+            影响: [
+              { type: "cause", text: "知己式婚姻" },
+              { type: "step", label: "支撑", text: "为诸葛亮潜心治学提供支撑" },
+              { type: "step", label: "共进", text: "夫妻研学共进" },
+              { type: "step", label: "碰撞", text: "碰撞出诸多智谋巧思" },
+              { type: "effect", text: "为出山辅汉筑牢后方根基" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "卧龙贤妻、绝代知音",
+              desc: "以才结缘诸葛亮，心性通透志趣相投，是卧龙一生知己。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "巧创机械",
+          year: "隐居隆中",
+          time: "巧思创作时期",
+          summary: "黄月英精通机关巧技，自创木兽、机关器械，启发诸葛亮改良木牛流马、连弩。",
+          image: "黄月英巧创机械.JPG",
+          imageCaption: "巧手慧心造机关",
+          flows: {
+            背景: [
+              { type: "cause", text: "汉末工艺简陋" },
+              { type: "step", label: "需求", text: "诸葛亮推演兵法军械" },
+              { type: "step", label: "擅长", text: "黄月英深谙机械原理" },
+              { type: "step", label: "钻研", text: "擅长设计各类机关造物" },
+              { type: "effect", text: "居家潜心打造机关器械" },
+            ],
+            经过: [
+              { type: "cause", text: "慧心巧手通机巧" },
+              { type: "step", label: "研制", text: "研制木狗木虎等器械" },
+              { type: "step", label: "探讨", text: "与诸葛亮探讨机械原理" },
+              { type: "step", label: "助力", text: "技艺精妙无人能及" },
+              { type: "effect", text: "为木牛流马连弩提供灵感" },
+            ],
+            结果: [
+              { type: "cause", text: "机关巧思落地成型" },
+              { type: "step", label: "蜕变", text: "从闺阁才女" },
+              { type: "step", label: "巧匠", text: "蜕变为三国顶尖巧匠" },
+              { type: "step", label: "助力", text: "技艺成果服务蜀汉" },
+              { type: "effect", text: "成蜀汉北伐重要助力" },
+            ],
+            影响: [
+              { type: "cause", text: "机关巧技" },
+              { type: "step", label: "效率", text: "提升蜀汉运输与作战效率" },
+              { type: "step", label: "空白", text: "填补军械工艺空白" },
+              { type: "step", label: "支撑", text: "推动古代机械发展" },
+              { type: "effect", text: "让北伐具备硬核器械支撑" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "机械巧匠、工科奇才",
+              desc: "精通机关机械设计，独创诸多巧器，启迪蜀汉军工发展。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "辅夫立业",
+          year: "蜀汉时期",
+          time: "辅佐立业时期",
+          summary: "诸葛亮出山后，黄月英打理家事、稳定后方，智识为辅，助力夫君建功蜀汉。",
+          image: "黄月英辅夫立业.JPG",
+          imageCaption: "安居后方稳家事",
+          flows: {
+            背景: [
+              { type: "cause", text: "诸葛亮出山辅佐刘备" },
+              { type: "step", label: "局势", text: "蜀汉初创诸事繁杂" },
+              { type: "step", label: "擅长", text: "黄月英沉稳睿智" },
+              { type: "step", label: "持家", text: "擅长持家理事统筹全局" },
+              { type: "effect", text: "全权打理家事免除后顾之忧" },
+            ],
+            经过: [
+              { type: "cause", text: "安居幕后担家事" },
+              { type: "step", label: "相处", text: "闲暇与诸葛亮推演谋略" },
+              { type: "step", label: "坚守", text: "严守家风安稳府邸" },
+              { type: "step", label: "支撑", text: "杜绝家事干扰朝政" },
+              { type: "effect", text: "成为诸葛亮最可靠后方" },
+            ],
+            结果: [
+              { type: "cause", text: "后方安稳" },
+              { type: "step", label: "理政", text: "诸葛亮得以全心理政" },
+              { type: "step", label: "蜕变", text: "以幕后之身助力蜀汉" },
+              { type: "step", label: "立功", text: "低调立功默默奉献" },
+              { type: "effect", text: "成就诸葛亮千古贤相之名" },
+            ],
+            影响: [
+              { type: "cause", text: "无私辅佐" },
+              { type: "step", label: "运作", text: "让蜀汉军政运作更稳" },
+              { type: "step", label: "典范", text: "诠释贤妻典范" },
+              { type: "step", label: "标杆", text: "树立家国兼顾标杆" },
+              { type: "effect", text: "其幕后功绩成蜀汉隐性助力" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "蜀汉贤内助、幕后智囊",
+              desc: "安居后方、持家辅政，以智慧默默助力蜀汉基业建设。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "悉心教子",
+          year: "蜀汉中后期",
+          time: "持家教子时期",
+          summary: "黄月英悉心教导诸葛瞻、诸葛果等子女，传学识、立家风，培育忠良之后。",
+          image: "黄月英悉心教子.JPG",
+          imageCaption: "诗书传家育良嗣",
+          flows: {
+            背景: [
+              { type: "cause", text: "诸葛亮常年北伐在外" },
+              { type: "step", label: "局势", text: "乱世中家风是家族根本" },
+              { type: "step", label: "擅长", text: "黄月英学识渊博" },
+              { type: "step", label: "育人", text: "深谙育人之道品行端正" },
+              { type: "effect", text: "独自承担子女教养重任" },
+            ],
+            经过: [
+              { type: "cause", text: "独居府邸传家学" },
+              { type: "step", label: "传授", text: "传授子女诗书谋略品德" },
+              { type: "step", label: "坚守", text: "言传身教忠君爱国" },
+              { type: "step", label: "成才", text: "教导子女修身立德" },
+              { type: "effect", text: "子女品性端正学有所成" },
+            ],
+            结果: [
+              { type: "cause", text: "优良家风传承" },
+              { type: "step", label: "延续", text: "世代保有忠义风骨" },
+              { type: "step", label: "母仪", text: "以母仪育人延续志向" },
+              { type: "step", label: "忠臣", text: "其子诸葛瞻为国尽忠" },
+              { type: "effect", text: "成蜀汉忠臣良将" },
+            ],
+            影响: [
+              { type: "cause", text: "培育忠良后代" },
+              { type: "step", label: "盛名", text: "延续诸葛家族忠义盛名" },
+              { type: "step", label: "典范", text: "育人智慧成后世典范" },
+              { type: "step", label: "流传", text: "家风教育流传千古" },
+              { type: "effect", text: "让诸葛忠义之名流传千古" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "贤良慈母、家风传承者",
+              desc: "言传身教教养子女，传承忠义家风，守护诸葛世家风骨。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+        {
+          name: "名传千古",
+          year: "后世流传",
+          time: "后世扬名时期",
+          summary: "黄月英以才德传世，打破容貌偏见，成为三国极具智慧与美德的传奇女性。",
+          image: "黄月英名传千古.JPG",
+          imageCaption: "才德兼备传千古",
+          flows: {
+            背景: [
+              { type: "cause", text: "古代史书多重男轻女" },
+              { type: "step", label: "世人", text: "世人多知诸葛亮盛名" },
+              { type: "step", label: "低调", text: "鲜知幕后黄月英付出" },
+              { type: "step", label: "传承", text: "才德事迹代代流传" },
+              { type: "effect", text: "经史料与民间传说流传" },
+            ],
+            经过: [
+              { type: "cause", text: "藏于幕后修德才" },
+              { type: "step", label: "淡泊", text: "一生淡泊名利" },
+              { type: "step", label: "坚守", text: "以才辅夫以德传家" },
+              { type: "step", label: "本心", text: "摒弃浮华坚守本心" },
+              { type: "effect", text: "以绝世才德被后世铭记" },
+            ],
+            结果: [
+              { type: "cause", text: "一生智德兼备" },
+              { type: "step", label: "才女", text: "成三国传奇才女" },
+              { type: "step", label: "蜕变", text: "从幕后贤妻蜕变" },
+              { type: "step", label: "典范", text: "成智慧女性典范" },
+              { type: "effect", text: "事迹载入典籍美名千载" },
+            ],
+            影响: [
+              { type: "cause", text: "打破世俗偏见" },
+              { type: "step", label: "范本", text: "成古今才女贤妻良母范本" },
+              { type: "step", label: "光彩", text: "为三国增添女性光彩" },
+              { type: "step", label: "启迪", text: "启迪后世世人" },
+              { type: "effect", text: "流芳百世被后世广为称颂" },
+            ],
+          },
+          people: [
+            {
+              name: "黄月英",
+              role: "千古才女、传世贤德典范",
+              desc: "才德兼备、低调睿智，以一生修为成就千古女性传奇。",
+              side: "ally",
+              avatar: "黄月英.JPG",
+            },
+          ],
+        },
+      ];
+
+      let currentIndex = 0;
+      let currentTab = "背景";
+      const tabKeys = ["背景", "经过", "结果", "影响"];
+      const isMobile = () =>
+        window.innerWidth <= 480 || window.innerHeight <= 480;
+
+      // 因果链：from -> to (按事件 index)
+      // 0 平定内乱, 1 一统天下, 2 创立帝制, 3 书同文, 4 北击匈奴,
+      // 5 焚书坑儒, 6 沙丘之变 ... 但本数据共 8 件（年表实际 8 项），用代码动态生成保险
+      const causeChain = [
+        { from: 0, to: 1, label: "家世→熏陶" },
+        { from: 1, to: 2, label: "学识→匹配" },
+        { from: 2, to: 3, label: "知己→成婚" },
+        { from: 3, to: 4, label: "相伴→精进" },
+        { from: 4, to: 5, label: "智识→助力" },
+        { from: 5, to: 6, label: "贤德→传家→流芳" },
+      ];
+
+      // "如果没发生会怎样" 数据（按事件 index）
+      const whatIf = [
+        {
+          q: "若无名士家世熏陶？",
+          real: "黄月英出身荆州名士世家，自幼饱读诗书，积淀深厚才学与格局。",
+          alt: "若无家学滋养，便无绝世才情，难成卧龙知己贤妻。",
+          foot: "→ 家学育慧心，才情启一生。"
+        },
+        {
+          q: "若无绝世才学傍身？",
+          real: "黄月英貌拙才高，智谋学识冠绝乡里，得名士认可推崇。",
+          alt: "若无满腹经纶，难引诸葛亮倾心，无缘千古良缘。",
+          foot: "→ 真才胜浮华，慧质引知音。"
+        },
+        {
+          q: "若无结缘卧龙孔明？",
+          real: "黄月英以才结缘诸葛亮，互为知己，相守半生同心共济。",
+          alt: "若无此番良缘，世间便少一段才德相配的千古佳话。",
+          foot: "→ 知己结良缘，相守助山河。"
+        },
+        {
+          q: "若无机关巧思造物？",
+          real: "黄月英精通机械机关，独创巧器，启迪蜀汉军工发展。",
+          alt: "若无其巧思启迪，木牛流马或难成型，北伐更添阻碍。",
+          foot: "→ 巧手藏智慧，巧技助江山。"
+        },
+        {
+          q: "若无幕后默默辅佐？",
+          real: "黄月英安居后方，打理家事、智辅夫君，稳固蜀汉根基。",
+          alt: "若无其安稳后方，诸葛亮难全心理政北伐建功。",
+          foot: "→ 幕后守家国，贤德助功成。"
+        },
+        {
+          q: "若无悉心传家育人？",
+          real: "黄月英悉心教导子女，传承忠义家风，培育诸葛良嗣。",
+          alt: "若无优良家风传承，诸葛忠义之名难续千年。",
+          foot: "→ 诗书传家远，忠义继千秋。"
+        },
+        {
+          q: "若无一生才德坚守？",
+          real: "黄月英不慕浮华、以才立德，成为三国传奇智慧女性。",
+          alt: "若无德才兼备的坚守，便无后世千古美名流传。",
+          foot: "→ 德才留青史，慧韵照千秋。"
+        }
+      ];
+      
+
+      // ========== Splash ==========
+      let splashDismissed = false;
+      function setupSplash() {
+        const splash = document.getElementById("splash");
+        const opts = document.querySelectorAll(".splash-opt");
+        opts.forEach((opt) => {
+          opt.addEventListener("click", () => {
+            opts.forEach((o) => o.classList.remove("picked"));
+            opt.classList.add("picked");
+          });
+        });
+        document.getElementById("splashStart").addEventListener("click", () => {
+          splash.classList.add("hide");
+          splashDismissed = true;
+          setTimeout(() => (splash.style.display = "none"), 350);
+        });
+      }
+
+      // ========== Progress (DOM removed, kept for future use) ==========
+      const visited = new Set();
+      function markVisited(idx) {
+        visited.add(idx);
+      }
+
+      function renderTimeline() {
+        const nav = document.getElementById("timelineNav");
+        let html = "";
+        events.forEach((e, i) => {
+          if (i > 0) html += '<span class="timeline-arrow">→</span>';
+          html += `<div class="timeline-node ${i === currentIndex ? "active" : ""}" data-idx="${i}" role="button" tabindex="0" title="点击切换到：${e.name}" onclick="goTo(${i})" onkeydown="handleTimelineKey(event, ${i})">
+      <span class="tname">${e.name}</span><span class="year">${e.year}</span>
+    </div>`;
+        });
+        nav.innerHTML = html;
+        if (isMobile()) {
+          requestAnimationFrame(() => {
+            nav
+              .querySelector(".timeline-node.active")
+              ?.scrollIntoView({
+                inline: "center",
+                block: "nearest",
+                behavior: "smooth",
+              });
+          });
+        }
+        // 渲染因果连线 SVG（双 rAF 确保布局完成）
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => renderCauseChainSVG())
+        );
+      }
+
+      function renderCauseChainSVG() {
+        const nav = document.getElementById("timelineNav");
+        if (!nav || isMobile()) return;
+        // 移除旧 svg
+        nav.querySelectorAll(".cause-chain-svg").forEach((s) => s.remove());
+        const navRect = nav.getBoundingClientRect();
+        const nodes = nav.querySelectorAll(".timeline-node");
+        if (!nodes.length) return;
+        const positions = Array.from(nodes).map((n) => {
+          const r = n.getBoundingClientRect();
+          return {
+            cx: r.left + r.width / 2 - navRect.left,
+            top: r.top - navRect.top,
+            bottom: r.bottom - navRect.top,
+          };
+        });
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "cause-chain-svg");
+        svg.setAttribute("width", navRect.width);
+        svg.setAttribute("height", navRect.height);
+        // 与当前选中相邻的因果对算"亮"
+        causeChain.forEach((c) => {
+          if (c.from >= positions.length || c.to >= positions.length) return;
+          const a = positions[c.from];
+          const b = positions[c.to];
+          const y = Math.max(a.bottom, b.bottom) - 2;
+          const midY = y + 8;
+          const path = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path"
+          );
+          const d = `M ${a.cx} ${a.bottom - 4} Q ${(a.cx + b.cx) / 2} ${midY + 4} ${b.cx} ${b.bottom - 4}`;
+          path.setAttribute("d", d);
+          if (c.from === currentIndex || c.to === currentIndex) {
+            path.classList.add("lit");
+          }
+          svg.appendChild(path);
+        });
+        nav.appendChild(svg);
+        // 高亮链路上的节点
+        nodes.forEach((n, i) => {
+          n.classList.toggle(
+            "in-chain",
+            causeChain.some(
+              (c) =>
+                (c.from === currentIndex && c.to === i) ||
+                (c.to === currentIndex && c.from === i)
+            )
+          );
+        });
+      }
+
+      function normalizeFlowText(text) {
+        return text
+          .replace(/<br\s*\/?>/gi, "，")
+          .replace(/，+/g, "，")
+          .replace(/，；/g, "；");
+      }
+
+      function mergeFlowItems(flowData) {
+        const items = flowData
+          .filter((node) => node.type !== "cause" && node.type !== "effect")
+          .map((node) => ({ ...node, text: normalizeFlowText(node.text) }));
+        const prefix = flowData.find((node) => node.type === "cause");
+        const suffix = [...flowData]
+          .reverse()
+          .find((node) => node.type === "effect");
+        if (prefix && items[0])
+          items[0].text = `${normalizeFlowText(prefix.text)}；${items[0].text}`;
+        if (suffix && items.length)
+          items[items.length - 1].text =
+            `${items[items.length - 1].text}；${normalizeFlowText(suffix.text)}`;
+        return items.length
+          ? items
+          : flowData.map((node) => ({
+              label: "要点",
+              text: normalizeFlowText(node.text),
+            }));
+      }
+
+      function renderListItem(node) {
+        const label = node.label || "要点";
+        return `<li class="module-list-item"><span class="module-list-label">${label}</span>${node.text}</li>`;
+      }
+
+      function getModuleClass(items) {
+        const textLength = items.reduce(
+          (sum, item) => sum + item.text.replace(/<[^>]+>/g, "").length,
+          0,
+        );
+        return items.length <= 2 || textLength < 46 ? "compact" : "";
+      }
+
+      function renderModules(event) {
+        return tabKeys
+          .map((key, idx) => {
+            const items = mergeFlowItems(event.flows[key]);
+            const openByDefault = idx === 0 ? "open" : "";
+            return `
+      <section class="info-module ${openByDefault}" data-key="${key}" onclick="toggleAccordion(this)">
+        <div class="module-title">${key}<span class="arrow">▾</span></div>
+        <ul class="module-list">${items.map(renderListItem).join("")}</ul>
+      </section>
+    `;
+          })
+          .join("");
+      }
+
+      function toggleAccordion(el) {
+        const wasOpen = el.classList.contains("open");
+        el.parentElement
+          .querySelectorAll(".info-module")
+          .forEach((m) => m.classList.remove("open"));
+        if (!wasOpen) el.classList.add("open");
+        else el.classList.add("open"); // 至少保留一个展开
+      }
+
+      function toggleModule(el) {
+        // 兼容旧调用：转发到手风琴
+        toggleAccordion(el);
+      }
+
+      function renderModuleTabs() {
+        return tabKeys
+          .map(
+            (key) =>
+              `<button class="module-tab ${key === currentTab ? "active" : ""}" onclick="switchTab('${key}')">${key}</button>`,
+          )
+          .join("");
+      }
+
+      function renderSingleModule(event, key) {
+        let items = mergeFlowItems(event.flows[key]);
+        // 移动端最多展示 4 条要点，避免溢出
+        if (isMobile() && items.length > 4) {
+          // 保留首条+末两条+第二条，共 4 条最关键
+          items = [items[0], items[1], items[items.length - 2], items[items.length - 1]];
+        }
+        return `
+    <section class="info-module open mobile-single">
+      <div class="module-title">${key}</div>
+      <ul class="module-list">${items.map(renderListItem).join("")}</ul>
+    </section>
+  `;
+      }
+
+      function renderMain() {
+        const e = events[currentIndex];
+        const area = document.getElementById("mainArea");
+
+        const modulesHtml = renderModules(e);
+        const moduleTabsHtml = renderModuleTabs();
+        const activeModuleHtml = renderSingleModule(e, currentTab);
+
+        if (isMobile()) {
+          area.innerHTML = `
+      <div class="content-area">
+        <div class="mobile-hero">
+          <div class="mobile-event-image"><img src="${e.image}" alt="${e.name}" loading="lazy" decoding="async" width="118" height="100" /><div class="img-caption">${e.imageCaption}</div></div>
+          <div class="mobile-title-card">
+            <div class="event-title">
+              <div class="event-title-line"><span class="event-name">${e.name}</span><span class="event-period">${e.time}</span><button class="whatif-btn" onclick="showWhatIf(${currentIndex})">🤔 如果?</button></div>
+              <div class="event-summary"><span class="summary-time">${e.year} · ${e.time}｜</span>${e.summary}</div>
+            </div>
+          </div>
+        </div>
+        <div class="module-area">
+          <div class="module-tabs">${moduleTabsHtml}</div>
+          <div class="modules-grid">${activeModuleHtml}</div>
+        </div>
+        <div class="mobile-people">
+          <span class="mp-label">核心人物</span>
+          <div class="mp-list">
+            ${e.people.map((p) => `<div class="mp-tag ${p.side === "opponent" ? "opponent" : ""}" onclick="showPerson('${p.name}','${p.role}',\`${p.desc}\`,'${p.avatar}')"><span class="mp-dot"></span>${p.name}</div>`).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+        } else {
+          area.innerHTML = `
+      <div class="content-area">
+        <div class="event-header">
+          <img class="event-icon" src="${e.image}" alt="${e.name}" loading="lazy" decoding="async" width="34" height="34" />
+          <div class="event-title">
+            <div class="event-title-line"><span class="event-name">${e.name}</span><span class="event-period">${e.time}</span><button class="whatif-btn" onclick="showWhatIf(${currentIndex})">🤔 如果当年没发生？</button></div>
+            <div class="event-summary"><span class="summary-time">${e.year} · ${e.time}｜</span>${e.summary}</div>
+          </div>
+        </div>
+        <div class="module-area">
+          <div class="modules-grid">${modulesHtml}</div>
+        </div>
+      </div>
+      <div class="right-col">
+        <div class="event-image">
+          <img src="${e.image}" alt="${e.name}" loading="lazy" decoding="async" width="190" height="164" />
+          <div class="img-caption">${e.imageCaption}</div>
+        </div>
+        <div class="people-box">
+          <div class="p-title">核心人物</div>
+          <div class="people-list">
+            ${e.people
+              .map(
+                (p) => `
+              <div class="people-item" onclick="showPerson('${p.name}','${p.role}',\`${p.desc}\`,'${p.avatar}')">
+                <img class="people-avatar" src="${p.avatar}" alt="${p.name}" loading="lazy" decoding="async" width="30" height="30" />
+                <div><div class="people-item-name">${p.name}</div><div class="people-item-role">${p.role}</div></div>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+    `;
+        }
+      }
+
+      function handleTimelineKey(event, index) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          goTo(index);
+        }
+      }
+
+      function goTo(index) {
+        if (index < 0 || index >= events.length) return;
+        currentIndex = index;
+        currentTab = "背景";
+        renderTimeline();
+        renderMain();
+        markVisited(index);
+      }
+
+      function showWhatIf(idx) {
+        const data = whatIf[idx] || {
+          q: "如果这件事没发生？",
+          real: events[idx]?.summary || "",
+          alt: "历史可能完全改写。",
+          foot: ""
+        };
+        document.getElementById("whatifQ").textContent = data.q;
+        document.getElementById("whatifReal").textContent = data.real;
+        document.getElementById("whatifAlt").textContent = data.alt;
+        document.getElementById("whatifFoot").textContent = data.foot;
+        document.getElementById("whatifOverlay").classList.add("active");
+      }
+
+      function switchTab(key) {
+        currentTab = key;
+        renderMain();
+      }
+
+      function showPerson(name, role, desc, avatar) {
+        document.getElementById("modalBody").innerHTML = `
+    <img class="modal-avatar" src="${avatar}" alt="${name}" loading="lazy" decoding="async" width="56" height="56" />
+    <div class="modal-info">
+      <div class="modal-person-name">${name}</div>
+      <div class="modal-person-role">${role}</div>
+      <div class="modal-person-desc">${desc}</div>
+    </div>
+  `;
+        document.getElementById("modalOverlay").classList.add("active");
+      }
+
+      document
+        .getElementById("modalClose")
+        .addEventListener("click", () =>
+          document.getElementById("modalOverlay").classList.remove("active"),
+        );
+      document.getElementById("modalOverlay").addEventListener("click", (e) => {
+        if (e.target === e.currentTarget) e.target.classList.remove("active");
+      });
+      document.getElementById("whatifClose").addEventListener("click", () => {
+        document.getElementById("whatifOverlay").classList.remove("active");
+      });
+      document.getElementById("whatifOverlay").addEventListener("click", (e) => {
+        if (e.target === e.currentTarget) e.target.classList.remove("active");
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft") goTo(currentIndex - 1);
+        else if (e.key === "ArrowRight") goTo(currentIndex + 1);
+        else if (e.key === "Escape") {
+          document.getElementById("modalOverlay").classList.remove("active");
+          document.getElementById("whatifOverlay").classList.remove("active");
+        }
+      });
+      let touchStartX = 0;
+      document.getElementById("app-container").addEventListener(
+        "touchstart",
+        (e) => {
+          touchStartX = e.touches[0].clientX;
+        },
+        { passive: true },
+      );
+      document.getElementById("app-container").addEventListener(
+        "touchend",
+        (e) => {
+          const diff = e.changedTouches[0].clientX - touchStartX;
+          if (Math.abs(diff) > 50) {
+            diff > 0 ? goTo(currentIndex - 1) : goTo(currentIndex + 1);
+          }
+        },
+        { passive: true },
+      );
+
+      let lastMobile = isMobile();
+      let resizeTimer = null;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          const nowMobile = isMobile();
+          if (nowMobile !== lastMobile) {
+            lastMobile = nowMobile;
+            renderTimeline();
+            renderMain();
+          }
+        }, 150);
+      });
+
+      renderTimeline();
+      renderMain();
+      setupSplash();
+      markVisited(0);
+      window.addEventListener("resize", () => requestAnimationFrame(renderCauseChainSVG));
+    </script>
+  </body>
+</html>

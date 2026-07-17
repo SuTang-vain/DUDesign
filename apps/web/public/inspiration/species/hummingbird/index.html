@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<!-- saved from url=(0281)https://bkwikiflow.bj.bcebos.com/loc-index/b8ec36abf015b8de9227d1d5b665701f/fac3872b33574850bef1c3359dfc1622/1774242393/%E7%8C%AB%E7%A7%91%E5%8A%A8%E7%89%A9%E4%BD%93%E6%80%81%E5%AF%B9%E6%AF%94/%E7%8C%AB%E7%A7%91%E5%8A%A8%E7%89%A9%E4%BD%93%E6%80%81%E5%AF%B9%E6%AF%94.html/index.html -->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>蜂鸟科体型对比</title>
+    <style>
+        /* 全局样式设定：苹果级极简高级、无滚动条 */
+        :root {
+            --primary-color: #1d1d1f;
+            --bg-color: #fbfbfd;
+            --panel-bg: #ffffff;
+            --text-main: #1d1d1f;
+            --text-muted: #86868b;
+            --accent-color: #c5a059;
+            --border-color: rgba(0, 0, 0, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, "PingFang SC", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+        }
+
+        /* 核心响应式主布局 */
+        .main-layout {
+            display: flex;
+            flex-direction: row; 
+            width: 100%;
+            height: 100%;
+        }
+
+        /* ================= 左侧/上方：动物竞技场 ================= */
+        .arena-side {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-color: var(--bg-color);
+        }
+
+        /* 沉浸式舞台聚光灯效果 */
+        .arena-side::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            height: 60%;
+            background: radial-gradient(ellipse at bottom, rgba(197, 160, 89, 0.08) 0%, rgba(251, 251, 253, 0) 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 交互探索提示语 */
+        .explore-hint {
+            position: absolute;
+            top: 75px; /* 为顶部Tab留出空间 */
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ffffff;
+            border: 1px solid rgba(197, 160, 89, 0.4);
+            box-shadow: 0 6px 20px rgba(197, 160, 89, 0.15);
+            color: var(--primary-color);
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 90;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            animation: pulseHint 2.5s infinite ease-in-out;
+        }
+
+        .explore-hint.show {
+            opacity: 1;
+        }
+
+        .explore-hint svg {
+            width: 15px;
+            height: 15px;
+            color: var(--accent-color);
+        }
+
+        @keyframes pulseHint {
+            0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 6px 20px rgba(197, 160, 89, 0.15); }
+            50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 8px 25px rgba(197, 160, 89, 0.3); }
+        }
+
+        .arena-wrapper {
+            flex: 1;
+            position: relative;
+            padding-left: 80px; 
+            padding-right: 50px; 
+            margin-bottom: 20px;
+        }
+
+        /* 顶部 Tab 分类切换栏：挪到页面上方 */
+        .tab-nav {
+            position: absolute;
+            top: 20px; 
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-radius: 30px;
+            padding: 6px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+            border: 1px solid rgba(0,0,0,0.05);
+            z-index: 100;
+        }
+
+        .tab-item {
+            padding: 8px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 24px;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            white-space: nowrap;
+        }
+
+        .tab-item:hover {
+            color: var(--primary-color);
+        }
+
+        .tab-item.active {
+            background: var(--primary-color);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        /* 高级感地平线 */
+        .ground-line {
+            position: absolute;
+            bottom: 60px; /* 由于Tab移走，恢复底部空间 */
+            left: 20px; 
+            right: 40px; 
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #1d1d1f 5%, #1d1d1f 95%, transparent);
+            border-radius: 2px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            z-index: 5;
+        }
+
+        /* 标尺 */
+        .ruler {
+            position: absolute;
+            left: 25px; 
+            top: 75px; /* 下移避开顶部Tabs */
+            bottom: 60px; 
+            width: 45px;
+            border-right: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        .tick {
+            position: absolute;
+            right: 0;
+            width: 100%;
+            text-align: right;
+            transform: translateY(50%);
+            font-size: 12px;
+            color: var(--text-muted);
+            padding-right: 8px;
+        }
+
+        .tick::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            width: 6px;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        /* 测量区：top 75→55px（整体上移 20px），bottom 60→80px（压缩可用高度让图片更小） */
+        .measurement-area {
+            position: absolute;
+            top: 55px; 
+            bottom: 80px; 
+            left: 80px; 
+            right: 50px; 
+            z-index: 15;
+        }
+
+        /* 动物定位与特效 */
+        .animal-figure {
+            position: absolute;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            transform: translateX(-50%);
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            pointer-events: none;
+        }
+
+        .hitbox {
+            position: absolute;
+            bottom: 0;
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 20;
+        }
+
+        /* 图片样式 */
+        .animal-figure img {
+            height: 100%;
+            width: auto;
+            object-fit: contain;
+            object-position: bottom;
+            opacity: 0.9; 
+            filter: grayscale(30%) contrast(0.97) drop-shadow(0 4px 8px rgba(0,0,0,0.08)); 
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative;
+            z-index: 5;
+            pointer-events: none;
+            transform: scale(1);
+            transform-origin: bottom center;
+        }
+
+        .animal-label {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding-top: 24px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            white-space: nowrap;
+            transition: all 0.3s;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        /* 悬停与激活特效 */
+        .animal-figure:hover { z-index: 250 !important; }
+        .animal-figure:hover img {
+            opacity: 1;
+            filter: grayscale(5%) contrast(1.05) drop-shadow(0 8px 15px rgba(0,0,0,0.15));
+            transform: scale(1.04);
+        }
+
+        .animal-figure.active { z-index: 300 !important; }
+        .animal-figure.active img {
+            opacity: 1; 
+            filter: grayscale(0%) contrast(1.1) drop-shadow(0 15px 35px rgba(197, 160, 89, 0.45));
+            transform: scale(1.08);
+        }
+        
+        .animal-figure.active .animal-label {
+            color: var(--accent-color);
+            font-weight: 600;
+            transform: translateX(-50%) scale(1.1);
+        }
+
+        .measurement-area.has-active .animal-figure:not(.active) img {
+            opacity: 0.25;
+            filter: grayscale(100%) blur(2.5px);
+            transform: scale(0.92);
+        }
+        .measurement-area.has-active .animal-figure:not(.active) .animal-label {
+            opacity: 0.25;
+        }
+
+        /* ================= 右侧/下方：固定详情面板 ================= */
+        .panel-side {
+            width: 280px; 
+            background-color: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 40px; 
+            z-index: 100;
+            transition: all 0.3s ease;
+        }
+
+        .detail-content {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            animation: slideInFade 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        @keyframes slideInFade {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-header {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 5px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+
+        .card-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin: 0;
+            letter-spacing: 1px;
+        }
+
+        .card-height {
+            font-size: 14px;
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+
+        .card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .card-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .card-item .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .card-item .value {
+            font-size: 12px;
+            color: var(--primary-color);
+            font-weight: 500;
+            line-height: 1.6;
+        }
+
+
+        /* ================= 媒体查询：适配 415x415 极端移动端尺寸 ================= */
+        @media (max-width: 450px), (max-height: 450px) {
+            .main-layout { flex-direction: column; }
+            .arena-side { flex: 1; }
+            .arena-wrapper { padding-left: 45px; padding-right: 15px; margin-bottom: 15px; } 
+
+            .tab-nav { top: 10px; bottom: auto; padding: 4px; border-radius: 20px;} 
+            .tab-item { padding: 6px 16px; font-size: 13px; border-radius: 16px;}
+            
+            .explore-hint { top: 50px; font-size: 11px; padding: 6px 14px; } 
+
+            /* 移动端赋予竞技场更大空间，图片整体上移 */
+            .ruler { left: 15px; width: 35px; top: 45px; bottom: 40px; } 
+            .measurement-area { left: 55px; right: 25px; top: 45px; bottom: 40px; } 
+            .ground-line { left: 10px; right: 20px; bottom: 40px; height: 2px;} 
+            
+            .tick { font-size: 10px; padding-right: 4px; }
+            .animal-label { font-size: 10px; padding-top: 8px; }
+
+            /* 移动端压缩底部面板，释放垂直空间给坐标轴 */
+            .panel-side {
+                width: 100%;
+                height: 115px; /* 进一步极限压缩高度 */
+                border-left: none;
+                border-top: 1px solid var(--border-color);
+                box-shadow: 0 -5px 20px rgba(0,0,0,0.03);
+                padding: 10px 15px; 
+                justify-content: flex-start;
+            }
+
+            .detail-content { gap: 4px; }
+            .card-header {
+                flex-direction: row;
+                align-items: baseline;
+                justify-content: space-between;
+                margin-bottom: 2px;
+                padding-bottom: 6px;
+            }
+            .card-title { font-size: 16px; }
+            .card-height { font-size: 12px; }
+            .card-body { gap: 4px; }
+            .card-item {
+                flex-direction: row;
+                align-items: baseline;
+                gap: 6px;
+            }
+            .card-item .label {
+                width: 30px; 
+                flex-shrink: 0;
+                font-size: 10px;
+            }
+            .card-item .value {
+                font-size: 11px;
+                line-height: 1.2;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <main class="main-layout">
+        <!-- 左侧/上方：动物展示区 -->
+        <div class="arena-side">
+            
+            <!-- 探索引导提示 -->
+            <div class="explore-hint" id="exploreHint">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
+                    <path d="M13 13l6 6"></path>
+                </svg>
+                <span>点击其他蜂鸟继续探索</span>
+            </div>
+
+            <div class="arena-wrapper" id="arenaWrapper">
+                
+                <!-- 切换导航 Tab 上置 -->
+                <div class="tab-nav">
+                    <div class="tab-item" data-tab="large" onclick="switchTab(&#39;large&#39;)">大型</div>
+                    <div class="tab-item" data-tab="medium" onclick="switchTab(&#39;medium&#39;)">中型</div>
+                    <div class="tab-item active" data-tab="mini" onclick="switchTab(&#39;mini&#39;)">迷你</div>
+                </div>
+                
+                <div class="ruler" id="ruler"><div class="tick" style="bottom: 100%;">10cm</div><div class="tick" style="bottom: 80%;">8cm</div><div class="tick" style="bottom: 60%;">6cm</div><div class="tick" style="bottom: 40%;">4cm</div><div class="tick" style="bottom: 20%;">2cm</div><div class="tick" style="bottom: 0%; color: transparent;">0</div></div>
+
+                <div class="ground-line"></div>
+
+                <div class="measurement-area has-active" id="measurementArea"><div class="animal-figure" style="left: 10%; z-index: 10; height: 45%;">
+                    <img src="./Rufous-crested Coquette.png" alt="棕冠蜂鸟" draggable="false">
+                    <div class="hitbox" style="width: 50%; left: 25%; height: 95%;"></div>
+                    <div class="animal-label">棕冠蜂鸟</div>
+                </div><div class="animal-figure" style="left: 28%; z-index: 20; height: 55%;">
+                    <img src="./Violet-headed Hummingbird.png" alt="紫头蜂鸟" draggable="false">
+                    <div class="hitbox" style="width: 50%; left: 25%; height: 95%;"></div>
+                    <div class="animal-label">紫头蜂鸟</div>
+                </div><div class="animal-figure active" style="left: 50%; z-index: 30; height: 40%;">
+                    <img src="./Bee Hummingbird.png" alt="吸蜜蜂鸟" draggable="false">
+                    <div class="hitbox" style="width: 50%; left: 25%; height: 95%;"></div>
+                    <div class="animal-label">吸蜜蜂鸟</div>
+                </div><div class="animal-figure" style="left: 72%; z-index: 20; height: 60%;">
+                    <img src="./Calliope Hummingbird.png" alt="星蜂鸟" draggable="false">
+                    <div class="hitbox" style="width: 50%; left: 25%; height: 95%;"></div>
+                    <div class="animal-label">星蜂鸟</div>
+                </div><div class="animal-figure" style="left: 90%; z-index: 10; height: 50%;">
+                    <img src="./Violet-crowned Hummingbird.png" alt="紫冠蜂鸟" draggable="false">
+                    <div class="hitbox" style="width: 50%; left: 25%; height: 95%;"></div>
+                    <div class="animal-label">紫冠蜂鸟</div>
+                </div></div>
+                
+            </div>
+        </div>
+        
+        <!-- 右侧/下方：固定详情面板 -->
+        <div class="panel-side" id="panelSide">
+            <div class="detail-content" id="detailContent">
+                <div class="card-header">
+                    <h2 class="card-title" id="ttName">吸蜜蜂鸟</h2>
+                    <span class="card-height" id="ttHeight">体长 ~5.5cm</span>
+                </div>
+                <div class="card-body">
+                    <div class="card-item">
+                        <span class="label">特征</span>
+                        <span class="value" id="ttMorph">世界上最小的鸟类，体重仅约1.95克，雄鸟羽色艳丽</span>
+                    </div>
+                    <div class="card-item">
+                        <span class="label">翼展</span>
+                        <span class="value" id="ttSub">约 6.6 cm</span>
+                    </div>
+                    <div class="card-item">
+                        <span class="label">分布</span>
+                        <span class="value" id="ttDist">古巴及青年岛</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // ================= 数据源 =================
+        // 说明：height 为该物种的典型体长（单位：cm），用于计算图片显示高度比例。
+        // 每个 Tab 内的蜂鸟按 height 升序排列（视觉上从左到右由小到大），
+        // 并使用 currentMaxHeight / ruler max 来统一换算百分比高度。
+        const allAnimalsData = {
+            // 大型蜂鸟：体长 12 cm 以上（4 只，不重复）
+            'large': [
+                { id: 'mango', name: '绿胸芒果蜂鸟', height: 12, imgHeight: 17.4, zIndex: 10, leftPos: 20, hitbox: { w: '55%', l: '22%' }, morphology: '体型修长而强壮，绿背紫胸，尾羽呈深叉形，常具攻击性护食行为', sub: '翼展约 18 cm', dist: '墨西哥南部、中美洲至南美北部', img: './Green-breasted Mango.png' },
+                { id: 'bluethroat', name: '蓝喉山宝石蜂鸟', height: 13, imgHeight: 17.2, zIndex: 20, leftPos: 38, hitbox: { w: '55%', l: '22%' }, morphology: '雄鸟具鲜艳蓝喉与亮紫冠，喙粗壮，尾羽分叉，为高地大型蜂鸟代表', sub: '翼展约 19 cm', dist: '墨西哥至哥斯达黎加的高地森林', img: './Blue-throated Mountain-gem.png' },
+                { id: 'swordbill', name: '剑嘴蜂鸟', height: 22, imgHeight: 22.6, zIndex: 30, leftPos: 55, hitbox: { w: '55%', l: '22%' }, morphology: '喙长可达 10 cm 以上，喙比身体（不含尾）还长，仅它能为某些超长花冠花授粉', sub: '翼展约 13 cm', dist: '安第斯山脉的高地云雾林', img: './Sword-billed Hummingbird.png' },
+                { id: 'giant', name: '巨蜂鸟', height: 23, imgHeight: 20, zIndex: 40, leftPos: 75, hitbox: { w: '55%', l: '22%' }, morphology: '蜂鸟科最大物种，体长约 23 cm，体重 18–24 g，翼展超 20 cm，体型如小型燕', sub: '翼展约 21.5 cm', dist: '安第斯山脉及附近的南美高地', img: './Giant Hummingbird.png', default: true }
+            ],
+            // 中型蜂鸟：体长 9–10 cm（4 只，不重复）
+            'medium': [
+                { id: 'rufous', name: '棕煌蜂鸟', height: 9, imgHeight: 9, zIndex: 10, hitbox: { w: '55%', l: '22%' }, morphology: '橙棕色雄鸟极具辨识性，极富攻击性，会驱赶其他蜂鸟保护花源', sub: '翼展约 11 cm', dist: '北美西部繁殖，冬季至墨西哥', img: './Rufous Hummingbird.png' },
+                { id: 'ruby', name: '红喉北蜂鸟', height: 9, imgHeight: 9, zIndex: 20, hitbox: { w: '55%', l: '22%' }, morphology: '北美最知名蜂鸟，雄鸟具闪耀红色喉羽，每年迁徙跨越墨西哥湾', sub: '翼展约 11 cm', dist: '北美洲繁殖，冬季至中美洲及佛罗里达', img: './Ruby-throated Hummingbird.png' },
+                { id: 'anna', name: '安氏蜂鸟', height: 10, imgHeight: 10, zIndex: 30, hitbox: { w: '55%', l: '22%' }, morphology: '北美西部常见城市蜂鸟，雄鸟具玫瑰红喉与冠羽，求偶时高空俯冲发出金属音', sub: '翼展约 12 cm', dist: '北美西海岸，从加拿大到下加利福尼亚', img: "Anna's Hummingbird.png", default: true },
+                { id: 'violetcrown', name: '紫冠蜂鸟', height: 10, imgHeight: 10, zIndex: 40, hitbox: { w: '55%', l: '22%' }, morphology: '头顶具亮紫冠羽，喙直而长，整体绿灰色调，性格相对温和', sub: '翼展约 13 cm', dist: '美国西南部至墨西哥西北部', img: './Violet-crowned Hummingbird.png' }
+            ],
+            // 迷你蜂鸟：体长 9 cm 以下（4 只，不重复）
+            'mini': [
+                { id: 'bee', name: '吸蜜蜂鸟', height: 5.5, imgHeight: 5.5, zIndex: 40, hitbox: { w: '55%', l: '22%' }, morphology: '世界上最小的鸟类，体重仅约 1.95 g，体长仅 5.5 cm，雄鸟具鲜艳红蓝羽色', sub: '翼展约 6.6 cm', dist: '古巴及青年岛', img: './Bee Hummingbird.png', default: true },
+                { id: 'rufouscrest', name: '棕冠蜂鸟', height: 7, imgHeight: 7, zIndex: 30, hitbox: { w: '55%', l: '22%' }, morphology: '雄鸟具显著棕色尖形冠羽和绿色饰羽，体型娇小活泼', sub: '翼展约 9 cm', dist: '南美亚马逊盆地及圭亚那地盾', img: './Rufous-crested Coquette.png' },
+                { id: 'calliope', name: '星蜂鸟', height: 8, imgHeight: 8, zIndex: 20, hitbox: { w: '55%', l: '22%' }, morphology: '北美洲体型最小的鸟类之一，雄鸟喉部有放射状紫红色细纹羽', sub: '翼展约 11 cm', dist: '北美西部山区繁殖，冬季至墨西哥', img: './Calliope Hummingbird.png' },
+                { id: 'violethead', name: '紫头蜂鸟', height: 9, imgHeight: 9, zIndex: 10, hitbox: { w: '55%', l: '22%' }, morphology: '雄鸟头部具彩虹般紫蓝色金属光泽，绿背白腹，为新热带界代表', sub: '翼展约 12 cm', dist: '中美洲至南美洲北部的低地森林', img: './Violet-headed Hummingbird.png' }
+            ]
+        };
+
+        // 动态标尺配置：根据不同分类的最大体长设置刻度（单位：cm）。
+        // max 值为该 Tab 的标尺上限，用于计算动物显示高度百分比。
+        // 为让大小对比更直观，迷你 Tab 使用更精细刻度。
+        const rulerConfigs = {
+            'large': { max: 28, ticks: [28, 22, 16, 10, 4, 0] },
+            'medium': { max: 14, ticks: [14, 12, 10, 8, 6, 4, 2, 0] },
+            'mini': { max: 11, ticks: [11, 9, 7, 5, 3, 1, 0] }
+        };
+
+        // ================= 视图逻辑 =================
+        const measurementArea = document.getElementById('measurementArea');
+        let hasInteracted = false; 
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+            
+            if (!hasInteracted) {
+                hasInteracted = true;
+                document.getElementById('exploreHint').classList.remove('show');
+            }
+            
+            renderAnimals(tabId);
+        }
+
+        function renderAnimals(tabId) {
+            measurementArea.innerHTML = ''; 
+            const animalsData = allAnimalsData[tabId];
+            
+            // 提取当前分类的动态标尺数据
+            const config = rulerConfigs[tabId];
+            const currentMaxHeight = config.max;
+
+            // 动态渲染刻度尺
+            const ruler = document.getElementById('ruler');
+            ruler.innerHTML = '';
+            config.ticks.forEach(tick => {
+                const tickEl = document.createElement('div');
+                tickEl.className = 'tick';
+                tickEl.style.bottom = `${(tick / currentMaxHeight) * 100}%`;
+                tickEl.textContent = '';
+                ruler.appendChild(tickEl);
+            });
+
+            let defaultSelectedEl = null;
+            let defaultSelectedData = null;
+            const totalAnimals = animalsData.length;
+            
+            animalsData.forEach((animal, index) => {
+                const el = document.createElement('div');
+                el.className = 'animal-figure';
+                
+                // 水平位置计算：如果动物数据中有手动 leftPos 值则优先使用，
+                // 否则在 10%–90% 区间内均匀分布。
+                let leftPos;
+                if (animal.leftPos !== undefined) {
+                    leftPos = animal.leftPos;
+                } else {
+                    const slotStart = 10;
+                    const slotEnd = 90;
+                    leftPos = slotStart + ((index + 0.5) / totalAnimals) * (slotEnd - slotStart);
+                }
+                el.style.left = `${leftPos}%`;
+                el.style.zIndex = animal.zIndex;
+                
+                // 根据当前分类的最大高度重新计算百分比：
+                // 以 animal.imgHeight (cm) / currentMaxHeight (cm) 换算图片显示占比。
+                // 为防止图片被地面线与顶部标尺裁切，乘以 0.95 的安全系数，
+                // 并让图片以 1.0 scale 完整显示，不再做缩小处理。
+                // 各 Tab 图片高度系数：large 0.85（下移留白），medium 0.75（整体缩小），mini 1.0
+                const baseScale = (animal.imgHeight / currentMaxHeight) * 70;
+                const tabScale = tabId === 'large' ? 0.85 : (tabId === 'medium' ? 0.65 : 0.6);
+                const heightPercent = baseScale * tabScale;
+                el.style.height = `${heightPercent}%`;
+                
+                el.innerHTML = `
+                    <img src="${animal.img}" alt="${animal.name}" draggable="false">
+                    <div class="hitbox" style="width: ${animal.hitbox.w}; left: ${animal.hitbox.l}; height: 100%;"></div>
+                    <div class="animal-label">${animal.name}</div>
+                `;
+                
+                el.onclick = (e) => selectAnimal(el, animal, e);
+                measurementArea.appendChild(el);
+
+                if (animal.default) {
+                    defaultSelectedEl = el;
+                    defaultSelectedData = animal;
+                }
+            });
+
+            if (!defaultSelectedEl && animalsData.length > 0) {
+                defaultSelectedEl = measurementArea.children[Math.floor(animalsData.length / 2)];
+                defaultSelectedData = animalsData[Math.floor(animalsData.length / 2)];
+            }
+
+            if (defaultSelectedEl && defaultSelectedData) {
+                selectAnimal(defaultSelectedEl, defaultSelectedData, null);
+            }
+        }
+
+        function selectAnimal(element, animal, event) {
+            document.querySelectorAll('.animal-figure').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+            measurementArea.classList.add('has-active');
+
+            document.getElementById('ttName').textContent = animal.name;
+            document.getElementById('ttHeight').textContent = `体长 ~${animal.height}cm`;
+            document.getElementById('ttMorph').textContent = animal.morphology;
+            document.getElementById('ttSub').textContent = animal.sub;
+            document.getElementById('ttDist').textContent = animal.dist;
+
+            if (event && !hasInteracted) {
+                hasInteracted = true;
+                document.getElementById('exploreHint').classList.remove('show');
+            }
+        }
+
+        window.onload = () => {
+            renderAnimals('mini');
+
+            setTimeout(() => {
+                if (!hasInteracted) {
+                    document.getElementById('exploreHint').classList.add('show');
+                }
+            }, 1000);
+        };
+    </script>
+
+</body></html>

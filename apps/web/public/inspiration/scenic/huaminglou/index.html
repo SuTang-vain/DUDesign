@@ -1,0 +1,1550 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>长沙市花明楼景区智能导览</title>
+    <style>
+      :root {
+        /* 统一高质感主题色 */
+        --marker-primary: #6487fa; /* 统一主色 */
+        --marker-active: #6487fa; /* 选中及路线颜色 */
+        --apple-gray: #f5f5f7;
+        --text-main: #1e1f24;
+        --text-sub: #4a4b52;
+        --apple-blue: #0071e3;
+        --glass: rgba(255, 255, 255, 0.75);
+        --glass-thick: rgba(255, 255, 255, 0.92);
+        --glass-black: rgba(0, 0, 0, 0.75);
+        --shadow-sm: 0 4px 20px rgba(0, 0, 0, 0.04);
+        --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.15);
+      }
+
+      /* 增加 -webkit-tap-highlight-color 彻底移除移动端点击默认高亮色 */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-font-smoothing: antialiased;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus,
+      div:focus {
+        outline: none;
+      }
+
+      body {
+        font-family:
+          -apple-system, "SF Pro SC", "SF Pro Text", "PingFang SC", sans-serif;
+        background-color: var(--apple-gray);
+        height: 100dvh;
+        width: 100vw;
+        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overscroll-behavior: none;
+      }
+
+      .app-container {
+        width: 100%;
+        height: 100%;
+        background-color: #fff;
+        display: flex;
+        flex-direction: row;
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* ====== 地图交互区 ====== */
+      .map-viewport {
+        flex: 1;
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+        background-color: #ffffff;
+        z-index: 1;
+      }
+      .map-layer {
+        width: 2048px;
+        height: 2048px;
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: 0 0;
+        transition: transform 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+      }
+      .map-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        pointer-events: none;
+      }
+      /* ====== D-pad 方向控制按钮 ====== */
+      .dpad {
+        position: absolute;
+        bottom: 14px;
+        right: 20px;
+        width: 108px;
+        height: 108px;
+        z-index: 90;
+        pointer-events: auto;
+        transition: bottom 0.3s ease;
+      }
+      .dpad-btn {
+        position: absolute;
+        width: 38px;
+        height: 38px;
+        background: rgba(100, 135, 250, 0.92);
+        backdrop-filter: blur(25px) saturate(180%);
+        border: 2px solid rgba(255, 255, 255, 0.6);
+        border-radius: 50%;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 6px 18px rgba(100, 135, 250, 0.5);
+        transition: all 0.2s ease;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+      }
+      .dpad-btn:hover {
+        background: #4a6fe8;
+        transform: scale(1.15);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.5);
+      }
+      .dpad-btn:active {
+        transform: scale(0.95);
+      }
+      .dpad-btn.hidden {
+        display: none;
+      }
+      .dpad-up {
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      .dpad-down {
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      .dpad-left {
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      .dpad-right {
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      .dpad-btn:hover.dpad-up,
+      .dpad-btn:hover.dpad-down {
+        transform: translateX(-50%) scale(1.15);
+      }
+      .dpad-btn:hover.dpad-left,
+      .dpad-btn:hover.dpad-right {
+        transform: translateY(-50%) scale(1.15);
+      }
+      .hidden {
+        display: none;
+      }
+
+      /* ====== 返回按钮 ====== */
+      .reset-btn {
+        position: absolute;
+        bottom: 24px;
+        left: 20px;
+        pointer-events: auto;
+        display: none;
+        opacity: 0;
+        padding: 10px 22px;
+        background: rgba(100, 135, 250, 0.95);
+        color: #ffffff;
+        border: none;
+        border-radius: 24px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.45);
+        letter-spacing: 1px;
+        z-index: 100;
+      }
+      .reset-btn.show {
+        display: block;
+        opacity: 1;
+      }
+      .reset-btn:hover {
+        background: #4a6fe8;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.5);
+      }
+
+      /* SVG 路径动画 */
+      #route-svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .route-line-bg {
+        fill: none;
+        stroke: var(--marker-active);
+        stroke-width: calc(5.5 * var(--inv-scale, 1));
+        stroke-opacity: 0.18;
+        stroke-linecap: round;
+      }
+      .route-line {
+        fill: none;
+        stroke: var(--marker-active);
+        stroke-width: calc(3.5 * var(--inv-scale, 1));
+        stroke-dasharray: 4, 14;
+        animation: dashFlow 10s linear infinite;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 8px rgba(100, 135, 250, 0.55));
+      }
+      @media (max-width: 500px) {
+        .route-line-bg {
+          stroke-width: calc(4.5 * var(--inv-scale, 1));
+        }
+        .route-line {
+          stroke-width: calc(2.9 * var(--inv-scale, 1));
+        }
+      }
+      @keyframes dashFlow {
+        from {
+          stroke-dashoffset: 240;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      /* ====== 景点标记 ====== */
+      .marker {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        z-index: 20;
+        cursor: pointer;
+        transform: translate(-50%, -50%) scale(var(--inv-scale, 1));
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .marker-core {
+        position: absolute;
+        inset: 0;
+        background-color: #fff;
+        border: 4px solid var(--marker-primary);
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        z-index: 2;
+      }
+
+      .marker .marker-core {
+        animation: simpleBreathe 2.6s infinite ease-in-out;
+      }
+      .marker::before {
+        content: "";
+        position: absolute;
+        inset: -6px;
+        border: 2px solid var(--marker-primary);
+        border-radius: 50%;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 1;
+        animation: simpleRipple 2.6s infinite cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      @keyframes simpleBreathe {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.15);
+        }
+      }
+      @keyframes simpleRipple {
+        0% {
+          transform: scale(0.6);
+          opacity: 0;
+        }
+        50% {
+          opacity: 0.4;
+        }
+        100% {
+          transform: scale(1.6);
+          opacity: 0;
+        }
+      }
+
+      /* 激活态圆圈 */
+      .marker.active .marker-core {
+        border-color: var(--marker-active);
+        box-shadow: 0 0 15px rgba(100, 135, 250, 0.6);
+        animation: activeBreathe 1s infinite ease-in-out;
+      }
+      .marker.active::before {
+        border-color: var(--marker-active);
+      }
+      @keyframes activeBreathe {
+        0%,
+        100% {
+          transform: scale(1.1);
+        }
+        50% {
+          transform: scale(1.25);
+        }
+      }
+
+      /* 景点名称标签 - 支持点击，按方向避免遮挡 */
+      .marker .label {
+        position: absolute;
+        background: #ffffff;
+        color: var(--text-main);
+        padding: 4px 10px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        pointer-events: auto;
+        transition: box-shadow 0.2s ease;
+      }
+      .marker[data-label-dir="top"] .label {
+        bottom: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      .marker[data-label-dir="bottom"] .label {
+        top: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      .marker[data-label-dir="left"] .label {
+        right: calc(100% + 5px);
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      .marker[data-label-dir="right"] .label {
+        left: calc(100% + 5px);
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      .marker:hover .label {
+        box-shadow: var(--shadow-lg);
+      }
+      .marker.dimmed {
+        opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
+      }
+
+      /* ====== 侧边栏 (PC) ====== */
+      .sidebar {
+        width: 240px;
+        height: 100%;
+        background: rgba(248, 248, 248, 0.96);
+        border-left: 1px solid rgba(0, 0, 0, 0.06);
+        display: flex;
+        flex-direction: column;
+        padding: 10px 10px;
+        z-index: 50;
+        flex-shrink: 0;
+        gap: 8px;
+      }
+      .route-intro {
+        display: none;
+      }
+      .route-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+        min-height: 0;
+      }
+      .route-card {
+        position: relative;
+        background: linear-gradient(135deg, #ffffff 0%, #f5f7ff 100%);
+        border: 1.5px solid #d8def0;
+        border-radius: 14px;
+        padding: 12px 14px;
+        cursor: pointer;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.08);
+        transition:
+          transform 0.25s ease,
+          box-shadow 0.25s ease,
+          border-color 0.25s ease;
+        min-height: 0;
+      }
+      .route-card:hover {
+        transform: translateY(-3px);
+        border-color: var(--marker-primary);
+        box-shadow: 0 12px 26px rgba(100, 135, 250, 0.22);
+      }
+      .route-card:active {
+        transform: translateY(0);
+      }
+      .route-card.active {
+        background: linear-gradient(135deg, #6487fa 0%, #4a6fe8 100%);
+        border-color: var(--marker-primary);
+        box-shadow: 0 10px 24px rgba(100, 135, 250, 0.35);
+      }
+      .route-card.active .route-title,
+      .route-card.active .route-meta,
+      .route-card.active .route-desc {
+        color: #ffffff;
+      }
+      .route-card.active .route-meta {
+        color: rgba(255, 255, 255, 0.9);
+      }
+      .route-card.active .route-desc {
+        color: rgba(255, 255, 255, 0.92);
+      }
+      .route-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .route-title {
+        font-size: 17px;
+        font-weight: 800;
+        color: #1e1f24;
+        letter-spacing: -0.2px;
+      }
+      .route-meta {
+        font-size: 12px;
+        color: var(--marker-primary);
+        font-weight: 700;
+        white-space: nowrap;
+        letter-spacing: -0.2px;
+      }
+      .route-desc {
+        font-size: 13px;
+        color: #4a4b52;
+        line-height: 1.65;
+        letter-spacing: 0.1px;
+        text-align: justify;
+        display: -webkit-box;
+        -webkit-line-clamp: 6;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      /* ====== 移动端适配 ====== */
+      @media (max-width: 500px) {
+        .app-container {
+          flex-direction: column;
+        }
+        .map-viewport {
+          flex: 1;
+          min-height: 0;
+        }
+        .sidebar {
+          width: 100%;
+          height: auto;
+          flex-shrink: 0;
+          gap: 0;
+          border-left: none;
+          border-top: 1px solid rgba(0, 0, 0, 0.08);
+          padding: 8px 10px 10px;
+          background: rgba(248, 248, 248, 0.96);
+        }
+        .route-intro {
+          font-size: 13px;
+          line-height: 1.5;
+          letter-spacing: 0.1px;
+          color: #2c2d33;
+          font-weight: 400;
+          background: transparent;
+          border: none;
+          border-radius: 0;
+          text-align: left;
+          -webkit-line-clamp: 2;
+          display: none;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          padding: 0 4px 6px;
+          margin: 0;
+        }
+        .sidebar.has-route .route-intro {
+          display: -webkit-box;
+        }
+
+        .route-list {
+          flex-direction: row;
+          gap: 6px;
+        }
+        .route-card,
+        .reset-card {
+          position: relative;
+          padding: 12px 4px;
+          border-radius: 12px;
+          flex: 1;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          background: linear-gradient(135deg, #ffffff 0%, #eef2ff 100%);
+          border: 1.5px solid #c8d1ee;
+          color: #1e1f24;
+          box-shadow: 0 3px 10px rgba(100, 135, 250, 0.12);
+          transition:
+            background 0.2s ease,
+            border-color 0.2s ease,
+            transform 0.15s ease,
+            box-shadow 0.2s ease;
+        }
+        .route-card:hover {
+          transform: none;
+          box-shadow: 0 3px 10px rgba(100, 135, 250, 0.12);
+          border-color: #c8d1ee;
+        }
+        .route-card:active,
+        .reset-card:active {
+          transform: scale(0.96);
+        }
+        .route-card.active {
+          background: linear-gradient(135deg, #6487fa 0%, #4a6fe8 100%);
+          border-color: var(--marker-primary);
+          color: #ffffff;
+          box-shadow: 0 6px 16px rgba(100, 135, 250, 0.4);
+        }
+        .reset-card {
+          background: #ffffff;
+          border: 1.5px dashed #c8d1ee;
+          color: #4a4b52;
+          box-shadow: none;
+        }
+        .reset-card.enabled {
+          background: #fff;
+          border-style: solid;
+          border-color: var(--marker-primary);
+          color: var(--marker-primary);
+          cursor: pointer;
+        }
+        .reset-card:not(.enabled) {
+          opacity: 0.45;
+          pointer-events: none;
+        }
+        .route-card .route-desc {
+          display: none;
+        }
+        .route-card-head {
+          flex-direction: column;
+          align-items: center;
+          gap: 0;
+          margin-bottom: 0;
+        }
+        .route-title {
+          font-size: 14px;
+          font-weight: 800;
+          margin-bottom: 0;
+          letter-spacing: -0.2px;
+          color: inherit;
+        }
+        .route-meta {
+          display: none;
+        }
+        .route-card.active .route-title {
+          color: #ffffff;
+        }
+
+        .marker {
+          width: 18px;
+          height: 18px;
+        }
+        .marker .label {
+          font-size: 12px;
+          padding: 3px 8px;
+          font-weight: 700;
+        }
+
+        .dpad {
+          width: 77px;
+          height: 77px;
+          bottom: 6px;
+          right: 6px;
+          transition: bottom 0.3s ease;
+        }
+        .dpad-btn {
+          width: 27px;
+          height: 27px;
+          font-size: 11px;
+          border-width: 1.5px;
+        }
+
+        /* 移动端隐藏浮动返回按钮，使用底部并排按钮替代 */
+        .reset-btn {
+          display: none !important;
+        }
+      }
+
+      /* ====== 小尺寸专项适配 ====== */
+      @media (max-width: 320px) {
+        .sidebar {
+          padding: 6px 6px;
+        }
+        .route-list {
+          gap: 4px;
+        }
+        .route-card,
+        .reset-card {
+          padding: 10px 2px;
+          border-radius: 10px;
+        }
+        .route-title {
+          font-size: 12px;
+        }
+        .route-intro {
+          font-size: 12px;
+        }
+      }
+
+      /* ====== 详情弹窗 ====== */
+      .modal-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(16px);
+        z-index: 200;
+        display: none;
+        justify-content: center;
+        align-items: center;
+      }
+      .modal-overlay.show {
+        display: flex;
+        animation: fadeIn 0.3s ease;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      .modal-card {
+        background: #fff;
+        width: 85%;
+        max-width: 340px;
+        border-radius: 20px;
+        overflow: hidden;
+        position: relative;
+        box-shadow: var(--shadow-lg);
+        transform: scale(0.9);
+        transition: transform 0.5s cubic-bezier(0.17, 0.84, 0.44, 1);
+      }
+      .modal-overlay.show .modal-card {
+        transform: scale(1);
+      }
+      .modal-cover {
+        width: 100%;
+        height: 130px;
+        object-fit: cover;
+        background: #f5f5f7;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+      }
+      .modal-body {
+        padding: 18px 24px;
+        display: flex;
+        flex-direction: column;
+      }
+      .modal-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-wrap: nowrap;
+        overflow: hidden;
+      }
+      .modal-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--text-main);
+        margin: 0;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .modal-badge {
+        background: #f2f2f7;
+        color: var(--marker-primary);
+        font-size: 12px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 6px;
+        line-height: 1.4;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .modal-time {
+        color: #34c759;
+        background: #f2faf4;
+      }
+      .modal-desc {
+        font-size: 14px;
+        color: #4a4b52;
+        line-height: 1.65;
+        text-align: justify;
+        margin-bottom: 16px;
+      }
+
+      /* 底部蓝色关闭按钮 */
+      .close-btn {
+        width: 100%;
+        padding: 10px 0;
+        background: var(--marker-primary);
+        color: #fff;
+        border-radius: 12px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(100, 135, 250, 0.3);
+        transition: all 0.2s;
+        margin-top: auto;
+      }
+      .close-btn:hover {
+        transform: scale(1.02);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-container">
+      <div class="map-viewport" id="mapViewport">
+        <!-- D-pad 方向控制按钮 -->
+        <div class="dpad" id="dpad">
+          <button class="dpad-btn dpad-up" id="dpadUp" onclick="moveMap(0, 80)">
+            ▲
+          </button>
+          <button
+            class="dpad-btn dpad-down"
+            id="dpadDown"
+            onclick="moveMap(0, -80)"
+          >
+            ▼
+          </button>
+          <button
+            class="dpad-btn dpad-left"
+            id="dpadLeft"
+            onclick="moveMap(80, 0)"
+          >
+            ◀
+          </button>
+          <button
+            class="dpad-btn dpad-right"
+            id="dpadRight"
+            onclick="moveMap(-80, 0)"
+          >
+            ▶
+          </button>
+        </div>
+        <!-- 返回大地图按钮 -->
+        <button class="reset-btn" id="resetBtn" onclick="showAllSpots()">
+          返回大地图
+        </button>
+
+        <div class="map-layer" id="mapLayer">
+          <img
+            src="changshashihuamingloujingqu.webp"
+            alt="长沙市花明楼景区地图"
+            class="map-image"
+            width="2048"
+            height="2048"
+            decoding="async"
+            fetchpriority="high"
+          />
+          <svg id="route-svg">
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerUnits="strokeWidth"
+                markerWidth="4"
+                markerHeight="4"
+                orient="auto"
+              >
+                <!-- 统一使用主题蓝色 -->
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#6487FA" />
+              </marker>
+            </defs>
+            <g id="lines-group"></g>
+          </svg>
+          <div id="markers-container"></div>
+        </div>
+      </div>
+
+      <div class="sidebar" id="sidebar">
+        <div class="route-intro" id="routeIntro"></div>
+        <div class="route-list" id="routeList"></div>
+      </div>
+
+      <div
+        class="modal-overlay"
+        id="modalOverlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modalTitle"
+        onclick="closeModal()"
+      >
+        <div class="modal-card" onclick="event.stopPropagation()">
+          <img id="modalImg" class="modal-cover" src="" alt="" width="680" height="460" loading="lazy" />
+          <div class="modal-body">
+            <div class="modal-title-row">
+              <h3 class="modal-title" id="modalTitle"></h3>
+              <span class="modal-badge" id="modalTag"></span>
+              <span class="modal-badge modal-time" id="modalTime"></span>
+            </div>
+            <div class="modal-desc" id="modalDesc"></div>
+            <div
+              class="close-btn"
+              role="button"
+              tabindex="0"
+              aria-label="关闭"
+              onclick="closeModal()"
+            >
+              关闭
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const MAP_W = 2048,
+        MAP_H = 2048;
+      let VIEW_W, VIEW_H, MIN_SCALE, currentScale;
+      let currentActiveRouteId = null;
+      let currentTX = 0,
+        currentTY = 0;
+
+      const spots = {
+        "huaminglou": {
+                "name": "花明楼",
+                "tag": "名楼核心",
+                "time": "20分钟",
+                "x": 32.8,
+                "y": 25.3,
+                "labelDir": "top",
+                "img": "huaminglou.webp",
+                "desc": "名楼先立！花明楼本身不只是一个建筑名号，更像整个景区气质的起点。楼景、院落和纪念氛围叠在一起后，花明楼景区的庄重感会先从这里出来。",
+                "mobileDesc": "名楼先立！楼景和院落一合上，花明楼景区那种庄重又安静的气质就会先出来。"
+        },
+        "gongyunlichengzhuantiguan": {
+                "name": "工运历程专题馆",
+                "tag": "专题史陈",
+                "time": "20分钟",
+                "x": 60.0,
+                "y": 48.4,
+                "labelDir": "left",
+                "img": "gongyunlichengzhuantiguan.webp",
+                "desc": "史脉铺开！专题馆把视线从人物纪念带进更具体的历史脉络里，展陈的重点不在热闹，而在把时代背景和行动轨迹讲得更清楚。",
+                "mobileDesc": "史脉铺开！这里更强调历史脉络本身，人物所处的时代背景会被讲得更清楚。"
+        },
+        "liushaoqijinianguan": {
+                "name": "刘少奇纪念馆",
+                "tag": "生平主展",
+                "time": "25分钟",
+                "x": 76.2,
+                "y": 52.2,
+                "labelDir": "right",
+                "img": "liushaoqijinianguan.webp",
+                "desc": "纪念入心！纪念馆是整片景区里内容最完整的一处，人物生平、历史节点和精神线索都会在这里被系统地串起来，停留时间也最值得留足。",
+                "mobileDesc": "纪念入心！这里把人物生平和历史节点收得最完整，也是最值得慢慢看的主展空间。"
+        },
+        "liushaoqitongxiang": {
+                "name": "刘少奇铜像",
+                "tag": "广场敬瞻",
+                "time": "15分钟",
+                "x": 54.2,
+                "y": 64.2,
+                "labelDir": "bottom",
+                "img": "liushaoqitongxiang.webp",
+                "desc": "铜像肃立！广场空间一展开，视线会自然集中到铜像本身，纪念感也会比室内展馆来得更直接。人在这里通常不会走得太快，而是会先停下来抬头看一眼。",
+                "mobileDesc": "铜像肃立！广场的开阔感会让纪念情绪更直接，人也会自然先停下来抬头看一眼。"
+        },
+        "liushaoqitongzhiguju": {
+                "name": "刘少奇同志故居",
+                "tag": "故园旧居",
+                "time": "20分钟",
+                "x": 78.1,
+                "y": 32.0,
+                "labelDir": "right",
+                "img": "liushaoqitongzhiguju.webp",
+                "desc": "故居见本！真正走到故居前时，感受和看展馆不太一样，更多的是从日常生活的尺度去靠近人物本身。屋舍、院场和旧时起居痕迹会让这段参观更安静也更具体。",
+                "mobileDesc": "故居见本！这里不是宏大的展示空间，而是从屋舍和旧时生活痕迹里去靠近人物本身。"
+        },
+        "wandeding": {
+                "name": "万德鼎",
+                "tag": "鼎景铭意",
+                "time": "15分钟",
+                "x": 32.0,
+                "y": 38.1,
+                "labelDir": "left",
+                "img": "wandeding.webp",
+                "desc": "鼎意沉稳！万德鼎体量不算夸张，却很能把纪念空间的气场压稳。它适合放慢一点看，材质、造型和寓意会比第一眼更耐琢磨。",
+                "mobileDesc": "鼎意沉稳！它不靠热闹取胜，而是用造型和寓意把纪念空间的气场稳稳压住。"
+        },
+        "yiyehu": {
+                "name": "一叶湖",
+                "tag": "湖岸静景",
+                "time": "15分钟",
+                "x": 22.3,
+                "y": 39.0,
+                "labelDir": "left",
+                "img": "yiyehu.webp",
+                "desc": "湖面先静！一叶湖把整个景区的节奏先放缓了一层，水面、岸线和周边树影都不急着给出强烈刺激，却很适合把人从路途状态慢慢带进景区氛围里。",
+                "mobileDesc": "湖面先静！水面和树影会先把节奏放缓，让人从进景区开始就慢慢安静下来。"
+        }
+};
+
+      const routes = [
+        {
+                "id": "hulou",
+                "name": "湖楼渐入",
+                "mobileName": "湖楼线",
+                "time": "1.5h",
+                "dist": "1.2km",
+                "spots": [
+                        "yiyehu",
+                        "wandeding",
+                        "huaminglou"
+                ],
+                "desc": "湖楼渐入！一叶湖、万德鼎到花明楼顺着景区前段慢慢走进来，先把环境和纪念气口看顺，再把名楼主景稳稳接住。",
+                "mobileDesc": "湖楼渐入！这一程更像把脚步和心绪都慢慢放稳，适合先进入花明楼景区的整体氛围。"
+        },
+        {
+                "id": "jinian",
+                "name": "纪念正脉",
+                "mobileName": "纪念线",
+                "time": "1.5h",
+                "dist": "1.4km",
+                "spots": [
+                        "huaminglou",
+                        "gongyunlichengzhuantiguan",
+                        "liushaoqijinianguan"
+                ],
+                "desc": "纪念渐深！花明楼、工运历程专题馆到刘少奇纪念馆一路接下去具有更完整的史料和人物主线，主旨最集中。",
+                "mobileDesc": "纪念渐深！这一程把景区最核心的纪念内容顺次铺开，人物主线和历史主线更集中。"
+        },
+        {
+                "id": "guyuan",
+                "name": "故园回望",
+                "mobileName": "故园线",
+                "time": "1.5h",
+                "dist": "1.3km",
+                "spots": [
+                        "liushaoqitongxiang",
+                        "liushaoqijinianguan",
+                        "liushaoqitongzhiguju"
+                ],
+                "desc": "故园渐近！从铜像到纪念馆再到故居，敬瞻、展陈与生活场景一路衔接，回望感最强。",
+                "mobileDesc": "故园渐近！这一程会把敬瞻、了解和回望三层感受慢慢接起来，情绪收束也最完整。"
+        }
+];
+
+      const mapLayer = document.getElementById("mapLayer");
+      const viewport = document.getElementById("mapViewport");
+      const dpadEl = document.getElementById("dpad");
+      const dpadBtns = {
+        up: document.getElementById("dpadUp"),
+        down: document.getElementById("dpadDown"),
+        left: document.getElementById("dpadLeft"),
+        right: document.getElementById("dpadRight"),
+      };
+
+      function updateDims() {
+        VIEW_W = viewport.offsetWidth;
+        VIEW_H = viewport.offsetHeight;
+        MIN_SCALE = Math.max(VIEW_W / MAP_W, VIEW_H / MAP_H);
+      }
+
+      function updateDpadVisibility() {
+        const mapW = MAP_W * currentScale;
+        const mapH = MAP_H * currentScale;
+        const limitX = VIEW_W - mapW;
+        const limitY = VIEW_H - mapH;
+
+        const upHidden = !(limitY < -1 && currentTY < -1);
+        const downHidden = !(limitY < -1 && currentTY > limitY + 1);
+        const leftHidden = !(limitX < -1 && currentTX < -1);
+        const rightHidden = !(limitX < -1 && currentTX > limitX + 1);
+
+        dpadBtns.up.classList.toggle("hidden", upHidden);
+        dpadBtns.down.classList.toggle("hidden", downHidden);
+        dpadBtns.left.classList.toggle("hidden", leftHidden);
+        dpadBtns.right.classList.toggle("hidden", rightHidden);
+
+        // 移动端：默认紧贴底部（即贴近下方路线介绍上方），当向下按钮隐藏时整体再往下偏移半个按钮
+        if (window.innerWidth <= 500) {
+          // dpad 高 77px，按钮 27px。下按钮所占空间约 27px，半个按钮约 13px
+          const baseBottom = 6;
+          const extraDown = downHidden ? 14 : 0;
+          dpadEl.style.bottom = baseBottom - extraDown + "px";
+          dpadEl.style.top = "auto";
+        } else {
+          // PC：默认贴着页面下方；向下按钮隐藏时整体下移约半个按钮（dpad 108、按钮 38 → 半个约 19）
+          const baseBottom = 14;
+          const extraDown = downHidden ? 19 : 0;
+          dpadEl.style.bottom = baseBottom - extraDown + "px";
+          dpadEl.style.top = "auto";
+        }
+      }
+
+      function renderRoutes() {
+        const isMobile = window.innerWidth <= 500;
+        const rList = document.getElementById("routeList");
+        rList.innerHTML = "";
+        routes.forEach((r) => {
+          const card = document.createElement("div");
+          card.className = "route-card";
+          card.dataset.id = r.id;
+          card.setAttribute("role", "button");
+          card.setAttribute("tabindex", "0");
+          card.innerHTML = isMobile
+            ? `
+                    <div class="route-card-head">
+                        <div class="route-title">${r.mobileName}</div>
+                    </div>
+                `
+            : `
+                    <div class="route-card-head">
+                        <div class="route-title">${r.name}</div>
+                        <div class="route-meta">${r.time} · ${r.dist}</div>
+                    </div>
+                    <div class="route-desc">${r.desc}</div>
+                `;
+          card.onclick = () => selectRoute(r.id, card);
+          card.onkeydown = (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              selectRoute(r.id, card);
+            }
+          };
+          rList.appendChild(card);
+        });
+        if (isMobile) {
+          const resetCard = document.createElement("div");
+          resetCard.className = "reset-card";
+          resetCard.id = "mobileResetCard";
+          resetCard.setAttribute("role", "button");
+          resetCard.setAttribute("tabindex", "0");
+          resetCard.innerHTML = `
+                    <div class="route-card-head">
+                        <div class="route-title">返回</div>
+                    </div>
+                `;
+          resetCard.onclick = () => {
+            if (resetCard.classList.contains("enabled")) showAllSpots();
+          };
+          rList.appendChild(resetCard);
+        }
+        if (currentActiveRouteId) {
+          const active = rList.querySelector(
+            `.route-card[data-id="${currentActiveRouteId}"]`,
+          );
+          if (active) active.classList.add("active");
+          const rc = document.getElementById("mobileResetCard");
+          if (rc) rc.classList.add("enabled");
+        }
+      }
+
+      function preloadSpotImages() {
+        for (const id in spots) {
+          const im = new Image();
+          im.src = spots[id].img;
+        }
+      }
+
+      function init() {
+        updateDims();
+        const mContainer = document.getElementById("markers-container");
+        for (let id in spots) {
+          const sp = spots[id];
+          const el = document.createElement("div");
+          el.className = "marker";
+          el.dataset.id = id;
+          el.style.left = sp.x + "%";
+          el.style.top = sp.y + "%";
+          el.dataset.labelDir = sp.labelDir || "top";
+          el.innerHTML = `
+                    <div class="marker-core"></div>
+                    <div class="label">${sp.name}</div>
+                `;
+          el.onclick = (e) => {
+            e.stopPropagation();
+            openModal(sp);
+          };
+          mContainer.appendChild(el);
+        }
+        renderRoutes();
+        showAllSpots();
+        // 预加载景点弹窗图片，避免首次点击 marker 出现空白
+        requestIdleCallback
+          ? requestIdleCallback(preloadSpotImages)
+          : setTimeout(preloadSpotImages, 600);
+        let _resizeTimer = 0;
+        window.addEventListener("resize", () => {
+          clearTimeout(_resizeTimer);
+          _resizeTimer = setTimeout(() => {
+            updateDims();
+            renderRoutes();
+            if (currentActiveRouteId) {
+              const card = document.querySelector(
+                `.route-card[data-id="${currentActiveRouteId}"]`,
+              );
+              selectRoute(currentActiveRouteId, card);
+            } else {
+              showAllSpots();
+            }
+          }, 120);
+        });
+      }
+
+      function applyTransform(tx, ty, scale, fast) {
+        currentScale = Math.max(MIN_SCALE, scale);
+        const mapW = MAP_W * currentScale;
+        const mapH = MAP_H * currentScale;
+
+        const limitX = VIEW_W - mapW;
+        const limitY = VIEW_H - mapH;
+
+        const isMobile = window.innerWidth <= 500;
+
+        if (limitX >= -1) {
+          currentTX = limitX / 2;
+        } else {
+          if (
+            !fast &&
+            isMobile &&
+            Math.abs(currentScale - MIN_SCALE) < 0.01 &&
+            !currentActiveRouteId
+          ) {
+            currentTX = limitX / 2;
+          } else {
+            currentTX = Math.max(limitX, Math.min(0, tx));
+          }
+        }
+
+        if (limitY >= -1) {
+          currentTY = limitY / 2;
+        } else {
+          if (
+            !fast &&
+            isMobile &&
+            Math.abs(currentScale - MIN_SCALE) < 0.01 &&
+            !currentActiveRouteId
+          ) {
+            currentTY = limitY / 2;
+          } else {
+            currentTY = Math.max(limitY, Math.min(0, ty));
+          }
+        }
+
+        mapLayer.style.transition = fast
+          ? "transform 0.4s cubic-bezier(0.23, 1, 0.32, 1)"
+          : "transform 0.8s cubic-bezier(0.23, 1, 0.32, 1)";
+        mapLayer.style.transform = `translate(${currentTX}px, ${currentTY}px) scale(${currentScale})`;
+        mapLayer.style.setProperty("--inv-scale", 1 / currentScale);
+        updateDpadVisibility();
+        // 在 transform 动画结束后重新计算 label 方向
+        clearTimeout(_labelTimer);
+        _labelTimer = setTimeout(updateLabelDirections, fast ? 420 : 820);
+      }
+
+      // 智能标签方向：尝试 top/bottom/left/right 4 个位置，避免遮挡
+      let _labelTimer = 0;
+      function updateLabelDirections() {
+        const viewportRect = viewport.getBoundingClientRect();
+        const markers = Array.from(
+          document.querySelectorAll(".marker:not(.dimmed)"),
+        );
+        if (!markers.length) return;
+
+        // 受控避让区：右下 dpad、左下 reset 按钮（仅 PC）
+        const isMobile = window.innerWidth <= 500;
+        const avoid = [];
+        if (dpadEl) {
+          const r = dpadEl.getBoundingClientRect();
+          avoid.push({
+            l: r.left - viewportRect.left - 6,
+            t: r.top - viewportRect.top - 6,
+            r: r.right - viewportRect.left + 6,
+            b: r.bottom - viewportRect.top + 6,
+          });
+        }
+        if (!isMobile) {
+          const rb = document.getElementById("resetBtn");
+          if (rb && rb.classList.contains("show")) {
+            const r = rb.getBoundingClientRect();
+            avoid.push({
+              l: r.left - viewportRect.left - 6,
+              t: r.top - viewportRect.top - 6,
+              r: r.right - viewportRect.left + 6,
+              b: r.bottom - viewportRect.top + 6,
+            });
+          }
+        }
+
+        // 计算每个 marker 的中心点（视口坐标）和 label 尺寸
+        const items = markers.map((m) => {
+          const mr = m.getBoundingClientRect();
+          const cx = mr.left + mr.width / 2 - viewportRect.left;
+          const cy = mr.top + mr.height / 2 - viewportRect.top;
+          const lbl = m.querySelector(".label");
+          const lr = lbl.getBoundingClientRect();
+          return {
+            el: m,
+            cx,
+            cy,
+            mw: mr.width,
+            mh: mr.height,
+            lw: lr.width,
+            lh: lr.height,
+            preferred: m.dataset.labelDir,
+          };
+        });
+
+        const gap = 4; // 与呼吸点的距离（已缩小至原来的50%）
+        // 所有 marker（呼吸点）矩形，标签也不应该遮住其他呼吸点
+        const markerRects = items.map((it) => ({
+          l: it.cx - it.mw / 2 - 2,
+          t: it.cy - it.mh / 2 - 2,
+          r: it.cx + it.mw / 2 + 2,
+          b: it.cy + it.mh / 2 + 2,
+          self: it,
+        }));
+
+        function rectFor(it, dir) {
+          const halfM = it.mw / 2;
+          let l, t;
+          if (dir === "top") {
+            l = it.cx - it.lw / 2;
+            t = it.cy - halfM - gap - it.lh;
+          } else if (dir === "bottom") {
+            l = it.cx - it.lw / 2;
+            t = it.cy + halfM + gap;
+          } else if (dir === "left") {
+            l = it.cx - halfM - gap - it.lw;
+            t = it.cy - it.lh / 2;
+          } else {
+            l = it.cx + halfM + gap;
+            t = it.cy - it.lh / 2;
+          }
+          return { l, t, r: l + it.lw, b: t + it.lh };
+        }
+        function overlap(a, b) {
+          return !(a.r < b.l || a.l > b.r || a.b < b.t || a.t > b.b);
+        }
+        function overlapArea(a, b) {
+          const w = Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l));
+          const h = Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+          return w * h;
+        }
+        function outOfViewAmount(rc) {
+          let amt = 0;
+          if (rc.l < 2) amt += (2 - rc.l) * (rc.b - rc.t);
+          if (rc.t < 2) amt += (2 - rc.t) * (rc.r - rc.l);
+          if (rc.r > viewportRect.width - 2)
+            amt += (rc.r - (viewportRect.width - 2)) * (rc.b - rc.t);
+          if (rc.b > viewportRect.height - 2)
+            amt += (rc.b - (viewportRect.height - 2)) * (rc.r - rc.l);
+          return amt;
+        }
+        // 单点静态代价（与其他 label 无关：视口/避让/呼吸点/偏好）
+        function staticCost(it, dir) {
+          const rc = rectFor(it, dir);
+          let c = 0;
+          c += outOfViewAmount(rc) * 8;
+          for (const a of avoid) if (overlap(rc, a)) c += 1500 + overlapArea(rc, a);
+          for (const m of markerRects) {
+            if (m.self === it) continue;
+            if (overlap(rc, m)) c += 600 + overlapArea(rc, m) * 2;
+          }
+          if (dir !== it.preferred) c += 25; // 偏离原方向轻微惩罚
+          return c;
+        }
+
+        const dirs = ["top", "bottom", "left", "right"];
+        const N = items.length;
+        // 预计算每个 item 各方向的 rect 和静态代价
+        const cache = items.map((it) =>
+          dirs.map((d) => ({ rc: rectFor(it, d), sc: staticCost(it, d) })),
+        );
+
+        // 启发式：先各自选静态最低代价的方向作为初值
+        const choice = items.map((_, i) => {
+          let best = 0,
+            bv = Infinity;
+          for (let d = 0; d < 4; d++)
+            if (cache[i][d].sc < bv) {
+              bv = cache[i][d].sc;
+              best = d;
+            }
+          return best;
+        });
+
+        function pairCost(i, j, di, dj) {
+          return overlap(cache[i][di].rc, cache[j][dj].rc)
+            ? 800 + overlapArea(cache[i][di].rc, cache[j][dj].rc) * 2
+            : 0;
+        }
+        function totalCost(ch) {
+          let c = 0;
+          for (let i = 0; i < N; i++) {
+            c += cache[i][ch[i]].sc;
+            for (let j = i + 1; j < N; j++) c += pairCost(i, j, ch[i], ch[j]);
+          }
+          return c;
+        }
+
+        // 局部搜索：反复对每个 item 试 4 方向，取使总代价最小的方向；直到收敛
+        let curCost = totalCost(choice);
+        for (let iter = 0; iter < 8; iter++) {
+          let improved = false;
+          for (let i = 0; i < N; i++) {
+            const oldD = choice[i];
+            let bestD = oldD,
+              bestC = curCost;
+            for (let d = 0; d < 4; d++) {
+              if (d === oldD) continue;
+              choice[i] = d;
+              const c = totalCost(choice);
+              if (c < bestC) {
+                bestC = c;
+                bestD = d;
+              }
+            }
+            choice[i] = bestD;
+            if (bestD !== oldD) {
+              curCost = bestC;
+              improved = true;
+            }
+          }
+          if (!improved) break;
+        }
+
+        items.forEach((it, i) => {
+          it.el.dataset.labelDir = dirs[choice[i]];
+        });
+      }
+
+      function moveMap(dx, dy) {
+        applyTransform(currentTX + dx, currentTY + dy, currentScale, true);
+      }
+
+      function updateRouteIntro(route) {
+        const introEl = document.getElementById("routeIntro");
+        const sidebar = document.getElementById("sidebar");
+        if (!introEl || !sidebar) return;
+        if (route) {
+          const isMobile = window.innerWidth <= 500;
+          introEl.innerText =
+            isMobile && route.mobileDesc ? route.mobileDesc : route.desc;
+          sidebar.classList.add("has-route");
+        } else {
+          introEl.innerText = "";
+          sidebar.classList.remove("has-route");
+        }
+      }
+
+      function showAllSpots() {
+        currentActiveRouteId = null;
+        document.getElementById("resetBtn").classList.remove("show");
+        const rcard = document.getElementById("mobileResetCard");
+        if (rcard) rcard.classList.remove("enabled");
+        document
+          .querySelectorAll(".route-card")
+          .forEach((c) => c.classList.remove("active"));
+        document
+          .querySelectorAll(".marker")
+          .forEach((m) => m.classList.remove("dimmed", "active"));
+        document.getElementById("lines-group").innerHTML = "";
+        updateRouteIntro(null);
+        // 移动端：sidebar 高度可能因 has-route 切换变化，立即重算视口尺寸避免动画期间出现空白
+        updateDims();
+
+        let minX = 100,
+          maxX = 0,
+          minY = 100,
+          maxY = 0;
+        Object.values(spots).forEach((s) => {
+          minX = Math.min(minX, s.x);
+          maxX = Math.max(maxX, s.x);
+          minY = Math.min(minY, s.y);
+          maxY = Math.max(maxY, s.y);
+        });
+
+        const boxW = ((maxX - minX) / 100) * MAP_W;
+        const boxH = ((maxY - minY) / 100) * MAP_H;
+
+        const isMobile = window.innerWidth <= 500;
+        const pad = isMobile ? 30 : 50;
+        const availableW = VIEW_W - pad * 2;
+        const availableH = VIEW_H - pad * 2;
+
+        let scale = Math.min(
+          availableW / (boxW || 1),
+          availableH / (boxH || 1),
+        );
+        scale = Math.max(scale, MIN_SCALE);
+        scale = Math.min(scale, isMobile ? 1.0 : 0.82);
+
+        const centerX = ((minX + maxX) / 200) * MAP_W;
+        const centerY = ((minY + maxY) / 200) * MAP_H;
+        const targetX = VIEW_W / 2 - centerX * scale;
+        const targetY = VIEW_H / 2 - centerY * scale;
+
+        applyTransform(targetX, targetY, scale);
+      }
+
+      function selectRoute(rId, card) {
+        currentActiveRouteId = rId;
+        document.getElementById("resetBtn").classList.add("show");
+        const rcard = document.getElementById("mobileResetCard");
+        if (rcard) rcard.classList.add("enabled");
+        document
+          .querySelectorAll(".route-card")
+          .forEach((c) => c.classList.remove("active"));
+        if (card) card.classList.add("active");
+
+        const route = routes.find((r) => r.id === rId);
+        updateRouteIntro(route);
+        // 立即重算视口尺寸（移动端 sidebar 高度可能变化）
+        updateDims();
+        document.querySelectorAll(".marker").forEach((m) => {
+          if (route.spots.includes(m.dataset.id)) {
+            m.classList.remove("dimmed");
+            m.classList.add("active");
+          } else {
+            m.classList.add("dimmed");
+            m.classList.remove("active");
+          }
+        });
+
+        drawSVG(route.spots);
+
+        const isMobile = window.innerWidth <= 500;
+        const pad = isMobile ? 35 : 70;
+        let minX = 100,
+          maxX = 0,
+          minY = 100,
+          maxY = 0;
+        route.spots.forEach((id) => {
+          minX = Math.min(minX, spots[id].x);
+          maxX = Math.max(maxX, spots[id].x);
+          minY = Math.min(minY, spots[id].y);
+          maxY = Math.max(maxY, spots[id].y);
+        });
+
+        const boxW = ((maxX - minX) / 100) * MAP_W;
+        const boxH = ((maxY - minY) / 100) * MAP_H;
+        const availableW = VIEW_W - pad * 2;
+        const availableH = VIEW_H - pad * 2;
+
+        let scale = Math.min(
+          availableW / (boxW || 1),
+          availableH / (boxH || 1),
+        );
+        scale = Math.min(Math.max(scale, MIN_SCALE), isMobile ? 1.05 : 1.3);
+
+        const routeCenterX = ((minX + maxX) / 200) * MAP_W;
+        const routeCenterY = ((minY + maxY) / 200) * MAP_H;
+        const targetX = VIEW_W / 2 - routeCenterX * scale;
+        const targetY = VIEW_H / 2 - routeCenterY * scale;
+
+        applyTransform(targetX, targetY, scale);
+      }
+
+      function drawSVG(ids) {
+        let h = "";
+        // 呼吸点半径（map 坐标系下），约等于 marker 圆圈外边缘
+        const R = 14;
+        for (let i = 0; i < ids.length - 1; i++) {
+          const s1 = spots[ids[i]],
+            s2 = spots[ids[i + 1]];
+          const x1 = (s1.x / 100) * MAP_W,
+            y1 = (s1.y / 100) * MAP_H,
+            x2 = (s2.x / 100) * MAP_W,
+            y2 = (s2.y / 100) * MAP_H;
+          const dx = x2 - x1,
+            dy = y2 - y1;
+          const len = Math.hypot(dx, dy) || 1;
+          const ux = dx / len,
+            uy = dy / len;
+          // 起点和终点都从呼吸点边缘开始/结束
+          const sx = x1 + ux * R,
+            sy = y1 + uy * R;
+          const ex = x2 - ux * R,
+            ey = y2 - uy * R;
+          const mx = (sx + ex) / 2 - (ey - sy) * 0.06;
+          const my = (sy + ey) / 2 + (ex - sx) * 0.06;
+          const pathData = `M ${sx} ${sy} Q ${mx} ${my} ${ex} ${ey}`;
+          h += `<path class="route-line-bg" d="${pathData}" />`;
+          h += `<path class="route-line" d="${pathData}" marker-end="url(#arrow)" />`;
+        }
+        document.getElementById("lines-group").innerHTML = h;
+      }
+
+      function openModal(sp) {
+        const isMobile = window.innerWidth <= 500;
+        document.getElementById("modalImg").src = sp.img;
+        document.getElementById("modalImg").alt = sp.name;
+        document.getElementById("modalTitle").innerText = sp.name;
+        const tagEl = document.getElementById("modalTag");
+        const timeEl = document.getElementById("modalTime");
+        tagEl.innerText = sp.tag;
+        timeEl.innerText = sp.time;
+        tagEl.style.display = "";
+        timeEl.style.display = "";
+        document.getElementById("modalDesc").innerText =
+          isMobile && sp.mobileDesc ? sp.mobileDesc : sp.desc;
+        document.getElementById("modalOverlay").classList.add("show");
+        // 标签必须与名称同行：检测是否溢出，若溢出则隐藏 tag（保留 time）
+        requestAnimationFrame(() => {
+          const row = document.querySelector(".modal-title-row");
+          if (!row) return;
+          if (row.scrollWidth > row.clientWidth + 1) {
+            tagEl.style.display = "none";
+            // 仍溢出则继续隐藏 time
+            if (row.scrollWidth > row.clientWidth + 1) {
+              timeEl.style.display = "none";
+            }
+          }
+        });
+      }
+      function closeModal() {
+        document.getElementById("modalOverlay").classList.remove("show");
+      }
+
+      init();
+    </script>
+  </body>
+</html>

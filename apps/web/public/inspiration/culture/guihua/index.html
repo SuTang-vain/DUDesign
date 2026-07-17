@@ -1,0 +1,2398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>欲买桂花同载酒 · 动态百科</title>
+    <style>
+      :root {
+        --primary: #6487fa;
+        --primary-d: #4a6fe0;
+        --primary-l: #eef2ff;
+        --bg-white: #ffffff;
+        --bg-gray: #f8f8f8;
+        --t1: #1e1f24;
+        --t2: #848691;
+        --t3: #b7b9c1;
+        --line: rgba(0, 0, 0, 0.06);
+        --sd-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+        --green: #34c759;
+        --orange: #ff9500;
+        --red: #ff3b30;
+        --r-s: 8px;
+        --r-m: 12px;
+        --r-l: 16px;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+        background: #e9edf7;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        touch-action: none;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #app {
+        position: relative;
+        width: 788px;
+        height: 492px;
+        background: var(--bg-white);
+        border-radius: var(--r-l);
+        overflow: hidden;
+        box-shadow: var(--sd-md);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .nav {
+        display: flex;
+        gap: 4px;
+        padding: 11px 14px 10px;
+        flex-shrink: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-bottom: 1px solid var(--line);
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
+      }
+      .nav::-webkit-scrollbar {
+        height: 0;
+      }
+      .nav .n {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 13.5px;
+        color: var(--t1);
+        padding: 7px 15px;
+        border-radius: 18px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.22s;
+        font-weight: 600;
+        flex-shrink: 0;
+        user-select: none;
+        background: #f1f3f9;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      .nav .n .ic {
+        font-size: 14px;
+        opacity: 0.85;
+      }
+      .nav .n:hover {
+        background: var(--primary-l);
+        color: var(--primary-d);
+        border-color: rgba(100, 135, 250, 0.35);
+        transform: translateY(-1px);
+      }
+      .nav .n.on {
+        background: var(--primary);
+        color: #fff;
+        font-weight: 700;
+        box-shadow: 0 3px 10px rgba(100, 135, 250, 0.38);
+        transform: translateY(-1px);
+        border-color: var(--primary);
+      }
+      .nav .n.on .ic {
+        opacity: 1;
+      }
+
+      .stage {
+        flex: 1;
+        position: relative;
+        min-height: 0;
+      }
+      .panel {
+        position: absolute;
+        inset: 0;
+        padding: 14px 18px 14px;
+        display: none;
+        animation: fade 0.3s;
+        overflow: hidden;
+      }
+      .panel.on {
+        display: block;
+      }
+      @keyframes fade {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      h3.sec {
+        font-size: 13px;
+        color: var(--t1);
+        font-weight: 700;
+        margin: 0 0 9px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        letter-spacing: 0.3px;
+      }
+      h3.sec::before {
+        content: "";
+        width: 4px;
+        height: 14px;
+        background: var(--primary);
+        border-radius: 2px;
+      }
+
+      .m-subtab {
+        display: none;
+      }
+
+      .cmp-btns {
+        display: none;
+      }
+      .cmp-btn {
+        flex: 1;
+        font-size: 12.5px;
+        font-weight: 700;
+        padding: 9px 0;
+        border-radius: 10px;
+        cursor: pointer;
+        text-align: center;
+        color: #fff;
+        border: 0;
+        transition: 0.2s;
+      }
+      .cmp-btn.k1 {
+        background: var(--primary);
+      }
+      .cmp-btn.k2 {
+        background: var(--orange);
+      }
+      .cmp-btn.k3 {
+        background: var(--green);
+      }
+      .cmp-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.05);
+      }
+
+      .cmp-pop .pt-tag {
+        display: inline-block;
+        font-size: 11px;
+        color: #fff;
+        padding: 3px 9px;
+        border-radius: 10px;
+        margin-bottom: 8px;
+      }
+
+      #home.on {
+        display: flex;
+        gap: 14px;
+      }
+      .home-l {
+        width: 230px;
+        flex-shrink: 0;
+        background: linear-gradient(160deg, #3d52a0, #6487fa 60%, #8aa6ff);
+        border-radius: var(--r-m);
+        color: #fff;
+        padding: 18px 16px;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+      }
+      .home-l .top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+      .home-l .word {
+        position: relative;
+        z-index: 2;
+      }
+      .home-l .big {
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: 5px;
+        line-height: 1.1;
+      }
+      .home-l .py {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-top: 6px;
+        letter-spacing: 1px;
+      }
+      .home-l .play {
+        position: relative;
+        z-index: 2;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.22);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: 0.2s;
+        margin-left: 8px;
+      }
+      .home-l .play:hover {
+        background: rgba(255, 255, 255, 0.38);
+        transform: scale(1.05);
+      }
+      .home-l .tags {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      .home-l .tag {
+        font-size: 11.5px;
+        background: rgba(255, 255, 255, 0.22);
+        padding: 3px 10px;
+        border-radius: 12px;
+        backdrop-filter: blur(4px);
+      }
+      .home-l .one {
+        position: relative;
+        z-index: 2;
+        font-size: 13px;
+        line-height: 1.75;
+        margin-top: 14px;
+        border-left: 3px solid rgba(255, 255, 255, 0.6);
+        padding-left: 10px;
+        opacity: 0.96;
+      }
+      .home-l .cover {
+        margin-top: auto;
+        position: relative;
+        z-index: 2;
+        height: 110px;
+        border-radius: var(--r-s);
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .home-l .cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .home-r {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .core {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+      }
+      .core .c {
+        background: var(--bg-gray);
+        border-radius: var(--r-s);
+        padding: 11px 13px;
+        border-left: 3px solid var(--primary);
+      }
+      .core .c .k {
+        font-size: 11.5px;
+        color: var(--t3);
+        font-weight: 500;
+      }
+      .core .c .v {
+        font-size: 14px;
+        color: var(--t1);
+        line-height: 1.55;
+        margin-top: 3px;
+        font-weight: 500;
+      }
+      .core .c.wide {
+        grid-column: 1 / 3;
+        border-left-color: var(--primary-d);
+      }
+      .core .c.wide .v {
+        font-size: 13px;
+        line-height: 1.7;
+        font-weight: 400;
+      }
+
+      .ex-wrap {
+        margin-top: 11px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .ex-list {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        overflow: hidden;
+      }
+      .ex-item {
+        background: var(--bg-gray);
+        border-radius: var(--r-s);
+        padding: 9px 13px;
+        font-size: 12.5px;
+        color: var(--t1);
+        line-height: 1.7;
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        border-left: 3px solid transparent;
+        transition: 0.2s;
+      }
+      .ex-item .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--primary);
+        margin-top: 8px;
+        flex-shrink: 0;
+      }
+      .ex-item b {
+        color: var(--primary-d);
+        font-weight: 700;
+      }
+      .ex-foot {
+        display: flex;
+        gap: 8px;
+        margin-top: 9px;
+        flex-shrink: 0;
+      }
+      .ex-foot .gc {
+        flex: 1;
+        background: var(--bg-gray);
+        border-radius: 8px;
+        padding: 8px 12px;
+      }
+      .ex-foot .gc .k {
+        font-size: 11px;
+        color: var(--t3);
+      }
+      .ex-foot .gc .v {
+        font-size: 12.5px;
+        color: var(--t1);
+        line-height: 1.55;
+        margin-top: 2px;
+      }
+
+      #story.on {
+        display: flex;
+        gap: 14px;
+      }
+      .story-l {
+        flex: 1;
+        min-width: 0;
+      }
+      .scard {
+        background: #fff;
+        border: 1.5px solid var(--line);
+        border-radius: var(--r-m);
+        margin-bottom: 9px;
+        overflow: hidden;
+        border-color: var(--primary);
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.16);
+        position: relative;
+      }
+      .scard .head {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        gap: 10px;
+        width: 130px;
+        flex-shrink: 0;
+        flex-direction: column;
+        justify-content: center;
+        background: linear-gradient(160deg, #f5f8ff, #eef2ff);
+        border-right: 1px dashed var(--line);
+        text-align: center;
+      }
+      .scard {
+        display: flex;
+        align-items: stretch;
+      }
+      .scard .head .badge {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: var(--primary);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 700;
+        flex-shrink: 0;
+        box-shadow: 0 4px 10px rgba(100, 135, 250, 0.35);
+      }
+      .scard .head .ht {
+        flex: 1;
+        min-width: 0;
+      }
+      .scard .head .ht .h-main {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--t1);
+      }
+      .scard .head .ht .h-sub {
+        font-size: 11px;
+        color: var(--t2);
+        margin-top: 1px;
+      }
+      .scard .body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+      }
+      .scard .body .bd-inner {
+        padding: 11px 13px;
+        font-size: 12.5px;
+        color: var(--t1);
+        line-height: 1.75;
+        border-top: 0;
+        margin-top: 0;
+      }
+      .scard .body .bd-inner em {
+        font-style: normal;
+        color: var(--primary-d);
+        font-weight: 700;
+        background: linear-gradient(transparent 60%, rgba(100, 135, 250, 0.22) 60%);
+        padding: 0 1px;
+      }
+      .story-r {
+        width: 270px;
+        flex-shrink: 0;
+      }
+      .src-card {
+        background: linear-gradient(135deg, #f5f8ff, #eef2ff);
+        border-radius: var(--r-s);
+        padding: 11px 13px;
+        margin-bottom: 8px;
+      }
+      .src-card .from {
+        font-size: 11px;
+        color: var(--primary-d);
+        font-weight: 700;
+        margin-bottom: 5px;
+      }
+      .src-card .text {
+        font-size: 13px;
+        color: var(--t1);
+        line-height: 1.75;
+        font-family: "Songti SC", "SimSun", serif;
+      }
+      .src-card .text .hl {
+        color: var(--primary-d);
+        cursor: pointer;
+        border-bottom: 1.5px dashed var(--primary);
+        font-weight: 700;
+        padding: 0 1px;
+      }
+      .src-card .text .hl:hover {
+        background: rgba(100, 135, 250, 0.1);
+      }
+      .src-card .tr {
+        font-size: 11.5px;
+        color: var(--t2);
+        line-height: 1.55;
+        margin-top: 5px;
+      }
+
+      #graph-p.on {
+        display: flex;
+        flex-direction: column;
+      }
+      .gp-head {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .f {
+        font-size: 11.5px;
+        padding: 3px 11px;
+        border-radius: 14px;
+        background: var(--bg-gray);
+        border: 1px solid var(--line);
+        color: var(--t2);
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .f.on {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+      }
+      .gp-body {
+        flex: 1;
+        display: flex;
+        gap: 12px;
+        min-height: 0;
+      }
+      .graph {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(circle at 50% 45%, #f4f7ff, #fff 70%);
+        border-radius: var(--r-s);
+        min-width: 0;
+      }
+      svg.lines {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .gline {
+        stroke-width: 1.5;
+        stroke-dasharray: 4 5;
+        animation: flow 1.2s linear infinite;
+      }
+      @keyframes flow {
+        to {
+          stroke-dashoffset: -18;
+        }
+      }
+      .gnd {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        cursor: pointer;
+        text-align: center;
+      }
+      .gnd .dot {
+        padding: 6px 13px;
+        border-radius: 18px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        background: #fff;
+        color: var(--t1);
+        border: 1px solid var(--line);
+        transition: 0.2s;
+      }
+      .gnd.center .dot {
+        background: var(--primary);
+        color: #fff;
+        font-size: 14px;
+        padding: 11px 17px;
+        box-shadow: 0 6px 18px rgba(100, 135, 250, 0.4);
+      }
+      .gnd.on .dot {
+        background: var(--primary-d);
+        color: #fff;
+        transform: scale(1.08);
+      }
+      .gnd .rel {
+        font-size: 10px;
+        color: var(--t3);
+        margin-top: 2px;
+      }
+      .gp-side {
+        width: 220px;
+        flex-shrink: 0;
+        background: var(--bg-gray);
+        border-radius: var(--r-s);
+        padding: 12px;
+      }
+      .gp-side .dw {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--t1);
+      }
+      .gp-side .dr {
+        display: inline-block;
+        font-size: 10.5px;
+        padding: 2px 9px;
+        border-radius: 6px;
+        margin: 5px 0 7px;
+      }
+      .gp-side .dd {
+        font-size: 12px;
+        color: var(--t2);
+        line-height: 1.7;
+      }
+      .gp-side .img {
+        width: 100%;
+        height: 100px;
+        border-radius: 6px;
+        margin-top: 9px;
+      }
+
+      #cmp .cmp {
+        display: grid;
+        grid-template-columns: 1fr 56px 1fr;
+        gap: 0;
+        margin-bottom: 10px;
+        align-items: stretch;
+        position: relative;
+      }
+      #cmp .col {
+        background: #fff;
+        border-radius: var(--r-m);
+        padding: 13px 14px 12px;
+        position: relative;
+        border: 1.5px solid;
+      }
+      #cmp .col.a {
+        background: linear-gradient(160deg, #eef3ff, #f7faff);
+        border-color: rgba(100, 135, 250, 0.4);
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.12);
+      }
+      #cmp .col.b {
+        background: linear-gradient(160deg, #f5f7ff, #fafbff);
+        border-color: rgba(100, 135, 250, 0.25);
+        box-shadow: 0 4px 14px rgba(100, 135, 250, 0.08);
+      }
+      #cmp .vs {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--t2);
+        background: #fff;
+        border: 1.5px solid var(--line);
+        border-radius: 50%;
+        width: 38px;
+        height: 38px;
+        margin: auto;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        letter-spacing: 0.5px;
+      }
+      #cmp .col .h {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--primary-d);
+        margin-bottom: 9px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #cmp .col.a .h::before,
+      #cmp .col.b .h::before {
+        display: none;
+      }
+      #cmp .col .li {
+        font-size: 12.5px;
+        color: var(--t1);
+        line-height: 1.6;
+        padding: 7px 0;
+        border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+        display: flex;
+        align-items: flex-start;
+        gap: 7px;
+      }
+      #cmp .col .li::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-top: 7px;
+        flex-shrink: 0;
+      }
+      #cmp .col.a .li::before,
+      #cmp .col.b .li::before {
+        background: var(--primary);
+      }
+      #cmp .col .li:last-child {
+        border: 0;
+      }
+      #cmp .col .li b {
+        color: var(--t2);
+        font-weight: 500;
+        font-size: 11px;
+        display: block;
+        margin-top: 2px;
+      }
+      #cmp .col.a .li b,
+      #cmp .col.b .li b {
+        color: var(--primary-d);
+      }
+      #cmp .row {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 7px;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      #cmp .row .rk {
+        font-size: 11px;
+        color: var(--t2);
+        font-weight: 700;
+        background: #eef0f6;
+        padding: 3px 10px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+      }
+      #cmp .row.diff .rk,
+      #cmp .row.scene .rk {
+        background: #eef0f6;
+        color: var(--t2);
+      }
+      #cmp .row .rv {
+        font-size: 12.5px;
+        color: var(--t1);
+        line-height: 1.6;
+        margin-top: 1px;
+      }
+
+      #quiz.on {
+        display: flex;
+        flex-direction: column;
+      }
+      .qz-top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 11px;
+      }
+      .qz-top .qno {
+        font-size: 12.5px;
+        color: var(--primary-d);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .qz-top .bar {
+        flex: 1;
+        height: 7px;
+        background: #e0e6f5;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .qz-top .bar i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #6487fa, #8aa6ff);
+        transition: width 0.4s;
+        border-radius: 4px;
+      }
+      .qz-top .score {
+        font-size: 12.5px;
+        color: var(--primary-d);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .qz-body {
+        flex: 1;
+        background: linear-gradient(160deg, #f5f8ff, #fbfcff 60%, #fff);
+        border-radius: var(--r-m);
+        padding: 18px 20px 16px;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        border: 1px solid rgba(100, 135, 250, 0.14);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+      .qz-body .qt {
+        font-size: 15.5px;
+        font-weight: 700;
+        color: var(--t1);
+        line-height: 1.5;
+        margin-bottom: 14px;
+        padding-left: 10px;
+        border-left: 3px solid var(--primary);
+      }
+      .opts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .opt {
+        font-size: 13px;
+        color: var(--t1);
+        background: #fff;
+        border: 1.5px solid rgba(0, 0, 0, 0.06);
+        border-radius: 12px;
+        padding: 12px 14px;
+        cursor: pointer;
+        transition: all 0.22s;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        position: relative;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        font-weight: 500;
+      }
+      .opt .key {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #eef2ff, #e3e9ff);
+        color: var(--primary-d);
+        font-size: 12px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: 0.22s;
+        font-family: -apple-system, "Helvetica Neue", sans-serif;
+      }
+      .opt:hover {
+        border-color: var(--primary);
+        background: #fafbff;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(100, 135, 250, 0.18);
+      }
+      .opt:hover .key {
+        background: var(--primary);
+        color: #fff;
+        transform: scale(1.05);
+      }
+      .opt.right {
+        background: linear-gradient(135deg, #eaf7ee, #f3fbf5);
+        border-color: var(--green);
+        color: #1d8a3c;
+        box-shadow: 0 4px 14px rgba(52, 199, 89, 0.22);
+      }
+      .opt.right .key {
+        background: var(--green);
+        color: #fff;
+      }
+      .opt.right::after {
+        content: "✓";
+        position: absolute;
+        right: 12px;
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--green);
+      }
+      .opt.wrong {
+        background: linear-gradient(135deg, #fdecec, #fff5f5);
+        border-color: var(--red);
+        color: #c0271d;
+        box-shadow: 0 4px 14px rgba(255, 59, 48, 0.18);
+      }
+      .opt.wrong .key {
+        background: var(--red);
+        color: var(--white);
+      }
+      .opt.wrong::after {
+        content: "✕";
+        position: absolute;
+        right: 12px;
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--red);
+      }
+      .qz-fb {
+        font-size: 12px;
+        color: var(--t2);
+        line-height: 1.55;
+        margin-top: 11px;
+        padding: 8px 11px;
+        background: #fff;
+        border-radius: 8px;
+        border-left: 3px solid var(--primary);
+        min-height: 16px;
+      }
+      .qz-next {
+        align-self: flex-end;
+        font-size: 13px;
+        background: var(--primary);
+        color: #fff;
+        border: 0;
+        padding: 8px 22px;
+        border-radius: 18px;
+        cursor: pointer;
+        opacity: 0.4;
+        pointer-events: none;
+        transition: 0.2s;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+      .qz-next.on {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .qz-next.on:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(100, 135, 250, 0.35);
+      }
+      .qz-result {
+        flex: 1;
+        border-radius: var(--r-m);
+        background: linear-gradient(160deg, #6487fa, #8aa6ff);
+        color: #fff;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 22px;
+      }
+      .qz-result.on {
+        display: flex;
+      }
+      .qz-result .badge {
+        font-size: 13px;
+        background: rgba(255, 255, 255, 0.22);
+        padding: 6px 16px;
+        border-radius: 18px;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+      .qz-result .rlabel {
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .qz-result .big {
+        font-size: 36px;
+        font-weight: 800;
+        margin: 4px 0;
+      }
+      .qz-result .desc {
+        font-size: 12px;
+        line-height: 1.75;
+        opacity: 0.95;
+        max-width: 400px;
+        margin-top: 8px;
+      }
+      .qz-result button {
+        margin-top: 16px;
+        background: #fff;
+        color: var(--primary-d);
+        border: 0;
+        font-weight: 700;
+        padding: 9px 26px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .pop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(6px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+      }
+      .pop.on {
+        display: flex;
+      }
+      .pop .box {
+        background: #fff;
+        border-radius: var(--r-m);
+        padding: 18px;
+        max-width: 74%;
+        animation: popin 0.3s;
+      }
+      @keyframes popin {
+        from {
+          transform: scale(0.9);
+          opacity: 0;
+        }
+        to {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+      .pop .pt {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--t1);
+        margin-bottom: 6px;
+      }
+      .pop .pd {
+        font-size: 12.5px;
+        color: var(--t2);
+        line-height: 1.7;
+      }
+      .pop .pc {
+        font-size: 13px;
+        color: var(--primary-d);
+        text-align: right;
+        margin-top: 11px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .toast {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(30, 31, 36, 0.92);
+        color: #fff;
+        font-size: 12px;
+        padding: 7px 16px;
+        border-radius: 16px;
+        z-index: 60;
+        opacity: 0;
+        transition: 0.3s;
+        pointer-events: none;
+      }
+      .toast.on {
+        opacity: 1;
+      }
+
+      @media (max-width: 520px) {
+        body {
+          align-items: stretch;
+        }
+        #app {
+          width: 380px;
+          height: 456px;
+          border-radius: 0;
+        }
+        .nav {
+          padding: 9px 12px;
+          gap: 4px;
+        }
+        .nav .n {
+          font-size: 12.5px;
+          padding: 6px 12px;
+        }
+        .panel {
+          padding: 11px 13px 12px;
+          overflow: hidden;
+        }
+
+        .m-subtab {
+          display: flex;
+          gap: 6px;
+          margin-bottom: 10px;
+        }
+        .m-subtab .ms {
+          flex: 1;
+          text-align: center;
+          font-size: 12px;
+          padding: 6px 0;
+          border-radius: 14px;
+          background: var(--bg-gray);
+          color: var(--t2);
+          cursor: pointer;
+          font-weight: 600;
+          border: 1px solid var(--line);
+        }
+        .m-subtab .ms.on {
+          background: var(--primary);
+          color: #fff;
+          border-color: var(--primary);
+          box-shadow: 0 3px 8px rgba(100, 135, 250, 0.3);
+        }
+
+        #home.on {
+          flex-direction: column;
+          gap: 9px;
+        }
+        .home-l {
+          width: 100%;
+          padding: 12px 14px;
+        }
+        .home-l .top {
+          align-items: center;
+        }
+        .home-l .py {
+          display: none;
+        }
+        .home-l .big {
+          font-size: 28px;
+          letter-spacing: 3px;
+        }
+        .home-l .tags {
+          margin-top: 9px;
+        }
+        .home-l .one {
+          font-size: 12px;
+          margin-top: 9px;
+          line-height: 1.65;
+        }
+        .home-l .cover {
+          display: none;
+        }
+        .home-l .tags .tag:nth-child(n + 3) {
+          display: none;
+        }
+        .home-r {
+          flex: none;
+        }
+        #home[data-mt="core"] .ex-wrap {
+          display: none;
+        }
+        #home[data-mt="examples"] .core {
+          display: none;
+        }
+        #home .sec-core,
+        #home .sec-ex {
+          display: none;
+        }
+        .core {
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+        }
+        .core .c {
+          padding: 7px 10px;
+        }
+        .core .c .k {
+          font-size: 10.5px;
+        }
+        .core .c .v {
+          font-size: 12px;
+          line-height: 1.45;
+          margin-top: 2px;
+        }
+        .core .c.wide {
+          grid-column: 1 / 3;
+        }
+        .core .c.wide .v {
+          font-size: 11.5px;
+          line-height: 1.6;
+        }
+        .ex-wrap {
+          margin-top: 0;
+        }
+        .ex-list {
+          gap: 6px;
+        }
+        .ex-item {
+          font-size: 12px;
+          padding: 8px 11px;
+          line-height: 1.6;
+        }
+        .ex-foot {
+          display: flex;
+          margin-top: 9px;
+        }
+        .ex-foot .gc {
+          padding: 7px 10px;
+        }
+        .ex-foot .gc .v {
+          font-size: 11.5px;
+        }
+        .ex-foot .gc .v .syn-extra {
+          display: none;
+        }
+
+        #story.on {
+          flex-direction: column;
+          gap: 9px;
+        }
+        #story[data-mt="stories"] .story-r {
+          display: none;
+        }
+        #story[data-mt="src"] .story-l {
+          display: none;
+        }
+        #story .story-l > .sec,
+        #story .story-r > .sec {
+          display: none;
+        }
+        #story .story-l,
+        #story .story-r {
+          width: 100%;
+          flex: none;
+        }
+        .story-r .src-card:nth-child(n + 2) {
+          display: block;
+        }
+        .scard {
+          display: block;
+          border: 0;
+          background: transparent;
+          box-shadow: none;
+          margin-bottom: 11px;
+          padding: 0;
+        }
+        .scard .head {
+          display: block;
+          width: 100%;
+          background: transparent;
+          border: 0;
+          padding: 0 0 3px;
+          text-align: left;
+        }
+        .scard .head .badge {
+          display: none;
+        }
+        .scard .head .ht .h-main {
+          font-size: 13.5px;
+          color: var(--primary-d);
+          font-weight: 800;
+          display: inline;
+        }
+        .scard .head .ht .h-main::before {
+          content: "● ";
+          color: var(--primary);
+        }
+        .scard .head .ht .h-sub {
+          display: inline;
+          margin-left: 6px;
+          color: var(--t2);
+          font-size: 11px;
+        }
+        .scard .body {
+          display: block;
+        }
+        .scard .body .bd-inner {
+          padding: 3px 0 0;
+          font-size: 12.5px;
+          color: var(--t1);
+          line-height: 1.78;
+        }
+
+        #graph-p .sec,
+        #graph-p .gp-head {
+          display: none;
+        }
+        .gp-body {
+          flex-direction: column;
+          gap: 0;
+          align-items: stretch;
+          justify-content: center;
+        }
+        .graph {
+          flex: 1;
+          height: auto;
+          min-height: 0;
+          width: 100%;
+        }
+        .gp-side {
+          display: none;
+        }
+
+        .pop .nd-tag {
+          display: inline-block;
+          font-size: 11px;
+          padding: 3px 10px;
+          border-radius: 10px;
+          margin-bottom: 8px;
+          color: #fff;
+          font-weight: 600;
+        }
+        .pop .nd-img {
+          width: 100%;
+          height: 70px;
+          border-radius: 8px;
+          margin-top: 9px;
+          background: repeating-linear-gradient(
+            45deg,
+            #eef1f8,
+            #eef1f8 9px,
+            #e5eaf6 9px,
+            #e5eaf6 18px
+          );
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--t3);
+          font-size: 11px;
+        }
+
+        .qz-top {
+          margin-bottom: 12px;
+        }
+        .qz-body {
+          padding: 14px 14px 13px;
+          border-radius: 14px;
+        }
+        .qz-body .qt {
+          font-size: 14px;
+          line-height: 1.55;
+          margin-bottom: 12px;
+          padding-left: 10px;
+        }
+        .opts {
+          grid-template-columns: 1fr 1fr;
+          gap: 9px;
+        }
+        .opt {
+          padding: 11px 12px;
+          font-size: 12.5px;
+          gap: 9px;
+          border-radius: 11px;
+        }
+        .opt .key {
+          width: 24px;
+          height: 24px;
+          font-size: 11.5px;
+          border-radius: 7px;
+        }
+        .opt::after {
+          display: none;
+        }
+        .qz-fb {
+          font-size: 11.5px;
+          padding: 8px 11px;
+          margin-top: 10px;
+          line-height: 1.55;
+        }
+        .qz-next {
+          padding: 8px 22px;
+          font-size: 12.5px;
+          margin-top: 10px;
+        }
+
+        #cmp .sec {
+          display: none;
+        }
+        #cmp .cmp {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        #cmp .vs {
+          display: none;
+        }
+        #cmp .col {
+          padding: 11px 13px 9px;
+          border-radius: 12px;
+        }
+        #cmp .col .h::before {
+          display: none;
+        }
+        #cmp .col .h {
+          font-size: 13.5px;
+          font-weight: 800;
+          margin-bottom: 7px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+          justify-content: flex-start;
+          text-align: left;
+        }
+        #cmp .col.a .h {
+          color: var(--primary-d);
+        }
+        #cmp .col.b .h {
+          color: #c47200;
+        }
+        #cmp .col .li {
+          font-size: 11.5px;
+          padding: 4px 0;
+          line-height: 1.5;
+          align-items: center;
+        }
+        #cmp .col .li:nth-child(n + 4) {
+          display: flex;
+        }
+        #cmp .col .li b {
+          font-size: 10.5px;
+          margin-top: 0;
+          margin-left: 4px;
+          display: inline;
+        }
+        #cmp .row {
+          display: none;
+        }
+        #cmp .cmp-btns {
+          display: flex;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .cmp-btn {
+          background: #f1f3f9;
+          color: var(--t1);
+          border: 1px solid var(--line);
+          font-weight: 600;
+        }
+        .cmp-btn.k1,
+        .cmp-btn.k2,
+        .cmp-btn.k3 {
+          background: #f1f3f9;
+          color: var(--t1);
+        }
+        .cmp-btn:hover,
+        .cmp-btn:active {
+          background: var(--primary-l);
+          color: var(--primary-d);
+          border-color: rgba(100, 135, 250, 0.35);
+          filter: none;
+        }
+
+        .pop .cmp-pop-head {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .pop .cmp-pop-icon {
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          font-size: 16px;
+          font-weight: 800;
+          flex-shrink: 0;
+        }
+        .pop .cmp-pop-title {
+          font-size: 15px;
+          font-weight: 800;
+          color: var(--t1);
+        }
+        .pop .cmp-pop-sub {
+          font-size: 11px;
+          color: var(--t2);
+          margin-top: 1px;
+        }
+      }
+
+      @media (min-width: 396px) and (max-width: 520px) {
+        #app {
+          width: 396px;
+          height: 475px;
+        }
+        .panel {
+          padding: 12px 14px 13px;
+        }
+        .nav {
+          padding: 10px 13px;
+        }
+        .nav .n {
+          font-size: 13px;
+          padding: 6px 13px;
+        }
+        .home-l {
+          padding: 14px 15px;
+        }
+        .home-l .big {
+          font-size: 30px;
+        }
+        .home-l .one {
+          font-size: 12.5px;
+        }
+        .core .c {
+          padding: 8px 11px;
+        }
+        .core .c .v {
+          font-size: 12.5px;
+        }
+        .ex-item {
+          font-size: 12.5px;
+          padding: 9px 12px;
+        }
+        .scard .head .ht .h-main {
+          font-size: 14px;
+        }
+        .scard .body .bd-inner {
+          font-size: 13px;
+          line-height: 1.8;
+        }
+        .graph {
+          height: 195px;
+        }
+        .qz-body {
+          padding: 14px 15px 13px;
+        }
+        .qz-body .qt {
+          font-size: 14.5px;
+        }
+        .opt {
+          padding: 10px 12px;
+          font-size: 12.5px;
+        }
+        .opt .key {
+          width: 24px;
+          height: 24px;
+        }
+        #cmp .cmp {
+          grid-template-columns: 1fr;
+          gap: 9px;
+        }
+        #cmp .col {
+          padding: 12px 14px 10px;
+        }
+        #cmp .col .h {
+          font-size: 14px;
+        }
+        #cmp .col .li {
+          font-size: 12px;
+          padding: 5px 0;
+        }
+        .cmp-btn {
+          font-size: 13px;
+          padding: 10px 0;
+        }
+      }
+
+      @media (max-width: 330px) {
+        #app {
+          width: 300px;
+          height: 360px;
+        }
+        .panel {
+          padding: 8px 10px 9px;
+        }
+        .nav {
+          padding: 7px 9px;
+          gap: 3px;
+        }
+        .nav .n {
+          font-size: 11px;
+          padding: 4px 9px;
+        }
+        .nav .n .ic {
+          display: none;
+        }
+        .m-subtab {
+          margin-bottom: 7px;
+          gap: 4px;
+        }
+        .m-subtab .ms {
+          font-size: 11px;
+          padding: 4px 0;
+        }
+
+        #home.on {
+          gap: 7px;
+        }
+        .home-l {
+          padding: 10px 11px;
+        }
+        .home-l .big {
+          font-size: 22px;
+          letter-spacing: 2px;
+        }
+        .home-l .py {
+          display: none;
+        }
+        .home-l .play {
+          width: 26px;
+          height: 26px;
+        }
+        .home-l .tags {
+          margin-top: 7px;
+        }
+        .home-l .tag {
+          font-size: 10.5px;
+          padding: 2px 8px;
+        }
+        .home-l .one {
+          font-size: 11.5px;
+          margin-top: 7px;
+          line-height: 1.55;
+          padding-left: 8px;
+        }
+        h3.sec {
+          font-size: 12px;
+          margin: 0 0 6px;
+        }
+        h3.sec::before {
+          height: 12px;
+        }
+        .core {
+          grid-template-columns: 1fr 1fr;
+          gap: 5px;
+        }
+        .core .c {
+          padding: 6px 8px;
+          border-left-width: 2px;
+        }
+        .core .c .k {
+          font-size: 10px;
+        }
+        .core .c .v {
+          font-size: 11px;
+          line-height: 1.4;
+        }
+        .core .c.wide .v {
+          font-size: 11px;
+          line-height: 1.55;
+        }
+        .ex-item {
+          font-size: 11px;
+          padding: 6px 9px;
+          line-height: 1.5;
+        }
+        .ex-item .dot {
+          width: 5px;
+          height: 5px;
+          margin-top: 6px;
+        }
+        .ex-foot {
+          gap: 6px;
+        }
+        .ex-foot .gc {
+          padding: 6px 8px;
+        }
+        .ex-foot .gc .k {
+          font-size: 10px;
+        }
+        .ex-foot .gc .v {
+          font-size: 11px;
+        }
+
+        .scard {
+          margin-bottom: 8px;
+        }
+        .scard .head .ht .h-main {
+          font-size: 12.5px;
+        }
+        .scard .head .ht .h-sub {
+          font-size: 10.5px;
+        }
+        .scard .body .bd-inner {
+          font-size: 11.5px;
+          line-height: 1.65;
+        }
+        .src-card {
+          padding: 9px 10px;
+          margin-bottom: 6px;
+        }
+        .src-card .from {
+          font-size: 10.5px;
+        }
+        .src-card .text {
+          font-size: 12px;
+          line-height: 1.65;
+        }
+        .src-card .tr {
+          font-size: 10.5px;
+        }
+
+        .graph {
+          flex: 1;
+          height: auto;
+          min-height: 0;
+        }
+        .gnd .dot {
+          padding: 4px 9px;
+          font-size: 10.5px;
+        }
+        .gnd.center .dot {
+          font-size: 12px;
+          padding: 8px 12px;
+        }
+        .gnd .rel {
+          font-size: 9px;
+        }
+
+        .qz-top {
+          margin-bottom: 9px;
+        }
+        .qz-top .qno,
+        .qz-top .score {
+          font-size: 11px;
+        }
+        .qz-body {
+          padding: 11px 11px 10px;
+          border-radius: 12px;
+        }
+        .qz-body .qt {
+          font-size: 12.5px;
+          padding-left: 8px;
+          margin-bottom: 9px;
+          line-height: 1.5;
+        }
+        .opts {
+          grid-template-columns: 1fr 1fr;
+          gap: 7px;
+        }
+        .opt {
+          padding: 8px 9px;
+          font-size: 11.5px;
+          gap: 7px;
+          border-radius: 10px;
+        }
+        .opt .key {
+          width: 20px;
+          height: 20px;
+          font-size: 10px;
+          border-radius: 6px;
+        }
+        .qz-fb {
+          font-size: 10.5px;
+          padding: 6px 9px;
+          margin-top: 7px;
+          line-height: 1.5;
+        }
+        .qz-next {
+          padding: 7px 16px;
+          font-size: 11px;
+          margin-top: 7px;
+        }
+
+        #cmp .cmp {
+          grid-template-columns: 1fr;
+          gap: 7px;
+        }
+        #cmp .col {
+          padding: 10px 11px 9px;
+          border-radius: 10px;
+        }
+        #cmp .col .h::before {
+          display: none;
+        }
+        #cmp .col .h {
+          font-size: 12.5px;
+          font-weight: 800;
+          margin-bottom: 5px;
+          padding-bottom: 5px;
+          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+          justify-content: flex-start;
+          text-align: left;
+        }
+        #cmp .col.a .h {
+          color: var(--primary-d);
+        }
+        #cmp .col.b .h {
+          color: #c47200;
+        }
+        #cmp .col .li {
+          font-size: 11px;
+          padding: 4px 0;
+          line-height: 1.5;
+        }
+        #cmp .col .li::before {
+          width: 5px;
+          height: 5px;
+          margin-top: 6px;
+        }
+        #cmp .col .li b {
+          font-size: 10px;
+          margin-top: 2px;
+        }
+        #cmp .cmp-btns {
+          gap: 6px;
+          margin-top: 9px;
+        }
+        .cmp-btn {
+          font-size: 11px;
+          padding: 7px 0;
+          border-radius: 8px;
+        }
+
+        .pop .box {
+          padding: 14px;
+          max-width: 84%;
+        }
+        .pop .pt {
+          font-size: 13px;
+        }
+        .pop .pd {
+          font-size: 11.5px;
+          line-height: 1.6;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="nav" id="nav">
+        <span class="n on" data-p="home">基本释义</span>
+        <span class="n" data-p="story">典故出处</span>
+        <span class="n" data-p="graph-p">关联词</span>
+        <span class="n" data-p="quiz">测一测</span>
+      </div>
+
+      <div class="stage">
+        <section class="panel on" id="home" data-mt="core">
+          <div class="home-l">
+            <div class="word">
+              <div class="big">欲买桂花同载酒</div>
+              <div class="py">yù mǎi guì huā tóng zài jiǔ</div>
+            </div>
+            <div class="tags">
+              <span class="tag">宋词</span>
+              <span class="tag">怀古</span>
+              <span class="tag">伤时</span>
+            </div>
+            <div class="one">
+              想买桂花载酒同游，却再无少年时的心境——道尽时光流逝的无奈与怅惘。
+            </div>
+            <div class="cover">
+              <img src="images/cover.jpg" alt="封面图" width="350" height="110">
+            </div>
+          </div>
+
+          <div class="home-r">
+            <div class="m-subtab" data-group="home">
+              <span class="ms on" data-mt="core">核心信息</span>
+              <span class="ms" data-mt="examples">典型例句</span>
+            </div>
+            <h3 class="sec sec-core">核心信息</h3>
+            <div class="core">
+              <div class="c">
+                <div class="k">字面义</div>
+                <div class="v">想买桂花，携酒同游</div>
+              </div>
+              <div class="c">
+                <div class="k">引申义</div>
+                <div class="v">时光流逝，青春不再</div>
+              </div>
+              <div class="c">
+                <div class="k">出处摘要</div>
+                <div class="v">宋·刘过《唐多令》</div>
+              </div>
+              <div class="c">
+                <div class="k">使用语境</div>
+                <div class="v">怀旧伤时，感叹流年</div>
+              </div>
+              <div class="c wide">
+                <div class="k">详细释义</div>
+                <div class="v">
+                  重游旧地，欲买花载酒寻少年乐，却物是人非。
+                </div>
+              </div>
+            </div>
+
+            <div class="ex-wrap">
+              <h3 class="sec sec-ex" style="margin-top: 12px">典型例句</h3>
+              <div class="ex-list">
+                <div class="ex-item">
+                  <div class="dot"></div>
+                  <div>
+                    中秋佳节，他独自凭栏："<b>欲买桂花同载酒</b>，终不似少年游。"
+                  </div>
+                </div>
+              </div>
+              <div class="ex-foot">
+                <div class="gc">
+                  <div class="k">近义词</div>
+                  <div class="v"><span class="syn">物是人非</span><span class="sep"> · </span><span class="syn">韶华易逝</span><span class="sep syn-extra"> · </span><span class="syn syn-extra">流年似水</span></div>
+                </div>
+                <div class="gc">
+                  <div class="k">反义词</div>
+                  <div class="v">风华正茂 · 意气风发</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="story" data-mt="stories">
+          <div class="m-subtab" data-group="story">
+            <span class="ms on" data-mt="stories">创作背景</span>
+            <span class="ms" data-mt="src">出处原文</span>
+          </div>
+          <div class="story-l">
+            <h3 class="sec">三段创作故事</h3>
+            <div class="scard">
+              <div class="head">
+                <div class="badge">刘</div>
+                <div class="ht">
+                  <div class="h-main">刘过其人</div>
+                  <div class="h-sub">南宋 · 龙洲道人</div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="bd-inner">
+                  刘过字改之，号龙洲道人，<em>四次科举不第</em>，终身布衣。与辛弃疾、陆游交游，词风豪放俊逸，为"辛派三刘"之一。
+                </div>
+              </div>
+            </div>
+            <div class="scard">
+              <div class="head">
+                <div class="badge">重</div>
+                <div class="ht">
+                  <div class="h-main">重过南楼</div>
+                  <div class="h-sub">开禧二年 · 武昌</div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="bd-inner">
+                  时隔二十年<em>重登武昌安远楼</em>，物是人非，故友星散。国势衰微，壮志未酬，满腔愁绪凝成词句。
+                </div>
+              </div>
+            </div>
+            <div class="scard">
+              <div class="head">
+                <div class="badge">词</div>
+                <div class="ht">
+                  <div class="h-main">千古名句</div>
+                  <div class="h-sub">后世传诵 · 感慨共鸣</div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="bd-inner">
+                  "欲买桂花同载酒"<em>道尽中年人的无奈</em>，时光不可逆，青春难再回，成为千古叹逝名句。
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="story-r">
+            <h3 class="sec">出处原文（点高亮看注解）</h3>
+            <div class="src-card">
+              <div class="from">宋 · 刘过《唐多令·芦叶满汀洲》</div>
+              <div class="text">
+                芦叶满汀洲，寒沙带浅流。二十年重过<span class="hl" data-k="nanlou">南楼</span>。<br>
+                黄鹤断矶头，故人今在否？<span class="hl" data-k="jiushan">旧江山</span>浑是新愁。<br>
+                <span class="hl" data-k="mingju">欲买桂花同载酒</span>，终不似，少年游。
+              </div>
+              <div class="tr">二十年重游旧地，故人难寻，山河依旧而愁绪万千。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="graph-p">
+          <h3 class="sec">关联词语图谱 · 点击节点查看</h3>
+          <div class="gp-head" id="filters"></div>
+          <div class="gp-body">
+            <div class="graph" id="graph">
+              <svg class="lines" id="lines"></svg>
+            </div>
+            <aside class="gp-side" id="detail"></aside>
+          </div>
+        </section>
+
+        <section class="panel" id="quiz">
+          <div class="qz-top">
+            <span class="qno" id="qno"></span>
+            <div class="bar"><i id="barf"></i></div>
+            <span class="score" id="score">0 / 5</span>
+          </div>
+          <div class="qz-body" id="qzbody">
+            <div class="qt" id="qt"></div>
+            <div class="opts" id="opts"></div>
+            <div class="qz-fb" id="qzfb"></div>
+            <button class="qz-next" id="qznext">下一题 →</button>
+          </div>
+          <div class="qz-result" id="qzresult">
+            <div class="badge" id="rbadge"></div>
+            <div class="rlabel">你的得分</div>
+            <div class="big" id="rscore"></div>
+            <div class="desc">
+              欲买桂花同载酒出自刘过《唐多令》，写中年重游旧地的沧桑感慨，道尽时光流逝的无奈。
+            </div>
+            <button id="again">再来一次</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="pop" id="pop">
+        <div class="box">
+          <div class="pt" id="pt"></div>
+          <div class="pd" id="pd"></div>
+          <div class="pc" id="pclose">知道了</div>
+        </div>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+    <script>
+      function goPanel(p) {
+        document
+          .querySelectorAll(".nav .n")
+          .forEach((x) => x.classList.toggle("on", x.dataset.p === p));
+        document
+          .querySelectorAll(".panel")
+          .forEach((x) => x.classList.toggle("on", x.id === p));
+        if (p === "graph-p") layout();
+      }
+      document
+        .querySelectorAll(".nav .n")
+        .forEach((n) => (n.onclick = () => goPanel(n.dataset.p)));
+
+      document.querySelectorAll(".m-subtab").forEach((tab) => {
+        const group = tab.dataset.group;
+        const target = document.getElementById(group);
+        tab.querySelectorAll(".ms").forEach((ms) => {
+          ms.onclick = () => {
+            tab
+              .querySelectorAll(".ms")
+              .forEach((x) => x.classList.toggle("on", x === ms));
+            target.dataset.mt = ms.dataset.mt;
+          };
+        });
+      });
+
+      const CMP_INFO = {
+        same: {
+          t: "共同点",
+          d: "同为抒发时光流逝感慨的名句，皆借景抒情，语言含蓄深沉。",
+          c: "#6487fa",
+        },
+        diff: {
+          t: "差异点",
+          d: '本句侧重"重游旧地的无奈"；"人面不知何处去"侧重"物是人非的失落"。',
+          c: "#ff9500",
+        },
+        scene: {
+          t: "使用场景",
+          d: "中年怀旧、感叹青春→欲买桂花同载酒；寻人不遇、物是人非→人面不知何处去。",
+          c: "#34c759",
+        },
+      };
+      document.querySelectorAll(".cmp-btn").forEach((b) => {
+        b.onclick = () => {
+          const info = CMP_INFO[b.dataset.cmp];
+          if (!info) return;
+          const ptEl = document.getElementById("pt");
+          ptEl.innerHTML =
+            `<div class="cmp-pop-head">` +
+            `<div class="cmp-pop-icon" style="background:${info.c}">${info.t.charAt(0)}</div>` +
+            `<div><div class="cmp-pop-title">${info.t}</div>` +
+            `<div class="cmp-pop-sub">欲买桂花同载酒 vs 人面不知何处去</div></div></div>`;
+          document.getElementById("pd").textContent = info.d;
+          document.getElementById("pop").classList.add("on");
+        };
+      });
+
+      const NOTE = {
+        nanlou: [
+          "南楼",
+          "即武昌安远楼，刘过二十年前曾登临，此次重游感慨万千。",
+        ],
+        jiushan: [
+          "旧江山",
+          "山河依旧，但人事已非，国势日衰，故曰'旧江山浑是新愁'。",
+        ],
+        mingju: [
+          "欲买桂花同载酒",
+          "本想买花载酒寻少年时欢乐，却再也寻不回当年心境。",
+        ],
+      };
+      document.querySelectorAll(".hl").forEach(
+        (h) =>
+          (h.onclick = (e) => {
+            e.stopPropagation();
+            const n = NOTE[h.dataset.k];
+            if (!n) return;
+            document.getElementById("pt").textContent = n[0];
+            document.getElementById("pd").textContent = n[1];
+            document.getElementById("pop").classList.add("on");
+          }),
+      );
+      const pop = document.getElementById("pop");
+      document.getElementById("pclose").onclick = () =>
+        pop.classList.remove("on");
+      pop.onclick = (e) => {
+        if (e.target === pop) pop.classList.remove("on");
+      };
+
+      const NODE_IMG = {
+        刘过: "images/liuguo.jpg",
+        辛弃疾: "images/xinqiji.jpg",
+        陆游: "images/luyou.jpg",
+      };
+      function ndImgBlock(name) {
+        const file = NODE_IMG[name] || `images/${name}.jpg`;
+        return `<div class="nd-img" style="overflow:hidden;padding:0;background:#eef1f8;height:120px"><img src="${file}" alt="${name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+      }
+      function sideImgBlock(name) {
+        const file = NODE_IMG[name] || `images/${name}.jpg`;
+        return `<div class="img" style="overflow:hidden;background:#eef1f8"><img src="${file}" alt="${name}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+      }
+
+      const NODES = [
+        {
+          w: "辛弃疾",
+          rel: "词人交游",
+          x: 18,
+          y: 25,
+          desc: "南宋豪放派词人，与刘过相善，词风相近，同倡抗金。",
+          img: 1,
+        },
+        {
+          w: "陆游",
+          rel: "词人交游",
+          x: 82,
+          y: 25,
+          desc: "南宋爱国诗人，与刘过交游，同怀报国之志。",
+          img: 1,
+        },
+        {
+          w: "物是人非",
+          rel: "近义词",
+          x: 10,
+          y: 50,
+          desc: "景物依旧而人事已非，与本句表达的感慨相近。",
+        },
+        {
+          w: "韶华易逝",
+          rel: "近义词",
+          x: 90,
+          y: 50,
+          desc: "美好时光容易流逝，与'终不似少年游'意境相通。",
+        },
+        {
+          w: "流年似水",
+          rel: "近义词",
+          x: 15,
+          y: 78,
+          desc: "光阴如流水般一去不返，与本句叹逝主题一致。",
+        },
+        {
+          w: "刘过",
+          rel: "作者关联",
+          x: 85,
+          y: 78,
+          desc: "本句作者，号龙洲道人，四次科举不第，终身布衣。",
+          img: 1,
+        },
+        {
+          w: "唐多令",
+          rel: "词牌关联",
+          x: 50,
+          y: 12,
+          desc: "本句所在词牌名，双调六十字，前后段各五句。",
+        },
+        {
+          w: "风华正茂",
+          rel: "反义词",
+          x: 35,
+          y: 92,
+          desc: "形容青年朝气蓬勃，与本句感叹青春不再形成对照。",
+        },
+        {
+          w: "意气风发",
+          rel: "反义词",
+          x: 65,
+          y: 92,
+          desc: "形容精神振奋气概豪迈，与'终不似少年游'形成对比。",
+        },
+      ];
+      const CENTER = { w: "欲买桂花同载酒", x: 50, y: 50 };
+      const COLORS = {
+        词人交游: "#6487FA",
+        近义词: "#34c759",
+        作者关联: "#ff9500",
+        词牌关联: "#8b5cf6",
+        反义词: "#ff3b30",
+      };
+      const graph = document.getElementById("graph"),
+        linesSvg = document.getElementById("lines");
+      let curFilter = "全部";
+      function layout() {
+        graph.querySelectorAll(".gnd").forEach((n) => n.remove());
+        linesSvg.innerHTML = "";
+        const W = graph.clientWidth,
+          H = graph.clientHeight;
+        addGNode(CENTER, true);
+        NODES.forEach((n) => {
+          if (curFilter !== "全部" && n.rel !== curFilter) return;
+          const x1 = (CENTER.x / 100) * W,
+            y1 = (CENTER.y / 100) * H,
+            x2 = (n.x / 100) * W,
+            y2 = (n.y / 100) * H;
+          const ln = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "line",
+          );
+          ln.setAttribute("x1", x1);
+          ln.setAttribute("y1", y1);
+          ln.setAttribute("x2", x2);
+          ln.setAttribute("y2", y2);
+          ln.setAttribute("class", "gline");
+          ln.setAttribute("stroke", COLORS[n.rel]);
+          linesSvg.appendChild(ln);
+          addGNode(n, false);
+        });
+      }
+      function addGNode(n, center) {
+        const el = document.createElement("div");
+        el.className = "gnd" + (center ? " center" : "");
+        el.style.left = n.x + "%";
+        el.style.top = n.y + "%";
+        el.innerHTML =
+          `<div class="dot" ${!center ? `style="border-color:${COLORS[n.rel]}33"` : ""}>${n.w}</div>` +
+          (center ? "" : `<div class="rel">${n.rel}</div>`);
+        if (!center)
+          el.onclick = () => {
+            showDetail(n);
+            graph
+              .querySelectorAll(".gnd")
+              .forEach((x) => x.classList.remove("on"));
+            el.classList.add("on");
+            if (
+              window.matchMedia("(max-width: 520px)").matches
+            ) {
+              const c = COLORS[n.rel];
+              document.getElementById("pt").innerHTML =
+                `<span class="nd-tag" style="background:${c}">${n.rel}</span>` +
+                `<div style="font-size:15px;font-weight:800;color:var(--t1)">${n.w}</div>`;
+              document.getElementById("pd").innerHTML =
+                `<div>${n.desc}</div>` + (n.img ? ndImgBlock(n.w) : "");
+              document.getElementById("pop").classList.add("on");
+            }
+          };
+        graph.appendChild(el);
+      }
+      function showDetail(n) {
+        document.getElementById("detail").innerHTML =
+          `<div class="dw">${n.w}</div><span class="dr" style="background:${COLORS[n.rel]}1a;color:${COLORS[n.rel]}">${n.rel}</span>` +
+          `<div class="dd">${n.desc}</div>` +
+          (n.img ? sideImgBlock(n.w) : "");
+      }
+      (function buildFilters() {
+        const rels = ["全部", ...new Set(NODES.map((n) => n.rel))];
+        const box = document.getElementById("filters");
+        box.innerHTML = rels
+          .map(
+            (r) =>
+              `<span class="f${r === "全部" ? " on" : ""}" data-r="${r}">${r}</span>`,
+          )
+          .join("");
+        box.querySelectorAll(".f").forEach(
+          (f) =>
+            (f.onclick = () => {
+              curFilter = f.dataset.r;
+              box
+                .querySelectorAll(".f")
+                .forEach((x) => x.classList.remove("on"));
+              f.classList.add("on");
+              layout();
+            }),
+        );
+      })();
+      showDetail(NODES[0]);
+      let _layoutTimer = null;
+      window.addEventListener("resize", () => {
+        if (_layoutTimer) clearTimeout(_layoutTimer);
+        _layoutTimer = setTimeout(() => {
+          const gp = document.getElementById("graph-p");
+          if (gp && gp.classList.contains("on")) layout();
+        }, 120);
+      });
+      (function preloadNodeImgs() {
+        const idle =
+          window.requestIdleCallback ||
+          function (cb) {
+            return setTimeout(cb, 600);
+          };
+        idle(() => {
+          Object.values(NODE_IMG).forEach((src) => {
+            const img = new Image();
+            img.src = src;
+          });
+        });
+      })();
+
+      const QS = [
+        {
+          t: "\"欲买桂花同载酒\"的作者是谁？",
+          o: ["刘过", "辛弃疾", "陆游", "苏轼"],
+          a: 0,
+          fb: "南宋刘过，号龙洲道人，《唐多令》为其代表作。",
+        },
+        {
+          t: "这句词出自哪首词？",
+          o: ["《水调歌头》", "《唐多令》", "《念奴娇》", "《蝶恋花》"],
+          a: 1,
+          fb: "出自《唐多令·芦叶满汀洲》，是刘过的名篇。",
+        },
+        {
+          t: "词中表达的主要情感是？",
+          o: ["喜悦", "悲愤", "怀旧", "豪情"],
+          a: 2,
+          fb: "主要表达对时光流逝、青春不再的怀旧感伤。",
+        },
+        {
+          t: "\"终不似\"的下一句是？",
+          o: ["故人游", "少年游", "旧人游", "故人愁"],
+          a: 1,
+          fb: "终不似，少年游。表达再也寻不回少年心境。",
+        },
+        {
+          t: "作者重游的地点是哪里？",
+          o: ["黄鹤楼", "滕王阁", "南楼", "岳阳楼"],
+          a: 2,
+          fb: "武昌南楼（安远楼），时隔二十年重游。",
+        },
+      ];
+      let qi = 0,
+        sc = 0,
+        locked = false;
+      function renderQ() {
+        document.getElementById("qzbody").style.display = "flex";
+        document.getElementById("qzresult").classList.remove("on");
+        const Q = QS[qi];
+        locked = false;
+        document.getElementById("qno").textContent =
+          `第 ${qi + 1} 题 / 共 ${QS.length}`;
+        document.getElementById("qt").textContent = Q.t;
+        document.getElementById("qzfb").textContent = "";
+        document.getElementById("qznext").classList.remove("on");
+        document.getElementById("qznext").textContent =
+          qi === QS.length - 1 ? "查看结果 →" : "下一题 →";
+        document.getElementById("opts").innerHTML = Q.o
+          .map(
+            (o, k) =>
+              `<div class="opt" data-k="${k}"><span class="key">${"ABCD"[k]}</span><span>${o}</span></div>`,
+          )
+          .join("");
+        document.querySelectorAll("#opts .opt").forEach(
+          (op) =>
+            (op.onclick = () => {
+              if (locked) return;
+              locked = true;
+              const k = +op.dataset.k;
+              document.querySelectorAll("#opts .opt").forEach((x) => {
+                if (+x.dataset.k === Q.a) x.classList.add("right");
+              });
+              if (k !== Q.a) op.classList.add("wrong");
+              else sc++;
+              document.getElementById("qzfb").textContent = Q.fb;
+              document.getElementById("score").textContent =
+                `${sc} / ${QS.length}`;
+              document.getElementById("barf").style.width =
+                ((qi + 1) / QS.length) * 100 + "%";
+              document.getElementById("qznext").classList.add("on");
+            }),
+        );
+      }
+      document.getElementById("qznext").onclick = () => {
+        if (qi < QS.length - 1) {
+          qi++;
+          renderQ();
+        } else {
+          document.getElementById("qzbody").style.display = "none";
+          document.getElementById("rscore").textContent =
+            `${sc} / ${QS.length}`;
+          document.getElementById("rbadge").textContent =
+            sc === 5
+              ? "🏆 词学达人"
+              : sc >= 3
+                ? "📖 熟读宋词"
+                : "🌱 继续学习";
+          document.getElementById("qzresult").classList.add("on");
+        }
+      };
+      document.getElementById("again").onclick = () => {
+        qi = 0;
+        sc = 0;
+        document.getElementById("score").textContent = "0 / 5";
+        document.getElementById("barf").style.width = "0";
+        renderQ();
+      };
+      renderQ();
+
+      let tt;
+      function showToast(m) {
+        const t = document.getElementById("toast");
+        t.textContent = m;
+        t.classList.add("on");
+        clearTimeout(tt);
+        tt = setTimeout(() => t.classList.remove("on"), 2000);
+      }
+
+      document.addEventListener("gesturestart", (e) => e.preventDefault());
+      document.addEventListener("touchmove", (e) => e.preventDefault(), {
+        passive: false,
+      });
+    </script>
+  </body>
+</html>
