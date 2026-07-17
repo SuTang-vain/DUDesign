@@ -3,6 +3,192 @@
 > 模块：Application Service Layer
 > 维护方式：按日期追加。记录业务模型、API、状态机、权限和数据迁移。
 
+## 2026-07-17 APP-20 300×360 核心内容与渐进披露门禁
+
+- Pixel Gate 将“核心文字总量”拆成更明确的内容契约：极小画布必须同时存在主题身份和一段可见核心事实、摘要或选中详情。
+- 次级内容门禁不再把“隐藏内容存在”单独视为可达；需要显式 `aria-controls`、Tab、状态型详情面或其他本地披露关系。
+- staging 真实产物 smoke 与 API Pixel Gate 使用相同核心内容选择器，防止本地测试通过而远端只剩标题和控件。
+- 新增“标题与 Tab 存在但核心事实为空”的失败回归；Artifact Quality 与官方 9 类紧凑样例共 24 项通过。
+
+### 结论
+
+- `300×360` 已从几何兼容升级为信息架构准入：保留必要切换、保留核心内容、首屏减量，并保证延后信息可点击抵达。
+- 仍需通过远端真实生成与 refine 矩阵验证模型首次产出稳定性，few-shot 自测不能替代真实任务证据。
+
+## 2026-07-15 APP-M70 Repository Shared Smoke and Test Lifecycle Closure
+
+- 修复 `PostgresRepository.persistJob()` 的 upsert：冲突更新时同步写回
+  `template_requirements`，确保 research/image context artifact 引用在真实 PostgreSQL
+  hydrate 与 no-hydrate 查询中都不会丢失。
+- 多用户 share smoke 在手工固定旧 artifact 前显式等待后台 screenshot/quality 任务完成，消除
+  current artifact 与历史 artifact 竞争导致的 `ARTIFACT_NOT_READY` 假失败。
+- 校正 API smoke 的能力准入夹具：普通导入模板使用 `web_app` 模式；动态百科 research、image
+  和 pinned-context 请求显式携带 required guidance Skill 与 readonly democase MCP。
+- `cli-agent-api-flow.test.ts` 在 `finally` 中关闭共享 Chromium browser pool，避免标准
+  `npm test` 在断言全部通过后仍因 Playwright 活跃句柄悬挂。
+- Runtime refine request-id 测试与当前兼容契约对齐，验证 request id 会传入 BabeL-O refine
+  请求并可用于精确取消活动 refine agent。
+- 完成官方模板 HTML example 模板字符串与 `HtmlExample` inline/file-reference 联合契约的编译回归；
+  现有官方模板、authoring、runtime prompt injection 测试均可正常执行。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- 标准 `npm test` 通过：Artifact Store 2 项、Runtime Gateway 58 项、Runtime Adapter 全套、
+  API 228 项；API 中 2 个 opt-in PostgreSQL suite 按默认策略 skip。
+- 真实 PostgreSQL 16 shared smoke 4/4 通过：hydrate、no-hydrate、多用户隔离和动态百科
+  snapshot recovery。
+- `cli-agent-api-flow.test.js` 可在约 1.5 秒内完成并正常退出，不再残留 Chromium 进程。
+
+### 结论
+
+- APP-M69 记录的三个旧 PostgreSQL shared smoke 风险已关闭。
+- production no-hydrate 路径、动态能力 snapshot 和 artifact-pinned share 已重新具备同一套真实
+  PostgreSQL 回归基线。
+
+## 2026-07-15 APP-M69 PostgreSQL Snapshot Recovery and User Snapshot Privacy
+
+- `postgres-api-flow.test.ts` 增加独立 schema 的动态百科恢复门禁：创建包含 selection snapshot、requirement module graph、batch exploration plan 和 3 个 variation focus 的 Job，关闭 Repository 后分别以 hydrate 与 `hydrateOnStart:false` 重连。
+- 两种重连模式均从用户 API 读取并逐项比对原 snapshot，验证 Application Service 重启和 production no-hydrate 查询不会重新应用最新 preset/registry。
+- 新增 `UserCapabilitySnapshot` 契约；用户响应保留插件/Skill/MCP ID、名称和权限摘要，但 MCP binding 不再返回 `serverName/toolName`。
+- `getDesignJob()` 不再展开内部 `DesignJob`，改为显式白名单字段，移除 `userId/workspaceId/sessionId/templateRequirements` 等内部记录。
+- Variation Detail 不再展开内部 `DesignVariation`，移除 runtime child session、agent job、lane/backend/lease 和内部错误诊断字段。
+- 动态能力 API flow 对 Job Snapshot 与 Variation Detail 递归检查私有字段，并验证 Job 响应键集合与公开契约一致。
+
+### 验证
+
+- 真实 PostgreSQL 16：动态 selection/exploration hydrate + no-hydrate 双重恢复测试 1 项通过。
+- Dynamic capability selection + architecture boundaries：11 项通过。
+- Web 独立 TypeScript 检查和 production build 通过。
+
+### 既有测试风险
+
+- 完整 `postgres-api-flow.test.ts` 中 3 个旧共享 smoke 仍失败：research context artifact 未写回 2 项，以及多用户 share 在 artifact 未就绪时返回 `ARTIFACT_NOT_READY` 1 项；新增 Snapshot 恢复门禁本身独立通过。
+- 主工作区全仓编译仍受 `officialDesignTemplatePacks.ts` 模板字符串损坏和 `HtmlExample` 联合类型迁移未收口影响；真实数据库验证在隔离临时副本中完成，未回退现有工作区文件。
+
+## 2026-07-14 APP-M66 Dynamic Capability Selection Snapshot Foundation
+
+- 创建 job 时服务端重新合并动态百科 preset、entry guidance 和请求候选配置，拒绝删除 required Skill/MCP、使用不兼容模板或越过 Loop 白名单。
+- exploration level 统一校验 `0..100`；达到 experimental 阈值时必须使用规范审查 Loop，并返回稳定错误码 `EXPERIMENTAL_REVIEW_REQUIRED`。
+- 将 `CapabilitySelectionSnapshotV1` 写入消息 metadata、job template requirements 和 job/detail/variation detail 响应，保证 resume/refine 可读取固定选择事实。
+- guidance 响应提供 exploration recommendation；正式 job 仍由 Application Service 重新创建 exploration plan，不把前端预览当作授权结果。
+
+### 验证
+
+- 动态能力选择 API flow 覆盖 guidance、默认探索度、selection snapshot、required capability 删除、非法 Loop 和 experimental gate。
+- 全仓 TypeScript typecheck 通过；PostgreSQL selection snapshot hydrate/restart smoke 与完整 plan preview UI 仍待后续阶段。
+
+## 2026-07-14 APP-M67 Draft Session Exploration Preview and Source Preservation
+
+- 首页首次完成动态百科 guidance 后创建草稿 Session，plan preview 使用该 Session 做权限、workspace 和稳定 seed 校验；正式 job 复用同一 Session。
+- preview 继续只返回 Requirement Module Graph 与 Batch Exploration Plan，不创建 job、variation 或 Runtime session。
+- Application Service 在最终已验证能力集合内保留客户端声明的 selection source；客户端不能借来源字段增加模板、插件或 Loop 权限。
+- 正式 job snapshot 固定 official preset、entry guidance 和 user override 来源，Job 页面只读取 snapshot 展示。
+
+### 验证
+
+- 动态能力选择、capability registry 与 exploration planning API 回归 21 项通过。
+- 全仓 typecheck、Web production build 和动态百科双 E2E 通过。
+
+## 2026-07-14 APP-M68 Stage 5 Snapshot Recovery Gates
+
+- Runtime unavailable 测试新增动态百科受控探索 Job，故障前后 selection snapshot、batch plan 和 variation focus 必须完全一致。
+- 管理员 full retry 与 variation retry 继续沿用原 exploration snapshot，refine 使用原 variation context。
+- PostgreSQL repository hydrate smoke 增加 selection snapshot、focus 和 excluded module 持久化断言；当前本地未配置 `DATABASE_URL`，断言尚待真实 PG 环境执行。
+
+### 验证
+
+- Runtime unavailable 与 exploration restart/refine 回归 5 项通过。
+- 动态百科浏览器 E2E 2 项、全仓 typecheck 和 Web production build 通过。
+
+## 2026-07-14 APP-M65 Dynamic Capability Configuration Planning
+
+- 为动态百科能力配置抽屉登记服务端准入、计划预览和快照工作。
+- Application Service 将负责 preset + guidance + user override 合并和最终校验，不信任前端候选配置。
+- 规划版本化 `CapabilitySelectionSnapshotV1`，保存标准能力 id、选择来源、review mode 和 exploration request。
+- 正式创建 job 时重新校验 template/category、plugin scope、Loop 白名单、experimental 强制审查和 invariant 排除。
+- preview exploration plan 不创建 job/runtime session；正式 plan 与 selection snapshot 原子化写入持久化边界。
+- resume、retry 和 refine 使用原 snapshot，不重新应用最新 registry。
+- 本记录为规划准入，实施项登记在 APP-14。
+
+## 2026-07-14 APP-M64 CLI Agent Runtime Factory and Exploration API Flow
+
+- Runtime factory 新增 `cli-agent` provider，Application Service 继续只依赖 `RuntimeGateway`，未引入命令执行或 CLI 私有数据模型。
+- CLI provider 配置由服务端环境变量控制，unknown provider、缺少 executable、相对 executable 和非法 JSON 配置均 fail fast。
+- 新增真实 child-process API flow：创建带 exploration plan 的双 variation job、执行 CLI Agent、持久化 artifact、完成 job 并通过 preview API 校验 focus 内容。
+- 架构边界测试禁止 `apps/api` 引入 `child_process`、`spawn` 或 `execFile`，确保命令执行责任留在 Runtime Compatibility 层。
+
+### 验证
+
+- API 非浏览器回归 234 项通过。
+- Runtime factory、API flow、架构边界和全仓 typecheck 通过。
+
+### 后续关注
+
+- production/staging 启用 CLI provider 前，需要将受控 wrapper/executable 安装进 API/worker 镜像，并通过 secret manager 注入最小 child env。
+- provider 运行身份、CPU/内存限制和网络策略需要在部署层继续收紧，不能只依赖 Node 子进程限制。
+
+## 2026-07-13 APP-M63 Runtime Exploration Context Handoff
+
+- Application Service 从已验证的 graph/plan snapshot 编译 runtime contexts，不从用户请求重新推导模块。
+- 首次生成向 Runtime Gateway 传递整批 variation contexts。
+- 手工 refine 和 queue/automation refine 按 variation index 沿用原 context。
+- 旧 job 没有 exploration snapshot 时继续传 `undefined`，保持向后兼容。
+- Runtime unavailable 时 variation 可失败，但 job exploration snapshot 仍可读取且不漂移。
+
+### 验证
+
+- API flow 覆盖 initial generation、refine 和 runtime unavailable snapshot preservation。
+- 非浏览器 API 回归 225 项通过。
+
+## 2026-07-13 APP-M62 Exploration Planning API and Snapshot Integration
+
+### 已完成
+
+- 提取并接入 `ExplorationPlanningApplicationService`。
+- 新增计划预览 API，并保持 preview 无业务写入。
+- job 创建只接受 graph id + exploration request，由服务端 resolver 和 planner 生成授权计划。
+- 使用已有 `design_jobs.template_requirements` JSON 持久化 graph 和 plan，兼容 InMemory/PostgreSQL Repository。
+- `GET /api/design-jobs/:id` 和 variation detail 返回固定 exploration snapshot。
+- Application Service 重建后仍从 Repository 读取原计划。
+- 管理员整单重试继承 batch plan；单 variation 重试继承原方向并派生单项 plan。
+- Web API client 增加 `previewExplorationPlan()`，用户端 UI 待 UX-12 接入。
+
+### 验证
+
+- Exploration Planning API flow 覆盖 preview、create、snapshot、service restart、variation detail、retry 和越权拒绝。
+- 非浏览器 API 回归 217 项通过。
+- 全仓 typecheck 和 diff check 通过。
+
+### 后续关注
+
+- PostgreSQL 真实环境重启 smoke 尚未执行。
+- exploration event/audit、指标聚合和 plan version change 尚未实现。
+- 用户私有 capability graph resolver 依赖 CAP-10 private publish。
+
+## 2026-07-13 APP-M61 Deterministic Exploration Planner Foundation
+
+- 新增纯函数 batch planner，完成 3/6 variation 的 required/conditional/sampled 覆盖和 focus 分配。
+- planner 不依赖 Repository、HTTP、Queue 或 Runtime，可在 Application Service 接入前独立测试。
+- 相同 graph、snapshot、seed 和 request 得到相同计划；高探索只增加受控设计模块覆盖。
+- locked/excluded module 已有底层语义，用户/workspace 权限、preview API 和持久化仍待 APP-13 后续实现。
+- 主规划：`../capability-distribution/controlled-exploration-governance-plan.md`。
+
+## 2026-07-13 APP-M60 Exploration Planning Service Admission
+
+- 已登记 Phase APP-13：`ExplorationPlanningApplicationService`。
+- 业务层负责 capability/module 权限校验、deterministic batch planner、preview API 和计划持久化。
+- batch/variation plan 必须进入 job snapshot，resume、retry、refine 和历史回放不得重新随机规划。
+- Runtime unavailable 时，历史计划和 artifact 读取链路仍保持可用。
+- 主规划：`../capability-distribution/controlled-exploration-governance-plan.md`。
+
+## 2026-07-13 APP-M59 Capability Authoring Service Planning
+
+- Capability Distribution 已准入 `CapabilityAuthoringApplicationService` 和 `CapabilityReviewApplicationService`。
+- 后续由应用服务负责 source 冻结、draft/version、lint、preview、private publish、contribution 和 audit。
+- Runtime Provider 不允许直接写模板/Skill registry。
+- 主规划：`../capability-distribution/template-skill-authoring-governance-plan.md`。
+
 ## 2026-07-08 APP-M56 Dynamic Encyclopedia Vertical Spec Review Pipeline Smoke
 
 ### 已完成
@@ -2935,3 +3121,111 @@ DUDESIGN_POSTGRES_TEST_URL=postgres://user:pass@localhost:5432/dudesign_test npm
 - OAuth callback 支持安全的相对路径 `redirectTo`，成功签发 session 后可 302 回 app 首页。
 - API CORS 从 `Access-Control-Allow-Origin: *` 调整为按请求 `Origin` 回显，并增加 `Access-Control-Allow-Credentials: true`，支持 web 端跨端口/跨子域携带 `dudesign_session`。
 - Auth flow 测试增加 credential CORS 断言和 OAuth callback redirect 断言。
+## 2026-07-15 AI-first Guidance 契约准入
+
+- 将现有 `mock_rules` 词条引导明确降级为过渡实现，不再把关键词命中和写死置信度视为业务完成。
+- 在 APP-15 登记 AI-first 词条引导编排：拆分词条/意图/上下文，查询 taxonomy 与 democase evidence，通过 provider-neutral Gateway 调用真实 AI，并持久化版本化 snapshot。
+- 明确 Application Service 负责 evidence 编排、schema/registry/权限校验和 snapshot，不能直接依赖 BabeL-O Nexus 私有接口。
+- 本轮尚未切换现有 `createEncyclopediaEntryGuidance()` 主流程；下一步先实现 taxonomy/democase resolver 与 `EncyclopediaGuidanceApplicationService`，再通过显式配置灰度切流。
+
+### 验证
+
+- `node --test apps/api/dist/dynamic-capability-selection-api-flow.test.js`
+- `node --test apps/api/dist/capabilities.test.js`
+## 2026-07-15 APP-15 AI Guidance 首条可执行链路
+
+- 新增 `EncyclopediaGuidanceApplicationService`，负责 workspace 权限、taxonomy candidate、democase evidence、模板/交互 allowlist 和 Gateway 调用。
+- `ApplicationService.createEncyclopediaEntryGuidance()` 支持显式 AI 模式：
+  - 默认无 Gateway 时继续使用 legacy `mock_rules`。
+  - 注入 Gateway 时使用 `ai_guidance_v2` 分类和模板推荐。
+  - AI analysis、provider/model、taxonomy/index/prompt version、evidence 和推荐评分进入 guidance metadata/snapshot。
+- `GET /api/encyclopedia/entry-guidance/:id` 可恢复相同 AI analysis，不重新调用模型。
+- unavailable/timeout/invalid response/contract mismatch 映射为稳定 HTTP 错误，不静默回落到 52% 通用分类。
+- 新增 AI API flow，覆盖真实 Gateway contract、持久化恢复和 provider unavailable。
+
+## 2026-07-15 APP-16 Variation Refine Cancel Contract
+
+### 已完成
+
+- refine/annotation 请求支持客户端稳定 `requestId`，取消请求无需等待原 refine HTTP 返回。
+- 新增用户级 `POST /api/variations/:variationId/refine/:requestId/cancel`。
+- Application Service 建立活跃 refine registry，拒绝重复 request id 和同 variation 并行 refine。
+- 取消后停止消费迟到 runtime 事件，并恢复 refine 前 base artifact 为 current。
+- variation 状态恢复为 `completed`，不会因为取消一轮修改而失去继续编辑能力。
+- 重复取消返回幂等结果；session message 记录取消原因和 base artifact。
+
+### 验证
+
+- `refine-cancel-api-flow.test.ts` 覆盖 active refine、Runtime cancel、旧 artifact 保留和重复取消。
+- 全仓 `npm run typecheck` 通过。
+
+### 后续
+
+- 将进程内 operation registry 持久化到 PostgreSQL/Redis，支持多 replica 和进程重启。
+- 增加 refine operation 查询/恢复接口。
+
+## 2026-07-15 APP-15 Guidance Golden Evaluation Runner
+
+- 新增 100 条 fixture 的并发 evaluation runner，直接通过 `GuidanceAnalysisGateway` 调用真实兼容层 endpoint。
+- 报告包含逐 case prediction/error/duration，以及 coverage、L1/L2/node、intent、Top-3 template recall、clarification precision/recall。
+- 默认并发为 3，可通过环境变量限制 fixture 数、调整并发和发布准入阈值。
+- perfect、provider unavailable、语义退化三类 runner 测试已覆盖，阈值失败返回非零进程状态。
+- Application Service 仍只消费 provider-neutral contract；真实 BabeL-O endpoint、JSON repair 与运行时错误归一化均留在第 4 层。
+
+## 2026-07-15 APP-15 Intent 与阻断性澄清收口
+
+- Application Service 在 guidance request 中显式传入 primary intent allowlist。
+- Taxonomy candidate 增加 compatible primary intent，Gateway 拒绝与所选分类不兼容的 intent。
+- 词条引导继续由真实 AI 判断实体、分类和问题；兼容层只执行 provider dialect 与阻断语义归一化。
+- 范围、版本、深度、剧透、路线入口和可选模块问题不再阻塞用户；实体身份、媒介类型、地区或领域无法确定时才进入 `needs_clarification`。
+- 100 条真实 staging baseline 的 intent accuracy 为 94.9%，clarification precision/recall 为 87.5%/70%。
+- staging 已启用真实 AI guidance；“庆余年人物关系与剧情脉络”API smoke 返回电视剧/古装历史剧、`character_relationship_exploration`、关系图与剧情链模板，且 snapshot source 为 `ai_guidance_v2`。
+
+## 2026-07-15 APP-16 Refine Operation Reconciler
+
+### 已完成
+
+- `refine_operations` 增加 reconcile owner、lease、attempt 和 last error 治理字段。
+- PostgreSQL Repository 使用 `FOR UPDATE SKIP LOCKED` 批量 claim active operations，API/worker 多副本不会重复接管。
+- 新增周期性 `RefineOperationReconciler`，生产 API 与 worker 启动时自动运行，可通过环境变量控制 interval、lease、batch 和 orphan timeout。
+- Reconciler 支持恢复 running stream、完成/失败终态、持久化取消意图和 runtime orphan 收敛。
+- 前端现有 operation 查询和轮询可在刷新后读取 Reconciler 收敛结果。
+- PostgreSQL 是 operation 权威事实源；Redis 继续承担 BullMQ 调度，不复制 operation 状态。
+
+### 验证
+
+- 双 Reconciler 并发测试仅一个实例 claim operation，并只生成一个 v2 artifact。
+- PostgreSQL 16 临时隔离实例完成真实重启测试：Repository/API 重建后，一个 operation 收敛为 completed，另一个收敛为 cancelled 并保留旧 artifact。
+
+## 2026-07-15 动态百科模板快照与分配修复
+
+- 远端 BLACKPINK 样本确认 3 个 guidance 模板被自动扩展为 6 个，错误引入历史人物模板。
+- guidance 默认关闭 template auto-distribution；variation 超出推荐数量时只在已确认模板集合内轮转。
+- 官方模板同版本内容变更允许刷新 PostgreSQL pack 快照，仅作用于 `created_by_user_id is null` 的官方版本。
+- 垂类动态百科模板继承 relation/timeline 通用结构示例。
+- 修复无 context 的外文专有名词正文语言，`BLACKPINK` 默认中文正文。
+- 新增动态模板轮转、语言判定、垂类 example 覆盖回归测试。
+- `refine-cancel-api-flow.test.ts` 3 项通过。
+
+## 2026-07-15 APP-18 生成质量语义对齐与几何门禁
+
+- 复盘远端 `job_63446bf7830f44ba` 三变体，确认时间线模板被分配关系探索、成员模板被分配时间线探索。
+- 模板分配改为根据 exploration focus 和 interaction direction 做稳定匹配；BLACKPINK 样本现在映射为关系→成员模板、时间线→时间线模板、展开→摘要模板。
+- 每个 assignment 保存本地 interaction paradigm，quality review 不再对所有变体错误复用 job-global timeline paradigm。
+- pixel gate 在真实 Chromium 中增加固定画布几何与 `elementFromPoint` 命中检查。
+- 旧坏样本回放：时间线检出 2 个越界控件和 7 个遮挡控件；成员检出未居中、4 个越界控件和 10 个遮挡控件；摘要保留为可修复 warning。
+- API 全量测试 245/245 通过。
+- Automation Loop 现在读取同 variation 历史 HTML quality issues 并传入 repeated-failure 判定。
+- geometry/marketing finding 生成定向修复块，明确优先单一主交互、删除竞争模块并验证控件中心命中。
+
+## 2026-07-16 APP-19 质量审查生命周期与模板主交互门禁
+
+- 远端真实多 lane 任务 `job_659f93845c714ed0` 暴露生命周期竞态：初版 artifact 生成后提前发布 `design.job_completed`，但后台质量修复仍在继续；v1 后续实际生成了 pass 的 v2，客户端却可能已经停止轮询。
+- `ApplicationService` 增加按 job/variation 维度的 `pendingAutomationReviews`，质量非 pass 时任务保持非终态；自动修复 pass、重复失败、review off/semi_auto、runtime unavailable 或异常均释放锁并重新触发最终化。
+- 质量审查失败不会再永久占用任务；补齐 runtime refine unavailable 的收敛测试。
+- 动态主题卡规范增加成员地图、关系图谱、对比辨析、可展开事实四类子模板契约，修复 prompt 会分别要求主交互，不允许用通用时间线/摘要/营销结构替代。
+- 自动修复补充中文优先（正文中文占比至少 60%）、非专有名词 UI 中文化、中性事实语气和归因/待核实表达要求。
+- 本地 API 全量测试：250/250 通过；自动化循环、规范审查和 CLI artifact flow 定向回归通过。
+- 远端上一轮生成中，v1 初版几何失败经自动修复到 v2 pass；v2/v3 的重复语义警告被停止，说明本次生命周期修复前仍需重新部署验证最终 terminal event 与 current artifact 对齐。
+- 最终远端严格回归 `job_f3f9f00150514b65`：3 个 variation 全部 `completed`，current artifact 版本为 v1/v1/v2，质量状态全部 `pass`；任务在最后一个 variation 的质量循环于 `2026-07-16 03:54:19` 收敛后才写入 `design.job_completed`，使用 lane-a/lane-c 两条 runtime lane，交互 smoke 通过。
+- 规则精度修复：引用作品名、重复 DOM 专名、双词组织/组合名称不再触发 excessive English warning；真实远端 warning artifact 回放后 finding 数为 0。

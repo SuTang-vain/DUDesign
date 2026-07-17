@@ -23,6 +23,10 @@
 | 后端内核兼容层 | BabeL-O 防腐层，处理 runtime contract、事件映射、兼容升级 | `runtime-compatibility/TODO.md` | `runtime-compatibility/WORKLOG.md` |
 | Capability Distribution System | 横跨四层的模板、插件、MCP/skill 和自动化 loop 能力分发治理 | `capability-distribution/TODO.md` | `capability-distribution/WORKLOG.md` |
 
+## 跨模块专项规划
+
+- `user-experience/dynamic-encyclopedia-capability-drawer-plan.md`：动态百科模式右侧能力配置抽屉，覆盖模板、插件、Loop、受控探索、准入和 job snapshot。
+
 ## 当前代码骨架
 
 ```text

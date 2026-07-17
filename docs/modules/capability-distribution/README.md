@@ -215,3 +215,9 @@ MVP 结束时应满足：
 - 管理端可治理官方模板、skill 和 MCP 插件权限。
 - Automation Loop 可自动执行最小修复流程，并输出可理解事件。
 - 旧 session resume 不受官方能力新版本影响。
+
+## 11. 专项规划
+
+- `template-skill-authoring-governance-plan.md`：模板/Skill 自助创作、HTML 反向模板化、普通功能文档规范化、能力包导出与管理端审核发布。
+- `controlled-exploration-governance-plan.md`：多模块需求抽样、批量 variation 覆盖规划、用户探索度、计划快照和 Runtime Provider 中立编译。
+- `../user-experience/dynamic-encyclopedia-capability-drawer-plan.md`：动态百科能力配置抽屉、选择来源/锁定策略、探索度准入、计划预览和 selection snapshot。

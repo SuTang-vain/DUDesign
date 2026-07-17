@@ -300,7 +300,7 @@
 - [x] 增加 unknown provider 单测和架构边界 smoke。
 - [ ] 定义正式 `RuntimeCapabilities`。
 - [ ] 定义 `RuntimeDesignContextV1`。
-- [ ] 增加 CLI Agent fixture provider。
+- [x] 增加可执行 CLI Agent provider，并通过统一 Runtime Gateway contract/API flow 测试。
 
 验收：
 
@@ -317,3 +317,130 @@
 验收：
 
 - Admin Runtime 治理不再把所有 provider 记录成 `babel-o`。
+
+## Phase RTC-12：Runtime Design Context v1
+
+> 上游规划：`../capability-distribution/template-skill-authoring-governance-plan.md`
+
+- [ ] 定义 `RuntimeDesignContextV1`：template、skill、interaction、data contract 和 review profile context。
+- [ ] Gateway 只消费已发布或 job snapshot 固定的 capability。
+- [ ] 禁止原始 Markdown 直接进入 Runtime。
+- [ ] 禁止把 `previewArtifactId` 隐式当成生成上下文。
+- [ ] HTML example 经过安全处理后显式注入。
+- [ ] 私有 Skill 编译不得扩大 MCP/tool policy。
+- [ ] 增加 BabeL-O golden replay。
+- [ ] 增加 CLI Agent fixture provider contract。
+- [ ] event drift 不影响 DUDesign 标准 capability snapshot。
+
+验收：
+
+- 同一 Capability Bundle 可被 BabeL-O 和 CLI Agent provider 消费，而不改变用户/API 数据模型。
+
+## Phase RTC-13：Runtime Exploration Context v1
+
+> 上游规划：`../capability-distribution/controlled-exploration-governance-plan.md`
+
+- [x] 定义 `RuntimeExplorationContextV1`，只包含单 variation 的既定计划。
+- [x] Gateway 编译 focus、required modules、sampled modules 和设计发散维度。
+- [x] Runtime 不重新读取原始功能文档，不自主改写模块分配。
+- [x] Runtime 不接收用户端原始滑块 level，也不能把探索语义解释为事实创造权限。
+- [x] provider sampling 参数不进入稳定 DUDesign API；本阶段不绑定任何 temperature/top-p 映射。
+- [x] BabeL-O adapter 增加结构化 context、prompt golden 和最终 Nexus execute prompt 测试。
+- [x] 可执行 CLI Agent provider 消费相同 context，并验证 provider-neutral prompt、artifact、refine、timeout 和 cancel。
+- [x] `factCreativity=0`、required module、module reassignment 和 tool policy 建立 contract assertions。
+- [x] event drift、resume、refine、runtime unavailable 不改变 exploration snapshot。
+- [~] 真实 staging BabeL-O 3/6 variation exploration smoke；脚本与断言已完成，远端当前部署尚未包含本阶段 build，待发布后执行。
+
+验收：
+
+- 切换 Runtime Provider 不需要修改用户探索度和 Application Service 数据模型。
+- Provider 只能执行已确定计划，不能扩大事实、权限或模块边界。
+
+## Phase RTC-14：Guidance Analysis Runtime Contract v1
+
+- [x] 定义独立 `GuidanceAnalysisGateway` 和 `EncyclopediaGuidanceAnalysisV2` provider-neutral 契约。
+- [x] 为 BabeL-O 实现 `analyzeEncyclopediaEntry` adapter，禁止业务层直接调用 Nexus 私有模块；Runtime Adapter 已通过 `/v1/guidance/analyze` 使用隔离 session 和无工具 `/v1/execute` 执行真实 AI 分析。
+- [x] 请求只包含裁剪后的 taxonomy candidates、democase evidence、用户输入和允许的 capability ids。
+- [x] 使用结构化 JSON 输出；记录 provider/model/runtime/schema/prompt version、taxonomy/democase version 和执行耗时。
+- [x] 增加严格 response parser、allowlist/schema validation 和一次 bounded JSON repair；第二次失败返回 `GUIDANCE_INVALID_RESPONSE`。
+- [x] 将 runtime 原始文本、thinking、内部 session/lane id 隔离在兼容层，不进入用户 guidance snapshot。
+- [x] 增加 `GUIDANCE_RUNTIME_UNAVAILABLE`、`GUIDANCE_INVALID_RESPONSE`、`GUIDANCE_TIMEOUT`、`GUIDANCE_CONTRACT_MISMATCH` 标准错误，并映射稳定 HTTP 状态。
+- [ ] 增加 Mock provider deterministic fixture，供 Application/UX 测试稳定运行。
+- [x] 增加 100 条 BabeL-O golden evaluation runner，覆盖分类、意图、模板推荐、澄清问题、provider unavailable 和语义退化阈值。
+- [x] 增加真实 staging opt-in smoke；100 条 MiniMax-M3/BabeL-O baseline 已通过全部阈值，报告见 `guidance-golden-baseline-2026-07-15.md`。
+- [ ] 验证 BabeL-O 升级只影响 adapter 与 contract tests，不改变 APP guidance API。
+
+验收：
+
+- guidance 确实触发真实 AI 推理，而不是由应用层关键词规则生成伪置信度。
+- Runtime Provider 不得返回或选择 registry 中不存在的分类、模板、交互范式和工具。
+- provider unavailable 时返回明确降级状态，不自动把所有词条归为“知识术语/通用”。
+
+## Phase RTC-15：Refine Request 精确取消
+
+- [x] `RefineVariationInput` 增加 provider-neutral `requestId`。
+- [x] BabeL-O Gateway 建立 requestId -> refine agent 映射，只向 `/v1/agents/cancel` 发送目标 agent id。
+- [x] agent 尚未创建完成时暂存 cancel intent，创建完成后立即取消。
+- [x] CLI Agent process key 包含 requestId，只终止匹配 refine 进程。
+- [x] CLI Agent 支持 agent 启动前的 queued cancellation。
+- [x] runtime contract mismatch 或 cancel 未接受时返回稳定失败，不向用户伪报已停止。
+- [x] contract test 覆盖 job cancel 向后兼容和 refine request 精确取消。
+- [x] Runtime Adapter 持久化 requestId、stream 和 refine operation 终态快照。
+- [x] 增加 `GET /v1/refine-operations/:requestId` 可选兼容端点。
+- [x] `/v1/stream?requestId=...` 支持 adapter 重启后重新消费尚未开始的 refine stream，并重放 completed/failed 终态。
+- [x] Runtime Gateway 暴露 provider-neutral `getRefineOperation` / `recoverRefineOperation` 可选能力，Application Service 不读取 adapter 私有状态。
+- [x] adapter 重启测试覆盖 requestId 恢复、精确取消、stream 恢复和 terminal snapshot。
+- [ ] 增加真实 BabeL-O staging cancel smoke，验证 Nexus `cancelAgent` 后 stream 能及时关闭。
+
+验收：
+
+- 取消一个 refine 不影响同 job 下其他 generation/refine agent。
+- BabeL-O 内部 agent id 不进入用户端 API，只存在于兼容层映射中。
+
+## Phase RTC-16：Democase Prompt 与异步 Refine 治理
+
+> 专项分析：`../../dynamic-encyclopedia-quality-gap-analysis-2026-07-15.md`
+
+- [x] HTML example 使用项目根可靠路径解析。
+- [x] prompt 注入移除 bundle/script 并设置单示例字符预算。
+- [x] refine 重新注入当前 variation 的模板契约。
+- [ ] refine POST 改为 `202 + requestId`，由队列异步执行。
+- [ ] 通过 SSE/polling 返回阶段、终态 artifact 和 quality summary。
+- [ ] reconciler 仅 claim 超过心跳阈值的 operation。
+- [ ] staging 连续 refine smoke 覆盖 3～5 分钟真实 runtime。
+
+## Phase RTC-17：词条主题动态交互卡语义约束
+
+> 产品语义：`../../dynamic-topic-interactive-card-product-semantics.md`
+
+- [x] Runtime prompt 明确词条是主题入口和事实边界，不是百科文章需求。
+- [x] 禁止默认生成 infobox、目录和长正文式传统百科布局。
+- [x] 强制优先选择一个主要交互命题和单屏视觉叙事。
+- [x] golden prompt 覆盖主题表达、内容策展和非百科页面约束。
+- [ ] 真实 staging fixture 验证同一词条可生成不同交互命题，而非同构百科摘要卡。
+
+## Phase RTC-18：Variation-local 生成契约
+
+- [x] Gateway prompt 使用 assignment-local interaction paradigm，不再直接复用 job-global paradigm。
+- [x] business context 只向当前 child session 暴露其被分配的 child template，避免兄弟模板互相污染。
+- [x] 动态主题卡 style direction 按 relation/timeline/summary/comparison/spatial 语义生成，停止复用 SaaS landing 默认方向。
+- [x] few-shot 支持显式 `data-dudesign-example-interaction` 受限脚本片段，保留可运行交互实现参考。
+- [ ] runtime observation 记录最终组合 prompt 的 hash、字符数、assignment id、paradigm id 和 exploration focus。
+
+## Phase RTC-19：质量修复上下文增强
+
+- [x] Runtime-facing repair prompt 传递固定画布几何、中心命中、assigned child-template 和 topic-card 语义约束。
+- [x] 允许保留 democase 中显式标记的本地交互脚本，避免修复过程退化为静态 HTML。
+- [x] 对 mock research/image artifact 明确标记为占位元数据，不允许模型把 mock 来源当成事实或输出破损图片 URL。
+- [ ] 在 runtime observation 中记录修复 prompt 的 issue fingerprint、base artifact version 和 repair attempt，支持远端质量回放。
+- [ ] 用真实 3 lane 任务验证每条 lane 的 variation-local prompt 不发生 sibling template 泄漏。
+
+## Phase RTC-20：极小视口生成契约与像素门禁
+
+- [x] 动态主题卡 variation spawn/refine prompt 注入稳定的 `300×360` extreme-small contract，并由 Runtime Gateway golden 回归锁定提示内容。
+- [x] 父模板和全部动态主题卡子模板注入 `wise-small-frame=300x360` 与 compact interaction 规则。
+- [x] pixel gate 在独立浏览器页面中分别渲染 1280×900 与 300×360，避免同页二次注入脚本造成状态污染。
+- [x] 300×360 门禁检查固定画布收缩、必要 tab/主交互可见、控件不越界且中心命中不被遮挡。
+- [x] 替换 hydration 空壳和损坏构建产物型 few-shot，保证可展开与对比示例完全自包含、无外部运行依赖。
+- [x] 真实 staging smoke 按 job/variation/阶段归档 desktop 与 `300×360` 截图、交互指标日志、preview HTML、job/artifact quality 快照和 refine 前后记录，宿主机统一写入 `shared/smoke-evidence/dynamic-encyclopedia/<jobId>`。
+- [ ] 在真实 BabeL-O staging 上分别生成 timeline/relation/comparison/expandable 产物，确认模型产物而非只有 few-shot 可通过双视口门禁。

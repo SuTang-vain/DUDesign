@@ -3,6 +3,20 @@
 > 模块：Admin & Developer Console Layer
 > 维护方式：按日期追加。记录治理能力、权限变更、审计要求和排障经验。
 
+## 2026-07-13 ADM-M26 Exploration Policy Governance Planning
+
+- 已登记 Phase ADM-10：探索策略版本、灰度、回滚和质量观测。
+- 管理端后续展示 required/sampled coverage、focus uniqueness、失败率、成本和事实风险。
+- 策略更新只影响未来任务，不能改写已有 job snapshot。
+- support 保持只读，operator/developer 的写操作必须审计。
+- 主规划：`../capability-distribution/controlled-exploration-governance-plan.md`。
+
+## 2026-07-13 ADM-M25 Capability Contribution Planning
+
+- Capability Distribution 已准入用户模板/Skill 贡献和官方发布治理规划。
+- 管理端后续增加 Contribution Inbox、diff、preview smoke、license/trade dress 风险和审核动作。
+- 主规划：`../capability-distribution/template-skill-authoring-governance-plan.md`。
+
 ## 2026-06-26
 
 ### 已完成
@@ -879,3 +893,8 @@
 ### 决策
 
 - `ApplicationService` 暂时继续作为 facade，避免同时修改路由和 HTTP contract。
+## 2026-07-15 AI Guidance 质量治理准入
+
+- 在 ADM-11 登记 guidance provider/model、taxonomy/index/prompt/schema version 和可用性治理。
+- 指标从“API 是否成功”升级为 L1/L2/L3 分布、澄清率、用户改选率、fallback、Top-3 模板召回率和 interaction intent 命中率。
+- 管理端只展示脱敏 evidence 和最终确认结果，不展示模型原始 thinking。

@@ -3,6 +3,184 @@
 > 模块：User Experience Layer
 > 维护方式：按日期追加。记录已完成工作、关键决策、风险、后续动作。
 
+## 2026-07-17 UX-18.4 极小画布内容底线
+
+- `300×360` 首屏验收新增内容底线：不能通过隐藏信息制造“简洁”，必须保留主题身份和至少一条用户可直接读懂的核心事实。
+- 必要 Tab、节点或揭示按钮继续保留，但首屏只允许一个主要控制组；补充资料通过真实本地状态进入，不依赖滚动或不可达隐藏区。
+- 官方 summary、timeline、relation、compare、expandable、member、series、route、POI 样例完成 `300×360` 截图和点击探测，无控制台错误；旧 legacy demo 文件仍存在脚本错误，但不在官方模板注入路径中，后续应归档或移出示例目录以免误用。
+
+## 2026-07-17 UX-18.3 真实产物视觉证据链
+
+- 远端动态主题卡 smoke 不再只输出 pass/fail：每个 generation/refine variation 固化 desktop 与 `300×360` 截图，并保留点击前的首屏状态和交互指标。
+- evidence 同时保存 preview HTML、job detail、artifact quality 与 refine 前后快照，人工评审可直接对照 democase 的元素数量、首屏克制程度、主题识别和继续探索入口。
+- 修正星团成员极小屏回归：测试按“成员 -> 阶段 -> 作品 -> 成员”的单一入口循环验证，不再错误要求同时显示 3 个底部 Tab。
+- 官方 9 类紧凑样例与 Pixel Gate 通过；真实模型产物的远端截图矩阵仍是下一步，不以 few-shot 自测替代。
+
+## 2026-07-17 UX-18.2 300×360 单一主交互与渐进披露收紧
+
+- 将极小画布从“控件不溢出”升级为独立信息架构：首屏只保留主题身份、最核心文字和一个主要导航/控制组，额外内容必须由本地点击继续获取。
+- summary 首屏由 4 个等权事实收敛为 3 个桌面事实、2 个极小屏事实；compare 在极小屏仅保留双对象当前维度和一个差异说明入口。
+- relation 在极小屏隐藏重复关系 Tab，只保留 3 个节点选择；expandable 隐藏重复底部 Tab，仅保留一个“查看更多”展开入口。
+- series、scenic route 和 scenic map 分别增加 `1/2` 本地分页，隐藏内容不再不可达；member 将“成员/阶段/作品”三 Tab 聚合为单一“更多视图”循环入口。
+- Chromium `300×360` 截图复核 9 类模板，均保留可识别标题、核心说明和下一步入口；未通过缩放、内部滚动或永久删除详情规避约束。
+- 定向回归共 `71/71` 通过，覆盖 Runtime prompt golden、Automation repair、真实 case profile、一致性门禁、Pixel Gate 和模板点击状态变化。
+- Browser plugin 本会话不可用，视觉验证使用本地 Playwright + Google Chrome 完成；远端真实生成、refine、分享与版本切换截图仍按 UX-18 未完成项继续验收。
+
+## 2026-07-16 UX-18.1 300×360 编辑器档位与多模板验证收口
+
+- 确认单变体编辑器已有 `mobile-mini` 预览档位，固定预览框为 `300×360`，不重复新增同类入口。
+- 真实 Chromium 逐一渲染 summary、timeline、relation、compare、expandable、series、scenic route、scenic map 与 member 模板；首屏均保留主题身份、必要切换入口与核心文字，未通过滚动或等比缩放规避极小画布约束。
+- 增加 summary Tab 切换和 member 详情打开/关闭专项断言，补齐此前只受通用 Pixel Gate 覆盖的两条交互链；点击后必须替换或揭示次级内容，不能使用装饰性假按钮。
+- 本地 Artifact Quality、Runtime Gateway、动态模板示例和 TypeScript 回归通过；远端 BabeL-O 真实生成/refine 截图证据仍单独待补。
+
+## 2026-07-15 UX-M70 Capability Drawer Keyboard and Focus Governance
+
+- 动态百科能力抽屉打开后将焦点移动到关闭按钮，关闭按钮、遮罩或 `Escape` 关闭后把焦点恢复到稳定“能力配置”触发器。
+- 抽屉使用 `aria-labelledby` 和 `aria-describedby` 关联能力配置标题与说明，避免只依赖匿名 aside 文本。
+- 手机 `<768px` 全屏 Sheet 增加 Tab/Shift+Tab 焦点循环，防止键盘焦点落入被覆盖的页面内容；桌面非模态抽屉不强制焦点陷阱，继续允许用户切回输入区。
+- 遮罩退出键从键盘顺序移除，避免屏幕阅读器出现两个语义重复的“关闭”按钮。
+- 320px 浏览器 E2E 增加 Slider 方向键、Sheet 内焦点约束和关闭后焦点返回断言；桌面主链路增加抽屉 accessible name 与自动聚焦断言。
+
+### 验证
+
+- 动态百科 Chromium 核心 E2E 4 项通过。
+- Web 独立 TypeScript 检查和 production build 通过。
+- 实际浏览器确认打开时 active element 位于抽屉关闭按钮，关闭后返回能力配置触发器，控制台无 error/warn。
+
+### 后续
+
+- 使用 VoiceOver/NVDA 对长模板列表、Requirement Module 三态按钮和 plan preview 朗读顺序做人工验收。
+- 对浅色/深色主题的正文、muted text、warning 和 focus ring 执行 WCAG 对比度审计。
+
+## 2026-07-15 UX-M69 Guidance Invalidation and Override Migration
+
+- 词条输入发生有意义的变化后立即清除旧 guidance、分类、推荐子模板和 exploration plan preview；仅空白折叠差异不会误触发失效。
+- 增加显式失效提示，展示原词条，并默认勾选“保留仍兼容的用户调整”；用户可关闭后完全采用新 guidance。
+- 新 guidance 返回后以 `user_override > entry_guidance > official_preset` 合并：兼容模板继续保留，不兼容模板移除，可选 Skill/MCP 的显式移除不会被重新自动勾选，白名单 Loop 覆盖继续有效。
+- guidance 请求期间如果用户再次修改词条，响应不会应用；plan preview revision 在失效时递增，旧响应不能晚到回写。
+- 迁移结果显示保留和移除数量；最终 Job Snapshot 继续把保留能力标记为 `user_override`。
+- 新增纯函数模块 `dynamicGuidanceMigration.ts`，避免把兼容判断和数组合并继续堆入首页组件。
+
+### 验证
+
+- Guidance migration 单测 3 项通过：空白规范化、兼容覆盖/显式移除迁移、关闭迁移后采用新 guidance。
+- 动态百科核心 Chromium E2E 4 项通过，新增链路覆盖旧 guidance 失效、旧 plan 清空、兼容时间线模板保留和 Job Snapshot 来源。
+- Web 独立 TypeScript 检查与 production build 通过。
+- 实际浏览器确认失效提示可见、保留选项默认勾选、旧 guidance 卡片已移除且控制台无 error/warn。
+
+### 环境说明
+
+- 全仓 typecheck/API 常规启动当前被既有 `apps/api/src/officialDesignTemplatePacks.ts` 语法损坏阻塞；本轮未修改或回退该文件。
+- 浏览器 E2E 使用 `/tmp` API 副本，并仅以仓库基线版本替换该损坏文件完成验证，主工作区未被覆盖。
+
+## 2026-07-15 UX-M68 Session Resume and 320px Browser Closure
+
+- 动态百科主浏览器链路增加 Session 列表恢复验收：返回首页后点击原 Session，必须回到原 Job，并继续读取 `Job snapshot` 与 3 个 variation exploration plan。
+- 增加 320x700 Chromium E2E：动态百科能力抽屉必须贴合完整视口、页面不得产生水平滚动、审查模式按钮不得越界，`Escape` 后恢复 Session 侧栏。
+- 浏览器用例显式使用 `prefers-reduced-motion: reduce` 验证稳定最终状态，避免把 View Transition 中间帧误判为业务状态。
+- 清理旧页面结构断言：动态百科模式不再读取 Web 模式专用的 `capability-summary`/`exploration-summary`，模板、插件、Loop 和探索度统一从能力抽屉验收。
+- 发现并修正验证环境问题：旧 `next start` 构建产物未包含当前侧栏隐藏样式；重新执行 production build 后，实际浏览器确认抽屉打开时 `home-shell capability-drawer-open` 生效，Session 侧栏计算样式为 `display: none`。
+
+### 验证
+
+- 动态百科主流程、experimental gate、320px 抽屉 E2E：3 项通过。
+- Web production build 通过。
+- 实际浏览器页面标题/主内容正确，控制台无 error/warn，抽屉与 Session 侧栏互斥状态通过。
+
+### 后续
+
+- 在配置真实 PostgreSQL 的 CI/staging 中执行 selection snapshot hydrate smoke。
+- 补系统化键盘顺序、焦点圈、屏幕阅读器名称和对比度审计。
+
+## 2026-07-14 UX-M62 Dynamic Encyclopedia Exploration Submission Foundation
+
+- 动态百科模式切换后默认探索度接入前端状态，当前默认值由官方 preset 下发为 `40 / balanced`，不再由业务流程散落硬编码。
+- guidance 成功后使用服务端 exploration recommendation 回填探索度；创建 job 时提交 `requirementModuleGraphId` 与 `exploration: { level }`。
+- capability summary 增加探索度可见摘要，并在浏览器 E2E 中校验页面值、job exploration plan 和 `CapabilitySelectionSnapshotV1` 一致。
+- 右侧能力抽屉、锁定/排除模块、slider、plan preview 和完整响应式验收仍属于 UX-13 后续阶段；本次不把摘要误标为抽屉已完成。
+
+### 验证
+
+- 全仓 TypeScript typecheck 通过。
+- API 动态百科能力选择、探索计划、模板和规范审查定向回归通过。
+
+## 2026-07-14 UX-M63 Dynamic Encyclopedia Capability Drawer Read-only Shell
+
+- 动态百科模式切换后自动打开右侧能力配置抽屉，并提供稳定“能力配置”按钮、遮罩关闭和 `Escape` 关闭。
+- 抽屉复用既有 selected template/plugin/Loop/exploration state，集中展示词条分类、置信度、模板、Skill/MCP、规范审查 Loop、探索度和事实固定约束。
+- required 能力显示锁定语义；MCP 只显示用户可理解的工具名称和来源，不暴露 server 私有配置。
+- “重新选择”按钮跳回已有模板库、插件和自动化入口，暂不在抽屉内复制编辑逻辑。
+- `>=1280px` 使用 410px 非模态推入式 drawer，`768～1279px` 使用 360px 推入式 drawer；主工作区显式缩窄，输入框右边界不会进入抽屉区域。
+- `<768px` 使用全宽 Sheet；已验证 1440/1280/1024/768/390 均无水平溢出和控制台错误，所有非手机视口的输入框与抽屉均不重叠。
+- 右侧抽屉打开时隐藏左侧 Session 会话栏，释放中间工作区；关闭或按 `Escape` 后恢复会话栏，且不重置会话列表状态。
+
+## 2026-07-14 UX-M64 Dynamic Capability Drawer Inline Selection
+
+- “重新选择”不再关闭右栏或跳转到中间旧浮层，改为在右栏内展开模板、插件和 Automation Loop 分区。
+- 模板选择限制在动态百科父包及其子模板，最多 3 个；至少保留 1 个，required 父包/能力显示锁定。
+- 插件选择只展示官方、active、safe 且兼容 `encyclopedia` 的 Skill/MCP；required Skill/MCP 不可移除。
+- Loop 选择限制在动态百科 preset 白名单内；当前选择、optional 选择和审查模式摘要即时更新。
+- 修正创建 job 时的 merge：guidance 完成后仍保留用户在抽屉内修改的模板、插件和 Loop，不再被 guidance 默认值覆盖。
+- 浏览器 E2E 覆盖右栏保持打开、必选 Skill 禁用、可选 Skill 移除、模板追加和 Loop 切换恢复。
+
+## 2026-07-14 UX-M65 Exploration Control, Review Gate and Plan Preview
+
+- 右栏增加 `0..100` exploration slider，并展示 faithful / balanced / exploratory / experimental 稳定档位语义。
+- experimental 阈值由 preset 下发；进入 experimental 后自动使用百科规范审查 Loop、禁用“关闭审查”，并要求用户显式确认后才允许提交。
+- Automation 分区增加关闭/半自动/自动 review mode 控件，并与 Loop 选择保持同步。
+- 第一次词条 guidance 完成后创建草稿 Session；exploration plan preview 与最终 job 复用同一 Session，preview 不创建 job/runtime。
+- 250ms debounce 调用 plan preview，revision 防止旧响应覆盖新配置；右栏展示每个 variation focus 和 loading/error/ready 状态。
+- 当前候选配置展示官方预设/词条引导/用户覆盖来源；Job 页面从固定 selection snapshot 展示任务快照及来源计数。
+- 浏览器 E2E 覆盖 plan preview、experimental 审查锁定、确认门禁和 snapshot 来源一致性。
+
+## 2026-07-14 UX-M66 Requirement Module Controls and Detailed Plan Coverage
+
+- 右栏增加 Requirement Module 编辑器，支持自动、锁定和排除三态互斥选择。
+- always/global rule 作为 invariant 只读锁定；critical 模块禁止排除，避免用户通过探索配置删除关键事实与安全要求。
+- locked/excluded module ids 同时进入 250ms plan preview、正式 CreateDesignJob exploration request 和 Capability Selection Snapshot。
+- Variation plan card 展示 focus、required/sampled 数量与模块名称、模板方向、style direction 和 interaction direction。
+- 增加整批 coverage summary 和 planner warning 展示；模板方向使用当前用户模板选择按 variation 稳定分配。
+- 浏览器 E2E 验证时间线模块锁定、对比模块排除、coverage 更新和最终 snapshot 不漂移。
+- 390px 实测展示 8 个 Requirement Module 和 3 个 Variation plan card，无横向溢出，长内容在右栏内部滚动。
+
+## 2026-07-14 UX-M67 Snapshot Recovery and Variation Focus Surfaces
+
+- Job 结果墙每个 variation 增加固定 exploration focus、required/sampled 数量和模板方向摘要。
+- 单变体编辑页“方向”页签展示 Job Snapshot 中的 focus、模板、style、interaction、required/sampled/excluded module。
+- 刷新 Job 页面后 capability source 和 variation focus 继续从服务端 snapshot 恢复，不重新应用当前 registry/preset。
+- 浏览器 E2E 覆盖创建 Job、结果墙 focus、刷新恢复、进入 Variation 和读取原 variation plan。
+- Runtime unavailable 回归验证历史 selection snapshot、batch plan 和 variation focus 仍可读取。
+
+### 后续
+
+- 接入抽屉内的探索度 slider、四档语义、locked/excluded module 选择和 200～300ms plan preview。
+- 完整补齐 source enum、用户 override 和 1024/320 视口 E2E。
+
+## 2026-07-14 UX-M61 Dynamic Encyclopedia Capability Drawer Planning
+
+- 新增规划文档 `dynamic-encyclopedia-capability-drawer-plan.md`，准入动态百科能力配置抽屉。
+- 抽屉统一展示/编辑模板、插件、Loop、词条分类和 `0..100` 探索等级，不创建第二套 selected ids 状态。
+- 桌面宽屏采用 380～420px 右侧推入式抽屉，中等屏幕采用 overlay drawer，手机采用底部/全屏 Sheet。
+- 用户可以调整兼容子模板、可选 safe plugin、审查模式和探索等级；required capability、父模板硬约束和 invariant 保持锁定。
+- experimental 档必须明确确认并强制规范审查；用户端始终显示事实创造关闭。
+- 计划分为状态/契约、只读抽屉、可编辑配置、plan preview、snapshot 恢复五阶段。
+- 本记录为规划准入，不代表抽屉已经实现；实施项登记在 UX-13。
+
+## 2026-07-13 UX-M59 Controlled Exploration UX Planning
+
+- 已登记 Phase UX-12：探索度滑块、四档语义、批量方向预览和计划恢复。
+- 用户端不展示 temperature、top-p、内部 prompt 或 Runtime 私有参数。
+- 结果墙后续展示每个 variation 的主方向和模块摘要，帮助用户理解真实差异。
+- 明确高探索仍保留事实、必需模块、安全与权限约束。
+- 主规划：`../capability-distribution/controlled-exploration-governance-plan.md`。
+
+## 2026-07-13 UX-M58 Capability Authoring Planning
+
+- Capability Distribution 已准入模板/Skill 自助创作专项规划。
+- 用户端后续建设 `Capability Authoring Studio`，覆盖 `DESIGN.md`、普通功能文档、variation/artifact 和手工创建。
+- Variation“保存为模板”后续区分快速收藏与高保真提取。
+- 主规划：`../capability-distribution/template-skill-authoring-governance-plan.md`。
+
 ## 2026-07-07 UX-M57 OAuth Unconfigured Login Guard
 
 ### 已完成
@@ -1675,3 +1853,132 @@
 ### 决策
 
 - Runtime 诊断信息只进入 Admin API；用户端只表达进度、重试、降级和可恢复动作。
+
+## 2026-07-14 UX-M60 Capability Bundle Authoring Studio UI
+
+### 已完成
+
+- 在模板库“我的模板”中接入 Capability Bundle 工作台，保持现有页面形态，不新增无必要的独立路由。
+- 用户可以选择 `.capability-bundle.zip`，看到文件名/大小并调用 governed import API。
+- 导入结果显示 Template、Skill、Interaction、Data Contract、Review Profile、HTML example 数量，以及 error/warning 摘要。
+- 用户点击确认后，前端将 extraction evidence 和 warning paths 一并提交，再触发 preview；preview 通过才显示完成状态。
+- 用户端只列出当前 workspace 的 `ready` / `published_private` draft 供导出。
+- 导出前支持 `user_owned_or_authorized` / `unspecified` 授权声明和 provenance notes，并触发 ZIP 下载。
+- workspace 切换重新加载 authoring drafts；导入结果即时更新本地草稿状态。
+- 增加中英文文案、紧凑工作台样式和稳定 `data-testid`。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- `npm run build --workspace @dudesign/web` 通过。
+- Capability Bundle 浏览器 E2E 通过：服务端创建 ready draft -> UI 下载 -> 原 ZIP 上传 -> 能力摘要 -> 确认 -> preview passed。
+- API/Web 联合回归中 Capability Bundle 用例通过；既有 mock-product-flow 有 3 项历史时序/断言失败：共享预览在并行 worker 下偶发 artifact 未就绪、旧 DESIGN.md 用例严格要求只有 1 个 template、旧动态百科断言使用旧分类文案。
+- 应用内浏览器 runtime 初始化报 `Cannot redefine property: process`，本轮按前端测试规范使用 Playwright fallback。
+- `npm run test:flow --workspace @dudesign/web` 前两组源契约测试通过，后续长流程因陈旧 3001 Next 进程无响应被中止。
+
+### 下一步
+
+- 将 DESIGN.md 和 Template Pack JSON 入口迁移到同一 governed draft import 流程。
+- 将当前嵌入模板库的工作台拆成独立 Authoring Studio 路由，增加 Source/Template/Skill/Data/Review/Preview/Findings 分栏。
+- 补齐私有 Skill 编辑、普通功能文档导入和 draft -> private publish 的完整 UI E2E。
+
+## 2026-07-15 UX-14 Variation 连续修改反馈第一阶段
+
+### 已完成
+
+- 将 variation 编号、当前 artifact 版本、状态和锁定入口合并到修改工作区头部。
+- 锁定版本从强主按钮降级为次级状态按钮，锁定后显示明确的已锁定状态。
+- refine 请求提交后立即写入对话流并清空输入；失败时自动恢复用户需求，并提供原地重试。
+- 模型反馈流使用固定高度和内部滚动，新增运行状态点、输入按钮进度和预览未更新提示。
+- 增加 `Command/Ctrl + Enter` 提交，兼容中文输入法 composing 状态。
+- 标注工具改为点击即进入绘制模式，再次点击、结束按钮或 `Esc` 可退出。
+- 去除重复的绘制模式复选框；无标注时隐藏无效操作，有标注时显示发送数量。
+- 切换到方向或检查面板时自动退出绘制模式，避免透明标注层继续拦截预览交互。
+- refine 与 annotation 失败不再重复拉伸页面级错误区域，恢复动作在修改工作区内完成。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- `npm --workspace @dudesign/web run test:e2e -- annotation-flow.spec.ts` 通过，3 个 Chromium 用例覆盖绘制、`Esc` 退出、提交标注、版本更新、锁定、多工具标注，以及 refine 键盘提交和 runtime 失败恢复。
+
+### 下一步
+
+- 接入 runtime cancel contract 后提供真实停止操作。
+- 增加完成后的版本对比、撤销和恢复入口。
+- 将 Inspect/runtime 详情迁移到次级入口，并补 refine 失败/重试专项 E2E。
+
+## 2026-07-15 UX-14 Variation 版本闭环第二阶段
+
+### 已完成
+
+- 每次文字 refine 或标注修改成功后，前端记录修改前后的 HTML artifact id 和版本号。
+- 完成反馈的固定状态槽切换为“查看更新 / 对比 / 撤销”，不会改变输入框和反馈区的位置。
+- “对比”在主预览区并排加载修改前后两个 sandbox iframe，并清晰标注版本。
+- “查看更新”退出对比并恢复修改后 artifact 的常规预览。
+- “撤销”复用现有 restore API，将修改前 artifact 恢复为当前版本，并写入统一反馈流。
+- 对比模式自动退出标注状态，避免 annotation overlay 拦截双预览交互。
+- 窄屏下双版本预览改为纵向排列，避免水平溢出。
+- Inspect/成本/runtime 从等权文字 Tab 降级为右侧详情图标入口；标注与方向保持主要工作模式。
+
+### 验证
+
+- `npm --workspace @dudesign/web run build` 通过，Web TypeScript 检查完成。
+- `DUDESIGN_WEB_URL=http://127.0.0.1:3001 npm --workspace @dudesign/web run test:e2e -- refine-version-actions.spec.ts` 通过。
+- 浏览器用例覆盖 refine 完成、打开双版本对比、返回更新版本和撤销恢复旧版本。
+
+### 已知外部阻塞
+
+- 全仓 `npm run typecheck` 当前被并发修改中的 `apps/api/src/officialDesignTemplatePacks.ts` 语法错误阻断；该文件不属于本轮改动，未进行覆盖或回退。
+
+### 下一步
+
+- 接入 runtime cancel contract，实现真实停止修改任务。
+- 增加对比同步滚动和差异区域提示，但不在前端自行推断代码 diff。
+- 补点击重试后成功恢复的完整浏览器链路。
+
+## 2026-07-15 UX-14 Variation 真实停止修改
+
+### 已完成
+
+- refine 运行时发送按钮切换为真实停止按钮，不再只是不可交互的加载图标。
+- 点击停止后进入 `cancelling`，服务确认后进入 `cancelled`。
+- 取消成功后恢复原修改需求，保留当前预览，不生成版本对比或撤销入口。
+- 取消失败时回到运行状态，并明确告知任务仍在执行。
+- annotation refine 使用同一 request id 与取消状态机。
+
+### 验证
+
+- `refine-cancel-ui.spec.ts` 通过，覆盖停止按钮、正在停止、需求回填、旧预览保留和无新版本操作。
+- Web 生产构建与全仓 TypeScript 检查通过。
+
+### 后续
+
+- 页面刷新后通过 operation 查询接口恢复正在停止或已取消状态。
+- 补取消失败和取消/完成竞态的浏览器测试。
+## 2026-07-15 AI 词条引导体验准入
+
+- 在 UX-15 登记“分析词条 -> 澄清/确认 -> 生成设计”的两阶段用户流程。
+- 后续 guidance 结果必须展示实体分类、用户意图、数据缺口、事实风险、模板证据和分析模式，不再只显示固定百分比与模板标签。
+- provider unavailable 时必须提供 retry/manual fallback，禁止回退为伪造的 `知识术语/通用 52%`。
+- 本轮仅完成契约与 TODO 准入，用户端尚未切换到 AI guidance response。
+
+## 2026-07-15 长时 Refine 假失败分析
+
+- 远端 annotation refine 实际运行约 220 秒并生成新 artifact，但 Nginx 默认约 60 秒超时导致浏览器先显示失败。
+- staging `/api/` 增加 30 秒 connect 和 600 秒 send/read timeout，先消除后台成功、用户端失败的不一致。
+- 确认后续需要把同步 refine POST 升级为 `202 + requestId` 异步 operation 流程。
+- 专项分析见 `../../dynamic-encyclopedia-quality-gap-analysis-2026-07-15.md`。
+
+## 2026-07-15 用户端产品命名校正
+
+- 父模板展示名改为“词条主题动态交互卡”。
+- 通用子模板展示名改为主题身份、主题时间线、主题关系探索、主题对比和主题渐进探索。
+- 明确用户选择的是交互命题和主题体验，不是传统百科页面版式。
+## 2026-07-16 UX-18 300×360 极小画布兼容
+
+- 动态主题交互卡父模板及全部子模板统一增加 `300×360` 一等交付约束：首屏保留主题身份、核心事实和必要切换/揭示入口，次要内容点击后渐进展示。
+- timeline 与 relation 结构样例补齐独立极小画布布局；垂类模板继承相近结构样例，避免生成时继续照搬桌面信息密度。
+- Pixel Gate 同时审查 desktop 与 `300×360`：外框尺寸、居中、标题与核心文字、首屏密度、24px 最小点击目标、控件越界/遮挡，以及点击后内容或可访问状态变化。
+- 增加 content-box padding 导致“声明 300×360、实际 332×392”的回归用例，并增加单一有效 reveal 入口的正向用例。
+- Automation Loop 增加极小画布专项 repair block，明确不能用滚动、隐藏全部控件、缩放桌面卡片或删除词条身份规避门禁。
+- 本地定向验证通过：TypeScript build 通过；Artifact Quality、Automation Loop、动态模板示例共 25 项测试通过。

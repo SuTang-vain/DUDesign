@@ -189,7 +189,7 @@
   - [x] 词条引导 skill。
   - [x] 动态百科词条卡片模板包。
   - [x] 自动审查 loop。
-- [~] 自动勾选结果必须可见、可撤销，并写入最终 job snapshot；当前可见并写入 snapshot，可撤销细粒度 UI 待补。
+- [x] 自动勾选结果必须可见、可调整，并写入最终 job snapshot；required 能力保持锁定，可选模板/Skill/MCP/Loop 可在能力抽屉原地调整。
 - [x] 展示词条引导返回的分类结果、置信度、推荐子模板和推荐理由。
 - [x] 展示 democase references 的命中分、命中关键词和摘要说明。
 - [x] 低置信度时支持用户确认或改选分类/子模板后再生成。
@@ -232,3 +232,184 @@
 
 - Runtime Lane Pool 或 provider 切换不要求修改用户端诊断展示。
 - 最终用户不会看到 Runtime 内部引用。
+
+## Phase UX-11：Capability Authoring Studio
+
+> 上游规划：`../capability-distribution/template-skill-authoring-governance-plan.md`
+
+- [x] 在模板库“我的模板”入口增加 Capability Bundle ZIP 工作台；创建能力的独立路由仍待后续拆分。
+- [ ] 支持上传/粘贴 `DESIGN.md`、普通功能文档、variation/artifact 和手工创建。
+- [ ] 新增 Draft Review 页面：Source / Template / Skill / Data / Review / Preview / Findings。
+- [ ] 自动提取字段展示 confidence、source evidence 和确认状态。
+- [ ] Variation“保存为模板”升级为快速收藏、高保真模板提取和能力包创建。
+- [ ] 增加私有声明式 Skill 编辑器。
+- [x] 增加 Capability Bundle ZIP 下载/上传入口、license declaration、导入摘要确认和 preview gate；DESIGN.md/Template Pack JSON 既有入口继续保留。
+- [x] E2E：ready draft -> 下载 Capability Bundle ZIP -> 上传 -> 查看能力摘要 -> 确认 -> preview passed。
+- [ ] E2E：明星组合文档 -> Bundle Draft -> 用户确认。
+
+验收：
+
+- 用户无需手写内部 JSON，即可完成模板/Skill 私有创作与复用。
+
+## Phase UX-12：探索度与批量方向预览
+
+> 上游规划：`../capability-distribution/controlled-exploration-governance-plan.md`
+
+- [ ] 在 job composer 增加 `0..100` 探索度滑块，默认值 40。
+- [ ] 提供忠实、均衡、探索、实验四档语义和动态说明。
+- [ ] 明确显示事实、必需模块、安全和权限不随探索度改变。
+- [ ] 支持预览 N 个 variation 的主方向、模块摘要和模板分配。
+- [ ] 支持锁定、排除或重新分配非必选模块，不能移除 invariant。
+- [ ] 结果墙展示每个 variation 的 focus 和模块摘要，不展示内部 prompt 或 temperature。
+- [ ] refine、retry 和刷新后恢复原 variation plan；“换一个方向”创建新计划版本。
+- [ ] 保存用户默认探索档位到独立偏好 scope，不写入事实记忆。
+- [~] 补键盘、屏幕阅读器、移动端和窄屏滑块可访问性；抽屉焦点进入/返回、手机 Tab 循环、Slider 方向键和 accessible name 已通过，真实屏幕阅读器人工验证与颜色对比度审计待补。
+- [ ] E2E：探索度调整 -> 计划预览 -> 6 variation -> 结果墙 -> refine -> 刷新恢复。
+
+验收：
+
+- 用户能够理解探索度影响的是设计方向和模块组合，而不是事实可信度。
+- 低探索与高探索结果有可感知差异，同时所有硬约束保持一致。
+
+## Phase UX-13：动态百科能力配置抽屉
+
+> 详细规划：`dynamic-encyclopedia-capability-drawer-plan.md`
+> 依赖：UX-8 动态百科业务线、UX-12 受控探索、CAP-8 Capability Preset、APP-13 Exploration Planning
+
+### UX-13.1 状态与入口
+
+- [ ] 首页增加统一 `DynamicCapabilityConfiguration` 状态/reducer，抽屉不得复制 selected template/plugin/loop ids。
+- [x] 增加 `explorationLevel`、`lockedModuleIds`、`excludedModuleIds` 状态并写入创建 job 请求。
+- [x] 动态百科模式首次进入当前 session 时自动打开一次，后续通过稳定“能力配置”按钮重新打开。
+- [x] 抽屉按钮展示模板数、插件数、Loop 和探索档位摘要。
+- [ ] 打开抽屉时关闭 composer 其它浮层，避免多个配置面板叠加。
+
+### UX-13.2 只读能力抽屉
+
+- [x] 展示产品模式、词条分类、置信度和配置状态。
+- [x] 展示父模板包、推荐子模板、插件/Skill/MCP、Loop 和探索等级。
+- [x] 使用 `official_preset / entry_guidance / user_override / job_snapshot` 标签区分来源。
+- [x] 必选项展示锁图标和可理解原因，不暴露 MCP server/tool 私有字段。
+- [x] 展示事实创造固定关闭、事实/安全/权限/数据契约 invariant 锁定说明。
+
+### UX-13.3 可编辑配置
+
+- [x] 支持在兼容范围内选择 1～3 个动态百科子模板并恢复 guidance 推荐。
+- [x] 支持添加/移除官方 safe 可选插件，required 插件不可删除。
+- [x] 支持 `关闭 / 半自动 / 自动` 审查模式和白名单 Loop 选择。
+- [x] 支持 `0..100` 探索等级和 faithful / balanced / exploratory / experimental 四档文案。
+- [x] experimental 档阻止关闭规范审查，并要求明确确认。
+- [x] Requirement Module 支持自动/锁定/排除互斥选择；always/global rule/critical 不允许排除。
+- [x] 词条变化后清除旧 guidance 推荐和 plan preview，提示重新匹配，并允许保留仍兼容的用户覆盖；不兼容选择明确移除。
+
+### UX-13.4 Plan Preview 与准入
+
+- [x] 200～300ms debounce 调用 exploration plan preview，使用 request revision 防止旧响应覆盖新配置。
+- [x] 展示每个 variation 的 focus、模板/交互方向和 required/sampled 覆盖摘要。
+- [x] 展示 loading、warning、error 和准入通过状态。
+- [x] plan preview 只解释计划，不在前端当作正式授权结果。
+
+### UX-13.5 响应式与恢复
+
+- [x] 右侧能力抽屉打开时临时隐藏左侧 Session 会话栏，关闭/ESC 后恢复，不清除会话状态。
+- [x] `>=1280px` 使用 380～420px 右侧推入式抽屉，主工作区同步缩窄，输入框不得与抽屉重叠。
+- [x] `768～1279px` 使用 360px 非模态推入式抽屉，优先保证中心输入框完整可见和可继续输入。
+- [x] `<768px` 使用单列全屏 Sheet，禁止详情区覆盖选择按钮。
+- [x] job/resume 页面读取 capability selection snapshot，不重新应用最新 preset（Job detail、刷新与 Session resume 浏览器验收已通过）。
+- [x] 结果墙展示 variation focus；refine 沿用原 variation exploration plan。
+
+### UX-13.6 测试
+
+- [x] 单测覆盖 preset/guidance/user override 合并、锁定项、词条变化和 experimental 准入。
+- [x] 浏览器 E2E：切换模式 -> 自动打开 -> guidance -> 调探索度 -> preview plan -> 创建 job -> 刷新/Session resume 恢复。
+- [x] E2E：required Skill 不可移除、experimental 不可关闭审查、旧 guidance 推荐失效、兼容用户覆盖迁移和旧 plan preview 清空。
+- [x] 桌面 1440、平板 1024、手机 390/320 视口无重叠、无水平滚动、控制台无错误（已验证 1440/1280/1024/768/390/320）。
+
+验收：
+
+- 用户能在一个统一入口理解并调整动态百科最终能力配置。
+- 抽屉显示内容与正式 job snapshot 一致，高探索不改变事实和安全 invariant。
+
+## Phase UX-14：Variation 连续修改反馈
+
+- [x] 将 variation 状态、当前版本和 refine 对话聚合为连续修改工作区，减少独立卡片层级。
+- [x] refine 提交后立即进入对话反馈流并清空输入；失败时恢复原需求和重试入口。
+- [x] 固定模型反馈流高度，新增自动滚动、执行状态和“当前预览尚未更新”提示。
+- [x] 标注工具点击即进入绘制模式，再次点击或按 `Esc` 退出，去除重复绘制开关。
+- [x] 没有暂存标注时隐藏清空/提交操作；存在标注时展示待提交数量。
+- [x] 标注请求继续复用统一 refine feedback stream，不创建第二套任务反馈。
+- [x] 接入 runtime cancel contract，让执行中的发送按钮支持真实停止，不做前端假取消。
+- [x] 完成后增加新旧版本视觉对比、撤销和恢复入口。
+- [x] 将 Inspect/成本/runtime 详情降级到次级入口，保持标注和设计方向为主要工具。
+- [ ] 补 refine 失败、重试、预览刷新和键盘提交的专项浏览器 E2E。
+
+验收：
+
+- 用户始终知道修改基于哪个版本、任务是否正在执行，以及当前预览是否已经更新。
+- 标注和文字修改进入同一反馈流，失败不会覆盖当前预览或丢失用户输入。
+
+## Phase UX-15：AI 词条引导体验
+
+> 依赖：APP-15、CAP-12、RTC-14。
+
+- [ ] 将“分析词条”与“生成设计”拆成清晰的两阶段动作，避免同一发送按钮语义前后变化却无说明。
+- [ ] 将词条标题、希望呈现的内容/交互和补充资料分区输入，同时保留自然语言快速输入。
+- [ ] 展示真实分析进度：识别词条、检索相似 case、理解用户意图、匹配模板、检查数据缺口。
+- [ ] guidance 结果展示 canonical title、L1/L2/L3、备选分类、置信度来源和分析模式。
+- [ ] 单独展示 user intent、推荐交互、需要呈现的模块、可用资料、缺失资料和事实风险。
+- [ ] 模板推荐展示 score、推荐原因、证据 case 和为何适合当前意图，而不只是模板名称标签。
+- [ ] AI 判断存在歧义时展示 1～3 个最小澄清问题，回答后重新分析并保留 version history。
+- [ ] provider unavailable 时展示可重试、手工选择分类或稍后继续，不显示伪造的 52% 通用分类。
+- [ ] 用户可以确认分类、意图和模板，也可以修改；所有修改明确标记为 user override。
+- [ ] 词条变化时旧 guidance 标记 stale，用户可选择重新分析或保留仍兼容的 override。
+- [ ] 结果墙与 Job snapshot 展示最终确认的 guidance 摘要和版本，不暴露模型原始推理文本。
+- [ ] 浏览器 E2E：AI 分析 -> 澄清 -> 模板确认 -> 创建 job -> 刷新/resume 恢复。
+- [ ] 浏览器 E2E：provider unavailable -> retry/manual fallback，不误创建 job。
+
+验收：
+
+- 用户能理解系统识别了什么、为什么推荐这些模板、还缺什么信息，以及下一步会发生什么。
+- guidance 是可交互的业务向导，不再只是生成前出现一次的分类百分比和模板标签。
+
+## Phase UX-16：长时 Refine 真实进度与恢复
+
+> 专项分析：`../../dynamic-encyclopedia-quality-gap-analysis-2026-07-15.md`
+
+- [x] staging 反向代理允许最长 600 秒 refine 请求，避免 60 秒假失败。
+- [ ] refine 提交后以 operation 状态驱动 UI，不依赖单次长连接完成。
+- [ ] 展示 queued、runtime connecting、generating、quality review、screenshot、completed 阶段。
+- [ ] 浏览器刷新或网络中断后自动恢复 operation 和最终 artifact。
+- [ ] 完成但 quality warn 时明确显示“修改已完成，需要注意”，不得显示成运行失败。
+
+## Phase UX-17：产品语义去百科页面化
+
+> 产品语义：`../../dynamic-topic-interactive-card-product-semantics.md`
+
+- [x] 用户端模板名称改为“词条主题动态交互卡”。
+- [x] 子模板名称强调身份、时间线、关系、对比和渐进探索。
+- [ ] 首页模式说明、guidance 阶段和结果墙统一使用“主题动态交互卡”表述。
+- [ ] 质量反馈区分事实风险、交互质量和主题表达，不展示“百科完整度”。
+- [ ] 浏览器 E2E 验证页面没有传统百科 infobox + 目录 + 长正文结构。
+
+## Phase UX-18：300×360 极小画布兼容
+
+- [x] 将 `300×360` 登记为动态主题交互卡一等交付尺寸，而非从 `380×456` 或桌面画布等比压缩。
+- [x] 极小画布首屏保留词条身份、最核心事实和至少一个必要页面切换或内容揭示入口。
+- [x] 模板首屏减少次要事实密度，额外信息通过本地 tab、分页、折叠面板、详情面板或 modal 点击揭示，禁止依赖滚动。
+- [x] summary、timeline、relation、compare、expandable、member、series、scenic route、scenic map 结构样例覆盖 `300×360` 实际点击与状态变化测试。
+- [x] Pixel Gate 校验渲染外框恰为 `300×360`、主题标题和核心文字可见、控件可点击且不被遮挡、交互会真实改变内容或可访问状态。
+- [x] `300×360` 首屏不得退化为“只有标题 + 导航”；必须保留至少一条可读核心事实或摘要，次级信息入口必须指向真实内容。
+- [x] Automation Loop 对极小画布失败生成专项修复指令，禁止通过隐藏全部控件、缩小桌面卡片或删除主题身份绕过。
+- [x] 极小画布初始态只保留一个主要导航/控制组；关系、成员、路线、POI、系列和渐进披露模板不得同时展示两套等价 Tab、节点或 accordion 导航。
+- [x] 极小画布控件预算统一收紧为最多 `3` 个主 Tab/选择项加 `2` 个其他可见控件；被延后的桌面模块必须 `display:none`，不得通过裁切、透明或移出画框伪隐藏。
+- [x] 系列、路线和 POI 模板增加本地分页，成员模板增加单一“更多视图”入口，确保减少首屏信息后仍能通过点击访问全部核心内容。
+- [x] 远端真实任务 smoke 增加 desktop/`300×360` 初始态截图和点击状态指标归档，供人工与 democase 对照，不再只保留 pass/fail 文本。
+- [ ] 在远端真实生成和 refine 任务中分别回归关系、时间线、成员、对比和渐进展开变体，并保留 `300×360` 截图证据。
+- [x] 单变体编辑器增加 `300×360` 预览档位，并验证预览框固定为 `300×360`；圈画、refine、版本切换和只读分享在该档位的完整回归仍待真实任务补齐。
+- [ ] 在 `300×360` 编辑器档位回归圈画、refine、版本切换和只读分享，并保留操作截图证据。
+
+验收：
+
+- `300×360` 首屏信息克制但不空洞，用户无需滚动即可识别主题并找到继续探索入口。
+- 保留下来的 tab/按钮具备真实本地交互，不越界、不遮挡、不以不可点击的装饰控件冒充功能。
+- 首屏不得出现两个竞争性的导航行；延后内容必须具有可操作、可验证且可返回的本地披露路径。

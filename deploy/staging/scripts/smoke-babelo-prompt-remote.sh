@@ -6,8 +6,10 @@ base_dir="${DUDESIGN_STAGING_BASE_DIR:-/home/ubuntu/deployments}"
 timeout_seconds="${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS:-420}"
 variation_count="${DUDESIGN_STAGING_PROMPT_SMOKE_VARIATION_COUNT:-1}"
 smoke_prompt="${DUDESIGN_STAGING_PROMPT_SMOKE_PROMPT:-Create a tiny valid HTML landing page for DUDesign staging smoke. Write the complete page to index.html. Include the phrase DUDesign staging smoke.}"
+exploration_smoke="${DUDESIGN_STAGING_PROMPT_SMOKE_EXPLORATION:-0}"
+exploration_level="${DUDESIGN_STAGING_PROMPT_SMOKE_EXPLORATION_LEVEL:-65}"
 
-ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' SMOKE_PROMPT='$smoke_prompt' VARIATION_COUNT='$variation_count' LOCAL_TIMEOUT_SET='${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS+x}' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' SMOKE_PROMPT='$smoke_prompt' VARIATION_COUNT='$variation_count' EXPLORATION_SMOKE='$exploration_smoke' EXPLORATION_LEVEL='$exploration_level' LOCAL_TIMEOUT_SET='${DUDESIGN_STAGING_PROMPT_SMOKE_TIMEOUT_SECONDS+x}' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
@@ -40,6 +42,31 @@ case "$VARIATION_COUNT" in
     ;;
 esac
 
+case "$EXPLORATION_SMOKE" in
+  0|1) ;;
+  *)
+    echo "babelo-prompt-smoke:invalid EXPLORATION_SMOKE=$EXPLORATION_SMOKE; expected 0 or 1" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$EXPLORATION_SMOKE" = "1" ]; then
+  if [ "$VARIATION_COUNT" -lt 3 ]; then
+    echo 'babelo-prompt-smoke:exploration smoke requires VARIATION_COUNT>=3' >&2
+    exit 1
+  fi
+  case "$EXPLORATION_LEVEL" in
+    ''|*[!0-9]*)
+      echo "babelo-prompt-smoke:invalid EXPLORATION_LEVEL=$EXPLORATION_LEVEL; expected 0..100" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$EXPLORATION_LEVEL" -gt 100 ]; then
+    echo "babelo-prompt-smoke:invalid EXPLORATION_LEVEL=$EXPLORATION_LEVEL; expected 0..100" >&2
+    exit 1
+  fi
+fi
+
 curl -fsS -o /tmp/dudesign-smoke-bootstrap.json http://127.0.0.1/api/dev/bootstrap
 workspace_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["workspace"]["id"])' /tmp/dudesign-smoke-bootstrap.json)"
 
@@ -51,8 +78,35 @@ curl -fsS -o /tmp/dudesign-smoke-session.json \
   http://127.0.0.1/api/sessions
 session_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["id"])' /tmp/dudesign-smoke-session.json)"
 
-SESSION_ID="$session_id" SMOKE_PROMPT="$SMOKE_PROMPT" VARIATION_COUNT="$VARIATION_COUNT" python3 -c 'import json,os; print(json.dumps({"sessionId": os.environ["SESSION_ID"], "prompt": os.environ["SMOKE_PROMPT"], "sourceMode": "new_html", "variationCount": int(os.environ["VARIATION_COUNT"]), "templateRequirements": {"styles": ["staging-smoke", "multi-direction"], "deviceTargets": ["desktop", "mobile"]}}))' \
+SESSION_ID="$session_id" SMOKE_PROMPT="$SMOKE_PROMPT" VARIATION_COUNT="$VARIATION_COUNT" EXPLORATION_SMOKE="$EXPLORATION_SMOKE" EXPLORATION_LEVEL="$EXPLORATION_LEVEL" python3 - <<'PY' \
   > /tmp/dudesign-smoke-job-payload.json
+import json
+import os
+
+payload = {
+    "sessionId": os.environ["SESSION_ID"],
+    "prompt": os.environ["SMOKE_PROMPT"],
+    "sourceMode": "new_html",
+    "variationCount": int(os.environ["VARIATION_COUNT"]),
+    "templateRequirements": {
+        "styles": ["staging-smoke", "multi-direction"],
+        "deviceTargets": ["desktop", "mobile"],
+    },
+}
+if os.environ["EXPLORATION_SMOKE"] == "1":
+    payload.update({
+        "productMode": "dynamic_encyclopedia_card",
+        "requirementModuleGraphId": "requirement_graph_dynamic_encyclopedia_star_group",
+        "exploration": {"level": int(os.environ["EXPLORATION_LEVEL"])},
+        "explorationDataContext": {
+            "units": [{"id": "staging-unit-a"}],
+            "members": {"current": [{"id": "member-a"}], "former": [{"id": "member-b"}]},
+            "membershipEvents": [{"year": 2024, "type": "verified-change"}],
+            "works": {"group": [{"id": "work-a"}]},
+        },
+    })
+print(json.dumps(payload))
+PY
 curl -fsS -o /tmp/dudesign-smoke-job.json \
   -H 'content-type: application/json' \
   --data-binary @/tmp/dudesign-smoke-job-payload.json \
@@ -80,12 +134,13 @@ if [ "${job_status:-}" != "completed" ]; then
   exit 1
 fi
 
-python3 - "$VARIATION_COUNT" /tmp/dudesign-smoke-job-detail.json <<'PY'
+python3 - "$VARIATION_COUNT" "$EXPLORATION_SMOKE" /tmp/dudesign-smoke-job-detail.json <<'PY'
 import json
 import sys
 
 expected = int(sys.argv[1])
-path = sys.argv[2]
+exploration_smoke = sys.argv[2] == "1"
+path = sys.argv[3]
 data = json.load(open(path))
 variations = data.get("variations", [])
 artifacts = data.get("artifacts", [])
@@ -114,6 +169,22 @@ failed_quality = [
 ]
 if failed_quality:
     raise SystemExit(f"html artifact quality failed: {failed_quality}")
+if exploration_smoke:
+    job = data.get("job", {})
+    graph = job.get("requirementModuleGraph")
+    plan = job.get("explorationPlan")
+    if not graph or graph.get("id") != "requirement_graph_dynamic_encyclopedia_star_group":
+        raise SystemExit(f"missing or unexpected requirement module graph: {graph}")
+    if not plan or len(plan.get("variations", [])) != expected:
+        raise SystemExit(f"missing exploration plan or unexpected variation count: {plan}")
+    if plan.get("profile", {}).get("factCreativity") != 0:
+        raise SystemExit(f"exploration plan factCreativity drifted: {plan.get('profile')}")
+    focuses = [item.get("explorationPlan", {}).get("focusId") for item in variations]
+    if any(not focus for focus in focuses):
+        raise SystemExit(f"variation exploration focus missing: {focuses}")
+    if len(set(focuses)) < min(expected, 3):
+        raise SystemExit(f"variation exploration focuses are not sufficiently distinct: {focuses}")
+    print(f"babelo-prompt-smoke:exploration focuses={focuses}")
 PY
 
 python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); print("\n".join(item["id"] for item in data["variations"]))' /tmp/dudesign-smoke-job-detail.json \

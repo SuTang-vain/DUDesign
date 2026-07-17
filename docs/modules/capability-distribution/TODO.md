@@ -197,6 +197,8 @@
 
 ## Phase CAP-8：动态百科卡片能力包
 
+> 产品语义声明：`../../dynamic-topic-interactive-card-product-semantics.md`。本阶段保留历史技术 ID，但产品目标是“词条主题动态交互卡”，不是传统百科页面。
+
 > 业务规划详见 `docs/dynamic-encyclopedia-card-business-logic-plan.md`（v0.2）。
 > 实现前需钉死的决策见该文档第 12 节；以下任务已对齐 12.1–12.6。
 
@@ -360,3 +362,189 @@
 
 验收：
 - 全部现有 loop profile 行为不变（仅 spec review 增加了 8 条新 finding 收集）
+
+## Phase CAP-10：模板与 Skill 自助创作
+
+> 详细规划：`template-skill-authoring-governance-plan.md`
+> 准入案例：明星组合动态百科功能设计文档
+
+### CAP-10.1 HTML -> Template Draft v2
+
+- [x] 定义 `CapabilityAuthoringSource` 和 `DesignTemplateDraftV2` 契约。
+- [x] 固定 source variation/artifact/version/content hash：Application Service 从 repository artifact 事实补齐 version/hash，并校验 variation、artifact 和 workspace 归属。
+- [x] 使用 parse5 DOM / PostCSS AST 提取 colors、typography、spacing、radius 和 elevation。
+- [x] 提取 sections、repeated components、layout 和 responsive rules。
+- [x] 识别 tab、accordion、modal、page-switcher、carousel、local filter 等本地交互候选；仅已有 registry id 可写入 `interactionParadigmIds`，其余保留为 component role/state。
+- [x] 定义 extraction evidence 和字段 confidence 契约，并校验 evidence path 与 `0..1` confidence。
+- [x] 将源 HTML 固定为 `htmlExamples` 候选，并生成独立 sanitized artifact：移除 active/external content，脱敏 email/secret/path，保留品牌风险 warning 和完整审计 finding。
+- [ ] 当前“保存为模板”拆成快速收藏和高保真提取两种模式。
+
+验收：
+
+- 无原 Design Template Pack 的 HTML variation 也能提取非空 tokens、sections 和 HTML example。
+
+### CAP-10.2 Draft 编辑、预览与导出
+
+- [x] 定义 `CapabilityAuthoringDraft` 状态机和显式合法迁移。
+- [x] lint error 禁止发布，warning 和 extraction evidence 要求用户确认；仅 sanitizer/preview 全通过的 `ready` draft 可 private publish。
+- [x] 增加 `capability_authoring_drafts` PostgreSQL migration、SQL-native repository 和 hydrate/no-hydrate 查询基础。
+- [x] 增加 Draft create/list/get/update/lint 用户 API，并保持 owner/workspace 隔离。
+- [x] 增加 draft preview smoke：强制 static quality gate，可通过 `DUDESIGN_CAPABILITY_AUTHORING_PIXEL_GATE=1` opt-in 真实 Playwright pixel gate；仅 preview pass 进入 `ready`。
+- [x] 支持 `ready -> published_private`，创建 `1.0.0` 私有模板和不可覆盖历史版本。
+- [x] 支持用户私有模板回滚：读取历史 version，恢复内容但生成新的 patch version，旧版本保持不变。
+- [x] private publish / rollback 写入 capability governance audit。
+- [~] 开放 `DESIGN.md` 和 Template Pack JSON 导出：API 与下载响应已完成，用户端 UI 待接入。
+- [x] 定义 Capability Bundle ZIP manifest 和 privacy-safe provenance；携带 Template Draft、Skill、Interaction Paradigm、Data Contract、Review Profile 与 HTML examples。
+- [x] Capability Bundle ZIP 导入执行文件数/大小、路径、重复 entry、manifest、hash、orphan example 与 provenance 校验。
+- [x] ZIP HTML examples 导入后重新 sanitizer，并持久化到独立 `capability_authoring_assets`，不依赖原环境 artifact/session id。
+- [x] Capability Bundle 导出/导入 API、用户端 Authoring Studio 下载/上传、license declaration、导入摘要确认和 preview gate 已完成。
+- [x] 用户端只列出 `ready` / `published_private` 草稿供导出；ZIP 导入后必须人工确认 evidence/warning path 并运行 preview，不直接发布。
+- [x] `DESIGN.md` 和 portable Template Pack JSON 支持重新导入为 governed draft；JSON 使用稳定 content hash 校验，篡改文档被拒绝。
+
+### CAP-10.3 普通功能文档规范化
+
+- [ ] 定义 `Capability Spec Importer`。
+- [ ] 确定性解析标题、表格、列表、字段、风险和验收。
+- [ ] Agent-assisted decomposition 只生成符合 schema 的 draft。
+- [ ] 输出 source evidence、confidence 和 unresolved questions。
+- [ ] 拆分 Template Pack、Declarative Skill、Interaction Paradigm、Data Contract 和 Review Profile。
+- [ ] 建立“明星组合动态百科”golden fixture。
+
+验收：
+
+- 明星组合文档不再导入为 token 全空的单一模板。
+
+### CAP-10.4 用户私有声明式 Skill
+
+- [ ] 增加 `design_skills` / `design_skill_versions` 持久化。
+- [ ] 用户 Skill CRUD。
+- [x] Skill dangerous instruction、长度、路径、shell、可执行内容和权限提升 lint。
+- [ ] 私有 Skill 可进入 capability snapshot。
+- [ ] Runtime Gateway 编译私有 Skill 时不扩大 tool policy。
+
+### CAP-10.5 用户贡献与官方发布
+
+- [ ] 定义 `capability_contributions` 生命周期。
+- [ ] 首版开放 private -> contribution candidate。
+- [ ] 提交包含 source/license、品牌风险、lint 和 preview artifact。
+- [ ] 管理端支持 request changes / reject / approve / promote official。
+- [ ] 官方模板和 Skill 支持 disable / archive / rollback。
+- [ ] 所有写操作记录 `capability.governance.change`。
+
+### CAP-10.6 Runtime Provider 兼容
+
+- [ ] 定义 `RuntimeDesignContextV1`。
+- [ ] 原始 Markdown 不进入 Runtime。
+- [ ] `previewArtifactId` 不作为隐式生成上下文。
+- [ ] HTML example 通过显式标准字段注入。
+- [ ] 增加 BabeL-O golden 和 CLI Agent fixture。
+
+### CAP-10.7 HTML Example 文件边界
+
+- [x] 大型官方 HTML example 从 TypeScript 模板 registry 迁移为独立文件引用。
+- [x] 时间线、关系图谱、对比辨析和可展开事实卡示例均保留为可审计文件。
+- [x] 增加文件引用存在性和 HTML 文档结构测试。
+- [ ] 将示例文件纳入 license/provenance manifest 和构建产物 hash。
+
+验收：
+
+- BabeL-O 或其他 Agent Provider 更新只影响 compiler/adapter 和 contract tests。
+
+## Phase CAP-11：多模块需求抽样与受控探索
+
+> 详细规划：`controlled-exploration-governance-plan.md`
+> 依赖：CAP-10.3 普通功能文档规范化
+
+### CAP-11.1 Requirement Module 契约
+
+- [x] 定义 `RequirementModuleV1`、模块模式、优先级、条件、依赖、冲突和 evidence 契约。
+- [x] 定义 `always / conditional / sampled / global_rule` 语义和 schema 校验。
+- [ ] Capability Spec Importer 输出模块图、未解决问题和置信度。
+- [x] 明星组合动态百科文档建立模块图 golden fixture。
+- [x] 固定事实、安全、权限、数据字段和必需模块 invariant。
+
+### CAP-11.2 Exploration Plan 契约
+
+- [x] 定义 `ExplorationProfileV1`、`BatchExplorationPlanV1` 和 `VariationExplorationPlanV1`。
+- [x] 用户探索度为 `0..100` 业务语义，不暴露 provider temperature。
+- [x] `factCreativity` 固定为 0，探索度只影响受控设计维度。
+- [x] 定义 planner version、deterministic seed、coverage summary 和 warning 契约。
+- [x] 计划与 Requirement Module Graph 进入 job snapshot，旧任务不随 registry 更新漂移。
+
+### CAP-11.3 批量覆盖与差异治理
+
+- [x] 3/6 variation 能覆盖高优先级 sampled 模块。
+- [x] required 和条件成立的 conditional 模块满足最小覆盖。
+- [x] 每个 variation 拥有可解释的 focus、模块组合和设计方向。
+- [ ] 增加模块 Jaccard、focus uniqueness、layout/interaction diversity 指标。
+- [~] 支持用户锁定、排除和重新分配非必选模块；planner 已支持 locked/excluded，重新分配 API/UI 待实现。
+
+### CAP-11.4 安全与 Provider 中立
+
+- [x] 探索计划不能扩大 MCP/tool policy。
+- [x] Runtime 不重新读取原始文档做随机抽样。
+- [x] BabeL-O、Mock 与可执行 CLI Agent provider 消费同一标准 exploration context。
+- [x] 高探索仍执行事实、未知值、争议表达和能力包 invariant 门禁。
+- [x] 建立旧 provider fallback、event drift、refine 和 runtime unavailable 测试。
+- [~] 在真实 staging BabeL-O 环境执行 3/6 variation exploration smoke；本地脚本、计划与 artifact 断言已就绪，待发布本阶段 build。
+
+### CAP-11.5 动态百科能力配置策略
+
+> 用户端规划：`../user-experience/dynamic-encyclopedia-capability-drawer-plan.md`
+
+- [x] 定义 `CapabilitySelectionSource = official_preset | entry_guidance | user_override | job_snapshot`。
+- [x] 扩展 `CapabilityPreset`：`selectionPolicy` 声明 required template/skill/MCP 和 allowed Loop。
+- [x] 扩展 `CapabilityPreset`：`explorationDefaults` 声明默认 level、experimental 确认阈值和强制审查阈值。
+- [x] 动态百科 preset 默认 exploration level 设为 `40 / balanced`，阈值不散落在前端常量。
+- [ ] 定义 capability lock reason code 和用户端安全说明。
+- [x] entry guidance 返回 exploration recommendation、reason 和 confidence。
+- [x] 明确合并优先级：`job_snapshot > user_override > entry_guidance > official_preset`；右栏展示候选来源，正式页面从固定 job snapshot 展示来源事实。
+- [x] required capability、父模板硬约束和 invariant 不允许被用户 override 删除。
+- [x] experimental 档强制 semi_auto/auto spec review，`factCreativity` 始终为 0。
+- [x] 增加契约、registry、兼容模板和 policy 单测。
+
+验收：
+
+- 同一功能文档能够形成可解释、可回放的批量设计覆盖方案，而不是只生成颜色不同的页面。
+- 探索度改变设计发散，不改变事实、安全、权限和必需业务约束。
+
+## Phase CAP-12：词条 Taxonomy 与 Democase 检索能力
+
+> 业务基线：`/Users/tangyaoyue/DEV/Baidu/KeDU-动态百科服务平台/动态百科服务平台_完整分类体系.md` 与 `/Users/tangyaoyue/DEV/Baidu/case垂类分类`。
+
+- [~] 将 11 个 L1、44 个 L2、40+ 个 L3 垂类转为版本化、机器可读 taxonomy registry；11 个 L1、源表实际列出的 41 个 L2 和首批高优 L3 已完成，源文档声明 44 但缺 3 个定义，待数据方确认。
+- [~] taxonomy node 声明 aliases、positive/negative signals、适用模板、交互范式和风险规则；parent id、完整数据需求和 40+ L3 待补。
+- [x] 建立 taxonomy lint，校验 L1/L2 数量、父子关系和重复 node id；alias/capability 全量 lint 待随 registry 扩展继续加强。
+- [x] 将本地 case 资产索引为结构化 democase records；32 个主 HTML case 已索引，约 488 个图片/文档/数据文件作为 supporting assets 汇总，输出 taxonomy、模板、交互、结构特征、asset summary 和 content hash。
+- [~] 建立检索接口，返回候选 case、score、matched evidence 和 index version；exact title/alias、关键词和 BM25-style lexical scorer 已完成，向量索引待补。
+- [x] guidance AI 只消费裁剪后的 taxonomy/democase evidence，不把完整原始 HTML、case 事实正文或不受信 Markdown 直接注入模型。
+- [x] AI 模式模板推荐使用模型语义评分 + registry hard constraints，不再由固定数组顺序决定；legacy 模式仍保留旧逻辑。
+- [x] V2 contract 区分 entity classification 与 user intent，并通过“庆余年人物关系”API flow 固定电视剧实体 + 人物关系意图。
+- [x] V2 contract 输出 available facts、missing facts、research requirement、risk flags 和 clarification candidates。
+- [x] 建立 100 条 golden guidance fixture，覆盖 20 个高频 L2、歧义词条、纯标题和标题+意图；错误/恶意输入专项集待继续扩展。
+- [x] 建立离线评测：coverage、L1/L2/taxonomy node 准确率、Top-3 模板召回率、primary intent 命中率和澄清 precision/recall。
+- [x] 将 100 条 fixture 接入可并发调用真实 `GuidanceAnalysisGateway` 的 evaluation runner，生成逐 case JSON 报告并按 staging 阈值判定准入。
+- [x] staging 首次真实模型 baseline 已通过；最终结果为 coverage 99%、L1 98.0%、L2 92.9%、taxonomy node 85.9%、intent 94.9%、Top-3 模板召回 100%、澄清 precision 87.5%、recall 70%。
+- [ ] 真实数据上线前保留 mock registry，但响应必须明确 `analysisMode=mock`，不得继续伪装为 AI 置信度。
+
+验收：
+
+- taxonomy 与 democase 是可版本化、可审计、可检索的数据资产，不再散落为 `includes()` 和手写数组。
+- 新增或调整垂类不需要修改 Application Service 分类分支。
+- 模板推荐可以解释引用了哪些 taxonomy 节点、democase 和用户意图。
+
+## Phase CAP-18：主题交互卡质量能力
+
+- [x] 新增 `aes_topic_interactive_card`，明确禁止 CTA、proof block、testimonial、pricing 和 dashboard 模式。
+- [x] 动态主题卡默认使用专用 aesthetic profile 与 neutral palette，不再继承 `Trustworthy SaaS`。
+- [x] 新增明星组合成员体系专用 HTML democase，不再回退到通用 relation-card 示例。
+- [x] 专用 democase 同时通过 pixel gate 与 topic-card spec review。
+- [x] 为 timeline、summary、comparison、expandable 建立同等级 compact interaction democase。
+- [x] 将 300×360 升级为所有动态主题卡模板的一等交付尺寸：保留必要 tab/主交互，首屏收缩为主题身份与核心事实，次要信息通过本地点击、弹层或 tab 渐进展示。
+- [x] 六类结构原型（summary/timeline/relation/comparison/expandable/star-group）统一通过桌面与 300×360 Chromium pixel gate，并覆盖时间线切换、对比弹层、渐进展开和成员详情点击回归。
+- [x] series、scenic route、scenic map 等垂直交互模板使用领域专属 `300×360` compact few-shot，不回退到通用百科页面样例。
+- [x] 建立共享 `EncyclopediaDemocaseExperienceProfile` 默认契约，按 relation/timeline/compare/route/progressive/summary 阶段统一桌面与 `300×360` 的控件、内容项和文字预算。
+- [x] Runtime Gateway 在 democase 证据阶段不匹配时使用官方阶段 fallback，禁止错误复用第一条 recalled profile；prompt 明确输出 profile 来源、保留项和延后项。
+- [x] 官方动态卡示例按各自 dominant stage 执行 profile-aware Chromium Pixel Gate；summary、relation、compare、expandable、series、route、map 和 member 已消除极小屏重复导航和不可达隐藏内容。
+- [x] 真实 democase 索引构建测试校验生成 profile 与共享契约完全一致，防止 builder、runtime 和 quality gate 的预算漂移。
+- [~] staging 禁止 mock research/image artifact 被标记为可用于质量验收的真实素材；source contract 已增加 mock provenance，Runtime 已禁止把 mock 当事实或可用图片，部署配置仍需切换真实 provider。

@@ -15,6 +15,9 @@ multilane_smoke="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE:-0}"
 completion_lane_required="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_COMPLETION_LANE_REQUIRED:-0}"
 interaction_smoke="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_INTERACTION_SMOKE:-0}"
 interaction_required="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_INTERACTION_REQUIRED:-0}"
+quality_required_status="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_REQUIRED_QUALITY_STATUS:-not_fail}"
+refine_smoke="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_REFINE_SMOKE:-0}"
+evidence_dir="${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_EVIDENCE_DIR:-}"
 
 if [ "${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX:-0}" = "1" ]; then
   script_path="${BASH_SOURCE[0]}"
@@ -79,7 +82,7 @@ if [ "${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VERTICAL_MATRIX:-0}" = "1" ]; then
   exit 0
 fi
 
-ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' ENTRY='$entry' ENTRY_CONTEXT='$context' VARIATION_COUNT='$variation_count' SELECTED_TEMPLATE_ID='$selected_template_id' EXPECTED_PRIMARY_CATEGORY='$expected_primary_category' EXPECTED_SECONDARY_CATEGORY='$expected_secondary_category' FORBIDDEN_FINDING_IDS='$forbidden_finding_ids' MULTILANE_SMOKE='$multilane_smoke' COMPLETION_LANE_REQUIRED='$completion_lane_required' INTERACTION_SMOKE='$interaction_smoke' INTERACTION_REQUIRED='$interaction_required' LOCAL_VARIATION_COUNT_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VARIATION_COUNT+x}' LOCAL_MULTILANE_SMOKE_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE+x}' LOCAL_TIMEOUT_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TIMEOUT_SECONDS+x}' bash -s" <<'REMOTE'
+ssh "$remote" "BASE_DIR='$base_dir' SMOKE_TIMEOUT_SECONDS='$timeout_seconds' ENTRY='$entry' ENTRY_CONTEXT='$context' VARIATION_COUNT='$variation_count' SELECTED_TEMPLATE_ID='$selected_template_id' EXPECTED_PRIMARY_CATEGORY='$expected_primary_category' EXPECTED_SECONDARY_CATEGORY='$expected_secondary_category' FORBIDDEN_FINDING_IDS='$forbidden_finding_ids' MULTILANE_SMOKE='$multilane_smoke' COMPLETION_LANE_REQUIRED='$completion_lane_required' INTERACTION_SMOKE='$interaction_smoke' INTERACTION_REQUIRED='$interaction_required' QUALITY_REQUIRED_STATUS='$quality_required_status' REFINE_SMOKE='$refine_smoke' EVIDENCE_DIR='$evidence_dir' LOCAL_VARIATION_COUNT_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_VARIATION_COUNT+x}' LOCAL_MULTILANE_SMOKE_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_MULTILANE_SMOKE+x}' LOCAL_TIMEOUT_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TIMEOUT_SECONDS+x}' LOCAL_QUALITY_STATUS_SET='${DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_REQUIRED_QUALITY_STATUS+x}' bash -s" <<'REMOTE'
 set -euo pipefail
 
 cd "$BASE_DIR/dudesign/current"
@@ -89,7 +92,15 @@ env_value() {
   if [ ! -f deploy/staging/.env ]; then
     return 0
   fi
-  grep -E "^${key}=" deploy/staging/.env | tail -n 1 | cut -d= -f2-
+  awk -v key="$key" '
+    index($0, key "=") == 1 {
+      value = substr($0, length(key) + 2)
+      found = 1
+    }
+    END {
+      if (found) print value
+    }
+  ' deploy/staging/.env
 }
 
 if [ -z "${LOCAL_VARIATION_COUNT_SET:-}" ]; then
@@ -104,6 +115,14 @@ if [ -z "${LOCAL_TIMEOUT_SET:-}" ]; then
   remote_timeout_seconds="$(env_value DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_TIMEOUT_SECONDS)"
   SMOKE_TIMEOUT_SECONDS="${remote_timeout_seconds:-$SMOKE_TIMEOUT_SECONDS}"
 fi
+if [ -z "${LOCAL_QUALITY_STATUS_SET:-}" ]; then
+  remote_quality_required_status="$(env_value DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_REQUIRED_QUALITY_STATUS)"
+  QUALITY_REQUIRED_STATUS="${remote_quality_required_status:-$QUALITY_REQUIRED_STATUS}"
+fi
+if [ -z "${EVIDENCE_DIR:-}" ]; then
+  EVIDENCE_DIR="$(env_value DUDESIGN_STAGING_DYNAMIC_ENCYCLOPEDIA_EVIDENCE_DIR)"
+fi
+EVIDENCE_CONTAINER_DIR="${EVIDENCE_DIR:-/app/.dudesign/artifacts/reports/dynamic-encyclopedia-smoke}"
 
 if ! grep -Eq '^DUDESIGN_RUNTIME_PROVIDER=babel-o$|^DUDESIGN_RUNTIME_MODE=babel-o$' deploy/staging/.env; then
   echo 'dynamic-encyclopedia-smoke:skipped provider is not babel-o'
@@ -144,71 +163,134 @@ fi
 
 run_interaction_smoke() {
   local variation_id="$1"
+  local evidence_prefix="${2:-generation}"
+  local evidence_log="/tmp/dudesign-dynamic-${evidence_prefix}-${variation_id}.metrics.log"
   docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env exec -T \
     -e SMOKE_VARIATION_ID="$variation_id" \
     -e SMOKE_INTERACTION_REQUIRED="${INTERACTION_REQUIRED:-0}" \
+    -e SMOKE_EVIDENCE_PREFIX="$evidence_prefix" \
+    -e SMOKE_EVIDENCE_DIR="$EVIDENCE_CONTAINER_DIR" \
     -e PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/bin/chromium}" \
-    api node --input-type=module <<'NODE'
+    api node --input-type=module <<'NODE' | tee "$evidence_log"
 import { chromium } from 'playwright'
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 const variationId = process.env.SMOKE_VARIATION_ID
 const interactionRequired = process.env.SMOKE_INTERACTION_REQUIRED === '1'
+const evidencePrefix = (process.env.SMOKE_EVIDENCE_PREFIX || 'generation').replace(/[^a-z0-9_-]+/gi, '-')
+const evidenceDir = process.env.SMOKE_EVIDENCE_DIR?.trim()
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim()
 if (!variationId) throw new Error('SMOKE_VARIATION_ID is required')
+if (evidenceDir) await mkdir(evidenceDir, { recursive: true })
 
 const browser = await chromium.launch({
   headless: true,
   ...(executablePath ? { executablePath } : {}),
 })
 try {
-  const page = await browser.newPage()
-  await page.goto(`http://127.0.0.1:4000/api/variations/${variationId}/preview`, {
-    waitUntil: 'domcontentloaded',
-    timeout: 30000,
-  })
-  const result = await page.evaluate(() => {
-    const tabs = [...document.querySelectorAll('[role="tab"], .tab-bar button')]
-      .filter(element => element instanceof HTMLElement)
-    if (tabs.length < 2) {
-      return {
-        skipped: true,
-        reason: `no tab interaction found; tabCount=${tabs.length}`,
+  const checks = [
+    { label: 'desktop', width: 1280, height: 900 },
+    { label: 'extreme-small', width: 300, height: 360 },
+  ]
+  for (const check of checks) {
+    const page = await browser.newPage({ viewport: { width: check.width, height: check.height } })
+    try {
+      await page.goto(`http://127.0.0.1:4000/api/variations/${variationId}/preview`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      })
+      await page.waitForTimeout(120)
+      if (evidenceDir) {
+        const screenshotPath = resolve(evidenceDir, `${evidencePrefix}-${variationId}-${check.label}.png`)
+        await page.screenshot({ path: screenshotPath, fullPage: false })
+        console.log(`dynamic-encyclopedia-smoke:evidence variation=${variationId} viewport=${check.label} path=${screenshotPath}`)
       }
+      const result = await page.evaluate(({ label, width, height }) => {
+        const supported = (rect) => (
+          (Math.abs(rect.width - 788) <= 4 && Math.abs(rect.height - 492) <= 4)
+          || (Math.abs(rect.width - 380) <= 4 && Math.abs(rect.height - 456) <= 4)
+          || (Math.abs(rect.width - 300) <= 4 && Math.abs(rect.height - 360) <= 4)
+        )
+        const visible = (element) => {
+          const style = getComputedStyle(element)
+          const rect = element.getBoundingClientRect()
+          return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0.01
+            && rect.width > 2 && rect.height > 2
+        }
+        const candidates = [...new Set([
+          ...document.querySelectorAll('[data-dudesign-template]'),
+          ...document.querySelectorAll('.pc-card-frame, .pc-card, .no-scroll-frame'),
+        ])].filter(element => supported(element.getBoundingClientRect()))
+        const frame = candidates[0]
+        if (!frame) return { ok: false, reason: 'no supported fixed-card frame' }
+        const frameRect = frame.getBoundingClientRect()
+        const centered = Math.abs(frameRect.x - (innerWidth - frameRect.width) / 2) <= 24
+          && Math.abs(frameRect.y - (innerHeight - frameRect.height) / 2) <= 24
+        const controls = [...frame.querySelectorAll('button, a[href], [role="button"], [role="tab"]')].filter(visible)
+        const tabs = [...frame.querySelectorAll('[role="tab"]')].filter(visible)
+        const title = [...frame.querySelectorAll('h1, h2, [data-dudesign-core-title], .entry-title, .topic-title, .card-title, .title')].find(visible)
+        const coreContent = [...frame.querySelectorAll('[data-dudesign-core-fact], [data-dudesign-core-summary], [data-dudesign-selected-detail], .entry-summary, .topic-summary, .summary, .description, .fact, .selected-detail, .detail, [role="tabpanel"], p')]
+          .find(element => visible(element) && element !== title && (element.textContent || '').replace(/\s+/g, '').trim().length >= 8)
+        const text = frame.innerText.replace(/\s+/g, ' ').trim()
+        const overflow = document.documentElement.scrollWidth > innerWidth + 1 || document.body.scrollWidth > innerWidth + 1
+        const base = { label, frame: { width: frameRect.width, height: frameRect.height }, centered, title: Boolean(title), coreContent: Boolean(coreContent), controls: controls.length, tabs: tabs.length, textLength: text.replace(/\s/g, '').length, overflow }
+        if (!centered || overflow) return { ok: false, reason: 'frame is not centered or page overflows', ...base }
+        if (label === 'extreme-small') {
+          const exact = Math.abs(frameRect.width - width) <= 4 && Math.abs(frameRect.height - height) <= 4
+          const primaryControls = controls.filter(control => control.matches('[role="tab"], [aria-pressed], [aria-expanded], [data-dudesign-primary-control]'))
+          const primaryControlCount = primaryControls.length || Math.min(controls.length, 1)
+          const controlGroups = [...frame.querySelectorAll('[role="tablist"], [data-dudesign-control-group], nav')]
+            .filter(group => visible(group) && group.querySelector('button, a[href], [role="button"], [role="tab"]'))
+          const duplicateControlLabels = Object.entries(controls.reduce((counts, control) => {
+            const label = (control.getAttribute('aria-label') || control.textContent || '').replace(/\s+/g, '').trim()
+            if (label) counts[label] = (counts[label] || 0) + 1
+            return counts
+          }, {})).filter(([, count]) => count > 1).map(([label]) => label)
+          const undersized = controls.filter(control => {
+            const rect = control.getBoundingClientRect()
+            return rect.width < 24 || rect.height < 24
+          }).length
+          const clipped = controls.filter(control => {
+            const rect = control.getBoundingClientRect()
+            return rect.left < frameRect.left - 2 || rect.top < frameRect.top - 2
+              || rect.right > frameRect.right + 2 || rect.bottom > frameRect.bottom + 2
+          }).length
+          if (!exact || !title || !coreContent || text.replace(/\s/g, '').length < 24 || controls.length === 0 || controls.length > 5
+            || primaryControlCount > 3 || controlGroups.length > 1 || duplicateControlLabels.length || undersized || clipped) {
+            return { ok: false, reason: 'extreme-small contract failed', ...base, exact, primaryControlCount, controlGroups: controlGroups.length, duplicateControlLabels, undersized, clipped }
+          }
+        }
+        const candidate = tabs[1] ?? tabs[0] ?? controls[0]
+        if (!candidate) {
+          if (interactionRequired) return { ok: false, reason: 'no local interaction control', ...base }
+          return { ok: true, skippedInteraction: true, ...base }
+        }
+        const before = JSON.stringify({ text: frame.innerText, state: [...frame.querySelectorAll('[aria-selected], [aria-expanded], [hidden], .active, .open, .selected')].map(element => `${element.className}:${element.getAttribute('aria-selected')}:${element.getAttribute('aria-expanded')}:${element.hidden}`) })
+        candidate.click()
+        const after = JSON.stringify({ text: frame.innerText, state: [...frame.querySelectorAll('[aria-selected], [aria-expanded], [hidden], .active, .open, .selected')].map(element => `${element.className}:${element.getAttribute('aria-selected')}:${element.getAttribute('aria-expanded')}:${element.hidden}`) })
+        const changed = before !== after
+        if (!changed && interactionRequired) return { ok: false, reason: 'local interaction did not change visible or accessible state', ...base }
+        return { ok: true, changed, ...base }
+      }, check)
+      if (!result.ok) throw new Error(`${check.label}: ${JSON.stringify(result)}`)
+      console.log(`dynamic-encyclopedia-smoke:interaction:passed variation=${variationId} ${JSON.stringify(result)}`)
+    } finally {
+      await page.close()
     }
-    const before = tabs.map(tab => tab.getAttribute('aria-selected') ?? '')
-    tabs[1].click()
-    const panels = [...document.querySelectorAll('[role="tabpanel"]')]
-      .filter(element => element instanceof HTMLElement)
-    const after = tabs.map(tab => tab.getAttribute('aria-selected') ?? '')
-    const visiblePanelIds = panels
-      .filter(panel => !panel.hidden && getComputedStyle(panel).display !== 'none' && getComputedStyle(panel).visibility !== 'hidden')
-      .map(panel => panel.id || panel.getAttribute('aria-label') || panel.textContent?.slice(0, 24) || 'panel')
-    const ariaChanged = before.join('|') !== after.join('|') && after[1] === 'true'
-    const panelVisible = panels.length === 0 || visiblePanelIds.length > 0
-    return {
-      skipped: false,
-      tabCount: tabs.length,
-      panelCount: panels.length,
-      ariaChanged,
-      panelVisible,
-      visiblePanelIds,
-    }
-  })
-  if (result.skipped) {
-    if (interactionRequired) {
-      throw new Error(`required tab interaction was not found: ${result.reason}`)
-    }
-    console.log(`dynamic-encyclopedia-smoke:interaction:skipped variation=${variationId} ${result.reason}`)
-    process.exit(0)
   }
-  if (!result.ariaChanged || !result.panelVisible) {
-    throw new Error(`tab interaction did not update accessible state or visible panel: ${JSON.stringify(result)}`)
-  }
-  console.log(`dynamic-encyclopedia-smoke:interaction:passed variation=${variationId} tabs=${result.tabCount} panels=${result.panelCount}`)
 } finally {
   await browser.close()
 }
 NODE
+
+  if [ -n "${EVIDENCE_HOST_DIR:-}" ]; then
+    cp "$evidence_log" "$EVIDENCE_HOST_DIR/${evidence_prefix}-${variation_id}.metrics.log"
+    for viewport in desktop extreme-small; do
+      docker compose $compose_profile_args -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env \
+        cp "api:${EVIDENCE_CONTAINER_DIR}/${evidence_prefix}-${variation_id}-${viewport}.png" "$EVIDENCE_HOST_DIR/"
+    done
+  fi
 }
 
 curl -fsS -o /tmp/dudesign-dynamic-bootstrap.json http://127.0.0.1/api/dev/bootstrap
@@ -323,6 +405,14 @@ curl -fsS -o /tmp/dudesign-dynamic-job.json \
   --data-binary @/tmp/dudesign-dynamic-job-payload.json \
   http://127.0.0.1/api/design-jobs
 job_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["job"]["id"])' /tmp/dudesign-dynamic-job.json)"
+EVIDENCE_HOST_DIR="$BASE_DIR/shared/smoke-evidence/dynamic-encyclopedia/$job_id"
+mkdir -p "$EVIDENCE_HOST_DIR"
+cp \
+  /tmp/dudesign-dynamic-session.json \
+  /tmp/dudesign-dynamic-guidance.json \
+  /tmp/dudesign-dynamic-guidance-confirmed.json \
+  /tmp/dudesign-dynamic-job.json \
+  "$EVIDENCE_HOST_DIR/"
 
 deadline=$((SECONDS + SMOKE_TIMEOUT_SECONDS))
 while [ "$SECONDS" -lt "$deadline" ]; do
@@ -344,6 +434,8 @@ if [ "${job_status:-}" != "completed" ]; then
   cat /tmp/dudesign-dynamic-job-detail.json >&2
   exit 1
 fi
+cp /tmp/dudesign-dynamic-job-detail.json "$EVIDENCE_HOST_DIR/job-detail.generation.json"
+cp /tmp/dudesign-dynamic-job-detail.json "$EVIDENCE_HOST_DIR/job-detail.json"
 
 printf '[]' > /tmp/dudesign-dynamic-lane-events.json
 if [ "${MULTILANE_SMOKE:-0}" = "1" ]; then
@@ -372,7 +464,7 @@ if [ "${MULTILANE_SMOKE:-0}" = "1" ]; then
     " > /tmp/dudesign-dynamic-lane-events.json
 fi
 
-python3 - "$VARIATION_COUNT" "$SELECTED_TEMPLATE_ID" "$FORBIDDEN_FINDING_IDS" "$MULTILANE_SMOKE" "$COMPLETION_LANE_REQUIRED" /tmp/dudesign-dynamic-job-detail.json /tmp/dudesign-dynamic-lane-events.json <<'PY'
+python3 - "$VARIATION_COUNT" "$SELECTED_TEMPLATE_ID" "$FORBIDDEN_FINDING_IDS" "$MULTILANE_SMOKE" "$COMPLETION_LANE_REQUIRED" "$QUALITY_REQUIRED_STATUS" /tmp/dudesign-dynamic-job-detail.json /tmp/dudesign-dynamic-lane-events.json <<'PY'
 import json
 import sys
 
@@ -381,8 +473,11 @@ selected_template_id = sys.argv[2]
 forbidden_finding_ids = [item.strip() for item in sys.argv[3].split(",") if item.strip()]
 multilane_smoke = sys.argv[4] == "1"
 completion_lane_required = sys.argv[5] == "1"
-data = json.load(open(sys.argv[6]))
-lane_events = json.load(open(sys.argv[7])) if len(sys.argv) > 7 else []
+quality_required_status = sys.argv[6]
+if quality_required_status not in {"pass", "not_fail", "any"}:
+    raise SystemExit(f"invalid required quality status: {quality_required_status}")
+data = json.load(open(sys.argv[7]))
+lane_events = json.load(open(sys.argv[8])) if len(sys.argv) > 8 else []
 if data.get("job", {}).get("productMode") != "dynamic_encyclopedia_card":
     raise SystemExit(f"expected dynamic job productMode, got {data.get('job', {}).get('productMode')}")
 if data.get("job", {}).get("capabilitySnapshot", {}).get("template", {}).get("domainTemplate", {}).get("id") != "tpl_dynamic_encyclopedia_entry":
@@ -404,17 +499,29 @@ wrong_template = [
 ]
 if wrong_template:
     raise SystemExit(f"variations missing expected child template assignment {selected_template_id}: {wrong_template}")
-artifact_variation_ids = {item.get("variationId") for item in artifacts if item.get("kind") == "html"}
-missing_artifacts = [item.get("id") for item in variations if item.get("id") not in artifact_variation_ids]
-if missing_artifacts:
-    raise SystemExit(f"variations missing html artifacts: {missing_artifacts}")
-failed_quality = [
-    (item.get("id"), item.get("quality"))
+artifacts_by_id = {
+    item.get("id"): item
     for item in artifacts
-    if item.get("kind") == "html" and (item.get("quality") or {}).get("status") == "fail"
+    if item.get("kind") == "html" and item.get("id")
+}
+missing_current_artifacts = [
+    item.get("id")
+    for item in variations
+    if item.get("currentArtifactId") not in artifacts_by_id
 ]
+if missing_current_artifacts:
+    raise SystemExit(f"variations missing current html artifacts: {missing_current_artifacts}")
+current_quality = [
+    (item.get("id"), artifacts_by_id[item.get("currentArtifactId")].get("quality") or {})
+    for item in variations
+]
+failed_quality = [item for item in current_quality if item[1].get("status") == "fail"]
 if failed_quality:
-    raise SystemExit(f"html artifact quality failed: {failed_quality}")
+    raise SystemExit(f"current html artifact quality failed: {failed_quality}")
+if quality_required_status == "pass":
+    not_passed = [item for item in current_quality if item[1].get("status") != "pass"]
+    if not_passed:
+        raise SystemExit(f"current html artifact quality did not pass: {not_passed}")
 if multilane_smoke:
     lanes = sorted({item.get("runtimeLaneId") for item in variations if item.get("runtimeLaneId")})
     scheduled_lanes = sorted({
@@ -486,6 +593,8 @@ while IFS= read -r variation_id; do
     -H 'content-type: application/json' \
     --data-binary '{}' \
     "http://127.0.0.1/api/variations/$variation_id/export"
+  cp "/tmp/dudesign-dynamic-preview-$preview_count.html" "$EVIDENCE_HOST_DIR/generation-${variation_id}.html"
+  cp "/tmp/dudesign-dynamic-export-$preview_count.json" "$EVIDENCE_HOST_DIR/generation-${variation_id}.export.json"
 
   if grep -Eqi 'Mock preview|mock runtime|BabeL-O completed without writing index.html' "/tmp/dudesign-dynamic-preview-$preview_count.html"; then
     echo "dynamic-encyclopedia-smoke:preview for $variation_id still looks like mock or fallback output" >&2
@@ -514,7 +623,7 @@ if not artifact.get("downloadUrl"):
 PY
 
   if [ "${INTERACTION_SMOKE:-0}" = "1" ]; then
-    run_interaction_smoke "$variation_id"
+    run_interaction_smoke "$variation_id" generation
   fi
 done < /tmp/dudesign-dynamic-variation-ids.txt
 
@@ -523,5 +632,79 @@ if [ "$preview_count" != "$VARIATION_COUNT" ]; then
   exit 1
 fi
 
-echo "dynamic-encyclopedia-smoke:completed job=$job_id variations=$preview_count guidance=$guidance_id"
+if [ "$REFINE_SMOKE" = "1" ]; then
+  refine_variation_id="$(head -n 1 /tmp/dudesign-dynamic-variation-ids.txt)"
+  curl -fsS -o /tmp/dudesign-dynamic-refine-before.json "http://127.0.0.1/api/variations/$refine_variation_id"
+  base_artifact_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["currentArtifact"]["id"])' /tmp/dudesign-dynamic-refine-before.json)"
+  REFINE_VARIATION_ID="$refine_variation_id" BASE_ARTIFACT_ID="$base_artifact_id" python3 - <<'PY' > /tmp/dudesign-dynamic-refine-payload.json
+import json
+import os
+print(json.dumps({
+    'requestId': f"rfn_staging_{os.environ['REFINE_VARIATION_ID']}",
+    'prompt': '保留当前主题动态交互卡结构，只优化 300x360 首屏信息层级、核心文字可读性和现有本地切换交互；不要改成传统百科长页面。',
+    'baseArtifactId': os.environ['BASE_ARTIFACT_ID'],
+    'deviceContext': 'mobile',
+}, ensure_ascii=False))
+PY
+  curl -fsS -o /tmp/dudesign-dynamic-refine.json \
+    -H 'content-type: application/json' \
+    --data-binary @/tmp/dudesign-dynamic-refine-payload.json \
+    "http://127.0.0.1/api/variations/$refine_variation_id/refine"
+  curl -fsS -o /tmp/dudesign-dynamic-refine-after.json "http://127.0.0.1/api/variations/$refine_variation_id"
+  cp /tmp/dudesign-dynamic-refine-payload.json "$EVIDENCE_HOST_DIR/refine-${refine_variation_id}.request.json"
+  cp /tmp/dudesign-dynamic-refine.json "$EVIDENCE_HOST_DIR/refine-${refine_variation_id}.response.json"
+  cp /tmp/dudesign-dynamic-refine-before.json "$EVIDENCE_HOST_DIR/refine-${refine_variation_id}.before.json"
+  cp /tmp/dudesign-dynamic-refine-after.json "$EVIDENCE_HOST_DIR/refine-${refine_variation_id}.after.json"
+  curl -fsS -o "$EVIDENCE_HOST_DIR/refine-${refine_variation_id}.html" "http://127.0.0.1/api/variations/$refine_variation_id/preview"
+  curl -fsS -o /tmp/dudesign-dynamic-job-detail.json "http://127.0.0.1/api/design-jobs/$job_id"
+  cp /tmp/dudesign-dynamic-job-detail.json "$EVIDENCE_HOST_DIR/job-detail.json"
+  python3 - /tmp/dudesign-dynamic-refine-before.json /tmp/dudesign-dynamic-refine-after.json <<'PY'
+import json
+import sys
+before = json.load(open(sys.argv[1]))
+after = json.load(open(sys.argv[2]))
+before_version = (before.get('currentArtifact') or {}).get('version')
+after_artifact = after.get('currentArtifact') or {}
+if after_artifact.get('version', 0) <= before_version:
+    raise SystemExit(f'refine did not create a newer artifact: before={before_version} after={after_artifact}')
+quality = after_artifact.get('quality') or {}
+if quality.get('status') == 'fail':
+    raise SystemExit(f'refined artifact quality failed: {quality}')
+print(f"dynamic-encyclopedia-smoke:refine:passed variation={after.get('variation', {}).get('id')} version={after_artifact.get('version')} quality={quality.get('status')}")
+PY
+  if [ "$INTERACTION_SMOKE" = "1" ]; then
+    run_interaction_smoke "$refine_variation_id" refine
+  fi
+fi
+
+JOB_ID="$job_id" GUIDANCE_ID="$guidance_id" SELECTED_TEMPLATE_ID="$SELECTED_TEMPLATE_ID" ENTRY="$ENTRY" \
+  python3 - "$EVIDENCE_HOST_DIR/job-detail.json" <<'PY' > "$EVIDENCE_HOST_DIR/manifest.json"
+import datetime
+import json
+import os
+import sys
+
+detail = json.load(open(sys.argv[1]))
+artifacts = {item.get('id'): item for item in detail.get('artifacts', [])}
+variations = []
+for variation in detail.get('variations', []):
+    artifact = artifacts.get(variation.get('currentArtifactId')) or {}
+    variations.append({
+        'variationId': variation.get('id'),
+        'templateId': (variation.get('designTemplatePack') or {}).get('id'),
+        'artifactId': artifact.get('id'),
+        'artifactVersion': artifact.get('version'),
+        'quality': artifact.get('quality'),
+    })
+print(json.dumps({
+    'capturedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'jobId': os.environ['JOB_ID'],
+    'guidanceId': os.environ['GUIDANCE_ID'],
+    'selectedTemplateId': os.environ['SELECTED_TEMPLATE_ID'],
+    'entry': os.environ['ENTRY'],
+    'variations': variations,
+}, ensure_ascii=False, indent=2))
+PY
+
+echo "dynamic-encyclopedia-smoke:completed job=$job_id variations=$preview_count guidance=$guidance_id evidence=$EVIDENCE_HOST_DIR"
 REMOTE

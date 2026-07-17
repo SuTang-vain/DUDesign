@@ -181,3 +181,56 @@
 
 - 管理端路由保持不变。
 - Admin Runtime Governance 可以独立单测。
+
+## Phase ADM-9：Capability Contribution Governance
+
+> 上游规划：`../capability-distribution/template-skill-authoring-governance-plan.md`
+
+- [ ] 新增 Contribution Inbox。
+- [ ] 展示 source、owner、workspace、license 和品牌风险声明。
+- [ ] 展示 Template/Skill/Data/Review bundle diff。
+- [ ] 展示 lint、preview smoke、HTML example 风险和 usage。
+- [ ] 支持 request changes / reject / approve / promote official。
+- [ ] 支持模板和 Skill publish / disable / archive / rollback。
+- [ ] support 保持只读，operator/developer 才可执行写治理。
+- [ ] 所有操作写入 `capability.governance.change`。
+- [ ] 浏览器 E2E：用户 contribution -> operator 审核 -> official 可见。
+
+验收：
+
+- 管理运营人员可以从页面完成候选能力审核和发布，不需要直接修改 registry 源码或数据库。
+
+## Phase ADM-10：探索策略治理与观测
+
+> 上游规划：`../capability-distribution/controlled-exploration-governance-plan.md`
+
+- [ ] 增加 exploration policy version、启用状态和灰度范围视图。
+- [ ] 展示探索度使用分布、required coverage、sampled coverage 和 focus uniqueness。
+- [ ] 展示高探索失败率、重试率、成本、事实风险和 plan-to-artifact drift。
+- [ ] 支持按 capability、template、provider、variation count 和 exploration mode 筛选。
+- [ ] 增加 Requirement Module registry 只读图谱和 evidence 查看。
+- [ ] operator/developer 支持策略 disable、rollback 和灰度；support 保持只读。
+- [ ] 策略变更写入 `capability.governance.change`，不得改写已有 job snapshot。
+- [ ] 增加阈值告警：必需模块缺失、结果过度同质化、工具越权和事实风险。
+- [ ] 浏览器 E2E：查看策略指标 -> 灰度新版本 -> 回滚 -> 审计可见。
+
+验收：
+
+- 管理端可治理未来任务的探索策略，并能解释异常来源，但不能直接操纵用户任务结果。
+
+## Phase ADM-11：AI Guidance 质量治理
+
+- [ ] 展示 guidance provider/model、taxonomy/index/prompt/schema version 和可用性。
+- [ ] 展示 L1/L2/L3 分布、低置信率、澄清率、用户改选率和 fallback 率。
+- [ ] 展示 Top-3 模板召回率、模板改选率、interaction intent 命中率和 democase 使用分布。
+- [ ] 支持按时间、workspace、provider、模型、taxonomy 版本和垂类筛选。
+- [ ] 展示 invalid response、repair、timeout、provider unavailable 和 contract mismatch 事件。
+- [ ] 支持查看脱敏后的 evidence ids、候选分类和最终用户确认结果，不展示模型原始 thinking。
+- [ ] 支持 taxonomy/democase index 灰度、disable、rollback，并写入治理审计日志。
+- [ ] 建立阈值告警：高 fallback、高用户改选、异常模板集中、过度澄清和垂类漂移。
+- [ ] 管理端浏览器 E2E：查看 guidance 指标 -> 定位失败样本 -> 回滚 taxonomy/index 版本 -> 审计可见。
+
+验收：
+
+- guidance 质量可以用真实业务指标衡量，不再只验证接口成功和 snapshot 存在。
+- 管理员能够区分模型问题、taxonomy 问题、democase 问题和模板 registry 问题。

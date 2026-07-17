@@ -3,6 +3,588 @@
 > 模块：Capability Distribution System
 > 维护方式：按日期追加。记录模板、插件、自动化 loop、能力编译策略和跨层治理决策。
 
+## 2026-07-17 CAP-18.3 极小画布共享体验契约
+
+- 新增共享 stage fallback，统一 relation、timeline、fact compare、route、progressive disclosure 与 summary 的首屏承诺、主要交互、次级披露和 attention budget。
+- 修复 Runtime Gateway 与 API quality gate 在没有同阶段 democase 时错误使用 `profiles[0]` 的问题；现在只使用同阶段证据，否则回退官方 stage profile，并在 prompt 标记 `matched_evidence` 或 `official_stage_fallback`。
+- `300×360` prompt 明确要求一个主要导航/控制组、最多 `3` 个主选择加 `2` 个其他控件，并禁止 relation 的 Tab+节点、compare 的对象 Tab+视图 Tab、progressive 的 accordion+Tab 双重导航。
+- Pixel Gate 的交互探针补齐原生 `button[aria-selected=false]` 与 `button[aria-pressed=false]` 候选，避免点击已选中按钮造成假阴性；隐藏 Tab 在存在替代主交互时不再误报。
+- 30 个真实 democase 索引重新生成，索引版本为 `2026-07-16.real-case.d8df2587721622cd`，并新增 builder 与共享 profile 完全一致的防漂移断言。
+- 官方 compact examples 按 dominant stage 注入 profile 运行桌面与极小屏门禁，定向测试 `71/71` 通过。
+
+## 2026-07-16 CAP-18.2 垂直模板 compact few-shot 收口
+
+- series navigation、scenic route guide、scenic map POI 使用领域专属 compact HTML 示例，统一固定桌面、标准移动和 `300×360` 三类画布状态。
+- 动态主题卡的极小屏规则现在同时进入模板 pack、few-shot 文件引用、Runtime Gateway variation prompt 和 Pixel Gate；减少首屏信息不是删除内容，而是通过本地 tab、分页、详情层和点击状态渐进揭示。
+- 关系卡浏览器验证确认必要 Tab 与节点可见，点击 Tab 后内容发生变化；真实 BabeL-O 多模板产物仍需 staging 回放。
+
+## 2026-07-14 CAP-M11.7 Dynamic Capability Selection Contract Implementation
+
+- `CapabilityPreset` 增加 `selectionPolicy`、`explorationDefaults` 和 requirement module graph 引用；动态百科 preset 固定 required template/Skill/MCP、Loop 白名单、默认探索度 `40` 及实验阈值。
+- `EncyclopediaEntryGuidanceResponse` 增加 exploration recommendation；服务端 job 创建前执行 required capability、模板父子关系、Loop 白名单和 experimental review 校验。
+- 新增版本化 `CapabilitySelectionSnapshotV1`，记录 preset/guidance、能力选择、来源、review mode 和 exploration request，随 job snapshot 返回。
+- 新增动态百科 requirement module graph，保持事实、固定交付和只读工具等 invariant；探索度只作用于受控设计发散。
+
+### 验证
+
+- capability contract、exploration planning、dynamic capability selection API flow 和相关动态百科回归共 55 项通过。
+- 真实 BabeL-O staging exploration smoke、完整抽屉编辑器和用户 override 来源标注仍待后续阶段。
+
+## 2026-07-14 CAP-M11.8 Selection Source and Experimental Admission UX
+
+- 用户候选配置区分 official preset、entry guidance 和 user override；最终 job 页面以 selection snapshot 作为来源事实。
+- Application Service 只为最终通过校验并实际选中的能力采用客户端来源声明，来源字段不能扩大模板、插件、MCP 或 Loop 权限。
+- exploration experimental 阈值与强制审查阈值继续由 preset 下发，用户端不复制阈值常量作为授权依据。
+- faithful / balanced / exploratory / experimental 只改变受控设计发散；`factCreativity`、required capability 和 invariant 保持锁定。
+
+## 2026-07-14 CAP-M11.6 Dynamic Capability Selection Policy Planning
+
+- 为动态百科能力抽屉登记 Capability Distribution 契约工作。
+- 规划 `CapabilitySelectionSource`，区分 official preset、entry guidance、user override 和 job snapshot。
+- 规划扩展 `CapabilityPreset.selectionPolicy`，声明 required template/Skill/MCP 与 allowed Loop。
+- 规划扩展 `CapabilityPreset.explorationDefaults`，动态百科默认 `40 / balanced`，experimental 阈值和强制审查阈值由契约下发。
+- 固定合并优先级：`job_snapshot > user_override > entry_guidance > official_preset`。
+- required capability、父模板硬约束和 invariant 不允许被用户 override 删除；`factCreativity` 始终为 0。
+- 本记录为规划准入，实施项登记在 CAP-11.5。
+
+## 2026-07-14 CAP-M11.5 Provider-neutral Exploration Execution
+
+- 可执行 CLI Agent provider 已接入标准 `RuntimeExplorationContextV1`，与 BabeL-O、Mock 使用相同 variation focus、required/sampled module 和 divergence directives。
+- CLI provider 的 generate 与 refine 均沿用 job snapshot 固定计划；refine 同时读取现有 HTML，但不重新规划模块或改变 focus。
+- API flow 已验证同一批两条 variation 生成不同 focus artifact，并可通过既有 preview/artifact 链路读取。
+- 受控 staging smoke 已支持官方动态百科 graph、exploration level、3/6 variation focus 差异和事实不创造断言。
+- 本地 provider-neutral 能力已完成；真实 staging BabeL-O exploration smoke 仍待发布本阶段 build 后执行。
+
+## 2026-07-13 CAP-M11.4 Runtime Exploration Context Integration
+
+- 已将 job snapshot 中的 batch/variation plan 编译为 provider-neutral `RuntimeExplorationContextV1`。
+- BabeL-O、Mock Runtime 和 CLI Agent fixture 使用同一标准 context 和 prompt compiler。
+- 首次生成、手工 refine 和 automation refine 均沿用固定 variation focus。
+- Runtime context 不携带原始文档、authoring evidence、MCP scope 或 provider sampling 参数。
+- Runtime 失败、event drift 和旧 provider fallback 不改变 exploration snapshot。
+- 当时尚未完成的可执行 CLI Agent provider 已在 CAP-M11.5 补齐；真实 staging 3/6 variation smoke 仍待发布验证。
+
+## 2026-07-14 CAP-M10.8 Authoring Studio Capability Bundle UI
+
+### 已完成
+
+- 在用户端“设计系统 -> 我的模板 -> 导入 DESIGN.md”区域接入紧凑 Capability Bundle 工作台，不改变现有模板库页面结构。
+- Bundle 导入：
+  - 选择 `.zip` 文件并显示文件名/大小。
+  - 浏览器 File API 转 canonical base64，调用 governed bundle import API。
+  - 展示 Template、Skill、Interaction、Data Contract、Review Profile 和 HTML example 数量。
+  - 展示 error/warning 摘要和最多三项治理 finding。
+  - 用户确认后一次性确认 extraction evidence 与 warning path，再运行 preview gate。
+  - preview passed 后显示明确完成状态；导入仍不直接发布 private template。
+- Bundle 导出：
+  - 只列出当前 workspace 的 `ready` / `published_private` authoring draft。
+  - 用户选择 `user_owned_or_authorized` 或 `unspecified` license declaration。
+  - 支持 provenance/license notes，并下载 attachment ZIP。
+- workspace 切换时重新读取 authoring drafts；导入/确认后本地列表即时更新。
+- 新增中英文文案与响应式紧凑样式。
+
+### 测试
+
+- 全项目 typecheck 通过。
+- Next.js production build 通过。
+- 新增真实浏览器 E2E：API 创建 ready draft -> UI 下载 ZIP -> 原文件上传 -> 查看能力摘要 -> 确认 -> preview passed。
+- 新增 E2E 在 Chromium 通过。
+- 应用内浏览器 runtime 初始化遇到 `Cannot redefine property: process`，按前端测试规范使用仓库 Playwright fallback；未发现页面运行错误。
+
+### 边界与下一步
+
+- 当前工作台嵌在模板库现有入口，尚未拆成独立 Authoring Studio 路由。
+- DESIGN.md 入口仍调用旧直接发布 API；应后续迁移到 governed draft import，统一确认/preview/private publish 流程。
+- capability bundle 当前下载文件名由客户端按 draft id 生成；若需要服务端 attachment filename，应扩展 API client 读取 `content-disposition`。
+
+## 2026-07-13 CAP-M10.7 Capability Bundle ZIP Round-trip
+
+### 已完成
+
+- 定义 `dudesign-capability-bundle.v1` manifest 与独立 provenance contract。
+- Bundle 携带完整 portable `CapabilityBundleDraft`：Template Draft、Declarative Skill、Interaction Paradigm、Data Contract、Review Profile、recommended profile 和 HTML examples。
+- portable template 使用 `htmlExamplePaths` 建立索引，不导出原环境 artifact/session/workspace/user id。
+- provenance 记录 source type/hash、源 draft 状态、license declaration 和导出时间，并强制声明不包含 owner/workspace identity 或源文件系统路径。
+- evidence path/excerpt 与 license notes 经过现有 redaction；owner email、secret 和绝对路径不进入 ZIP。
+- 新增安全 ZIP codec：
+  - 压缩体积、文件数、单文件和总解压大小上限。
+  - 路径穿越、重复 entry、未声明文件、孤立/重复 HTML example 检查。
+  - 每文件 SHA-256/size、manifest 入口、能力数量与 provenance schema 校验。
+- 新增 `capability_authoring_assets` migration/repository，用于无设计 session 的导入 HTML example；同时补齐 authoring draft `published_template_id` PostgreSQL 持久化。
+- ZIP HTML example 在目标环境重新 sanitizer 后写入 object store，preview/private publish 统一通过 reviewed HTML resolver 和 content hash 防漂移。
+- 新增 API：
+  - `POST /api/capability-authoring/drafts/:id/export-bundle`。
+  - `POST /api/capability-authoring/import-bundle`，MVP JSON 请求使用受限 canonical base64。
+- 导出/导入记录 `capability.bundle.exported` 与 `capability.bundle.imported_draft` 审计。
+
+### 测试
+
+- Bundle 全能力类型与 HTML example round-trip。
+- provenance/evidence 隐私脱敏。
+- 文件篡改 hash mismatch 与 undeclared entry 拒绝。
+- ApplicationService 导出 -> 导入 -> authoring asset -> preview smoke。
+- HTTP attachment 下载 -> base64 导入 -> preview smoke。
+- 相关 25 项测试通过；PostgreSQL integration 因未配置 `DUDESIGN_POSTGRES_TEST_URL` 跳过。
+
+### 边界与下一步
+
+- 用户端 Authoring Studio 上传/下载和 license declaration UI 已在 CAP-M10.8 接入。
+- v1 使用单一 `capability/draft.json` 作为能力事实来源；未来可附带 DESIGN.md/Template Pack JSON compatibility views，但不得产生双向漂移。
+- 需要在真实 PostgreSQL 环境执行 `0020_capability_authoring_assets` migration smoke。
+
+## 2026-07-13 CAP-M10.6 Portable Template Export and Round-trip
+
+### 已完成
+
+- 定义 `dudesign-template-pack-export.v1` portable JSON contract：
+  - manifest 包含 format、稳定 content hash、导出时间、源模板 id/version。
+  - portable core 包含 schema、父子角色、适用模式/分类、tokens、rationale、name/version 和 lint status。
+  - content hash 基于键排序后的稳定序列化，不受 `exportedAt` 变化影响。
+- portable JSON 明确排除环境绑定内容：
+  - template id、owner、source、visibility、status。
+  - `previewArtifactId`。
+  - HTML example bodies。
+  - manifest 使用 `examplesIncluded: false` 和 `omittedFields` 显式声明边界。
+- HTML examples、sanitized artifacts 和其它能力资产由 CAP-M10.7 Capability Bundle ZIP 携带，避免 JSON round-trip 产生失效 artifact 引用。
+- 新增导出 API：
+  - `GET /api/design-templates/:id/export/design-md?workspaceId=...`。
+  - `GET /api/design-templates/:id/export/template-pack-json?workspaceId=...`。
+  - 使用 attachment download 响应和安全文件名。
+- 新增 governed import API：
+  - `POST /api/capability-authoring/import-design-md`。
+  - `POST /api/capability-authoring/import-template-pack-json`。
+  - 导入结果进入 authoring draft，不直接发布 private template。
+- JSON import：
+  - 校验 schema 与 manifest content hash。
+  - 篡改 template 内容时返回 `TEMPLATE_PACK_HASH_MISMATCH`。
+  - portable core 转为 `DesignTemplateDraftV2`，保留 tokens 和 rationale。
+- DESIGN.md import：
+  - 复用现有 parser/lint。
+  - importer findings 进入 draft findings。
+  - 重新导入后保留 name、颜色、间距和可表达的 rationale。
+- 两种 portable import 都增加 `html_examples_not_portable` warning，必须重新关联或提取 reviewed HTML example 才能 preview/publish。
+- export/import 写入用户能力审计：
+  - `capability.template.exported_design_md`。
+  - `capability.template.exported_json`。
+  - `capability.template.imported_design_md_draft`。
+  - `capability.template.imported_json_draft`。
+
+### 测试
+
+- portable core JSON round-trip 等价。
+- 不同导出时间产生相同 content hash。
+- JSON 内容篡改被拒绝。
+- DESIGN.md export -> import 保留可表达的 tokens/name。
+- private template 不可被其他用户导出。
+- HTTP download 校验 content-disposition，并完成两种格式导入。
+
+### 边界
+
+- 本轮完成 API，不包含用户端导出/导入 UI。
+- 旧 `/api/design-templates/import-design-md` 作为兼容入口仍可直接创建私有模板；新的 Authoring Studio 应只使用 governed draft import API。
+- 完整 HTML examples、skills、interaction/data/review assets 已由 Capability Bundle ZIP manifest 承载。
+
+### 下一步
+
+- 接入用户端 Authoring Studio 的下载与导入入口。
+- 逐步迁移旧 DESIGN.md 直接发布入口到 governed draft 流程。
+
+## 2026-07-13 CAP-M10.5 Private Publish and Version Rollback
+
+### 已完成
+
+- 新增 private publish contract/API：
+  - `POST /api/capability-authoring/drafts/:id/publish-private`。
+  - 仅接受 `ready` draft。
+  - 首版要求 candidate bundle 恰好包含一个 Template Draft。
+- 发布门禁：
+  - extraction evidence 已确认。
+  - sanitizer passed。
+  - sanitized artifact hash 与已审核 draft 一致。
+  - preview smoke passed。
+  - 只读取 sanitized artifact，不读取源 HTML 作为发布 example。
+- 发布后的 `DesignTemplatePack`：
+  - `source=user`、`visibility=private`、`status=published`。
+  - 初始版本固定为 `1.0.0`。
+  - tokens、rationale、section blueprints 和 sanitized HTML example 显式进入 pack。
+  - `previewArtifactId` 指向 sanitized artifact。
+  - draft 进入 `published_private` 并记录 `publishedTemplateId`。
+- template id 按 draft id 确定性生成，降低发布重试造成重复私有模板的风险。
+- 新增私有模板 rollback contract/API：
+  - `POST /api/design-templates/:id/rollback`。
+  - 只允许模板 owner 回滚自己的 private user template。
+  - 恢复历史 version 内容，但生成新的 semantic patch version。
+  - 不覆盖或删除任何旧 version，旧 job snapshot 继续保持原内容。
+- 发布与回滚分别记录：
+  - `capability.template.published_private`。
+  - `capability.template.rolled_back`。
+  - audit metadata 包含 draft/source hash、历史版本、生成版本和 sanitized artifact。
+
+### 测试
+
+- 非 `ready` draft 禁止发布。
+- 发布模板只包含 sanitized HTML，不包含 source script。
+- 发布后 draft 不可重复发布或编辑。
+- rollback `1.0.1 -> source 1.0.0` 生成 `1.0.2`。
+- `1.0.0`、`1.0.1` 和 `1.0.2` 均可独立读取，历史内容不漂移。
+- HTTP flow 覆盖 analyze -> confirm -> sanitize -> preview -> publish -> rollback。
+
+### 边界
+
+- 本轮只实现用户私有模板发布与回滚，不等同于 CAP-10.5 官方模板/Skill 审核回滚。
+- 多模板 Capability Bundle、私有 Skill、Data Contract 和 Review Profile 尚不随本接口发布。
+- publish 与 rollback 复用现有 repository version 模型；后续可增加事务型 Unit of Work 进一步收紧跨表原子性。
+
+### 下一步
+
+- 开放 `DESIGN.md` / Template Pack JSON 导出和 round-trip。
+- 实现私有 Skill 持久化与 capability snapshot。
+- 在真实 PostgreSQL 环境验证 publish/rollback version 与 audit persistence。
+
+## 2026-07-13 CAP-M11.3 Exploration Plan Snapshot Integration
+
+### 已完成
+
+- `CreateDesignJobRequest` 增加可选 `requirementModuleGraphId`、`exploration` 和结构化 data context。
+- 新增 `POST /api/design-jobs/exploration-plan/preview`，preview 不创建 job 或 variation。
+- 用户只能提交 graph id；服务端通过受控 resolver 获取已准入图谱，不接受客户端提交任意模块图。
+- 创建 job 时重新执行权限、图谱和 planner 校验，并覆盖客户端伪造的 exploration snapshot。
+- Graph 和 batch plan 固定到现有 `templateRequirements` JSON snapshot，不新增并行持久化事实源。
+- Job snapshot 和 variation detail 显式返回：
+  - Requirement Module Graph。
+  - Batch Exploration Plan。
+  - 与 variation index 对应的单项 plan。
+- DUDesign variation index 与 planner 统一为 `1..N`。
+- 服务重建后从 Repository snapshot 恢复原计划，不重新规划。
+- 管理员整单重试继承原 batch snapshot；单 variation 重试派生原方向的单项 snapshot。
+- retry 保留原 `productMode`，动态百科任务不会退回默认 Web&App 模式。
+
+### 安全与边界
+
+- preview 和 create 都要求 workspace editor 以上权限。
+- viewer、workspace 外用户和未授权 graph 无法预览或创建计划。
+- 非法探索值和模块选择被归一化为结构化 400。
+- `ExplorationPlanningApplicationService` 不依赖 Runtime、PostgreSQL provider、Redis 或 `ApplicationService` facade。
+
+### 验证
+
+- 探索契约、planner、Application Service、HTTP flow 和架构边界定向测试：24 项通过。
+- `npm run typecheck`：通过。
+- 排除已知 Playwright Chromium 环境用例后，API 回归 217 项通过。
+- `git diff --check`：通过。
+
+### 后续关注
+
+- 接入 CAP-10 发布后的用户私有 Requirement Module Graph resolver。
+- 增加真实 PostgreSQL hydrate/no-hydrate 和进程重启 smoke。
+- 增加 exploration lifecycle/adjustment audit events。
+- 实现“换一个方向”显式创建新 plan version。
+
+## 2026-07-13 CAP-M11.2 Deterministic Batch Exploration Planner
+
+### 已完成
+
+- 新增 `apps/api/src/explorationPlanner.ts`，实现无数据库、无 Runtime 依赖的确定性 batch planner。
+- 支持 1-6 个 variation，并使用 planner version、capability snapshot id 和外部 seed 形成可回放计划。
+- 对 always 模块全量注入；对 sampled/conditional 模块按优先级、最小覆盖和探索度分配。
+- conditional 模块通过结构化 data context 判断资格；明星组合 Unit 导航只在存在 Unit 数据时进入计划。
+- 支持 locked/excluded module：
+  - locked eligible module 至少覆盖一个 variation。
+  - excluded module 不进入计划和 coverage summary。
+  - always/global rule 不允许排除。
+  - 依赖 excluded module 的选择会失败。
+- 自动补齐模块依赖，并为每个 variation 生成 focus、style direction、interaction direction 和 rationale。
+- 高探索增加可选模块覆盖，但 `factCreativity` 始终为 0。
+- 批量计划校验增加 schema/profile 漂移、连续 variation index、依赖/冲突和 coverage summary 一致性检查。
+
+### 验证
+
+- `node --test apps/api/dist/explorationContracts.test.js apps/api/dist/explorationPlanner.test.js apps/api/dist/architectureBoundaries.test.js`：17 项通过。
+- `npm run typecheck`：通过。
+
+### 后续关注
+
+- 将 planner 包装进 `ExplorationPlanningApplicationService`，增加 workspace/capability 权限和 preview API。
+- 把 batch/variation plan 持久化到 job snapshot，并补 resume/retry/refine 不漂移测试。
+- 后续增加 focus uniqueness、模块 Jaccard 和 layout/interaction diversity 指标。
+
+## 2026-07-13 CAP-M11.1 Controlled Exploration Contracts and Golden Fixture
+
+### 已完成
+
+- 新增 `packages/contracts/src/exploration.ts`：
+  - `RequirementModuleGraphV1`、`RequirementModuleV1` 和四种模块模式。
+  - `ExplorationProfileV1`、`BatchExplorationPlanV1`、`VariationExplorationPlanV1`。
+  - schema version、planner metadata、coverage summary 和 warning 契约。
+- 增加探索档位纯函数：忠实、均衡、探索、实验。
+- 在类型和运行时校验中固定 `factCreativity=0`。
+- 增加模块图校验：条件模块、coverage、evidence confidence、依赖/冲突/兼容引用和重复 id。
+- 增加批量计划校验：unknown module、冲突分配、重复 variation index 和 always module 全覆盖。
+- 根据《明星组合动态百科功能设计文档》建立 golden fixture：
+  - 组合身份、当前成员为 always。
+  - 历任成员、时间线、作品和双向链接为 sampled。
+  - Unit 导航为 conditional。
+  - 作品归属和中性事实表达为 global rule。
+  - 事实不可编造、多 Unit 归属、作品分离和敏感状态表达进入 invariant。
+- `@dudesign/contracts` 暴露独立 `./exploration` export；未增加 `packages/domain` 反向依赖。
+
+### 验证
+
+- `npx tsc -b packages/contracts packages/domain apps/api --pretty false --force`
+- `node --test apps/api/dist/explorationContracts.test.js apps/api/dist/architectureBoundaries.test.js`：10 项通过。
+- `npm run typecheck`：通过。
+- 排除缺少 Playwright Chromium 的 `preview-interaction.test` 和依赖 screenshot worker 的 `mock-flow.test` 后，API 回归 179 项通过。
+
+### 验证限制
+
+- 完整 API test 因本机缺少当前 Playwright revision 的 Chromium Headless Shell，`preview-interaction.test` 无法启动。
+- 同一轮完整测试中的 `mock-flow.test` 等待 screenshot artifact 超时；非浏览器 API 回归和本轮契约测试均通过。
+
+### 后续关注
+
+- 下一步实现 Capability Spec Importer 的 Requirement Module graph 输出。
+- 再进入 deterministic batch planner，先覆盖 3/6 variation，不提前接 UI 或 Runtime。
+
+## 2026-07-13 CAP-M11 Controlled Exploration Governance Admission
+
+### 已完成
+
+- 新增专项规划：`controlled-exploration-governance-plan.md`。
+- 将多模块功能文档定义为 Requirement Module graph，而不是单一视觉模板。
+- 确定批量 variation 必须先生成 `BatchExplorationPlan`，再分配单 variation plan。
+- 确定用户探索度是 `0..100` 的业务语义，不直接等同 provider temperature。
+- 确定事实、安全、权限、数据契约和必需模块为 invariant，不随探索度升高而放宽。
+- 在 Capability TODO 登记 Phase CAP-11，并同步四层实施任务。
+
+### 决策
+
+- `factCreativity` 固定为 0；探索度只控制模块广度、组合新颖度、布局、视觉、交互和有限文案语气。
+- resume、retry 和 refine 默认沿用已快照的 variation plan；只有显式“换一个方向”才创建新计划版本。
+- Runtime Provider 只消费既定 exploration context，不能重新阅读原文随机抽样。
+
+### 后续关注
+
+- 先完成 CAP-10.3 的普通功能文档规范化和明星组合 golden fixture。
+- 先实现 deterministic planner 与 3/6 variation 测试，再接用户滑块和真实 Runtime。
+
+## 2026-07-13 CAP-M10.4 HTML Example Sanitizer and Preview Gate
+
+### 已完成
+
+- 扩展 `HtmlExampleReference`：
+  - `sanitizedArtifactId`。
+  - sanitizer content hash、findings 和时间。
+  - preview smoke static/pixel 状态、issues 和时间。
+- 新增 parse5/PostCSS 结构化 sanitizer：
+  - 删除 script、iframe、object、embed、form、base。
+  - 删除 inline `on*` handler、`srcdoc` 和危险 URL scheme。
+  - 删除外部 stylesheet、外部资源 URL、CSS `@import` 和外部 CSS `url()`。
+  - 脱敏 email、API key/token/password、Bearer token 和绝对路径。
+  - logo/wordmark/公共品牌线索进入 warning，要求人工 license/trade dress 审查。
+  - 清理后再次检查 active content、外部依赖和绝对路径是否残留。
+- sanitizer 通过后：
+  - 生成独立 `asset` artifact，不把大段 HTML 直接写入 draft JSON。
+  - artifact 固定 source artifact、draft id、storage key 和 content hash。
+  - draft 保存 sanitized artifact 引用和完整 findings。
+  - 同一 draft、同一 sanitized content hash 重复执行时复用已有 artifact，避免重复产物。
+- 新增 preview smoke：
+  - 未 sanitize 的 draft 禁止 preview。
+  - 复用 `analyzeHtmlArtifactQuality()` 作为强制 static gate。
+  - `DUDESIGN_CAPABILITY_AUTHORING_PIXEL_GATE=1` 时复用 Playwright pixel gate。
+  - preview pass 进入 `ready`；warning 回到 `needs_confirmation`；fail 进入 `lint_failed`。
+- 新增 API：
+  - `POST /api/capability-authoring/drafts/:id/sanitize`。
+  - `POST /api/capability-authoring/drafts/:id/preview`。
+- `CreateArtifactInput` 支持可选预分配 artifact id，保证 Artifact Store 路径、repository id 和 draft 引用一致。
+
+### 测试
+
+- sanitizer 覆盖 script、event handler、external stylesheet/resource、CSS URL、secret/email/path 脱敏和品牌 warning。
+- safe relative assets 与 inline CSS 保留。
+- Application Service 覆盖 sanitized artifact 固化、warning 人工确认、未 sanitize 禁 preview 和 static preview -> ready。
+- HTTP flow 覆盖 analyze -> sanitize -> preview -> ready。
+
+### 边界
+
+- 默认只强制 static preview；真实 pixel gate 需 staging/production Chromium 环境 opt-in。
+- sanitizer warning 不阻止生成安全 artifact，但会保留 `needs_confirmation` 供用户确认。
+- private publish 仍未开放，下一步需要把 `ready` 状态转成版本化私有 Design Template Pack，并记录审计。
+
+### 下一步
+
+- 在 Chromium staging 环境开启 authoring pixel gate 跑真实 preview smoke。
+- 实现 `ready -> published_private` command、模板 version 创建和审计日志。
+- 增加 draft 删除、source 更新后的无引用 sanitized artifact cleanup。
+
+## 2026-07-13 CAP-M10.3 HTML and CSS AST Extraction
+
+### 已完成
+
+- API workspace 显式依赖 `parse5` 和 `postcss`，不以正则作为 HTML/CSS 主解析器。
+- 新增 `htmlTemplateExtractor.ts`：
+  - parse5 DOM 解析语义 section、结构角色和 DOM evidence。
+  - PostCSS AST 解析 CSS variables、颜色、排版、间距、圆角和 box-shadow。
+  - 提取 media query 为 `ResponsiveRule`。
+  - 识别重复 card/item/tile/member/work 等 component candidate。
+  - 识别 tab、accordion、modal、page switcher、carousel 和 local filter 的 role/state。
+  - 仅把现有 registry 中真实存在的 Interaction Paradigm id 写入 draft，未注册交互保留为候选，不伪造 id。
+  - 每个 token/section/component/responsive 候选带 source evidence 和 confidence。
+  - HTML example 固定到 artifact id/version/content hash/entry path，并保持 `sanitizationStatus: pending`。
+- `CapabilityAuthoringApplicationService.analyzeDraft()`：
+  - 当前只接受冻结的 variation HTML source。
+  - 从 Artifact Store 读取 HTML。
+  - 从同一 parent artifact 的相对 CSS assets 读取样式。
+  - 检查 artifact version/content hash 未漂移。
+  - 生成单个 `DesignTemplateDraftV2`，写入 candidate bundle 后运行 lint。
+- 新增 `POST /api/capability-authoring/drafts/:id/analyze`。
+
+### 测试
+
+- extractor golden 覆盖 CSS variables、typography、spacing、radius、elevation、semantic sections、repeated cards、tabs、accordion 和 mobile media query。
+- malformed CSS 不阻断 DOM section 提取。
+- Application Service 测试覆盖真实 LocalArtifactStore HTML/CSS 读取和非空 draft。
+- HTTP API flow 覆盖 variation source -> analyze -> 非空 tokens/sections/html example。
+
+### 边界
+
+- JavaScript 不执行，只根据 DOM 属性和命名做受控交互特征识别。
+- 当前不自动生成业务 Skill、Data Contract 或 Review Profile。
+- HTML reference 尚未完成去敏、外部脚本/网络依赖清理，因此不能 private publish 或进入 Runtime。
+- 普通功能 Markdown 的 Capability Spec Importer 尚未开始。
+
+### 下一步
+
+- 实现 HTML example sanitizer：隐私/secret、品牌标识、外部脚本、网络请求、绝对路径和危险 URL 检查。
+- sanitizer 通过后再实现 draft preview smoke。
+- 在可用 PostgreSQL 环境运行 `0019_capability_authoring_drafts` migration smoke。
+
+## 2026-07-13 CAP-M10.2 Authoring Persistence and Application Service
+
+### 已完成
+
+- 新增 migration `0019_capability_authoring_drafts.sql`：
+  - 固化 owner、workspace、source type、source artifact、content hash、完整 source JSON。
+  - 保存 draft bundle、findings、confirmed paths 和状态。
+  - 增加 owner/workspace、workspace/status 和 source artifact 查询索引。
+- `PostgresRepository` 增加 SQL-native authoring draft：
+  - list/get 不依赖 hydrate cache。
+  - upsert 保持 owner/workspace 不可变，冲突时明确失败。
+  - hydrate 模式同步回灌 draft cache。
+- 新增 `CapabilityAuthoringApplicationService`：
+  - 创建、列表、详情、更新和 lint。
+  - variation source 从 repository 读取真实 artifact version/content hash。
+  - 校验 workspace、variation、artifact 归属和 HTML kind。
+  - 文档 artifact source 使用服务端 artifact content hash。
+  - 客户端不能直接写 draft status。
+  - 已发布、已提交、已拒绝和已归档 draft 不允许继续编辑。
+- 新增用户 API：
+  - `POST /api/capability-authoring/drafts`。
+  - `GET /api/capability-authoring/drafts?workspaceId=...`。
+  - `GET /api/capability-authoring/drafts/:id?workspaceId=...`。
+  - `PATCH /api/capability-authoring/drafts/:id`。
+  - `POST /api/capability-authoring/drafts/:id/lint`。
+- HTTP runtime 输入校验覆盖 workspace、source、candidate bundle 和 confirmed paths。
+- CORS 方法补齐 `PATCH` / `DELETE`，支持后续 Draft Review 浏览器调用。
+
+### 边界
+
+- `analyze`、preview smoke、private publish、contribution submit 尚未开放。
+- 本轮不读取 HTML 内容，不进行 DOM/CSS AST 提取。
+- PostgreSQL 集成测试依赖 `DUDESIGN_POSTGRES_TEST_URL`，当前本地环境未配置时显式 skip。
+
+### 验证
+
+- `npm --workspace @dudesign/api exec tsc -b`。
+- capability authoring governance、Application Service 和 API flow 共 11 个测试通过。
+- PostgreSQL integration test 已编译并登记 draft write/hydrate/SQL direct query/跨用户隔离断言；本地因无测试 URL 跳过实际数据库执行。
+
+### 下一步
+
+- 在可用 PostgreSQL test/staging 环境执行 migration smoke。
+- 开始 HTML/CSS AST extractor：先做 token、section 和 responsive rule 的确定性提取。
+- extractor 输出只写入 draft，不直接发布 Design Template Pack。
+
+## 2026-07-13 CAP-M10.1 Authoring Contracts and Governance Kernel
+
+### 已完成
+
+- 在 `@dudesign/contracts` 增加首批能力创作稳定契约：
+  - `CapabilityAuthoringSource`。
+  - `CapabilityExtractionEvidence`。
+  - `DesignTemplateDraftV2`。
+  - `DesignSkillDraft`。
+  - `InteractionParadigmDraft`。
+  - `DataContractDraft`。
+  - `ReviewProfileDraft`。
+  - `CapabilityBundleDraft`。
+  - `CapabilityAuthoringDraft` 与状态枚举。
+- 新增 `capabilityAuthoring.ts` 治理内核：
+  - 显式 draft 状态迁移表。
+  - source content hash / variation artifact version 检查。
+  - bundle 非空和 capability profile index 检查。
+  - extraction evidence path 与 confidence 检查。
+  - 声明式 Skill 的危险指令、prompt injection、shell、绝对路径、可执行内容、长度和 scope 提权 lint。
+  - lint 结果确定性映射到 `lint_failed`、`needs_confirmation` 或 `preview_pending`。
+- 扩展 `ApplicationRepository` 与 `InMemoryStore`：
+  - 保存、按用户/workspace 列表、按 id 读取 authoring draft。
+  - 返回 clone，避免调用方修改已保存 draft。
+  - 严格按 `ownerUserId + workspaceId` 隔离。
+
+### 边界
+
+- 本轮没有新增 API 路由、用户端 UI、PostgreSQL migration 或 Runtime Gateway 注入。
+- 当前 repository 能力仅用于内存测试和后续 Application Service 接入，不宣称 production persistence 已完成。
+- draft 仍是候选能力，不能直接进入官方 registry 或 runtime snapshot。
+
+### 验证
+
+- `npm --workspace @dudesign/contracts exec tsc -b`。
+- `npm --workspace @dudesign/api exec tsc -b`。
+- `node --test apps/api/dist/capabilityAuthoring.test.js apps/api/dist/designTemplatePack.test.js apps/api/dist/capabilities.test.js`。
+- 共 24 个相关测试通过。
+
+### 下一步
+
+- 新增 `capability_authoring_drafts` PostgreSQL migration 和 SQL-native repository 实现。
+- 提取 `CapabilityAuthoringApplicationService`，接入 source 权限校验、创建、读取、lint 和更新命令。
+- 再进入 HTML/CSS AST extractor，避免在持久化和权限边界不稳定时提前扩张解析能力。
+
+## 2026-07-13 CAP-M10 Template & Skill Authoring Governance Admission
+
+### 已完成
+
+- 新增 `template-skill-authoring-governance-plan.md`。
+- 规划覆盖 HTML -> Template Draft v2、普通功能文档规范化、用户私有 Skill、能力导出、用户贡献、管理端审核发布和多 Runtime Provider 兼容。
+- 将任务同步登记到 CAP-10、UX-11、ADM-9、APP-12 和 RTC-12。
+
+### 实测证据
+
+- 使用“明星组合动态百科功能设计文档”运行现有 importer：
+  - 模板名回退为 `Imported Design Template`。
+  - colors / typography / spacing / rounded / components 均为空。
+  - 标准 Overview / Layout / Components / Do/Don't 均为空。
+  - 八个业务章节仅作为 unknown sections 保留。
+  - lint 结果为 1 warning + 8 info。
+- 当前 variation“保存为模板”有 assigned pack 时复制原模板，无 assigned pack 时生成 token 全空 fallback pack，HTML 只写入 `previewArtifactId`。
+- Runtime Gateway 不读取 `previewArtifactId` 作为生成上下文，只消费 tokens、rationale、sections、dos/donts、htmlExamples 和 Skill context。
+- `exportDesignTemplatePackToDesignMd()` 已存在，但尚无用户 API/UI。
+- 用户 Skill 选择器只展示 official active plugin，尚无私有 Skill CRUD。
+- 管理端可见 lint/preview/diff 和风险插件禁用，但模板/Skill 发布写 API尚未落地。
+
+### 准入决策
+
+- 该能力属于 Capability Distribution System，不新增第五层。
+- “明星组合”文档应建模为 Business Template Package + Child Templates + Skills + Interaction Paradigms + Data Contract + Review Profile。
+- 普通功能文档不能未经结构化和人工确认直接发布。
+- HTML 可以提取视觉、结构、响应式和本地交互，但不能自动推导事实治理、业务优先级或工具权限。
+- 用户 Skill 首版只允许声明式内容。
+- 优先推进 HTML -> Template Draft v2，再推进普通功能文档规范化和用户私有 Skill。
+
+### 验证
+
+- 文档链接和跨模块 TODO 已登记。
+- 本轮仅修改文档，不执行代码测试。
+
 ## 2026-07-08 CAP-M8.9 Dynamic Encyclopedia Vertical Template Roadmap
 
 ### 已完成
@@ -2280,3 +2862,104 @@
 
 - 插件级 governance override 已完成；子模板、审查规则、capability preset 仍需要单独设计 scope 和冲突优先级。
 - 后续 capability usage events 可统计被禁用插件的命中/拒绝次数，帮助管理员判断禁用影响面。
+## 2026-07-15 Taxonomy 与 Democase 检索重构准入
+
+- 在 CAP-12 登记完整 11 个 L1、44 个 L2、40+ L3 机器可读 taxonomy registry。
+- 明确 `/Users/tangyaoyue/DEV/Baidu/case垂类分类` 需要建立结构化索引与 BM25/向量混合检索，现有 9 条手写 democase 仅作为 mock fixture。
+- 模板推荐目标调整为 AI 语义评分 + registry hard constraints，并区分 entity classification 与 user intent。
+- 登记至少 100 条 golden guidance fixture 与离线评测指标：分类准确率、Top-3 模板召回率、interaction intent 命中率和过度澄清率。
+- 新增 `EncyclopediaGuidanceAnalysisV2` contract，taxonomy candidate、democase evidence、模板与交互 allowlist 都是显式结构化输入。
+## 2026-07-15 CAP-12 Taxonomy 与 Evidence 首版
+
+- 新增版本化 taxonomy registry：11 个 L1、源表明确枚举的 41 个 L2、首批历史人物/电影/电视剧/文化词语/景区 L3。
+- taxonomy lint 发现并保留源文档矛盾：文档声明 44 个 L2，但表格合计只有 41 个；未虚构缺失分类。
+- 新增 taxonomy candidate resolver，支持 query signals、democase category hints、模板/交互 compatibility 和 risk flags。
+- 新增 democase evidence resolver：exact alias、关键词评分、taxonomy node、模板、交互、matched evidence、index version 和 SHA-256 content hash。
+- 当前只索引代码内 9 条 mock；本地 `case垂类分类` 约 488 个文件及 BM25/向量索引仍是下一阶段。
+## 2026-07-15 CAP-12 Real Case Index 与 100 Golden Fixtures
+
+- 新增可重复执行的 `encyclopediaDemocaseIndexBuilder`：
+  - 使用 parse5 解析 HTML title 与 DOM class，不用正则拼装 HTML 结构。
+  - 从 `/Users/tangyaoyue/DEV/Baidu/case垂类分类` 识别 32 个主 HTML case。
+  - 将约 488 个图片、DOCX、TXT、JSON 等文件作为 supporting assets 汇总。
+  - 输出 entry title、taxonomy、模板、交互范式、结构特征、asset summary、relative path 和 SHA-256 content hash。
+- 生成版本化仓库快照 `encyclopediaDemocaseIndex.generated.ts`，当前 index version 为 `2026-07-15.real-case.bd692bdcd3591ef1`。
+- resolver 升级为真实 index 优先、9 条 mock fallback：
+  - exact title / alias boost。
+  - BM25-style lexical scoring。
+  - 通用词单独命中不构成 evidence，避免“人工智能”误命中“智能导览”。
+- 新增 100 条 golden guidance fixture：20 个高频 L2，每类 5 条，包含至少 8 条歧义输入。
+- 新增离线 evaluator：coverage、L1/L2/node accuracy、primary intent accuracy、Top-3 template recall、clarification precision/recall。
+
+### 验证
+
+- case index builder：32 个主 case，case id/content hash 唯一且稳定。
+- real evidence：`庆余年人物关系与剧情脉络` 命中真实电视剧 case；弱通用词不产生错误 category hint。
+- golden dataset：100 条、20 个 L2、全部 taxonomy node 在 AI allowlist 中。
+
+## 2026-07-15 CAP-10.7 HTML Example 文件边界
+
+### 已完成
+
+- 将时间线、关系图谱、对比辨析和可展开事实卡的大型 HTML 示例从 `officialDesignTemplatePacks.ts` 迁移到 `apps/api/src/html-examples/`。
+- registry 仅保存 `HtmlExampleFileRef`，避免 HTML 反引号、脚本和构建产物破坏 TypeScript 编译。
+- 保留现有示例内容，并将四个动态百科子模板连接到对应文件。
+- 增加文件路径解析、非空和 HTML 文档结构测试。
+
+### 验证
+
+- 全仓 `npm run typecheck` 通过。
+- `officialDesignTemplatePacks` 外部 HTML 引用测试通过。
+
+### 后续
+
+- 为示例文件增加 license/provenance manifest、content hash 和发布前 sanitizer gate。
+
+## 2026-07-15 CAP-12 真实模型 Golden 准入
+
+- 100 条 golden fixture 已接入真实 `GuidanceAnalysisGateway` evaluation runner，不再只做静态 dataset lint。
+- runner 输出逐 case JSON，保留 fixture id、预期分类/意图/模板/澄清、实际 prediction、错误码和耗时。
+- staging 默认阈值：coverage 0.98、L1 0.90、L2 0.82、taxonomy node 0.78、intent 0.75、Top-3 template recall 0.85、clarification precision/recall 0.70。
+- 阈值属于首版准入线；首次真实 BabeL-O 100 条报告完成后，应按垂类混淆矩阵调整 fixture 与阈值，不通过降低标准掩盖系统性分类问题。
+- 向量检索与源分类文档缺失的 3 个 L2 仍是 CAP-12 后续项。
+
+## 2026-07-15 CAP-12 Guidance Golden Baseline 通过
+
+- 100 条 fixture 已在真实 BabeL-O/MiniMax-M3 staging 环境完成准入，不再只是 mock/offline evaluator。
+- 最终指标：coverage 99%、L1 98.0%、L2 92.9%、taxonomy node 85.9%、intent 94.9%、Top-3 template recall 100%、clarification precision 87.5%、recall 70%。
+- 根据真实 AI 问题记录治理 fixture：`中山公园游览顺序` 改为阻断性地点澄清，`龙井的植物特征` 改为显式植物语境下非阻断。
+- 残余混淆将作为向量检索和 taxonomy signal 调优样本，不通过硬编码单个词条绕过。
+
+## 2026-07-15 产品语义校正：词条主题动态交互卡
+
+- 明确词条/实体只负责提供主题入口、分类信号和事实边界。
+- 产品交付物是主题驱动、单屏、可操作的动态交互卡片，不是百科文章或百科页面。
+- 更新 domain template、preset、guidance skill 和父模板 rationale，优先主要交互命题、视觉叙事与内容策展。
+- 保留 `dynamic_encyclopedia_card` 等历史技术 ID，避免破坏旧 job/session 和 Runtime Contract。
+- 产品语义文档：`../../dynamic-topic-interactive-card-product-semantics.md`。
+
+## 2026-07-15 CAP-18 主题交互审美与明星组合 Democase
+
+- 新增 `Topic Interactive Card` aesthetic profile，以单画布、单主要交互和主题策展为核心。
+- 动态产品模式默认选择该 profile 与 `pal_minimal_mono`，用户显式视觉覆盖仍优先。
+- 明星组合模板切换到 `star-group-member-map-example.html`：788×492 居中画布、成员主舞台、成员详情、阶段与团体作品标签均为真实本地交互。
+- democase 不包含外部脚本或网络资产，pixel/spec 质量检查均为 pass。
+- Chromium 交互测试实际点击成员并验证详情更新，再切换阶段 tab 并验证 panel hidden/selected 状态。
+- HTML example prompt 仅保留显式标记的交互脚本，避免恢复任意第三方脚本。
+- ResearchContext reference 增加 `provenance`；mock search 在 Runtime prompt 中明确标记为非事实来源。
+- `provider=mock` 的图片产物明确标记为仅元数据，不允许模型输出断链图片或声称已生成视觉素材。
+
+## 2026-07-16 CAP-18.1 极小视口与多模板 Democase 闭环
+
+- 将 300×360 从模板说明中的“兼容尺寸”升级为所有动态主题卡的稳定组件契约 `wise-small-frame`。
+- compact 首屏统一保留主题身份、最核心事实和必要页面切换/主交互；次要信息必须通过 tab、卡内弹层或点击状态继续获取，禁止直接删除详情入口或改为内部滚动。
+- 摘要卡补齐 300×360 信息密度收缩；明星组合在极小屏下由“隐藏详情”改为点击成员打开卡内详情层。
+- 修复时间线 few-shot 的模板字符串转义错误，并将五个阶段按钮压为极小屏五等分可点击选择器。
+- 用自包含 compact interaction democase 替换对比卡损坏的图表构建产物和可展开卡 hydration 空代理页。
+- 新增六类结构原型统一回归；summary/timeline/relation/comparison/expandable/star-group 在桌面和 300×360 pixel gate 全部为 pass。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- 相关 21 项测试通过，包含双视口 pixel gate、时间线切换、对比弹层、渐进展开、成员详情与固定画布命中检查。
+- 内置浏览器加载明星组合示例后可点击成员乙并更新详情，控制台无 error/warn。

@@ -394,3 +394,180 @@
 
 - Auth、Admin Runtime Governance、用户 Artifact 和 Admin Artifact Governance 可脱离 facade 独立测试。
 - 现有 Auth/Admin HTTP 流程保持兼容。
+
+## Phase APP-12：Capability Authoring Application Services
+
+> 上游规划：`../capability-distribution/template-skill-authoring-governance-plan.md`
+
+- [ ] 提取 `CapabilityAuthoringApplicationService`。
+- [ ] 提取 `CapabilityReviewApplicationService`。
+- [ ] 定义并持久化 `capability_authoring_drafts`。
+- [ ] 定义并持久化 `capability_contributions`。
+- [ ] 定义 `design_skills` / `design_skill_versions`。
+- [ ] 定义 `capability_bundle_versions`。
+- [ ] 实现 source artifact/version/content hash 冻结。
+- [ ] 实现 HTML/CSS structured extraction orchestration。
+- [ ] 实现普通功能文档 deterministic preflight 和 agent draft 调度。
+- [ ] 实现 draft lint / preview / private publish / export。
+- [ ] 实现 contribution review / official publish / disable / archive / rollback。
+- [ ] 权限覆盖 user/workspace/admin role。
+- [ ] 所有发布结果版本化，旧 job snapshot 不漂移。
+
+验收：
+
+- Capability 创作和审核可脱离 `ApplicationService` facade 独立测试。
+- Runtime Provider 不能直接写模板/Skill registry。
+
+## Phase APP-13：Exploration Planning Application Service
+
+> 上游规划：`../capability-distribution/controlled-exploration-governance-plan.md`
+
+- [x] 提取 `ExplorationPlanningApplicationService`，不把规划逻辑继续堆入 facade。
+- [~] 校验 capability version、module graph、用户/workspace 权限和用户锁定项；官方图谱 resolver 与权限已完成，用户私有发布版本 resolver 待 CAP-10 接入。
+- [x] 实现纯函数、版本化、deterministic seed 的 batch planner。
+- [x] 计算 required/conditional/sampled 覆盖和 variation focus 分配。
+- [x] 增加 `POST /api/design-jobs/exploration-plan/preview`。
+- [x] `POST /api/design-jobs` 接收标准化 exploration request，并在创建时重新校验和生成服务端计划。
+- [x] 通过现有 PostgreSQL `template_requirements` JSON snapshot 持久化 graph、batch plan、variation plan、planner version、seed 和 coverage summary。
+- [~] resume、refine 和管理员整单/单 variation retry 沿用 snapshot；“换一个方向”创建新 plan version 待实现。
+- [ ] 记录计划创建、人工调整、失败和版本变更事件。
+- [ ] 聚合覆盖、多样性、成本、失败和 plan-to-artifact drift 指标。
+- [x] 隔离测试覆盖 viewer、非 workspace 用户和未授权 graph 不能预览或创建 plan。
+- [x] PostgreSQL hydrate/no-hydrate 与 restart recovery smoke 覆盖 exploration snapshot；真实 PostgreSQL 16 隔离实例已验证 selection、batch plan、module graph 和 variation focus 不漂移。
+
+验收：
+
+- 3/6 variation 在 runtime 调用前已经拥有稳定、可解释、可恢复的批量计划。
+- Runtime unavailable 不影响历史计划、preview、artifact、export 和 share 读取。
+
+## Phase APP-14：动态百科能力配置与快照
+
+> 用户端规划：`../user-experience/dynamic-encyclopedia-capability-drawer-plan.md`
+> 上游契约：CAP-8 Capability Preset、CAP-11 Exploration Plan
+
+### APP-14.1 配置解析与校验
+
+- [x] 实现 preset + entry guidance + user override 的服务端合并器，不信任前端合并结果。
+- [x] 校验 product mode、父子模板关系、entry category、Interaction Paradigm 和模板兼容性。
+- [x] 校验 required Skill/MCP 未禁用，MCP scopes 保持最小权限。
+- [x] 校验 Loop 在 preset 白名单内，experimental 档强制规范审查。
+- [x] 校验 locked/excluded module 无冲突，always/critical invariant 不可排除。
+- [~] 返回稳定错误码和可用户化 context，不泄露 registry/runtime 私有字段（planner 错误已统一为 preview/create 失败；模块级用户化 context 待增强）。
+
+### APP-14.2 Guidance 与计划预览
+
+- [x] entry guidance 响应增加 exploration recommendation、reason 和 confidence。
+- [~] exploration plan preview 接收动态百科最终候选配置，并返回 focus/coverage/warning 摘要（exploration/category/variation 与模块选择已接入；模板/插件对 planner 的解释仍由用户端稳定映射）。
+- [x] preview 请求不创建 design job、runtime session 或持久化正式 plan。
+- [x] 正式创建 job 时重新校验和生成 plan，不能复用前端 preview 作为授权依据。
+
+### APP-14.3 Capability Selection Snapshot
+
+- [x] 定义版本化 `CapabilitySelectionSnapshotV1`，保存 preset、guidance、选择 id、来源、Loop、review mode 和 exploration request。
+- [x] job 创建时把 selection snapshot、module graph 和 exploration plan 原子化写入现有 snapshot 持久化边界。
+- [x] resume、job detail、variation detail 和 refine 读取原 snapshot，不重新应用最新 registry。
+- [x] 管理员 retry 沿用原 snapshot；“换一个方向”未来创建新 plan version。
+- [~] 记录配置确认、用户覆盖、plan preview、正式计划创建和校验失败事件（selection source 已进入 snapshot；独立治理事件流待补）。
+
+### APP-14.4 测试与生产门禁
+
+- [x] 集成测试覆盖 required capability 删除、非法 template category、scope 提升和 invariant 排除被拒绝。
+- [x] 集成测试覆盖 experimental 强制审查和 `factCreativity = 0`。
+- [x] PostgreSQL hydrate/no-hydrate/restart smoke 覆盖 selection snapshot；真实 PostgreSQL 16 隔离实例双模式重连已通过。
+- [x] runtime unavailable 时历史 selection/plan 仍可读取。
+- [x] job/variation snapshot API 使用显式白名单，不暴露 MCP `serverName/toolName`、内部 Job 记录字段或 Runtime lane/session/agent 引用。
+
+验收：
+
+- 前端抽屉只负责编辑候选配置，Application Service 是最终准入和快照事实来源。
+- 刷新、resume、retry 和 refine 不随官方 preset/registry 更新漂移。
+
+## Phase APP-15：AI-first 词条引导编排
+
+> 依赖：CAP-12 taxonomy/democase registry、RTC-14 Guidance Analysis Contract、UX-15 AI 词条引导体验。
+
+- [x] 定义 provider-neutral `EncyclopediaGuidanceAnalysisV2` 输入、输出和错误契约。
+- [x] 定义独立 `GuidanceAnalysisGateway`，Application Service 不直接依赖 BabeL-O 私有接口。
+- [x] 提取 `EncyclopediaGuidanceApplicationService`，AI 模式不再由 facade 内关键词分类主流程负责判断；legacy 模式保留为显式降级。
+- [~] 将词条标题、用户生成意图、补充上下文拆成独立输入；后端 V2 contract 已拆分 entry/context/intent 输出，用户端独立输入 UI 待 UX-15。
+- [x] 查询机器可读 taxonomy 候选和 democase evidence，再调用 Guidance Gateway 进行真实 AI 结构化分析。
+- [x] 对 AI 输出执行 schema validation、registry id 校验、模板兼容性校验和权限校验。
+- [x] 将 primary intent 建模为显式 allowlist，并与所选 taxonomy candidate 的 compatible intent 绑定，避免 Provider 自由发明 intent id。
+- [x] AI 返回不合法 JSON 时由 Runtime Adapter 在同一隔离 session 内允许一次 bounded repair；第二次失败返回可解释 `GUIDANCE_INVALID_RESPONSE`，不静默伪造高置信结果。
+- [~] 支持 `provider_unavailable / invalid_response / ambiguous / needs_clarification` 标准状态；unavailable/invalid/timeout/contract mismatch 已完成，clarification 多轮 API 待补。
+- [x] 区分阻断性实体歧义与非阻断偏好问题；只有无法安全选择实体分类/模板时进入 `needs_clarification`。
+- [x] 把模型、prompt/schema version、taxonomy version、evidence ids、候选分类和推荐评分写入 immutable guidance snapshot。
+- [ ] clarification 完成后创建新 analysis version，不覆盖历史已确认 guidance。
+- [x] 禁止 AI 自由创建 taxonomy、template 和 interaction paradigm id；V2 allowlist validator 已拒绝越权 id，Skill/MCP 不进入 guidance 输出契约。
+- [ ] PostgreSQL migration 与 hydrate/restart smoke 覆盖 Guidance Analysis V2 snapshot。
+- [~] API 集成测试覆盖真实 gateway contract、provider unavailable、snapshot restore 与 100 条 golden runner；低置信澄清多轮和 PostgreSQL restart 待补。
+
+验收：
+
+- 词条引导的主判断来自真实 AI 分析，规则只负责候选召回、约束校验和安全降级。
+- 同一 analysis snapshot 在刷新、job 创建、resume 和 runtime 升级后不漂移。
+- Application Service 可替换 BabeL-O、CLI Agent 或测试 provider，而不修改用户/API 数据模型。
+
+## Phase APP-16：Variation Refine 取消契约
+
+- [x] `RefineVariationRequest` 和 annotation refine 支持客户端生成的稳定 `requestId`。
+- [x] 增加 `POST /api/variations/:variationId/refine/:requestId/cancel`。
+- [x] Application Service 跟踪活跃 refine，拒绝同 variation 并发修改和重复 request id。
+- [x] 取消后忽略迟到 runtime 事件，并把 current artifact 恢复到 refine 前版本。
+- [x] variation 保持 `completed`，取消只终止本轮 refine，不破坏后续继续修改。
+- [x] 重复取消返回幂等 `cancelled` 结果，不重复调用 Runtime Gateway。
+- [x] 记录 `variation_refine_cancelled` session system message。
+- [x] 将 refine operation registry 迁移到 PostgreSQL 权威表，支持多 API replica 和服务重启恢复；Redis 不作为 operation 事实源。
+- [x] 增加 operation 查询接口，供刷新页面恢复 `running / cancelling / cancelled / completed / failed` 状态。
+- [x] 增加 Refine Operation Reconciler，API/worker 启动后扫描 active operation 并恢复 runtime stream 或收敛终态。
+- [x] 增加 PostgreSQL reconcile lease，使用 `FOR UPDATE SKIP LOCKED` 防止多副本重复接管。
+- [x] 增加 runtime orphan 超时策略；运行时长期无法识别 request 时明确标记失败，不永久卡在 running。
+- [x] 真实 PostgreSQL 16 隔离测试覆盖 Repository/API 重建后的完成与取消恢复。
+
+验收：
+
+- 用户停止 refine 后，旧 artifact 始终保持可预览、可导出、可继续修改。
+- request id 只能取消所属 variation 的当前 refine，不能误取消同 job 的其他 variation。
+
+## Phase APP-17：模板质量快照与 Refine 异步化
+
+> 专项分析：`../../dynamic-encyclopedia-quality-gap-analysis-2026-07-15.md`
+
+- [x] guidance variation 只在用户确认的模板集合内轮转。
+- [x] 官方模板同版本内容更新时刷新 PostgreSQL 官方快照，不覆盖用户模板版本。
+- [x] 无正文 context 的外文专有名词默认中文正文。
+- [ ] manual refine 复用 refine queue，POST 立即返回 operation snapshot。
+- [ ] operation 记录 resultArtifactId、quality summary 和 runtime phase。
+- [ ] 旧 job 模板 assignment 与新 registry 不一致时提供明确 legacy 标记。
+
+## Phase APP-18：生成质量语义对齐与浏览器预检
+
+- [x] 模板分配从按索引循环改为按 exploration focus / interaction direction 语义匹配。
+- [x] `variationTemplateAssignments` 固化每变体 `interactionParadigmId` 与完整 paradigm snapshot。
+- [x] pixel gate 增加 788×492 / 380×456 固定画布居中、控件越界和中心命中检查。
+- [x] 被遮挡或越界的核心交互升级为阻断性 `fail`，进入自动修复而不是作为完成产物放行。
+- [x] 主题卡规范不再要求出现“百科/词条”字样，改为检查主题身份、策展内容和主要本地交互。
+- [x] 增加 SaaS proof/CTA/testimonial/pricing 等营销结构风险审查。
+- [x] Automation Loop 接入历史 artifact issue fingerprint，重复质量失败不再继续消耗修复次数。
+- [x] 修复 prompt 对几何遮挡要求删减/重排，禁止只改文案、ARIA 或事件监听器冒充修复。
+- [ ] 将布局预检 finding 的节点 selector、bounding rect 和 hit target 写入治理审计详情。
+- [ ] 增加 380×456 WISE 真实生成坏样本回放集。
+
+## Phase APP-19：质量审查生命周期与模板主交互门禁
+
+- [x] 质量审查未收敛前保持 design job 非终态，避免首次 runtime completion 使前端停止轮询。
+- [x] 自动修复成功、重复失败、review off/semi_auto、runtime unavailable 均释放质量审查锁并最终收敛任务状态。
+- [x] 模板规则增加成员体系、关系图谱、对比辨析、可展开事实四类主交互契约。
+- [x] 自动修复 prompt 增加中文优先、中性事实语气和 assigned child-template 定向修复要求。
+- [x] 增加质量审查失败时的队列/任务收敛测试，避免任务永久停留在 running。
+- [ ] 将质量循环状态独立暴露为 `reviewing / repair_queued / manual_action_required`，避免只借用 variation status 表达。
+- [x] 增加远端 3 变体最终 artifact 版本、质量状态和 job terminal event 一致性 smoke。
+- [ ] 增加启动期 orphan design-job reconciler 或受控清理命令，收敛修复前遗留的长期 `running` staging job。
+
+## Phase APP-20：300×360 核心内容与渐进披露门禁
+
+- [x] Pixel Gate 在 `300×360` 除主题身份外，要求至少保留一段可见的核心事实、摘要或选中详情，禁止只剩标题和控件。
+- [x] 极小画布的次级内容必须同时具备真实内容和显式可达控件；单独放置空按钮、伪 Tab 或不可达隐藏内容不再通过。
+- [x] 远端真实产物 smoke 同步校验标题、核心内容、单一主交互、控件预算、最小命中尺寸与点击状态变化。
+- [x] 官方紧凑模板样例通过 desktop + `300×360` Pixel Gate 与实际点击回归。
+- [ ] 用真实模型分别生成关系、时间线、成员、对比和渐进展开产物，确认首次生成即可通过而非依赖多轮自动修复。

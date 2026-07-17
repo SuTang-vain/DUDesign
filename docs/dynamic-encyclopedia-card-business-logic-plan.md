@@ -13,6 +13,7 @@
 > - `docs/architecture-governance-plan.md`
 > - `docs/modules/README.md`
 > - `docs/modules/capability-distribution/README.md`
+> - `docs/modules/user-experience/dynamic-encyclopedia-capability-drawer-plan.md`
 > - `docs/modules/capability-distribution/templates.md`
 > - `docs/modules/capability-distribution/plugins.md`
 > - `docs/modules/capability-distribution/automation-loop.md`
