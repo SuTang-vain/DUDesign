@@ -15,6 +15,8 @@ import type {
   RuntimeGateway,
   RuntimeHealth,
   RuntimeModels,
+  RuntimeRefineOperationInput,
+  RuntimeRefineOperationSnapshot,
   RuntimeResumeResult,
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
@@ -27,10 +29,19 @@ export type BabelORuntimeGatewayOptions = {
   variationConcurrency?: number
 }
 
+type ActiveRefineAgent = {
+  jobId: string
+  variationId: string
+  runtimeChildSessionId: string | null
+  agentJobId: string | null
+  cancelRequested: boolean
+}
+
 export class BabelORuntimeGateway implements RuntimeGateway {
   private readonly client: BabelORuntimeClient
   private readonly adapter: BabelONexusEventAdapter
   private readonly variationConcurrency: number
+  private readonly activeRefines = new Map<string, ActiveRefineAgent>()
 
   constructor(options: BabelORuntimeGatewayOptions = {}) {
     if (!options.client && !options.clientConfig) {
@@ -111,22 +122,82 @@ export class BabelORuntimeGateway implements RuntimeGateway {
   }
 
   async *refineVariation(input: RefineVariationInput): AsyncIterable<DesignEvent> {
-    await this.requireCompatibleRuntime()
-    const agent = await this.client.createRefineAgent(input)
-    for await (const rawEvent of this.client.streamRuntimeEvents({
-      streamId: agent.streamId,
-      runtimeSessionId: agent.runtimeChildSessionId ?? input.runtimeChildSessionId ?? undefined,
-      agentJobId: agent.agentJobId,
-    })) {
-      yield this.adapter.toDesignEvent({ type: String(rawEvent.type ?? 'unknown'), ...rawEvent }, {
+    let terminal = false
+    const active: ActiveRefineAgent | null = input.requestId ? {
+      jobId: input.jobId ?? input.sessionId,
+      variationId: input.variationId,
+      runtimeChildSessionId: input.runtimeChildSessionId,
+      agentJobId: null,
+      cancelRequested: false,
+    } : null
+    if (input.requestId && active) this.activeRefines.set(input.requestId, active)
+    try {
+      await this.requireCompatibleRuntime()
+      const agent = await this.client.createRefineAgent(input)
+      if (active) {
+        active.agentJobId = agent.agentJobId ?? null
+        active.runtimeChildSessionId = agent.runtimeChildSessionId ?? active.runtimeChildSessionId
+        if (active.cancelRequested) {
+          await this.client.cancelRuntimeJob({
+            jobId: active.jobId,
+            requestId: input.requestId,
+            reason: 'Refine cancellation requested before runtime agent startup completed.',
+            variations: [{
+              variationId: active.variationId,
+              runtimeChildSessionId: active.runtimeChildSessionId,
+              runtimeAgentJobId: active.agentJobId,
+            }],
+          })
+          return
+        }
+      }
+      for await (const rawEvent of this.client.streamRuntimeEvents({
+        streamId: agent.streamId,
+        runtimeSessionId: agent.runtimeChildSessionId ?? input.runtimeChildSessionId ?? undefined,
+        agentJobId: agent.agentJobId,
+      })) {
+        if (active?.cancelRequested) break
+        const event = this.adapter.toDesignEvent({ type: String(rawEvent.type ?? 'unknown'), ...rawEvent }, {
+          sessionId: input.sessionId,
+          jobId: input.jobId,
+          variationId: input.variationId,
+        })
+        if (event.type === 'design.variation_completed' || event.type === 'design.variation_failed') terminal = true
+        yield event
+      }
+      if (active?.cancelRequested) return
+      if (!terminal) {
+        yield createDesignEvent({
+          type: 'design.variation_failed',
+          sessionId: input.sessionId,
+          jobId: input.jobId,
+          variationId: input.variationId,
+          payload: {
+            errorCode: 'RUNTIME_STREAM_ENDED_WITHOUT_RESULT',
+            message: 'BabeL-O runtime stream ended before producing a terminal result.',
+            recoverable: true,
+          },
+        })
+      }
+    } catch (error) {
+      if (active?.cancelRequested) return
+      yield createDesignEvent({
+        type: 'design.variation_failed',
         sessionId: input.sessionId,
         jobId: input.jobId,
         variationId: input.variationId,
+        payload: {
+          errorCode: error instanceof RuntimeGatewayError ? error.code : 'RUNTIME_VARIATION_FAILED',
+          message: error instanceof Error ? error.message : 'BabeL-O refinement failed.',
+          recoverable: true,
+        },
       })
+    } finally {
+      if (input.requestId) this.activeRefines.delete(input.requestId)
     }
   }
 
-	  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
+  async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
 	    const contract = await this.client.getRuntimeContract()
 	    if (contract.status !== 'compatible' && contract.status !== 'degraded') {
 	      return {
@@ -134,8 +205,60 @@ export class BabelORuntimeGateway implements RuntimeGateway {
 	        message: `BabeL-O runtime is not cancellable: ${contract.status}.`,
 	      }
 	    }
+	    if (input.requestId) {
+	      const active = this.activeRefines.get(input.requestId)
+	      if (!active) {
+	        return this.client.cancelRuntimeJob(input)
+	      }
+	      active.cancelRequested = true
+	      if (!active.agentJobId) {
+	        return {
+	          cancelled: true,
+	          message: 'Refine cancellation queued until the runtime agent is ready.',
+	          cancelledVariationCount: 0,
+	          failedVariationCount: 0,
+	        }
+	      }
+	      return this.client.cancelRuntimeJob({
+	        ...input,
+	        variations: [{
+	          variationId: active.variationId,
+	          runtimeChildSessionId: active.runtimeChildSessionId,
+	          runtimeAgentJobId: active.agentJobId,
+	        }],
+	      })
+	    }
 	    return this.client.cancelRuntimeJob(input)
 	  }
+
+  async getRefineOperation(input: RuntimeRefineOperationInput): Promise<RuntimeRefineOperationSnapshot> {
+    const raw = await this.client.getRefineOperation(input.requestId)
+    const status = runtimeRefineOperationStatus(raw.status)
+    const terminalEvent = raw.terminalEvent
+      ? this.adapter.toDesignEvent({ type: String(raw.terminalEvent.type ?? 'unknown'), ...raw.terminalEvent }, {
+          requestId: input.requestId,
+          sessionId: input.sessionId,
+          jobId: input.jobId,
+          variationId: input.variationId,
+        })
+      : undefined
+    return {
+      status,
+      ...(terminalEvent && { terminalEvent }),
+      ...(raw.message && { message: raw.message }),
+    }
+  }
+
+  async *recoverRefineOperation(input: RuntimeRefineOperationInput): AsyncIterable<DesignEvent> {
+    for await (const rawEvent of this.client.streamRuntimeEvents({ requestId: input.requestId })) {
+      yield this.adapter.toDesignEvent({ type: String(rawEvent.type ?? 'unknown'), ...rawEvent }, {
+        requestId: input.requestId,
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: input.variationId,
+      })
+    }
+  }
 
   mapRuntimeEvent(
     event: Parameters<BabelONexusEventAdapter['toDesignEvent']>[0],
@@ -212,6 +335,13 @@ export class BabelORuntimeGateway implements RuntimeGateway {
       })
     }
   }
+}
+
+function runtimeRefineOperationStatus(value: unknown): RuntimeRefineOperationSnapshot['status'] {
+  if (value === 'queued' || value === 'running' || value === 'completed' || value === 'failed' || value === 'cancelled' || value === 'not_found') {
+    return value
+  }
+  return 'unsupported'
 }
 
 async function* mergeAsyncIterables<T>(iterables: Array<AsyncIterable<T>>, concurrency = Number.POSITIVE_INFINITY): AsyncIterable<T> {

@@ -173,6 +173,8 @@ export class NexusClient {
     modelId?: string
     timeoutMs?: number
     watchdogTimeoutMs?: number
+    allowedTools?: string[]
+    skipPermissionCheck?: boolean
   }): Promise<NexusExecuteResponse> {
     const timeoutMs = input.timeoutMs ?? 300000
     return this.requestJson('/v1/execute', {
@@ -184,8 +186,8 @@ export class NexusClient {
         cwd: input.cwd,
         timeoutMs,
         watchdogTimeoutMs: input.watchdogTimeoutMs ?? timeoutMs,
-        allowedTools: ['*'],
-        skipPermissionCheck: true,
+        allowedTools: input.allowedTools ?? ['*'],
+        skipPermissionCheck: input.skipPermissionCheck ?? true,
         ...(runtimeModelId(input.modelId) && { model: runtimeModelId(input.modelId) }),
       },
     })

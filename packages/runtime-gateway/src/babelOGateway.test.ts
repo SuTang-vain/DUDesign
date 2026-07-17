@@ -147,6 +147,138 @@ describe('BabelORuntimeGateway', () => {
 	    })
 	  })
 
+  it('cancels only the active refine agent matched by request id', async () => {
+    let releaseStream!: () => void
+    let markStreamStarted!: () => void
+    const streamStarted = new Promise<void>(resolve => { markStreamStarted = resolve })
+    const streamRelease = new Promise<void>(resolve => { releaseStream = resolve })
+    const cancelBodies: unknown[] = []
+    const gateway = new BabelORuntimeGateway({
+      client: new BabelORuntimeClient({
+        baseUrl: 'https://runtime.example.test',
+        fetch: async (url, init) => {
+          const href = String(url)
+          if (href.endsWith('/v1/contract')) {
+            return jsonResponse({ contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION, runtimeVersion: '1.2.3' })
+          }
+          if (href.endsWith('/v1/agents/refine')) {
+            return jsonResponse({
+              streamId: 'stream_refine_cancel',
+              agentJobId: 'agent_refine_cancel',
+              runtimeChildSessionId: 'rt_child_refine_cancel',
+            })
+          }
+          if (href.includes('/v1/stream')) {
+            markStreamStarted()
+            return new Response(new ReadableStream({
+              async start(controller) {
+                await streamRelease
+                controller.enqueue(new TextEncoder().encode('{"type":"result","artifactId":"late_artifact"}\n'))
+                controller.close()
+              },
+            }), { status: 200, headers: { 'content-type': 'application/x-ndjson' } })
+          }
+          if (href.endsWith('/v1/agents/cancel')) {
+            cancelBodies.push(JSON.parse(String(init?.body)))
+            return jsonResponse({ cancelled: true, cancelledVariationCount: 1, failedVariationCount: 0 })
+          }
+          throw new Error(`Unexpected URL: ${href}`)
+        },
+      }),
+    })
+
+    const eventsPromise = (async () => {
+      const events = []
+      for await (const event of gateway.refineVariation({
+        requestId: 'rfn_cancel_1',
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'session_1',
+        jobId: 'job_1',
+        variationId: 'variation_1',
+        variationIndex: 1,
+        runtimeChildSessionId: 'rt_child_original',
+        baseArtifactId: 'artifact_1',
+        baseArtifactHtml: '<main>base</main>',
+        prompt: 'Refine the page',
+        workspaceRoot: 'workspaces/workspace_1',
+      })) events.push(event)
+      return events
+    })()
+
+    await streamStarted
+    const cancelled = await gateway.cancelRuntimeJob({
+      jobId: 'job_1',
+      requestId: 'rfn_cancel_1',
+      reason: 'user stop',
+    })
+    releaseStream()
+    const events = await eventsPromise
+
+    assert.equal(cancelled.cancelled, true)
+    assert.equal(events.length, 0)
+    assert.deepEqual(cancelBodies, [{
+      jobId: 'job_1',
+      requestId: 'rfn_cancel_1',
+      reason: 'user stop',
+      variations: [{
+        variationId: 'variation_1',
+        runtimeChildSessionId: 'rt_child_refine_cancel',
+        runtimeAgentJobId: 'agent_refine_cancel',
+      }],
+    }])
+  })
+
+  it('queries and recovers a persisted refine operation through the provider-neutral contract', async () => {
+    const calls: string[] = []
+    const gateway = new BabelORuntimeGateway({
+      client: new BabelORuntimeClient({
+        baseUrl: 'https://runtime.example.test',
+        fetch: async url => {
+          const href = String(url)
+          calls.push(href)
+          if (href.endsWith('/v1/refine-operations/rfn_recover_1')) {
+            return jsonResponse({
+              requestId: 'rfn_recover_1',
+              status: 'completed',
+              terminalEvent: {
+                type: 'result',
+                artifactId: 'babel_o_recovered',
+                entryPath: 'index.html',
+                html: '<main>Recovered</main>',
+              },
+            })
+          }
+          if (href.endsWith('/v1/stream?requestId=rfn_recover_1')) {
+            return new Response('{"type":"result","artifactId":"babel_o_recovered","html":"<main>Recovered</main>"}\n', {
+              status: 200,
+              headers: { 'content-type': 'application/x-ndjson' },
+            })
+          }
+          throw new Error(`Unexpected URL: ${href}`)
+        },
+      }),
+    })
+    const input = {
+      requestId: 'rfn_recover_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      variationId: 'variation_1',
+    }
+
+    const snapshot = await gateway.getRefineOperation(input)
+    const recovered = []
+    for await (const event of gateway.recoverRefineOperation(input)) recovered.push(event)
+
+    assert.equal(snapshot.status, 'completed')
+    assert.equal(snapshot.terminalEvent?.type, 'design.variation_completed')
+    assert.equal(recovered[0]?.type, 'design.variation_completed')
+    assert.deepEqual(calls, [
+      'https://runtime.example.test/v1/refine-operations/rfn_recover_1',
+      'https://runtime.example.test/v1/stream?requestId=rfn_recover_1',
+    ])
+  })
+
 	  it('does not call cancel when the runtime contract mismatches', async () => {
 	    const calls: string[] = []
 	    const gateway = new BabelORuntimeGateway({
@@ -388,6 +520,58 @@ describe('BabelORuntimeGateway', () => {
       completedVariationCount: 4,
       failedVariationCount: 0,
     })
+  })
+
+  it('returns a recoverable failed variation event when refinement stream connection fails', async () => {
+    const gateway = new BabelORuntimeGateway({
+      client: new BabelORuntimeClient({
+        baseUrl: 'https://runtime.example.test',
+        fetch: async (url, init) => {
+          const href = String(url)
+          if (href.endsWith('/v1/contract')) {
+            return jsonResponse({
+              contractVersion: DUDESIGN_RUNTIME_CONTRACT_VERSION,
+              runtimeVersion: '1.2.3',
+            })
+          }
+          if (href.endsWith('/v1/agents')) {
+            assert.equal(init?.method, 'POST')
+            return jsonResponse({
+              streamId: 'stream_refine_1',
+              agentJobId: 'agent_refine_1',
+              runtimeChildSessionId: 'rt_child_1',
+            })
+          }
+          throw new TypeError('fetch failed')
+        },
+      }),
+    })
+
+    const events = []
+    for await (const event of gateway.refineVariation({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      variationId: 'variation_1',
+      variationIndex: 1,
+      runtimeChildSessionId: 'rt_child_1',
+      runtimeLaneId: 'lane-a',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<!doctype html><html><body>base</body></html>',
+      baseArtifactEntryPath: 'index.html',
+      baseArtifactVersion: 1,
+      prompt: 'Refine the page',
+      workspaceRoot: 'workspaces/workspace_1',
+    })) {
+      events.push(event)
+    }
+
+    assert.equal(events.length, 1)
+    assert.equal(events[0]?.type, 'design.variation_failed')
+    assert.equal(events[0]?.variationId, 'variation_1')
+    assert.equal(events[0]?.payload.errorCode, 'RUNTIME_UNAVAILABLE')
+    assert.equal(events[0]?.payload.recoverable, true)
   })
 })
 

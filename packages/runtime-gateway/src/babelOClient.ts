@@ -1,4 +1,15 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignTemplatePack } from '@dudesign/contracts'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import {
+  defaultEncyclopediaDemocaseExperienceProfile,
+  encyclopediaDemocaseStageForInteractionParadigm,
+  type AdvancedTemplateConstraints,
+  type CapabilitySnapshot,
+  type DesignTemplatePack,
+  type EncyclopediaDemocaseExperienceProfile,
+  type HtmlExample,
+  type HtmlExampleFileRef,
+} from '@dudesign/contracts'
 import type {
   CancelRuntimeJobInput,
   CancelRuntimeJobResult,
@@ -13,6 +24,11 @@ import type {
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
 } from './types.js'
+import {
+  runtimeExplorationContextForVariation,
+  runtimeExplorationPromptBlock,
+  type RuntimeExplorationContextV1,
+} from './runtimeExplorationContext.js'
 
 export const DUDESIGN_RUNTIME_CONTRACT_VERSION = '2026-06-26.dudesign-runtime.v1'
 
@@ -95,8 +111,16 @@ export type BabelORuntimeCancelResponse = {
 
 export type BabelORuntimeStreamRequest = {
   streamId?: string
+  requestId?: string
   runtimeSessionId?: string
   agentJobId?: string
+}
+
+export type BabelORuntimeRefineOperationResponse = {
+  requestId?: string
+  status?: string
+  terminalEvent?: Record<string, unknown>
+  message?: string
 }
 
 export type BabelORuntimeModelsResponse = Record<string, unknown>
@@ -264,7 +288,13 @@ export class BabelORuntimeClient {
 
   async spawnVariationAgent(input: SpawnVariationAgentsInput & { variationIndex: number }): Promise<BabelORuntimeAgentResponse> {
     const variationRuntimeWorkspaceRoot = runtimeVariationWorkspaceRoot(input.workspaceRoot, input.jobId, input.variationIndex)
-    const styleDirection = variationStyleDirection(input.variationIndex, input.templateRequirements)
+    const explorationContext = runtimeExplorationContextForVariation(input.explorationContexts, input.variationIndex)
+    const styleDirection = variationStyleDirection(
+      input.variationIndex,
+      input.templateRequirements,
+      input.productMode,
+      explorationContext,
+    )
     return this.requestJson<BabelORuntimeAgentResponse>('/v1/agents', {
       method: 'POST',
       body: {
@@ -272,7 +302,7 @@ export class BabelORuntimeClient {
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,
         jobId: input.jobId,
-        prompt: buildVariationRuntimePrompt(input, styleDirection),
+        prompt: buildVariationRuntimePrompt(input, styleDirection, explorationContext),
         sourceMode: input.sourceMode,
         productMode: input.productMode ?? 'web_app',
         sourceArtifactId: input.sourceArtifactId ?? null,
@@ -284,9 +314,11 @@ export class BabelORuntimeClient {
         modelServiceId: input.modelServiceId ?? null,
         modelId: input.modelId ?? null,
         modelProvider: input.modelProvider ?? null,
+        ...(explorationContext ? { explorationContext } : {}),
         templateRequirements: {
           ...(input.templateRequirements ?? {}),
           variationStyleDirection: styleDirection,
+          ...(explorationContext ? { explorationContext } : {}),
           toolPolicy: runtimeToolPolicy(input.templateRequirements?.capabilitySnapshot),
         },
       },
@@ -301,9 +333,11 @@ export class BabelORuntimeClient {
       method: 'POST',
       body: {
         userId: input.userId,
+        requestId: input.requestId ?? null,
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,
         jobId: input.jobId,
+        productMode: input.productMode ?? null,
         variationId: input.variationId,
         runtimeChildSessionId: input.runtimeChildSessionId,
         runtimeLaneId: input.runtimeLaneId ?? null,
@@ -311,7 +345,7 @@ export class BabelORuntimeClient {
         baseArtifactHtml: input.baseArtifactHtml,
         baseArtifactEntryPath: input.baseArtifactEntryPath ?? null,
         baseArtifactVersion: input.baseArtifactVersion,
-        prompt: input.prompt,
+        prompt: buildRefineRuntimePrompt(input),
         annotationPromptSuffix: input.annotationPromptSuffix,
         workspaceRoot: refineWorkspaceRoot,
         parentWorkspaceRoot: input.workspaceRoot,
@@ -320,6 +354,8 @@ export class BabelORuntimeClient {
         modelServiceId: input.modelServiceId ?? null,
         modelId: input.modelId ?? null,
         modelProvider: input.modelProvider ?? null,
+        ...(input.templateRequirements ? { templateRequirements: input.templateRequirements } : {}),
+        ...(input.explorationContext ? { explorationContext: input.explorationContext } : {}),
       },
     })
   }
@@ -327,9 +363,21 @@ export class BabelORuntimeClient {
   streamRuntimeEvents(request: BabelORuntimeStreamRequest): AsyncIterable<Record<string, unknown>> {
     const search = new URLSearchParams()
     if (request.streamId) search.set('streamId', request.streamId)
+    if (request.requestId) search.set('requestId', request.requestId)
     if (request.runtimeSessionId) search.set('runtimeSessionId', request.runtimeSessionId)
     if (request.agentJobId) search.set('agentJobId', request.agentJobId)
     return this.streamJsonWithReconnect(`/v1/stream${search.size > 0 ? `?${search}` : ''}`)
+  }
+
+  async getRefineOperation(requestId: string): Promise<BabelORuntimeRefineOperationResponse> {
+    try {
+      return await this.requestJson<BabelORuntimeRefineOperationResponse>(`/v1/refine-operations/${encodeURIComponent(requestId)}`)
+    } catch (error) {
+      if (error instanceof RuntimeGatewayError && error.message.includes('HTTP 404')) {
+        return { requestId, status: 'not_found' }
+      }
+      throw error
+    }
   }
 
   async cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult> {
@@ -337,6 +385,7 @@ export class BabelORuntimeClient {
       method: 'POST',
       body: {
         jobId: input.jobId,
+        ...(input.requestId ? { requestId: input.requestId } : {}),
         reason: input.reason,
         variations: input.variations ?? [],
       },
@@ -367,8 +416,9 @@ export class BabelORuntimeClient {
   ): Promise<T> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+    const requestUrl = `${this.baseUrl}${path}`
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const response = await this.fetchImpl(requestUrl, {
         method: options.method ?? 'GET',
         headers: this.headers(options.body !== undefined),
         ...(options.body !== undefined && { body: JSON.stringify(options.body) }),
@@ -385,6 +435,9 @@ export class BabelORuntimeClient {
     } catch (error) {
       if (isAbortError(error)) {
         throw new RuntimeGatewayError('RUNTIME_REQUEST_TIMEOUT', `BabeL-O runtime request exceeded ${this.timeoutMs}ms.`, error)
+      }
+      if (isFetchNetworkError(error)) {
+        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', `BabeL-O runtime request failed for ${requestUrl}: ${error.message}`, error)
       }
       throw error
     } finally {
@@ -412,8 +465,9 @@ export class BabelORuntimeClient {
   private async *streamJsonOnce(path: string): AsyncIterable<Record<string, unknown>> {
     const controller = new AbortController()
     let connectTimeout: ReturnType<typeof setTimeout> | undefined = setTimeout(() => controller.abort(), this.timeoutMs)
+    const streamUrl = `${this.baseUrl}${path}`
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const response = await this.fetchImpl(streamUrl, {
         method: 'GET',
         headers: this.headers(),
         signal: controller.signal,
@@ -449,6 +503,9 @@ export class BabelORuntimeClient {
       if (error instanceof RuntimeGatewayError) throw error
       if (isAbortError(error)) {
         throw new RuntimeGatewayError('RUNTIME_REQUEST_TIMEOUT', `BabeL-O runtime stream connect exceeded ${this.timeoutMs}ms.`, error)
+      }
+      if (isFetchNetworkError(error)) {
+        throw new RuntimeGatewayError('RUNTIME_UNAVAILABLE', `BabeL-O runtime stream connection failed for ${streamUrl}: ${error.message}`, error)
       }
       throw error
     } finally {
@@ -501,16 +558,53 @@ const DEFAULT_VARIATION_STYLE_DIRECTIONS = [
 function variationStyleDirection(
   variationIndex: number,
   templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
+  productMode?: SpawnVariationAgentsInput['productMode'],
+  explorationContext?: RuntimeExplorationContextV1,
 ): string {
-  const baseDirection = DEFAULT_VARIATION_STYLE_DIRECTIONS[(Math.max(variationIndex, 1) - 1) % DEFAULT_VARIATION_STYLE_DIRECTIONS.length]
+  const baseDirection = productMode === 'dynamic_encyclopedia_card'
+    ? dynamicTopicCardStyleDirection(variationIndex, templateRequirements, explorationContext)
+    : DEFAULT_VARIATION_STYLE_DIRECTIONS[(Math.max(variationIndex, 1) - 1) % DEFAULT_VARIATION_STYLE_DIRECTIONS.length]
   const userStyles = templateRequirements?.styles?.map(style => style.trim()).filter(style => style.length > 0) ?? []
   if (userStyles.length === 0) return baseDirection
   return `${baseDirection} Interpret the user-requested style tags through this direction: ${userStyles.join(', ')}.`
 }
 
+function dynamicTopicCardStyleDirection(
+  variationIndex: number,
+  templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
+  explorationContext?: RuntimeExplorationContextV1,
+): string {
+  const assignment = templateRequirements?.variationTemplateAssignments?.find(item => item.variationIndex === variationIndex)
+  const signal = [
+    assignment?.interactionParadigmId,
+    assignment?.designTemplatePackId,
+    explorationContext?.focus.id,
+    ...(explorationContext?.interactionDirectionIds ?? []),
+  ].filter((item): item is string => Boolean(item)).join(' ').toLowerCase()
+
+  const shared = ' Keep one primary interaction visually dominant; supporting facts must remain subordinate. Avoid SaaS conversion, CTA, proof-block, testimonial, social-proof, pricing, signup, and dashboard patterns.'
+  if (/relation|member|cast|character/.test(signal)) {
+    return `Member and relationship exploration canvas: make the entity field, member selection, and relationship state the visual anchor; reveal detail through direct local selection.${shared}`
+  }
+  if (/timeline|event|origin|episode|series/.test(signal)) {
+    return `Cinematic phase narrative: make the ordered stages and current milestone the visual anchor; use a compact phase switcher and one clearly changing story surface.${shared}`
+  }
+  if (/compare|comparison/.test(signal)) {
+    return `Focused comparison object: make the compared attributes and active distinction the visual anchor; keep the comparison bounded and directly switchable.${shared}`
+  }
+  if (/route|map|poi|spatial/.test(signal)) {
+    return `Spatial topic explorer: make the schematic route, location, or POI selection the visual anchor; use verified labels and local detail reveal.${shared}`
+  }
+  if (/summary|expandable|fact/.test(signal)) {
+    return `Curated topic portrait: make one distinctive topic composition the visual anchor, then reveal compact facts through tabs or progressive disclosure.${shared}`
+  }
+  return `Theme-led interactive object: create a distinctive fixed-canvas topic experience with one primary local interaction and a clear visual focal point.${shared}`
+}
+
 function buildVariationRuntimePrompt(
   input: SpawnVariationAgentsInput & { variationIndex: number },
   styleDirection: string,
+  explorationContext = runtimeExplorationContextForVariation(input.explorationContexts, input.variationIndex),
 ): string {
   return [
     'DUDesign runtime guardrails:',
@@ -521,12 +615,14 @@ function buildVariationRuntimePrompt(
     '',
     input.prompt,
     '',
+    dynamicTopicCardProductIntentBlock(input.productMode),
     capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
     pluginPromptBlock(input.templateRequirements?.capabilitySnapshot),
     capabilityArtifactPromptBlock(input.templateRequirements),
     designTemplatePackPromptBlock(input.variationIndex, input.templateRequirements),
     advancedConstraintsPromptBlock(input.templateRequirements?.advancedConstraints),
     input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
+    runtimeExplorationPromptBlock(explorationContext),
     '',
     'DUDesign variation directive:',
     `- This is variation ${input.variationIndex} of ${input.variationCount}.`,
@@ -538,26 +634,61 @@ function buildVariationRuntimePrompt(
   ].join('\n')
 }
 
+function buildRefineRuntimePrompt(input: RefineVariationInput): string {
+  const templateBlock = input.variationIndex && input.templateRequirements
+    ? designTemplatePackPromptBlock(input.variationIndex, input.templateRequirements)
+    : ''
+  return [
+    input.prompt,
+    '',
+    'DUDesign refinement invariants:',
+    '- Preserve the current variation\'s assigned Template Pack, information architecture, viewport contract, and interaction paradigm unless the user explicitly asks to change the template.',
+    '- Apply the requested change surgically. Keep unrelated content, layout, styles, and working interactions unchanged.',
+    dynamicTopicCardProductIntentBlock(input.productMode),
+    templateBlock,
+    input.templateRequirements?.advancedConstraints ? advancedConstraintsPromptBlock(input.templateRequirements.advancedConstraints) : '',
+    input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
+    runtimeExplorationPromptBlock(input.explorationContext),
+  ].filter(Boolean).join('\n')
+}
+
+function dynamicTopicCardProductIntentBlock(productMode: SpawnVariationAgentsInput['productMode'] | undefined): string {
+  if (productMode !== 'dynamic_encyclopedia_card') return ''
+  return [
+    'DUDesign product intent: topic-driven dynamic interactive card.',
+    '- The entry/entity is the thematic starting point and factual boundary; it is not a request for a traditional encyclopedia article or encyclopedia website page.',
+    '- Lead with one valuable interaction and a distinctive single-canvas visual narrative. Curate only the content needed for the user goal.',
+    '- Do not default to encyclopedia infobox + contents + long article sections, and do not optimize for exhaustive knowledge coverage.',
+    '- Factual neutrality and source awareness remain safety constraints, not layout requirements.',
+  ].join('\n')
+}
+
 function capabilityArtifactPromptBlock(templateRequirements?: SpawnVariationAgentsInput['templateRequirements']): string {
   if (!templateRequirements) return ''
   const researchContexts = templateRequirements.researchContexts ?? []
   const imageArtifacts = templateRequirements.imageGenerationArtifacts ?? []
   const lines: string[] = []
   if (researchContexts.length) {
-    lines.push('DUDesign reviewed research context artifacts:')
+    lines.push('DUDesign research context artifacts:')
     for (const context of researchContexts.slice(0, 3)) {
-      lines.push(`- ${context.artifactId}: query="${context.query}", reviewStatus=${context.reviewStatus}, sources=${context.sourceCount}, hash=${context.contentHash}. Use as cited context only; do not invent unsupported facts.`)
+      if (context.provenance === 'mock') {
+        lines.push(`- ${context.artifactId}: MOCK placeholder for query="${context.query}". It is not a factual source and must not support names, dates, works, relations, metrics, or citations. Use only the user-supplied facts already present in the request.`)
+      } else {
+        lines.push(`- ${context.artifactId}: query="${context.query}", reviewStatus=${context.reviewStatus}, sources=${context.sourceCount}, hash=${context.contentHash}. Use as cited context only; do not invent unsupported facts.`)
+      }
     }
   }
   if (imageArtifacts.length) {
-    lines.push('DUDesign generated visual asset artifacts:')
+    lines.push('DUDesign visual asset artifacts:')
     for (const artifact of imageArtifacts.slice(0, 3)) {
       const record = artifact as Record<string, unknown>
       const artifactId = typeof record.artifactId === 'string' ? record.artifactId : 'unknown'
       const provider = typeof record.provider === 'string' ? record.provider : 'unknown'
       const usageContext = typeof record.usageContext === 'string' ? record.usageContext : 'unknown'
       const contentSafetyStatus = typeof record.contentSafetyStatus === 'string' ? record.contentSafetyStatus : 'unknown'
-      lines.push(`- ${artifactId}: provider=${provider}, usageContext=${usageContext}, contentSafety=${contentSafetyStatus}. Use only as optional supporting visual context; keep the HTML functional without external provider URLs.`)
+      lines.push(provider === 'mock'
+        ? `- ${artifactId}: MOCK visual metadata only. No usable image asset is available; do not emit broken image URLs or claim that generated imagery exists.`
+        : `- ${artifactId}: provider=${provider}, usageContext=${usageContext}, contentSafety=${contentSafetyStatus}. Use only as optional supporting visual context; keep the HTML functional without external provider URLs.`)
     }
   }
   return lines.join('\n')
@@ -654,7 +785,7 @@ function designTemplatePackPromptBlock(
   const pack = assignment?.designTemplatePack
   if (!pack) return ''
   const parentPack = parentTemplatePackForAssignment(pack, templateRequirements?.designTemplatePacks)
-  const interactionParadigm = templateRequirements?.interactionParadigm
+  const interactionParadigm = assignment?.interactionParadigm ?? templateRequirements?.interactionParadigm
   const colors = Object.entries(pack.designTokens.colors).map(([key, value]) => `${key}=${value}`).join(', ')
   const typography = Object.entries(pack.designTokens.typography)
     .map(([key, value]) => `${key}=${value.fontFamily ?? 'system'}${value.fontSize ? ` ${value.fontSize}` : ''}${value.fontWeight ? ` weight ${value.fontWeight}` : ''}`)
@@ -672,7 +803,7 @@ function designTemplatePackPromptBlock(
     parentPack ? `- Parent package: ${parentPack.name} (${parentPack.id})${parentPack.description ? ` — ${parentPack.description}` : ''}` : undefined,
     parentPack ? parentTemplatePackConstraintPromptBlock(parentPack) : undefined,
     `- Template: ${pack.name} (${pack.id})${pack.description ? ` — ${pack.description}` : ''}`,
-    businessContext ? dynamicEncyclopediaBusinessContextPromptBlock(businessContext) : undefined,
+    businessContext ? dynamicEncyclopediaBusinessContextPromptBlock(businessContext, assignment) : undefined,
     interactionParadigm ? interactionParadigmPromptBlock(interactionParadigm) : undefined,
     pack.rationale.overview ? `- Overview: ${pack.rationale.overview}` : undefined,
     colors ? `- Color tokens: ${colors}.` : undefined,
@@ -685,18 +816,190 @@ function designTemplatePackPromptBlock(
     pack.rationale.dos.length ? `- Do: ${pack.rationale.dos.join(' ')}` : undefined,
     pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
     pack.htmlExamples?.length ? htmlExamplesPromptBlock(pack.htmlExamples) : undefined,
+    // Keep the hard delivery contract after the long few-shot block so it remains
+    // the final instruction the runtime sees before producing the artifact.
+    dynamicTopicCardDemocaseCompositionPromptBlock(pack, parentPack),
+    dynamicTopicCardExtremeSmallPromptBlock(pack, parentPack),
     '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
   ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
-function htmlExamplesPromptBlock(htmlExamples: string[]): string {
+function dynamicTopicCardDemocaseCompositionPromptBlock(
+  pack: DesignTemplatePack,
+  parentPack?: DesignTemplatePack,
+): string | undefined {
+  const dynamicParentId = 'dtp_dynamic_encyclopedia_card'
+  const belongsToDynamicTopicCard = pack.id === dynamicParentId
+    || pack.parentPackId === dynamicParentId
+    || parentPack?.id === dynamicParentId
+  if (!belongsToDynamicTopicCard) return undefined
+
+  const sections = pack.rationale.sections
+  const parentSections = parentPack?.rationale.sections
+  const composition = sections.democaseComposition ?? parentSections?.democaseComposition
+  const firstViewBudget = sections.firstViewBudget ?? parentSections?.firstViewBudget
+  const progressiveReveal = sections.progressiveReveal ?? parentSections?.progressiveReveal
+  const forbiddenComposition = sections.forbiddenComposition ?? parentSections?.forbiddenComposition
+
+  return [
+    '- Required democase-derived composition contract:',
+    `  First view: ${composition ?? 'One topic promise, one dominant interaction stage, and one obvious next action.'}`,
+    `  Attention budget: ${firstViewBudget ?? 'Use at most two navigation/control groups and one compact supporting detail surface.'}`,
+    `  Progressive reveal: ${progressiveReveal ?? 'Move secondary facts into the primary interaction state instead of adding more first-view modules.'}`,
+    `  Forbidden composition: ${forbiddenComposition ?? 'No dashboard, equal-weight module grid, or simultaneous summary + timeline + relation + comparison layout.'}`,
+    '  The democase is evidence for information rhythm and interaction hierarchy, not a request to copy its entry text, branding, illustrations, or trade dress.',
+    '  Before returning HTML, remove any first-view module that does not serve the single dominant interaction or its selected detail.',
+  ].join('\n')
+}
+
+function dynamicTopicCardExtremeSmallPromptBlock(
+  pack: DesignTemplatePack,
+  parentPack?: DesignTemplatePack,
+): string | undefined {
+  const dynamicParentId = 'dtp_dynamic_encyclopedia_card'
+  const belongsToDynamicTopicCard = pack.id === dynamicParentId
+    || pack.parentPackId === dynamicParentId
+    || parentPack?.id === dynamicParentId
+  if (!belongsToDynamicTopicCard) return undefined
+
+  const archetypeRules = dynamicTopicCardExtremeSmallArchetypeRules(pack)
+
+  return [
+    '- Required 300x360 extreme-small delivery contract:',
+    '  Treat 300x360 CSS px as a first-class authored state, not a scaled desktop or 380x456 layout.',
+    '  The outer card must render at exactly 300x360 including border and padding (use border-box), remain centered, and avoid body or inner scrolling.',
+    '  Author a deliberately smaller initial information architecture for this media state. Keep the topic identity, exactly one concise essential fact or summary, and one obvious route to the next state.',
+    '  Use exactly one primary navigation/control group at 300x360: either 2-3 page-switching tabs/segmented buttons, 2-3 entity/phase choices, or one reveal action. A single optional local detail/reveal action may accompany it; do not show two competing navigation rows.',
+    '  Reduce initial information density aggressively. Remove duplicate metadata, source rows, decorative labels, repeated summaries, and secondary fact cards from the first view. Move that information behind a working local tab, page switcher, accordion, detail panel, or modal.',
+    '  Make the path to more information obvious without explanatory prose: use a short Chinese affordance such as 查看更多、切换阶段、查看关系 or a visible page indicator like 1/4. The initial state should invite one next action.',
+    '  Keep each essential control at least 24x24 CSS px, inside the frame, unobscured, and wired to a real visible or accessible state change.',
+    '  Preserve native hidden-state semantics explicitly: include [hidden] { display:none !important; } or an equally specific inactive-panel rule after display:grid/flex panel rules. Never let a generic panel display declaration override hidden.',
+    '  Only the active tab/page/detail panel may participate in layout and pointer hit-testing. After every state switch, inactive panels must be display:none (not merely transparent or aria-hidden) so they cannot cover visible controls.',
+    '  For SVG or canvas interactions, validate the rendered browser CSS bounding box after viewBox/canvas scaling; SVG user-space dimensions and pointer-events: bounding-box do not guarantee a 24x24 CSS px hit target. Prefer HTML/CSS controls in the 300x360 layout, or provide an invisible hit layer that measures at least 24x24 CSS px.',
+    '  Budget controls deliberately at 300x360: keep no more than three primary tabs or choices and no more than two other visible topic controls in one state. If more items exist, expose them through previous/next paging, a single selector, or a secondary detail state instead of a wrapping or horizontally overflowing row.',
+    '  For relation/member maps, choose one compact selector with at most three nodes or members and page the rest; do not also keep a relationship-tab row. For timelines/origin stories, show one active phase plus one compact phase switcher; do not duplicate phase controls in multiple regions. For comparison cards, show one active dimension plus one compact selector; do not keep both target tabs and view tabs. For progressive disclosure, use either accordion toggles or tabs for the same categories, never both.',
+    ...archetypeRules,
+    '  Hide deferred desktop modules with display:none in the 300x360 initial state. Do not position them outside the frame, clip their text at the edge, or leave transparent controls in hit-testing.',
+    '  Do not expose duplicate controls for the same action. If compact HTML buttons replace SVG/canvas nodes at 300x360, remove role="button", tabindex, and pointer interaction from the SVG/canvas nodes in that media state so only the compact control layer remains interactive.',
+    '  Before finishing, inspect every visible control bounding box at 300x360: left/top must be inside the card, right/bottom must not exceed it, and no flex/grid row may overflow or clip its final items.',
+    '  Treat the democase300x360Budget supplied above as a hard rendered maximum. Count controls, control groups, repeated items, and visible text after CSS media queries are applied, not from source markup.',
+    '  Run a literal final CSS audit: the artifact must contain no overflow:auto, overflow:scroll, overflow-y:auto, or overflow-y:scroll declaration anywhere, including modal bodies. Paginate, replace, or hide excess content instead.',
+    '  Final 300x360 acceptance: title visible; one short core fact visible; exactly one primary control group; no clipped core text; no duplicate action; all retained controls at least 24x24 CSS px; one click visibly changes the bounded detail state.',
+    '  Do not satisfy this contract by hiding every navigation control, shrinking unreadable desktop content, deleting the topic identity, or relying on scrolling.',
+  ].join('\n')
+}
+
+function dynamicTopicCardExtremeSmallArchetypeRules(pack: DesignTemplatePack): string[] {
+  const signal = `${pack.id} ${pack.name} ${pack.description ?? ''}`.toLowerCase()
+  if (/relation|relationship|member|cast|character|关系|成员|角色/.test(signal)) {
+    return [
+      '  Relation/member 300x360 recipe: show one row/grid of 2-3 directly selectable nodes or members and one selected-detail surface. Hide the relation-category tab row entirely in this media state; never expose both tabs and nodes as navigation.',
+      '  Keep the selected detail to one relationship label, one name/title, and at most two short sentences. Hide source lists, long biographies, reset buttons, modal triggers, legends, counts, and decorative badges from the initial compact state.',
+      '  If more nodes must remain reachable, use one short 更多/下一组 control that replaces the same 2-3 selector slots; do not append another row or open a scrollable list.',
+    ]
+  }
+  if (/timeline|event|episode|series|origin|时间|事件|剧集|系列|典故/.test(signal)) {
+    return [
+      '  Timeline/origin 300x360 recipe: show 2-3 phase choices in one switcher, one active phase label, and one short event fact. Hide inactive event bodies, full chronology, source rows, and all duplicate previous/next or footer navigation.',
+    ]
+  }
+  if (/compare|comparison|对比|辨析/.test(signal)) {
+    return [
+      '  Comparison 300x360 recipe: show the two entity names, 2-3 dimension choices in one selector, and one concise active conclusion. Hide secondary fact grids, evidence rows, and any second target/view selector.',
+    ]
+  }
+  if (/route|map|poi|spatial|路线|地图|景点/.test(signal)) {
+    return [
+      '  Route/map 300x360 recipe: show 2-3 stop or POI choices in one selector and one selected-stop detail. Hide transport, ticket, weather, legend, source, and alternate-route modules from the initial state.',
+    ]
+  }
+  if (/expandable|progressive|summary|fact|展开|摘要|事实/.test(signal)) {
+    return [
+      '  Summary/progressive 300x360 recipe: show 2-3 category or disclosure choices and exactly one active fact block. Use tabs or disclosure toggles, never both, and hide source/metadata rows until a secondary state.',
+    ]
+  }
+  return []
+}
+
+function htmlExamplesPromptBlock(htmlExamples: HtmlExample[]): string {
   if (htmlExamples.length === 0) return ''
-  const blocks = htmlExamples.map((html, index) => `### 参考实现 #${index + 1}\n\`\`\`html\n${html}\n\`\`\``).join('\n\n')
+  const blocks = htmlExamples.map((html, index) => {
+    const resolved = compactHtmlExampleForPrompt(resolveHtmlExample(html, 'packages/runtime-gateway'))
+    return `### 参考实现 #${index + 1}\n\`\`\`html\n${resolved}\n\`\`\``
+  }).join('\n\n')
   return [
     '- Reference HTML examples (style/structure only — do NOT copy entry-specific text, names, or facts; adapt to the new entry while preserving the visual rhythm):',
     blocks,
     '- Treat the example(s) as a structural skeleton, not a content template. Replace all entry-specific values (names, dates, facts, summaries) with values that match the new user prompt and template requirements.',
   ].join('\n')
+}
+
+const HTML_EXAMPLE_STYLE_BUDGET = 8_000
+const HTML_EXAMPLE_BODY_BUDGET = 16_000
+const HTML_EXAMPLE_INTERACTION_BUDGET = 6_000
+
+function compactHtmlExampleForPrompt(html: string): string {
+  const withoutComments = html.replace(/<!--[\s\S]*?-->/g, '')
+  const title = withoutComments.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? 'DUDesign structural reference'
+  const style = [...withoutComments.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map(match => match[1] ?? '')
+    .join('\n')
+  const body = (withoutComments.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? withoutComments)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<link\b[^>]*>/gi, '')
+  const compactStyle = compactPromptMarkup(style, HTML_EXAMPLE_STYLE_BUDGET)
+  const compactBody = compactPromptMarkup(body, HTML_EXAMPLE_BODY_BUDGET)
+  const interaction = [...withoutComments.matchAll(/<script\b[^>]*data-dudesign-example-interaction[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map(match => match[1] ?? '')
+    .join('\n')
+  const compactInteraction = compactPromptMarkup(interaction, HTML_EXAMPLE_INTERACTION_BUDGET)
+  return [
+    '<!doctype html>',
+    '<html lang="zh-CN">',
+    '<head>',
+    '<meta charset="utf-8">',
+    `<title>${title}</title>`,
+    compactStyle ? `<style>\n${compactStyle}\n</style>` : '',
+    '</head>',
+    '<body>',
+    compactBody || '<main class="no-scroll-frame">Follow the assigned template rationale and component contract.</main>',
+    compactInteraction ? `<script data-dudesign-example-interaction>\n${compactInteraction}\n</script>` : '',
+    '</body>',
+    '</html>',
+  ].filter(Boolean).join('\n')
+}
+
+function compactPromptMarkup(value: string, maxChars: number): string {
+  const compacted = value
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (compacted.length <= maxChars) return compacted
+  return `${compacted.slice(0, maxChars)}\n/* DUDesign example truncated to prompt budget. */`
+}
+
+function resolveHtmlExample(example: HtmlExample, callerDir: string): string {
+  if (typeof example === 'string') return example
+  const ref = example as HtmlExampleFileRef
+  const candidates = repositoryRelativeCandidates(ref.file, callerDir)
+  const filePath = candidates.find(candidate => existsSync(candidate)) ?? candidates[0]
+  return readFileSync(filePath, 'utf-8')
+}
+
+function repositoryRelativeCandidates(file: string, callerDir: string): string[] {
+  const candidates: string[] = []
+  let current = resolve(process.cwd())
+  for (let depth = 0; depth < 6; depth += 1) {
+    candidates.push(resolve(current, file))
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  candidates.push(resolve(callerDir, file))
+  candidates.push(resolve(callerDir, '..', '..', file))
+  return [...new Set(candidates)]
 }
 
 function parentTemplatePackForAssignment(
@@ -733,12 +1036,15 @@ function interactionParadigmPromptBlock(paradigm: NonNullable<SpawnVariationAgen
   ].filter((line): line is string => Boolean(line)).join('\n')
 }
 
-function dynamicEncyclopediaBusinessContextPromptBlock(context: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext']): string {
+function dynamicEncyclopediaBusinessContextPromptBlock(
+  context: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext'],
+  assignment?: NonNullable<NonNullable<SpawnVariationAgentsInput['templateRequirements']>['variationTemplateAssignments']>[number],
+): string {
   if (!context) return ''
   const vector = context.classificationVector
   const classification = context.classification
   const selectedChildren = context.childTemplates
-    ?.filter(item => item.selected === true)
+    ?.filter(item => item.selected === true && (!assignment || item.designTemplatePackId === assignment.designTemplatePackId))
     .map(item => [
       item.designTemplatePackId,
       item.interactionParadigmId ? `paradigm=${item.interactionParadigmId}` : undefined,
@@ -746,6 +1052,10 @@ function dynamicEncyclopediaBusinessContextPromptBlock(context: NonNullable<Spaw
       item.reason ? `reason=${item.reason}` : undefined,
     ].filter(Boolean).join(' | '))
     ?? []
+  const democaseProfile = selectDemocaseExperienceProfile(
+    context.democaseExperienceProfiles,
+    assignment?.interactionParadigmId ?? context.interactionParadigmId,
+  )
   const lines = [
     '- Dynamic encyclopedia business context:',
     context.guidanceId ? `  guidanceId=${context.guidanceId}` : undefined,
@@ -760,15 +1070,48 @@ function dynamicEncyclopediaBusinessContextPromptBlock(context: NonNullable<Spaw
     vector?.preferredTemplateIds.length ? `  preferredTemplateIds=${vector.preferredTemplateIds.join(', ')}` : undefined,
     vector?.riskFlags.length ? `  verticalRiskFlags=${vector.riskFlags.join(', ')}` : undefined,
     selectedChildren.length ? `  selectedChildTemplates=${selectedChildren.join(' || ')}` : undefined,
+    democaseProfile?.evidence ? `  matchedDemocase=${democaseProfile.evidence.title} (${democaseProfile.evidence.caseId}) score=${democaseProfile.evidence.score.toFixed(2)}` : undefined,
+    democaseProfile ? `  democaseDominantStage=${democaseProfile.experienceProfile.dominantStage}` : undefined,
+    democaseProfile ? `  democaseProfileSource=${democaseProfile.evidence ? 'matched_evidence' : 'official_stage_fallback'}` : undefined,
+    democaseProfile ? `  democaseFirstView=${democaseProfile.experienceProfile.firstViewPromise}` : undefined,
+    democaseProfile ? `  democasePrimaryInteraction=${democaseProfile.experienceProfile.primaryInteraction}` : undefined,
+    democaseProfile ? `  democaseSecondaryReveal=${democaseProfile.experienceProfile.secondaryReveal}` : undefined,
+    democaseProfile ? `  democaseDesktopBudget=max ${democaseProfile.experienceProfile.attentionBudget.desktop.maxControlGroups} control groups, ${democaseProfile.experienceProfile.attentionBudget.desktop.maxVisibleControls} visible controls, ${democaseProfile.experienceProfile.attentionBudget.desktop.maxVisibleItems} visible items` : undefined,
+    democaseProfile ? `  democase300x360Budget=max ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxControlGroups} control groups, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxVisibleControls} visible controls, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxPrimaryTabs} primary tabs, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxVisibleItems} visible items, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxTextCharacters} visible text characters` : undefined,
+    democaseProfile?.experienceProfile.preserveAt300x360.length ? `  preserveAt300x360=${democaseProfile.experienceProfile.preserveAt300x360.join('; ')}` : undefined,
+    democaseProfile?.experienceProfile.deferAt300x360.length ? `  deferAt300x360=${democaseProfile.experienceProfile.deferAt300x360.join('; ')}` : undefined,
+    democaseProfile?.experienceProfile.forbiddenPatterns.length ? `  democaseForbiddenPatterns=${democaseProfile.experienceProfile.forbiddenPatterns.join('; ')}` : undefined,
     typeof context.isLanguageCategory === 'boolean' ? `  isLanguageCategory=${context.isLanguageCategory}` : undefined,
     context.entryContentLanguage ? `  entryContentLanguage=${context.entryContentLanguage}` : undefined,
-    context.interactionParadigmId ? `  interactionParadigmId=${context.interactionParadigmId}` : undefined,
-    context.recommendedTemplateIds?.length ? `  recommendedTemplateIds=${context.recommendedTemplateIds.join(', ')}` : undefined,
+    assignment?.interactionParadigmId || context.interactionParadigmId
+      ? `  interactionParadigmId=${assignment?.interactionParadigmId ?? context.interactionParadigmId}`
+      : undefined,
+    assignment
+      ? `  assignedTemplateId=${assignment.designTemplatePackId}`
+      : context.recommendedTemplateIds?.length
+        ? `  recommendedTemplateIds=${context.recommendedTemplateIds.join(', ')}`
+        : undefined,
     context.automationMode ? `  automationMode=${context.automationMode}` : undefined,
     context.reviewMode ? `  reviewMode=${context.reviewMode}` : undefined,
     vector?.riskFlags.length ? `  runtimeInstruction=${dynamicEncyclopediaRiskInstruction(vector.riskFlags)}` : undefined,
   ].filter((line): line is string => Boolean(line))
   return lines.length > 1 ? lines.join('\n') : ''
+}
+
+function selectDemocaseExperienceProfile(
+  profiles: NonNullable<NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext']>['democaseExperienceProfiles'],
+  interactionParadigmId: string | undefined,
+): {
+  evidence?: NonNullable<typeof profiles>[number]
+  experienceProfile: EncyclopediaDemocaseExperienceProfile
+} | undefined {
+  const stage = encyclopediaDemocaseStageForInteractionParadigm(interactionParadigmId)
+  const evidence = stage
+    ? profiles?.find(item => item.experienceProfile.dominantStage === stage)
+    : profiles?.[0]
+  const experienceProfile = evidence?.experienceProfile
+    ?? (stage ? defaultEncyclopediaDemocaseExperienceProfile(stage) : undefined)
+  return experienceProfile ? { evidence, experienceProfile } : undefined
 }
 
 function dynamicEncyclopediaRiskInstruction(riskFlags: string[]): string {
@@ -976,6 +1319,12 @@ async function runtimeHttpErrorMessage(response: Response): Promise<string> {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
+}
+
+function isFetchNetworkError(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false
+  if (error.name === 'TypeError' && /fetch failed|network|connection|socket|terminated/i.test(error.message)) return true
+  return /ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENOTFOUND|ETIMEDOUT|UND_ERR_/i.test(error.message)
 }
 
 function isRetryableStreamError(error: unknown): boolean {

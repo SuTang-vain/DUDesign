@@ -3,9 +3,17 @@ import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
+import {
+  GuidanceBridgeError,
+  assertGuidanceAnalysisInput,
+  buildGuidanceAnalysisPrompt,
+  buildGuidanceRepairPrompt,
+  extractGuidanceAnalysisPayload,
+  normalizeAndValidateGuidanceAnalysis,
+} from './guidanceAnalysisBridge.js'
 import { NexusClient, NexusClientError, type NexusExecuteResponse } from './nexusClient.js'
 import { RuntimeLaneRegistry, type RuntimeLane, type RuntimeLaneLease } from './runtimeLane.js'
-import { NoopRuntimeAdapterStateStore, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
+import { NoopRuntimeAdapterStateStore, type PersistedRuntimeRefineOperation, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
 
 export type RuntimeAdapterOptions = {
   nexus: NexusClient
@@ -19,12 +27,15 @@ export type RuntimeAdapterOptions = {
   laneAcquireTimeoutMs?: number
   laneAcquirePollMs?: number
   executeTimeoutMs?: number
+  guidanceExecuteTimeoutMs?: number
+  guidanceTimeoutRetryAttempts?: number
   watchdogTimeoutMs?: number
   workspacePollIntervalMs?: number
 }
 
 type RuntimeStream = {
   streamId: string
+  requestId?: string
   userId?: string
   workspaceId?: string
   sessionId?: string
@@ -44,6 +55,8 @@ type RuntimeStream = {
   modelId?: string
   waitStarted: boolean
 }
+
+type RuntimeRefineOperation = PersistedRuntimeRefineOperation
 
 type RuntimeLaneRetryBehavior = {
   markPreviousUnavailable: boolean
@@ -69,11 +82,13 @@ const REQUIRED_ENDPOINTS = [
   'POST /v1/agents',
   'POST /v1/agents/refine',
   'POST /v1/agents/cancel',
+  'POST /v1/guidance/analyze',
   'GET /v1/stream',
 ]
 
 const OPTIONAL_ENDPOINTS = [
   'GET /v1/models',
+  'GET /v1/refine-operations/:requestId',
   'POST /v1/lanes/:laneId/drain',
   'POST /v1/lanes/:laneId/undrain',
 ]
@@ -121,6 +136,7 @@ export function createRuntimeAdapterServer(options: RuntimeAdapterOptions): http
 
 class RuntimeAdapterApp {
   private readonly streams = new Map<string, RuntimeStream>()
+  private readonly refineOperations = new Map<string, RuntimeRefineOperation>()
   private readonly sessions = new Map<string, string>()
   private readonly stateStore: RuntimeAdapterStateStore
   private readonly executeRetryAttempts: number
@@ -129,6 +145,8 @@ class RuntimeAdapterApp {
   private readonly laneAcquireTimeoutMs: number
   private readonly laneAcquirePollMs: number
   private readonly executeTimeoutMs: number
+  private readonly guidanceExecuteTimeoutMs: number
+  private readonly guidanceTimeoutRetryAttempts: number
   private readonly watchdogTimeoutMs: number
   private readonly workspacePollIntervalMs: number
   private readonly runtimeLaneRegistry: RuntimeLaneRegistry
@@ -144,6 +162,8 @@ class RuntimeAdapterApp {
     this.laneAcquireTimeoutMs = positiveInteger(options.laneAcquireTimeoutMs, 30000)
     this.laneAcquirePollMs = positiveInteger(options.laneAcquirePollMs, 250)
     this.executeTimeoutMs = positiveInteger(options.executeTimeoutMs, 300000)
+    this.guidanceExecuteTimeoutMs = positiveInteger(options.guidanceExecuteTimeoutMs, 60000)
+    this.guidanceTimeoutRetryAttempts = nonNegativeInteger(options.guidanceTimeoutRetryAttempts, 1)
     this.watchdogTimeoutMs = positiveInteger(options.watchdogTimeoutMs, this.executeTimeoutMs)
     this.workspacePollIntervalMs = positiveInteger(options.workspacePollIntervalMs, 250)
     this.runtimeLaneRegistry = options.runtimeLaneRegistry ?? RuntimeLaneRegistry.single(options.nexus, { maxConcurrent: Number.MAX_SAFE_INTEGER })
@@ -196,6 +216,15 @@ class RuntimeAdapterApp {
     }
     if (method === 'POST' && url.pathname === '/v1/agents/cancel') {
       await this.handleCancelAgents(req, res)
+      return
+    }
+    const refineOperationMatch = url.pathname.match(/^\/v1\/refine-operations\/([^/]+)$/)
+    if (method === 'GET' && refineOperationMatch) {
+      await this.handleRefineOperation(res, decodeURIComponent(refineOperationMatch[1]!))
+      return
+    }
+    if (method === 'POST' && url.pathname === '/v1/guidance/analyze') {
+      await this.handleGuidanceAnalysis(req, res)
       return
     }
     if (method === 'GET' && url.pathname === '/v1/stream') {
@@ -337,6 +366,7 @@ class RuntimeAdapterApp {
     const agentJobId = this.nextId('execute')
     this.streams.set(streamId, {
       streamId,
+      ...(stringField(body, 'requestId') && { requestId: stringField(body, 'requestId') }),
       userId: requiredString(body.userId, 'userId'),
       workspaceId: requiredString(body.workspaceId, 'workspaceId'),
       sessionId: requiredString(body.sessionId, 'sessionId'),
@@ -355,6 +385,19 @@ class RuntimeAdapterApp {
       ...(modelContext.modelId && { modelId: modelContext.modelId }),
       waitStarted: false,
     })
+    const requestId = stringField(body, 'requestId')
+    if (mode === 'refine' && requestId) {
+      this.refineOperations.set(requestId, {
+        requestId,
+        streamId,
+        status: 'queued',
+        ...(stringField(body, 'variationId') && { variationId: stringField(body, 'variationId') }),
+        runtimeSessionId,
+        agentJobId,
+        workspaceRoot,
+        updatedAt: new Date().toISOString(),
+      })
+    }
     await this.persistState()
     sendJson(res, 200, {
       streamId,
@@ -368,11 +411,21 @@ class RuntimeAdapterApp {
   private async handleCancelAgents(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const body = await readJson(req)
     const variations = Array.isArray(body.variations) ? body.variations : []
-    let cancelledVariationCount = 0
-    let failedVariationCount = 0
+    const requestId = stringField(body, 'requestId')
+    const targets = new Map<string, string | undefined>()
     for (const variation of variations) {
       const runtimeAgentJobId = stringField(variation, 'runtimeAgentJobId')
-      if (!runtimeAgentJobId) continue
+      if (runtimeAgentJobId) targets.set(runtimeAgentJobId, stringField(variation, 'variationId'))
+    }
+    if (requestId) {
+      for (const stream of this.streams.values()) {
+        if (stream.mode !== 'refine' || stream.requestId !== requestId) continue
+        targets.set(stream.agentJobId, stream.variationId)
+      }
+    }
+    let cancelledVariationCount = 0
+    let failedVariationCount = 0
+    for (const runtimeAgentJobId of targets.keys()) {
       try {
         await this.primaryNexus().cancelAgent(runtimeAgentJobId, stringField(body, 'reason'))
         cancelledVariationCount += 1
@@ -380,17 +433,169 @@ class RuntimeAdapterApp {
         failedVariationCount += 1
       }
     }
+    if (requestId && cancelledVariationCount > 0 && failedVariationCount === 0) {
+      const operation = this.refineOperations.get(requestId)
+      if (operation) {
+        this.refineOperations.set(requestId, {
+          ...operation,
+          status: 'cancelled',
+          updatedAt: new Date().toISOString(),
+        })
+        await this.persistState()
+      }
+    }
     sendJson(res, 200, {
-      cancelled: failedVariationCount === 0,
+      cancelled: cancelledVariationCount > 0 && failedVariationCount === 0,
+      ...(requestId && { requestId }),
       cancelledVariationCount,
       failedVariationCount,
     })
   }
 
+  private async handleRefineOperation(res: http.ServerResponse, requestId: string): Promise<void> {
+    const operation = this.refineOperations.get(requestId)
+    if (!operation) {
+      sendJson(res, 404, {
+        type: 'refine_operation',
+        requestId,
+        status: 'not_found',
+      })
+      return
+    }
+    let terminalEvent = operation.terminalEvent
+    if (operation.status === 'completed') {
+      const artifact = await readWorkspaceArtifact(operation.workspaceRoot)
+      terminalEvent = artifact ? {
+        type: 'result',
+        artifactId: `babel_o_${operation.agentJobId}`,
+        entryPath: artifact.entryPath,
+        html: artifact.html,
+        files: artifact.files,
+      } : {
+        type: 'error',
+        code: 'ARTIFACT_MISSING',
+        message: `Recovered refine operation ${requestId} has no readable artifact.`,
+        recoverable: true,
+      }
+    }
+    sendJson(res, 200, {
+      type: 'refine_operation',
+      requestId,
+      status: operation.status,
+      runtimeChildSessionId: operation.runtimeSessionId,
+      runtimeAgentJobId: operation.agentJobId,
+      ...(terminalEvent && { terminalEvent }),
+      updatedAt: operation.updatedAt,
+    })
+  }
+
+  private async handleGuidanceAnalysis(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    let lease: RuntimeLaneLease | undefined
+    try {
+      const input = assertGuidanceAnalysisInput(await readJson(req))
+      lease = await this.acquireRuntimeLane()
+      const lane = this.runtimeLane(lease.laneId)
+      const workspaceRoot = this.runtimeWorkspaceRoot(
+        `.dudesign/guidance/${safePathSegment(input.analysisId)}`,
+        lane.workspaceRoot,
+      )
+      await mkdir(workspaceRoot, { recursive: true })
+      const created = await lane.nexus.createSession({
+        userId: input.userId,
+        workspaceId: input.workspaceId,
+        sessionId: `guidance:${input.analysisId}`,
+        workspaceRoot,
+        memoryNamespace: `memory:guidance:${input.analysisId}`,
+      })
+      const runtimeSessionId = requiredString(created.sessionId, 'sessionId')
+      const startedAt = Date.now()
+      const firstExecution = await this.executeGuidanceWithTimeoutRetry({
+        sessionId: runtimeSessionId,
+        prompt: buildGuidanceAnalysisPrompt(input),
+        cwd: workspaceRoot,
+        runtimeLaneId: lane.id,
+        timeoutMs: this.guidanceExecuteTimeoutMs,
+        watchdogTimeoutMs: this.guidanceExecuteTimeoutMs,
+        allowedTools: [],
+        skipPermissionCheck: true,
+      })
+      assertGuidanceExecutionSucceeded(firstExecution)
+
+      let previousOutput: unknown = firstExecution.events ?? []
+      try {
+        previousOutput = extractGuidanceAnalysisPayload(firstExecution.events ?? [])
+        const analysis = normalizeAndValidateGuidanceAnalysis(input, previousOutput, {
+          durationMs: Date.now() - startedAt,
+          repaired: false,
+          runtimeVersion: this.options.runtimeVersion ?? null,
+        })
+        sendJson(res, 200, analysis)
+        return
+      } catch (error) {
+        if (!(error instanceof GuidanceBridgeError) || error.code !== 'GUIDANCE_INVALID_RESPONSE') throw error
+        previousOutput = error.payload ?? previousOutput
+        const repairExecution = await this.executeGuidanceWithTimeoutRetry({
+          sessionId: runtimeSessionId,
+          prompt: buildGuidanceRepairPrompt(input, previousOutput, error.message),
+          cwd: workspaceRoot,
+          runtimeLaneId: lane.id,
+          timeoutMs: this.guidanceExecuteTimeoutMs,
+          watchdogTimeoutMs: this.guidanceExecuteTimeoutMs,
+          allowedTools: [],
+          skipPermissionCheck: true,
+        }, false)
+        assertGuidanceExecutionSucceeded(repairExecution)
+        const repairedPayload = extractGuidanceAnalysisPayload(repairExecution.events ?? [])
+        const analysis = normalizeAndValidateGuidanceAnalysis(input, repairedPayload, {
+          durationMs: Date.now() - startedAt,
+          repaired: true,
+          runtimeVersion: this.options.runtimeVersion ?? null,
+        })
+        sendJson(res, 200, analysis)
+      }
+    } catch (error) {
+      sendGuidanceError(res, error)
+    } finally {
+      if (lease) this.runtimeLaneRegistry.release(lease)
+    }
+  }
+
   private async handleStream(url: URL, res: http.ServerResponse): Promise<void> {
     const streamId = url.searchParams.get('streamId')
-    const stream = streamId ? this.streams.get(streamId) : undefined
+    const requestId = url.searchParams.get('requestId')
+    const stream = streamId
+      ? this.streams.get(streamId)
+      : requestId
+        ? [...this.streams.values()].find(candidate => candidate.mode === 'refine' && candidate.requestId === requestId)
+        : undefined
     if (!stream) {
+      const operation = requestId ? this.refineOperations.get(requestId) : undefined
+      if (operation?.status === 'completed') {
+        const artifact = await readWorkspaceArtifact(operation.workspaceRoot)
+        if (artifact) {
+          res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store' })
+          writeNdjson(res, {
+            type: 'result',
+            artifactId: `babel_o_${operation.agentJobId}`,
+            entryPath: artifact.entryPath,
+            html: artifact.html,
+            files: artifact.files,
+          })
+          res.end()
+          return
+        }
+      }
+      if (operation?.status === 'failed' && operation.terminalEvent) {
+        res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store' })
+        writeNdjson(res, operation.terminalEvent)
+        res.end()
+        return
+      }
+      if (operation?.status === 'running' || operation?.status === 'queued' || operation?.status === 'cancelled') {
+        res.writeHead(204, { 'cache-control': 'no-store' })
+        res.end()
+        return
+      }
       sendJson(res, 404, {
         type: 'error',
         code: 'STREAM_NOT_FOUND',
@@ -399,6 +604,11 @@ class RuntimeAdapterApp {
       return
     }
     if (stream.waitStarted) {
+      if (requestId) {
+        res.writeHead(204, { 'cache-control': 'no-store' })
+        res.end()
+        return
+      }
       sendJson(res, 409, {
         type: 'error',
         code: 'STREAM_ALREADY_CONSUMED',
@@ -407,6 +617,7 @@ class RuntimeAdapterApp {
       return
     }
     stream.waitStarted = true
+    await this.updateRefineOperationForStream(stream, 'running')
     res.writeHead(200, {
       'content-type': 'application/x-ndjson',
       'cache-control': 'no-store',
@@ -447,20 +658,31 @@ class RuntimeAdapterApp {
       }
       const drift = runtimeCwdDrift(executed.events ?? [], stream.workspaceRoot)
       if (drift) {
-        writeNdjson(res, {
+        const terminalEvent = {
           type: 'error',
           code: 'RUNTIME_CWD_DRIFT',
           message: `BabeL-O changed cwd from the DUDesign variation workspace to ${drift.actualCwd}. Expected ${drift.expectedCwd}.`,
           recoverable: true,
           expectedCwd: drift.expectedCwd,
           actualCwd: drift.actualCwd,
-        })
+        }
+        await this.updateRefineOperationForStream(stream, 'failed', terminalEvent)
+        writeNdjson(res, terminalEvent)
         return
       }
       if (executed.success === false) {
         const failure = await this.summarizeExecutionFailure(stream, executed.events ?? [])
         if (!executionEventsIncludeError(executed.events ?? [], failure.code)) {
-          writeNdjson(res, {
+          const terminalEvent = {
+            type: 'error',
+            code: failure.code,
+            message: failure.message,
+            ...(failure.detail && { detail: failure.detail }),
+          }
+          await this.updateRefineOperationForStream(stream, 'failed', terminalEvent)
+          writeNdjson(res, terminalEvent)
+        } else {
+          await this.updateRefineOperationForStream(stream, 'failed', {
             type: 'error',
             code: failure.code,
             message: failure.message,
@@ -471,13 +693,15 @@ class RuntimeAdapterApp {
       }
       const artifact = await readWorkspaceArtifact(stream.workspaceRoot)
       if (!artifact) {
-        writeNdjson(res, {
+        const terminalEvent = {
           type: 'error',
           code: 'ARTIFACT_MISSING',
           message: `BabeL-O completed but did not write index.html under ${stream.workspaceRoot}.`,
           recoverable: true,
           expectedCwd: stream.workspaceRoot,
-        })
+        }
+        await this.updateRefineOperationForStream(stream, 'failed', terminalEvent)
+        writeNdjson(res, terminalEvent)
         return
       }
       for (const [index, file] of artifact.files.entries()) {
@@ -490,18 +714,22 @@ class RuntimeAdapterApp {
           isFinal: true,
         })
       }
-      writeNdjson(res, {
+      const resultEvent = {
         type: 'result',
         artifactId: `babel_o_${stream.agentJobId}`,
         entryPath: artifact.entryPath,
         html: artifact.html,
-      })
+      }
+      await this.updateRefineOperationForStream(stream, 'completed')
+      writeNdjson(res, resultEvent)
     } catch (error) {
-      writeNdjson(res, {
+      const terminalEvent = {
         type: 'error',
         code: 'ADAPTER_STREAM_FAILED',
         message: error instanceof Error ? error.message : 'Runtime stream failed.',
-      })
+      }
+      await this.updateRefineOperationForStream(stream, 'failed', terminalEvent)
+      writeNdjson(res, terminalEvent)
     } finally {
       if (stream.runtimeLeaseId) {
         this.runtimeLaneRegistry.release({
@@ -514,6 +742,26 @@ class RuntimeAdapterApp {
       await this.persistState()
       res.end()
     }
+  }
+
+  private async updateRefineOperationForStream(
+    stream: RuntimeStream,
+    status: RuntimeRefineOperation['status'],
+    terminalEvent?: Record<string, unknown>,
+  ): Promise<void> {
+    if (stream.mode !== 'refine' || !stream.requestId) return
+    const operation = this.refineOperations.get(stream.requestId)
+    if (!operation || operation.status === 'cancelled') return
+    this.refineOperations.set(stream.requestId, {
+      ...operation,
+      status,
+      runtimeSessionId: stream.runtimeSessionId,
+      agentJobId: stream.agentJobId,
+      workspaceRoot: stream.workspaceRoot,
+      ...(terminalEvent ? { terminalEvent } : {}),
+      updatedAt: new Date().toISOString(),
+    })
+    await this.persistState()
   }
 
   private nextId(prefix: string): string {
@@ -560,11 +808,15 @@ class RuntimeAdapterApp {
     cwd: string
     modelId?: string
     runtimeLaneId: string
+    timeoutMs?: number
+    watchdogTimeoutMs?: number
+    allowedTools?: string[]
+    skipPermissionCheck?: boolean
   }): Promise<NexusExecuteResponse> {
     const executeInput = {
       ...input,
-      timeoutMs: this.executeTimeoutMs,
-      watchdogTimeoutMs: this.watchdogTimeoutMs,
+      timeoutMs: input.timeoutMs ?? this.executeTimeoutMs,
+      watchdogTimeoutMs: input.watchdogTimeoutMs ?? this.watchdogTimeoutMs,
     }
     let attempt = 0
     while (true) {
@@ -574,6 +826,25 @@ class RuntimeAdapterApp {
         if (!isCapacityError(error) || attempt >= this.executeRetryAttempts) throw error
         attempt += 1
         await delay(this.executeRetryBaseDelayMs * attempt)
+      }
+    }
+  }
+
+  private async executeGuidanceWithTimeoutRetry(
+    input: Parameters<RuntimeAdapterApp['executeWithCapacityRetry']>[0],
+    retryTimeout = true,
+  ): Promise<NexusExecuteResponse> {
+    let timeoutAttempt = 0
+    while (true) {
+      try {
+        return await this.executeWithCapacityRetry(input)
+      } catch (error) {
+        if (!retryTimeout
+          || !(error instanceof NexusClientError)
+          || error.status !== 408
+          || timeoutAttempt >= this.guidanceTimeoutRetryAttempts) throw error
+        timeoutAttempt += 1
+        await delay(this.executeRetryBaseDelayMs * timeoutAttempt)
       }
     }
   }
@@ -756,6 +1027,22 @@ class RuntimeAdapterApp {
         waitStarted: false,
       })
     }
+    for (const operation of Object.values(snapshot.refineOperations)) {
+      this.refineOperations.set(operation.requestId, operation)
+    }
+    for (const stream of this.streams.values()) {
+      if (stream.mode !== 'refine' || !stream.requestId || this.refineOperations.has(stream.requestId)) continue
+      this.refineOperations.set(stream.requestId, {
+        requestId: stream.requestId,
+        streamId: stream.streamId,
+        status: 'queued',
+        ...(stream.variationId && { variationId: stream.variationId }),
+        runtimeSessionId: stream.runtimeSessionId,
+        agentJobId: stream.agentJobId,
+        workspaceRoot: stream.workspaceRoot,
+        updatedAt: new Date().toISOString(),
+      })
+    }
     this.sequence = Math.max(snapshot.sequence, nextSequenceFromStreams(this.streams))
   }
 
@@ -768,6 +1055,7 @@ class RuntimeAdapterApp {
           streamId,
           {
             streamId: stream.streamId,
+            ...(stream.requestId && { requestId: stream.requestId }),
             ...(stream.userId && { userId: stream.userId }),
             ...(stream.workspaceId && { workspaceId: stream.workspaceId }),
             ...(stream.sessionId && { sessionId: stream.sessionId }),
@@ -788,6 +1076,7 @@ class RuntimeAdapterApp {
           },
         ]),
       ),
+      refineOperations: Object.fromEntries(this.refineOperations),
       sequence: this.sequence,
       updatedAt: new Date().toISOString(),
     } satisfies RuntimeAdapterStateSnapshot
@@ -846,6 +1135,46 @@ function runtimeLaneErrorCode(error: unknown): string {
     return `RUNTIME_HTTP_${error.status}`
   }
   return 'RUNTIME_LANE_ERROR'
+}
+
+function assertGuidanceExecutionSucceeded(executed: NexusExecuteResponse): void {
+  if (executed.success !== false) return
+  const failure = summarizeExecutionFailureEvents(executed.events ?? [])
+  throw new GuidanceBridgeError(
+    failure.code === 'RUNTIME_REQUEST_TIMEOUT' ? 'GUIDANCE_TIMEOUT' : 'GUIDANCE_RUNTIME_UNAVAILABLE',
+    failure.message,
+    failure.code === 'RUNTIME_REQUEST_TIMEOUT' ? 504 : 503,
+  )
+}
+
+function sendGuidanceError(res: http.ServerResponse, error: unknown): void {
+  if (error instanceof GuidanceBridgeError) {
+    sendJson(res, error.status, {
+      type: 'error',
+      code: error.code,
+      message: error.message,
+    })
+    return
+  }
+  if (error instanceof NexusClientError) {
+    const timeout = error.status === 408
+    sendJson(res, timeout ? 504 : 503, {
+      type: 'error',
+      code: timeout ? 'GUIDANCE_TIMEOUT' : 'GUIDANCE_RUNTIME_UNAVAILABLE',
+      message: error.message,
+    })
+    return
+  }
+  sendJson(res, 503, {
+    type: 'error',
+    code: 'GUIDANCE_RUNTIME_UNAVAILABLE',
+    message: error instanceof Error ? error.message : 'BabeL-O guidance analysis is unavailable.',
+  })
+}
+
+function safePathSegment(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^\.+/, '').slice(0, 120)
+  return normalized || 'analysis'
 }
 
 function failedExecutionResponse(
@@ -1052,7 +1381,7 @@ function isUnsupportedNexusModelDiscovery(error: unknown): boolean {
 function buildVariationPrompt(body: Record<string, unknown>): string {
   const variationIndex = numberField(body, 'variationIndex') ?? 1
   const variationCount = numberField(body, 'variationCount') ?? 1
-  const templateRequirements = JSON.stringify(body.templateRequirements ?? {}, null, 2)
+  const templateRequirements = compactTemplateRequirements(body)
   const modelSelection = formatModelSelection(body)
   return [
     'You are generating a DUDesign HTML design variation.',
@@ -1066,8 +1395,36 @@ function buildVariationPrompt(body: Record<string, unknown>): string {
     '',
     `User prompt:\n${requiredString(body.prompt, 'prompt')}`,
     '',
+    formatExplorationContext(body),
+    '',
     `Template requirements:\n${templateRequirements}`,
   ].join('\n')
+}
+
+function compactTemplateRequirements(body: Record<string, unknown>): string {
+  const requirements = body.templateRequirements
+  if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return '{}'
+  const source = requirements as Record<string, unknown>
+  const variationIndex = numberField(body, 'variationIndex') ?? 1
+  const assignments = Array.isArray(source.variationTemplateAssignments)
+    ? source.variationTemplateAssignments.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
+    : []
+  const assignment = assignments.find(item => item.variationIndex === variationIndex)
+  const selectedPack = assignment?.designTemplatePack
+  const selectedTemplateRequirements = {
+    styles: source.styles,
+    deviceTargets: source.deviceTargets,
+    notes: source.notes,
+    advancedConstraints: source.advancedConstraints,
+    designTemplatePackIds: assignment?.designTemplatePackId
+      ? [assignment.designTemplatePackId]
+      : source.designTemplatePackIds,
+    assignedTemplatePack: selectedPack,
+    interactionParadigm: source.interactionParadigm,
+    businessContext: source.businessContext,
+    toolPolicy: source.toolPolicy,
+  }
+  return JSON.stringify(selectedTemplateRequirements, null, 2)
 }
 
 function buildRefinePrompt(body: Record<string, unknown>): string {
@@ -1083,8 +1440,16 @@ function buildRefinePrompt(body: Record<string, unknown>): string {
     '',
     `Refine request:\n${requiredString(body.prompt, 'prompt')}`,
     '',
+    formatExplorationContext(body),
+    '',
     `Annotation feedback:\n${stringField(body, 'annotationPromptSuffix') ?? ''}`,
   ].join('\n')
+}
+
+function formatExplorationContext(body: Record<string, unknown>): string {
+  const context = body.explorationContext
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return 'Controlled exploration context: none.'
+  return `Controlled exploration context (fixed by DUDesign; do not reassign modules):\n${JSON.stringify(context, null, 2)}`
 }
 
 function modelContextFromBody(body: Record<string, unknown>): {

@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 
 export type PersistedRuntimeStream = {
   streamId: string
+  requestId?: string
   userId?: string
   workspaceId?: string
   sessionId?: string
@@ -21,10 +22,23 @@ export type PersistedRuntimeStream = {
   modelId?: string
 }
 
+export type PersistedRuntimeRefineOperation = {
+  requestId: string
+  streamId: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  variationId?: string
+  runtimeSessionId: string
+  agentJobId: string
+  workspaceRoot: string
+  terminalEvent?: Record<string, unknown>
+  updatedAt: string
+}
+
 export type RuntimeAdapterStateSnapshot = {
   version: 1
   sessions: Record<string, string>
   streams: Record<string, PersistedRuntimeStream>
+  refineOperations: Record<string, PersistedRuntimeRefineOperation>
   sequence: number
   updatedAt: string
 }
@@ -71,6 +85,7 @@ export function emptySnapshot(): RuntimeAdapterStateSnapshot {
     version: 1,
     sessions: {},
     streams: {},
+    refineOperations: {},
     sequence: 1,
     updatedAt: new Date(0).toISOString(),
   }
@@ -81,6 +96,7 @@ function normalizeSnapshot(value: unknown): RuntimeAdapterStateSnapshot {
   const input = value as Record<string, unknown>
   const sessions = recordOfStrings(input.sessions)
   const streams = recordOfStreams(input.streams)
+  const refineOperations = recordOfRefineOperations(input.refineOperations)
   const sequence = typeof input.sequence === 'number' && Number.isInteger(input.sequence) && input.sequence > 0
     ? input.sequence
     : 1
@@ -91,7 +107,45 @@ function normalizeSnapshot(value: unknown): RuntimeAdapterStateSnapshot {
     version: 1,
     sessions,
     streams,
+    refineOperations,
     sequence,
+    updatedAt,
+  }
+}
+
+function recordOfRefineOperations(value: unknown): Record<string, PersistedRuntimeRefineOperation> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const output: Record<string, PersistedRuntimeRefineOperation> = {}
+  for (const [key, item] of Object.entries(value)) {
+    const operation = normalizeRefineOperation(item)
+    if (operation && operation.requestId === key) output[key] = operation
+  }
+  return output
+}
+
+function normalizeRefineOperation(value: unknown): PersistedRuntimeRefineOperation | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const input = value as Record<string, unknown>
+  const requestId = stringField(input.requestId)
+  const streamId = stringField(input.streamId)
+  const status = refineOperationStatus(input.status)
+  const runtimeSessionId = stringField(input.runtimeSessionId)
+  const agentJobId = stringField(input.agentJobId)
+  const workspaceRoot = stringField(input.workspaceRoot)
+  const updatedAt = stringField(input.updatedAt)
+  if (!requestId || !streamId || !status || !runtimeSessionId || !agentJobId || !workspaceRoot || !updatedAt) return null
+  const terminalEvent = input.terminalEvent && typeof input.terminalEvent === 'object' && !Array.isArray(input.terminalEvent)
+    ? input.terminalEvent as Record<string, unknown>
+    : undefined
+  return {
+    requestId,
+    streamId,
+    status,
+    ...(stringField(input.variationId) && { variationId: stringField(input.variationId) }),
+    runtimeSessionId,
+    agentJobId,
+    workspaceRoot,
+    ...(terminalEvent && { terminalEvent }),
     updatedAt,
   }
 }
@@ -119,6 +173,7 @@ function normalizeStream(value: unknown): PersistedRuntimeStream | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
   const streamId = stringField(input.streamId)
+  const requestId = stringField(input.requestId)
   const userId = stringField(input.userId)
   const workspaceId = stringField(input.workspaceId)
   const sessionId = stringField(input.sessionId)
@@ -138,6 +193,7 @@ function normalizeStream(value: unknown): PersistedRuntimeStream | null {
   const modelId = stringField(input.modelId)
   return {
     streamId,
+    ...(requestId && { requestId }),
     ...(userId && { userId }),
     ...(workspaceId && { workspaceId }),
     ...(sessionId && { sessionId }),
@@ -163,6 +219,12 @@ function stringField(value: unknown): string | undefined {
 
 function numberField(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function refineOperationStatus(value: unknown): PersistedRuntimeRefineOperation['status'] | undefined {
+  return value === 'queued' || value === 'running' || value === 'completed' || value === 'failed' || value === 'cancelled'
+    ? value
+    : undefined
 }
 
 function streamMode(value: unknown): 'spawn' | 'refine' | undefined {

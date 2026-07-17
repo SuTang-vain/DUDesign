@@ -13,6 +13,7 @@ import type {
   RuntimeSessionRef,
   SpawnVariationAgentsInput,
 } from './types.js'
+import { runtimeExplorationContextForVariation } from './runtimeExplorationContext.js'
 
 const CONTRACT_VERSION = '2026-06-26.dudesign-runtime.v1'
 
@@ -135,6 +136,7 @@ export class MockRuntimeGateway implements RuntimeGateway {
 
     for (let index = 1; index <= input.variationCount; index += 1) {
       const variationId = `mock_variation_${index}`
+      const explorationContext = runtimeExplorationContextForVariation(input.explorationContexts, index)
       yield createDesignEvent({
         type: 'design.variation_queued',
         sessionId: input.sessionId,
@@ -149,7 +151,9 @@ export class MockRuntimeGateway implements RuntimeGateway {
         variationId,
         payload: {
           channel: 'assistant',
-          delta: `Creating variation ${index} for: ${input.prompt}`,
+          delta: explorationContext
+            ? `Creating variation ${index} with focus ${explorationContext.focus.id} for: ${input.prompt}`
+            : `Creating variation ${index} for: ${input.prompt}`,
         },
       })
       const files = mockGeneratedFiles(index, input.prompt)
@@ -216,7 +220,9 @@ export class MockRuntimeGateway implements RuntimeGateway {
       variationId: input.variationId,
       payload: {
         channel: 'assistant',
-        delta: `Refining variation from artifact ${input.baseArtifactId}: ${input.prompt}`,
+        delta: input.explorationContext
+          ? `Refining variation with fixed focus ${input.explorationContext.focus.id} from artifact ${input.baseArtifactId}: ${input.prompt}`
+          : `Refining variation from artifact ${input.baseArtifactId}: ${input.prompt}`,
       },
     })
     yield createDesignEvent({

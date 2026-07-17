@@ -398,10 +398,12 @@ describe('BabelORuntimeClient', () => {
     })
 
     const agent = await client.createRefineAgent({
+      requestId: 'rfn_request_1',
       userId: 'user_1',
       workspaceId: 'workspace_1',
       sessionId: 'session_1',
       jobId: 'job_1',
+      productMode: 'dynamic_encyclopedia_card',
       variationId: 'variation_1',
       variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
@@ -422,11 +424,18 @@ describe('BabelORuntimeClient', () => {
     assert.equal(agent.streamId, 'refine_stream_1')
     assert.equal(calls[0]?.url, 'https://runtime.example.test/v1/agents/refine')
     assert.equal(calls[0]?.method, 'POST')
+    const refineBody = calls[0]?.body as Record<string, unknown>
+    const refinePrompt = String(refineBody.prompt)
+    assert.match(refinePrompt, /^Make the hero bolder/)
+    assert.match(refinePrompt, /DUDesign refinement invariants:/)
+    assert.match(refinePrompt, /Apply the requested change surgically/)
     assert.deepEqual(calls[0]?.body, {
       userId: 'user_1',
+      requestId: 'rfn_request_1',
       workspaceId: 'workspace_1',
       sessionId: 'session_1',
       jobId: 'job_1',
+      productMode: 'dynamic_encyclopedia_card',
       variationId: 'variation_1',
       variationIndex: 2,
       runtimeChildSessionId: 'rt_child_1',
@@ -435,7 +444,7 @@ describe('BabelORuntimeClient', () => {
       baseArtifactHtml: '<!doctype html><h1>Current HTML</h1>',
       baseArtifactEntryPath: 'index.html',
       baseArtifactVersion: 3,
-      prompt: 'Make the hero bolder',
+      prompt: refinePrompt,
       annotationPromptSuffix: 'Annotation feedback: rect at 10,20.',
       workspaceRoot: 'workspaces/workspace_1/runtime-jobs/job_1/variation_02',
       parentWorkspaceRoot: 'workspaces/workspace_1',
@@ -444,6 +453,166 @@ describe('BabelORuntimeClient', () => {
       modelId: 'anthropic/claude-3-5-sonnet',
       modelProvider: 'babel-o',
     })
+  })
+
+  it('reinjects the assigned template contract when refining a variation', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const template = dynamicEncyclopediaTemplatePack()
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return jsonResponse({
+          streamId: 'refine_template_stream',
+          agentJobId: 'refine_template_agent',
+          runtimeChildSessionId: 'rt_child_template',
+        })
+      },
+    })
+
+    await client.createRefineAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      productMode: 'dynamic_encyclopedia_card',
+      variationId: 'variation_1',
+      variationIndex: 1,
+      runtimeChildSessionId: 'rt_child_template',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<!doctype html><main>Current</main>',
+      prompt: 'Remove only the top tabs.',
+      workspaceRoot: 'workspaces/workspace_1',
+      templateRequirements: {
+        notes: 'Keep the fixed encyclopedia viewport.',
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: template.id,
+          designTemplatePack: template,
+        }],
+      },
+    })
+
+    const body = calls[0]
+    assert.ok(body)
+    const prompt = String(body.prompt)
+    assert.match(prompt, /DUDesign refinement invariants:/)
+    assert.match(prompt, /topic-driven dynamic interactive card/)
+    assert.match(prompt, /not a request for a traditional encyclopedia article/)
+    assert.match(prompt, /Preserve the current variation's assigned Template Pack/)
+    assert.match(prompt, new RegExp(template.id))
+    assert.match(prompt, /Apply the requested change surgically/)
+    assert.equal((body.templateRequirements as { variationTemplateAssignments?: unknown[] }).variationTemplateAssignments?.length, 1)
+  })
+
+  it('resolves repository-relative HTML example files into runtime prompts', async () => {
+    let prompt = ''
+    const template = {
+      ...dynamicEncyclopediaTemplatePack(),
+      htmlExamples: [{ file: 'apps/api/src/html-examples/star-group-member-map-example.html' }],
+    }
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompt = body.prompt
+        return jsonResponse({
+          streamId: 'example_stream',
+          agentJobId: 'example_agent',
+          runtimeChildSessionId: 'example_child',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a relation encyclopedia card.',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: template.id,
+          designTemplatePack: template,
+        }],
+      },
+    })
+
+    assert.match(prompt, /Reference HTML examples/)
+    assert.match(prompt, /<!doctype html>/i)
+    assert.match(prompt, /class="member-grid"/)
+    assert.match(prompt, /data-dudesign-example-interaction/)
+    assert.match(prompt, /document\.querySelectorAll\('\.member'\)/)
+    assert.match(prompt, /Required 300x360 extreme-small delivery contract/)
+    assert.match(prompt, /first-class authored state, not a scaled desktop or 380x456 layout/)
+    assert.match(prompt, /topic identity, exactly one concise essential fact or summary/)
+    assert.match(prompt, /working local tab, page switcher, accordion, detail panel, or modal/)
+    assert.match(prompt, /at least 24x24 CSS px/)
+    assert.match(prompt, /Required democase-derived composition contract/)
+    assert.match(prompt, /one dominant (?:visual or )?interaction stage/i)
+    assert.match(prompt, /No dashboard/i)
+    assert.ok(prompt.length < 35_000, `example prompt should stay bounded, got ${prompt.length} characters`)
+    assert.doesNotMatch(prompt, /ReactDOM|webpack|modulepreload/)
+  })
+
+  it('places the relation-card compact recipe after the few-shot example', async () => {
+    let prompt = ''
+    const template = {
+      ...dynamicEncyclopediaTemplatePack(),
+      id: 'dtp_de_history_person_relationship',
+      name: '动态百科·历史人物关系图谱',
+      description: '以可点选关系节点和原位详情呈现历史人物关系。',
+      htmlExamples: [{ file: 'apps/api/src/html-examples/relation-card-compact-example.html' }],
+    }
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { prompt: string }
+        prompt = body.prompt
+        return jsonResponse({
+          streamId: 'relation_stream',
+          agentJobId: 'relation_agent',
+          runtimeChildSessionId: 'relation_child',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: '生成苏轼与欧阳修关系主题动态交互卡。',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: template.id,
+          designTemplatePack: template,
+        }],
+      },
+    })
+
+    const exampleIndex = prompt.indexOf('Reference HTML examples')
+    const hardContractIndex = prompt.indexOf('Required democase-derived composition contract')
+    assert.ok(exampleIndex >= 0)
+    assert.ok(hardContractIndex > exampleIndex, 'hard delivery rules must follow the long few-shot example')
+    assert.match(prompt, /Hide the relation-category tab row entirely/)
+    assert.match(prompt, /one relationship label, one name\/title, and at most two short sentences/)
+    assert.match(prompt, /no overflow:auto, overflow:scroll, overflow-y:auto, or overflow-y:scroll declaration anywhere/)
+    assert.match(prompt, /Final 300x360 acceptance: title visible; one short core fact visible; exactly one primary control group/)
   })
 
   it('spawns a variation agent and streams NDJSON runtime events', async () => {
@@ -600,8 +769,10 @@ describe('BabelORuntimeClient', () => {
     assert.match(agentPrompt, /relative path \.\/index\.html only/)
     assert.match(agentPrompt, /Do not create or write \/var/)
     assert.match(agentPrompt, /Build a page/)
+    assert.match(agentPrompt, /topic-driven dynamic interactive card/)
+    assert.match(agentPrompt, /Do not default to encyclopedia infobox \+ contents \+ long article sections/)
     assert.match(agentPrompt, /This is variation 1 of 2/)
-    assert.match(agentPrompt, /Editorial Swiss grid/)
+    assert.match(agentPrompt, /Theme-led interactive object/)
     assert.match(agentPrompt, /minimal/)
     assert.match(agentPrompt, /DUDesign advanced template constraints:/)
     assert.match(agentPrompt, /Selected palette id: pal_minimal_mono/)
@@ -654,7 +825,7 @@ describe('BabelORuntimeClient', () => {
     const capabilitySnapshot = templateRequirements.capabilitySnapshot as Record<string, unknown>
     const templateSnapshot = capabilitySnapshot.template as Record<string, Record<string, unknown>>
     assert.deepEqual(templateRequirements.styles, ['minimal'])
-    assert.equal(templateRequirements.variationStyleDirection, 'Editorial Swiss grid: precise hierarchy, restrained typography, generous whitespace, and one confident accent. Interpret the user-requested style tags through this direction: minimal.')
+    assert.equal(templateRequirements.variationStyleDirection, 'Theme-led interactive object: create a distinctive fixed-canvas topic experience with one primary local interaction and a clear visual focal point. Keep one primary interaction visually dominant; supporting facts must remain subordinate. Avoid SaaS conversion, CTA, proof-block, testimonial, social-proof, pricing, signup, and dashboard patterns. Interpret the user-requested style tags through this direction: minimal.')
     assert.deepEqual(templateRequirements.toolPolicy, {
       allowedMcpToolIds: ['mcp_accessibility_validate'],
       scopes: ['validation_only'],
@@ -786,6 +957,24 @@ describe('BabelORuntimeClient', () => {
             confidence: 0.82,
             reason: '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。',
           }],
+          democaseExperienceProfiles: [{
+            caseId: 'case_timeline_reference',
+            title: '历史人物事件链参考',
+            score: 0.91,
+            experienceProfile: {
+              dominantStage: 'timeline_story',
+              firstViewPromise: 'Show the topic identity, one active phase, and a compact phase-switching path.',
+              primaryInteraction: 'Switch the active phase or unlock the next milestone while keeping one event detail in focus.',
+              secondaryReveal: 'Keep causes, outcomes, sources, and later milestones behind the phase switcher or one detail reveal.',
+              attentionBudget: {
+                desktop: { maxControlGroups: 2, maxVisibleControls: 8, maxVisibleItems: 5 },
+                extremeSmall: { maxControlGroups: 2, maxVisibleControls: 5, maxPrimaryTabs: 4, maxVisibleItems: 1, maxTextCharacters: 380 },
+              },
+              preserveAt300x360: ['topic title', 'active phase label', 'one core event fact', 'compact phase switcher'],
+              deferAt300x360: ['inactive event bodies', 'full chronology', 'source notes'],
+              forbiddenPatterns: ['all milestones expanded at once', 'duplicate phase navigation in multiple regions'],
+            },
+          }],
           automationMode: 'semi_auto',
           reviewMode: 'semi_auto',
         },
@@ -812,10 +1001,21 @@ describe('BabelORuntimeClient', () => {
       '  preferredTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
       '  verticalRiskFlags=media_resource_link_blocked, event_causality_source_required',
       '  selectedChildTemplates=dtp_dynamic_encyclopedia_timeline_card | paradigm=ip_timeline_story | confidence=0.82 | reason=词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。',
+      '  matchedDemocase=历史人物事件链参考 (case_timeline_reference) score=0.91',
+      '  democaseDominantStage=timeline_story',
+      '  democaseProfileSource=matched_evidence',
+      '  democaseFirstView=Show the topic identity, one active phase, and a compact phase-switching path.',
+      '  democasePrimaryInteraction=Switch the active phase or unlock the next milestone while keeping one event detail in focus.',
+      '  democaseSecondaryReveal=Keep causes, outcomes, sources, and later milestones behind the phase switcher or one detail reveal.',
+      '  democaseDesktopBudget=max 2 control groups, 8 visible controls, 5 visible items',
+      '  democase300x360Budget=max 2 control groups, 5 visible controls, 4 primary tabs, 1 visible items, 380 visible text characters',
+      '  preserveAt300x360=topic title; active phase label; one core event fact; compact phase switcher',
+      '  deferAt300x360=inactive event bodies; full chronology; source notes',
+      '  democaseForbiddenPatterns=all milestones expanded at once; duplicate phase navigation in multiple regions',
       '  isLanguageCategory=false',
       '  entryContentLanguage=zh',
       '  interactionParadigmId=ip_timeline_story',
-      '  recommendedTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
+      '  assignedTemplateId=dtp_dynamic_encyclopedia_timeline_card',
       '  automationMode=semi_auto',
       '  reviewMode=semi_auto',
       '  runtimeInstruction=Resolve vertical risk flags before writing HTML: remove unsafe resource paths, mark missing facts as 资料不足, and keep high-risk claims source-aware. For film/TV cards, never create or mention resource-entry modules, links, buttons, labels, tabs, hints, or copy. Do not write banned resource words in visible UI, even inside a negative safety disclaimer. Replace that space with lawful encyclopedia modules like 角色关系 / 剧情结构 / 系列导航 / 来源提示.',
@@ -829,8 +1029,105 @@ describe('BabelORuntimeClient', () => {
       '- Template sections and constraints: sizing: PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360. iframeTouch: Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets. scrolling: Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto. timeline: Add dated or phased milestones without inventing exact dates.',
       '- Do: Use a dedicated overflow container instead of body scrolling. Keep iframe and mobile gesture compatibility explicit. Group sparse dates into phases when exact dates are unavailable.',
       '- Do not: Do not bind global touchmove preventDefault. Do not set global touch-action: none. Do not fabricate dates or milestones. Do not use video, download, or outbound navigation as core interactions.',
+      '- Required democase-derived composition contract:',
+      '  First view: One topic promise, one dominant interaction stage, and one obvious next action.',
+      '  Attention budget: Use at most two navigation/control groups and one compact supporting detail surface.',
+      '  Progressive reveal: Move secondary facts into the primary interaction state instead of adding more first-view modules.',
+      '  Forbidden composition: No dashboard, equal-weight module grid, or simultaneous summary + timeline + relation + comparison layout.',
+      '  The democase is evidence for information rhythm and interaction hierarchy, not a request to copy its entry text, branding, illustrations, or trade dress.',
+      '  Before returning HTML, remove any first-view module that does not serve the single dominant interaction or its selected detail.',
+      '- Required 300x360 extreme-small delivery contract:',
+      '  Treat 300x360 CSS px as a first-class authored state, not a scaled desktop or 380x456 layout.',
+      '  The outer card must render at exactly 300x360 including border and padding (use border-box), remain centered, and avoid body or inner scrolling.',
+      '  Author a deliberately smaller initial information architecture for this media state. Keep the topic identity, exactly one concise essential fact or summary, and one obvious route to the next state.',
+      '  Use exactly one primary navigation/control group at 300x360: either 2-3 page-switching tabs/segmented buttons, 2-3 entity/phase choices, or one reveal action. A single optional local detail/reveal action may accompany it; do not show two competing navigation rows.',
+      '  Reduce initial information density aggressively. Remove duplicate metadata, source rows, decorative labels, repeated summaries, and secondary fact cards from the first view. Move that information behind a working local tab, page switcher, accordion, detail panel, or modal.',
+      '  Make the path to more information obvious without explanatory prose: use a short Chinese affordance such as 查看更多、切换阶段、查看关系 or a visible page indicator like 1/4. The initial state should invite one next action.',
+      '  Keep each essential control at least 24x24 CSS px, inside the frame, unobscured, and wired to a real visible or accessible state change.',
+      '  Preserve native hidden-state semantics explicitly: include [hidden] { display:none !important; } or an equally specific inactive-panel rule after display:grid/flex panel rules. Never let a generic panel display declaration override hidden.',
+      '  Only the active tab/page/detail panel may participate in layout and pointer hit-testing. After every state switch, inactive panels must be display:none (not merely transparent or aria-hidden) so they cannot cover visible controls.',
+      '  For SVG or canvas interactions, validate the rendered browser CSS bounding box after viewBox/canvas scaling; SVG user-space dimensions and pointer-events: bounding-box do not guarantee a 24x24 CSS px hit target. Prefer HTML/CSS controls in the 300x360 layout, or provide an invisible hit layer that measures at least 24x24 CSS px.',
+      '  Budget controls deliberately at 300x360: keep no more than three primary tabs or choices and no more than two other visible topic controls in one state. If more items exist, expose them through previous/next paging, a single selector, or a secondary detail state instead of a wrapping or horizontally overflowing row.',
+      '  For relation/member maps, choose one compact selector with at most three nodes or members and page the rest; do not also keep a relationship-tab row. For timelines/origin stories, show one active phase plus one compact phase switcher; do not duplicate phase controls in multiple regions. For comparison cards, show one active dimension plus one compact selector; do not keep both target tabs and view tabs. For progressive disclosure, use either accordion toggles or tabs for the same categories, never both.',
+      '  Timeline/origin 300x360 recipe: show 2-3 phase choices in one switcher, one active phase label, and one short event fact. Hide inactive event bodies, full chronology, source rows, and all duplicate previous/next or footer navigation.',
+      '  Hide deferred desktop modules with display:none in the 300x360 initial state. Do not position them outside the frame, clip their text at the edge, or leave transparent controls in hit-testing.',
+      '  Do not expose duplicate controls for the same action. If compact HTML buttons replace SVG/canvas nodes at 300x360, remove role="button", tabindex, and pointer interaction from the SVG/canvas nodes in that media state so only the compact control layer remains interactive.',
+      '  Before finishing, inspect every visible control bounding box at 300x360: left/top must be inside the card, right/bottom must not exceed it, and no flex/grid row may overflow or clip its final items.',
+      '  Treat the democase300x360Budget supplied above as a hard rendered maximum. Count controls, control groups, repeated items, and visible text after CSS media queries are applied, not from source markup.',
+      '  Run a literal final CSS audit: the artifact must contain no overflow:auto, overflow:scroll, overflow-y:auto, or overflow-y:scroll declaration anywhere, including modal bodies. Paginate, replace, or hide excess content instead.',
+      '  Final 300x360 acceptance: title visible; one short core fact visible; exactly one primary control group; no clipped core text; no duplicate action; all retained controls at least 24x24 CSS px; one click visibly changes the bounded detail state.',
+      '  Do not satisfy this contract by hiding every navigation control, shrinking unreadable desktop content, deleting the topic identity, or relying on scrolling.',
       '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
     ].join('\n'))
+  })
+
+  it('uses the official interaction-stage profile when recalled democase evidence has a different stage', async () => {
+    let prompt = ''
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        prompt = (JSON.parse(String(init?.body)) as { prompt: string }).prompt
+        return jsonResponse({
+          streamId: 'stream_summary_fallback',
+          agentJobId: 'agent_summary_fallback',
+          runtimeChildSessionId: 'rt_summary_fallback',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_summary_fallback',
+      prompt: '生成量子计算主题摘要卡',
+      sourceMode: 'new_html',
+      sourceArtifactId: null,
+      variationCount: 1,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        businessContext: {
+          entryTitle: '量子计算',
+          interactionParadigmId: 'ip_entity_summary',
+          democaseExperienceProfiles: [{
+            caseId: 'case_relation_only',
+            title: '关系图参考',
+            score: 0.9,
+            experienceProfile: {
+              dominantStage: 'relation_map',
+              firstViewPromise: 'Relation first view.',
+              primaryInteraction: 'Select a node.',
+              secondaryReveal: 'Reveal relation detail.',
+              attentionBudget: {
+                desktop: { maxControlGroups: 2, maxVisibleControls: 12, maxVisibleItems: 6 },
+                extremeSmall: { maxControlGroups: 2, maxVisibleControls: 5, maxPrimaryTabs: 3, maxVisibleItems: 3, maxTextCharacters: 320 },
+              },
+              preserveAt300x360: ['relationship nodes'],
+              deferAt300x360: ['remaining nodes'],
+              forbiddenPatterns: ['dashboard'],
+            },
+          }],
+        },
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: 'dtp_dynamic_encyclopedia_summary_card',
+          interactionParadigmId: 'ip_entity_summary',
+          designTemplatePack: {
+            ...dynamicEncyclopediaTemplatePack(),
+            id: 'dtp_dynamic_encyclopedia_summary_card',
+            name: 'Dynamic Encyclopedia Summary Card',
+          },
+        }],
+      },
+    })
+
+    assert.match(prompt, /democaseDominantStage=entity_summary/)
+    assert.match(prompt, /democaseProfileSource=official_stage_fallback/)
+    assert.match(prompt, /democase300x360Budget=max 2 control groups, 4 visible controls, 3 primary tabs, 2 visible items, 300 visible text characters/)
+    assert.doesNotMatch(prompt, /matchedDemocase=关系图参考/)
+    assert.doesNotMatch(prompt, /democaseFirstView=Relation first view/)
   })
 
   it('golden replays layered dynamic encyclopedia template and interaction context', async () => {
@@ -914,8 +1211,18 @@ describe('BabelORuntimeClient', () => {
       '  classificationVector=作品/游戏/发行平台 confidence=0.78 source=mock_rules',
       '  recommendedModulePriorities=summary_facts, key_facts',
       '  preferredTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
+      '  democaseDominantStage=timeline_story',
+      '  democaseProfileSource=official_stage_fallback',
+      '  democaseFirstView=Show the topic identity, one active phase, and a compact phase-switching path.',
+      '  democasePrimaryInteraction=Switch the active phase or unlock the next milestone while keeping one event detail in focus.',
+      '  democaseSecondaryReveal=Keep causes, outcomes, sources, and later milestones behind the phase switcher or one detail reveal.',
+      '  democaseDesktopBudget=max 2 control groups, 8 visible controls, 5 visible items',
+      '  democase300x360Budget=max 2 control groups, 4 visible controls, 3 primary tabs, 2 visible items, 300 visible text characters',
+      '  preserveAt300x360=topic title; active phase label; one core event fact; one compact phase switcher with up to three choices',
+      '  deferAt300x360=inactive event bodies; full chronology; source notes; relationship sidebars; repeated phase summaries; a duplicate phase toolbar',
+      '  democaseForbiddenPatterns=dashboard or KPI composition; equal-weight module grid; simultaneous summary, timeline, relation, and comparison surfaces; duplicate controls for the same action; secondary metadata competing with the primary interaction; all milestones expanded at once; duplicate phase navigation in multiple regions',
       '  interactionParadigmId=ip_timeline_story',
-      '  recommendedTemplateIds=dtp_dynamic_encyclopedia_timeline_card',
+      '  assignedTemplateId=dtp_dynamic_encyclopedia_timeline_card',
       '  automationMode=auto',
       '  reviewMode=auto',
       '- Interaction paradigm: Timeline Story (ip_timeline_story) — A chronological interaction for life stages, release history, enterprise development, events, or work evolution.',
@@ -934,8 +1241,118 @@ describe('BabelORuntimeClient', () => {
       '- Template sections and constraints: sizing: PC 788x492. WISE standard 380x456. WISE compatibility sizes 396x475 and 300x360. iframeTouch: Avoid iframe pinch zoom conflicts. Do not globally intercept touchmove. Allow scroll-container and iframe targets. scrolling: Set html/body to height 100% and overflow hidden; put all long content inside .scroll-container with overflow-y auto. timeline: Add dated or phased milestones without inventing exact dates.',
       '- Do: Use a dedicated overflow container instead of body scrolling. Keep iframe and mobile gesture compatibility explicit. Group sparse dates into phases when exact dates are unavailable.',
       '- Do not: Do not bind global touchmove preventDefault. Do not set global touch-action: none. Do not fabricate dates or milestones. Do not use video, download, or outbound navigation as core interactions.',
+      '- Required democase-derived composition contract:',
+      '  First view: One topic promise, one dominant interaction stage, and one obvious next action.',
+      '  Attention budget: Use at most two navigation/control groups and one compact supporting detail surface.',
+      '  Progressive reveal: Move secondary facts into the primary interaction state instead of adding more first-view modules.',
+      '  Forbidden composition: No dashboard, equal-weight module grid, or simultaneous summary + timeline + relation + comparison layout.',
+      '  The democase is evidence for information rhythm and interaction hierarchy, not a request to copy its entry text, branding, illustrations, or trade dress.',
+      '  Before returning HTML, remove any first-view module that does not serve the single dominant interaction or its selected detail.',
+      '- Required 300x360 extreme-small delivery contract:',
+      '  Treat 300x360 CSS px as a first-class authored state, not a scaled desktop or 380x456 layout.',
+      '  The outer card must render at exactly 300x360 including border and padding (use border-box), remain centered, and avoid body or inner scrolling.',
+      '  Author a deliberately smaller initial information architecture for this media state. Keep the topic identity, exactly one concise essential fact or summary, and one obvious route to the next state.',
+      '  Use exactly one primary navigation/control group at 300x360: either 2-3 page-switching tabs/segmented buttons, 2-3 entity/phase choices, or one reveal action. A single optional local detail/reveal action may accompany it; do not show two competing navigation rows.',
+      '  Reduce initial information density aggressively. Remove duplicate metadata, source rows, decorative labels, repeated summaries, and secondary fact cards from the first view. Move that information behind a working local tab, page switcher, accordion, detail panel, or modal.',
+      '  Make the path to more information obvious without explanatory prose: use a short Chinese affordance such as 查看更多、切换阶段、查看关系 or a visible page indicator like 1/4. The initial state should invite one next action.',
+      '  Keep each essential control at least 24x24 CSS px, inside the frame, unobscured, and wired to a real visible or accessible state change.',
+      '  Preserve native hidden-state semantics explicitly: include [hidden] { display:none !important; } or an equally specific inactive-panel rule after display:grid/flex panel rules. Never let a generic panel display declaration override hidden.',
+      '  Only the active tab/page/detail panel may participate in layout and pointer hit-testing. After every state switch, inactive panels must be display:none (not merely transparent or aria-hidden) so they cannot cover visible controls.',
+      '  For SVG or canvas interactions, validate the rendered browser CSS bounding box after viewBox/canvas scaling; SVG user-space dimensions and pointer-events: bounding-box do not guarantee a 24x24 CSS px hit target. Prefer HTML/CSS controls in the 300x360 layout, or provide an invisible hit layer that measures at least 24x24 CSS px.',
+      '  Budget controls deliberately at 300x360: keep no more than three primary tabs or choices and no more than two other visible topic controls in one state. If more items exist, expose them through previous/next paging, a single selector, or a secondary detail state instead of a wrapping or horizontally overflowing row.',
+      '  For relation/member maps, choose one compact selector with at most three nodes or members and page the rest; do not also keep a relationship-tab row. For timelines/origin stories, show one active phase plus one compact phase switcher; do not duplicate phase controls in multiple regions. For comparison cards, show one active dimension plus one compact selector; do not keep both target tabs and view tabs. For progressive disclosure, use either accordion toggles or tabs for the same categories, never both.',
+      '  Timeline/origin 300x360 recipe: show 2-3 phase choices in one switcher, one active phase label, and one short event fact. Hide inactive event bodies, full chronology, source rows, and all duplicate previous/next or footer navigation.',
+      '  Hide deferred desktop modules with display:none in the 300x360 initial state. Do not position them outside the frame, clip their text at the edge, or leave transparent controls in hit-testing.',
+      '  Do not expose duplicate controls for the same action. If compact HTML buttons replace SVG/canvas nodes at 300x360, remove role="button", tabindex, and pointer interaction from the SVG/canvas nodes in that media state so only the compact control layer remains interactive.',
+      '  Before finishing, inspect every visible control bounding box at 300x360: left/top must be inside the card, right/bottom must not exceed it, and no flex/grid row may overflow or clip its final items.',
+      '  Treat the democase300x360Budget supplied above as a hard rendered maximum. Count controls, control groups, repeated items, and visible text after CSS media queries are applied, not from source markup.',
+      '  Run a literal final CSS audit: the artifact must contain no overflow:auto, overflow:scroll, overflow-y:auto, or overflow-y:scroll declaration anywhere, including modal bodies. Paginate, replace, or hide excess content instead.',
+      '  Final 300x360 acceptance: title visible; one short core fact visible; exactly one primary control group; no clipped core text; no duplicate action; all retained controls at least 24x24 CSS px; one click visibly changes the bounded detail state.',
+      '  Do not satisfy this contract by hiding every navigation control, shrinking unreadable desktop content, deleting the topic identity, or relying on scrolling.',
       '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
     ].join('\n'))
+  })
+
+  it('uses the variation assignment interaction paradigm instead of the job-global paradigm', async () => {
+    let prompt = ''
+    const relationPack: DesignTemplatePack = {
+      ...dynamicEncyclopediaTemplatePack(),
+      id: 'dtp_de_star_group_member_map',
+      name: 'Star Group Member Map',
+      description: 'Member identity and relationship exploration.',
+    }
+    const relationParadigm: InteractionParadigm = {
+      ...dynamicEncyclopediaTimelineParadigm(),
+      id: 'ip_relation_map',
+      name: 'Relation Map',
+      description: 'Explore members and their relationship to the group.',
+      compatibleTemplatePackIds: ['dtp_de_star_group_member_map'],
+    }
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      fetch: async (_url, init) => {
+        prompt = (JSON.parse(String(init?.body)) as { prompt: string }).prompt
+        return jsonResponse({
+          streamId: 'stream_relation_assignment',
+          agentJobId: 'agent_relation_assignment',
+          runtimeChildSessionId: 'rt_relation_assignment',
+        })
+      },
+    })
+
+    await client.spawnVariationAgent({
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'session_1',
+      jobId: 'job_1',
+      prompt: 'Build a member exploration card',
+      sourceMode: 'new_html',
+      productMode: 'dynamic_encyclopedia_card',
+      sourceArtifactId: null,
+      variationCount: 2,
+      variationIndex: 1,
+      workspaceRoot: 'workspaces/workspace_1',
+      memoryNamespace: 'memory:user:user_1',
+      templateRequirements: {
+        businessContext: {
+          entryTitle: 'BLACKPINK',
+          interactionParadigmId: 'ip_timeline_story',
+          childTemplates: [
+            {
+              designTemplatePackId: 'dtp_dynamic_encyclopedia_timeline_card',
+              interactionParadigmId: 'ip_timeline_story',
+              selected: true,
+              confidence: 0.8,
+              reason: 'Timeline candidate.',
+            },
+            {
+              designTemplatePackId: relationPack.id,
+              interactionParadigmId: relationParadigm.id,
+              selected: true,
+              confidence: 0.9,
+              reason: 'Member relationship candidate.',
+            },
+          ],
+        },
+        interactionParadigm: dynamicEncyclopediaTimelineParadigm(),
+        designTemplatePacks: [relationPack],
+        variationTemplateAssignments: [{
+          variationIndex: 1,
+          designTemplatePackId: relationPack.id,
+          designTemplatePack: relationPack,
+          interactionParadigmId: relationParadigm.id,
+          interactionParadigm: relationParadigm,
+        }],
+      },
+    })
+
+    assert.match(prompt, /Interaction paradigm: Relation Map \(ip_relation_map\)/)
+    assert.match(prompt, /interactionParadigmId=ip_relation_map/)
+    assert.match(prompt, /assignedTemplateId=dtp_de_star_group_member_map/)
+    assert.match(prompt, /Member and relationship exploration canvas/)
+    assert.doesNotMatch(prompt, /conversion-focused SaaS|Warm product story/)
+    assert.doesNotMatch(prompt, /Interaction paradigm: Timeline Story/)
+    assert.doesNotMatch(prompt, /selectedChildTemplates=dtp_dynamic_encyclopedia_timeline_card/)
   })
 
   it('golden replays dynamic encyclopedia entry guidance skill prompt block', async () => {
@@ -1221,7 +1638,7 @@ describe('BabelORuntimeClient', () => {
     })
   })
 
-  it('injects reviewed research and generated image artifacts into the runtime prompt', async () => {
+  it('distinguishes reviewed artifacts from mock research and image placeholders', async () => {
     let agentBody: Record<string, unknown> = {}
     const client = new BabelORuntimeClient({
       baseUrl: 'https://runtime.example.test',
@@ -1258,6 +1675,7 @@ describe('BabelORuntimeClient', () => {
           reviewStatus: 'auto_reviewed',
           query: '中山公园 景区景点 百科 事实 来源 卡片 规范',
           sourceCount: 2,
+          provenance: 'mock',
           createdAt: '2026-07-09T00:00:00.000Z',
         }],
         imageGenerationArtifacts: [{
@@ -1276,10 +1694,12 @@ describe('BabelORuntimeClient', () => {
       },
     })
 
-    assert.match(String(agentBody.prompt), /DUDesign reviewed research context artifacts:/)
-    assert.match(String(agentBody.prompt), /rctx_auto: query="中山公园 景区景点 百科 事实 来源 卡片 规范"/)
-    assert.match(String(agentBody.prompt), /DUDesign generated visual asset artifacts:/)
-    assert.match(String(agentBody.prompt), /img_auto: provider=mock, usageContext=dynamic_encyclopedia_card, contentSafety=passed/)
+    assert.match(String(agentBody.prompt), /DUDesign research context artifacts:/)
+    assert.match(String(agentBody.prompt), /rctx_auto: MOCK placeholder/)
+    assert.match(String(agentBody.prompt), /It is not a factual source/)
+    assert.match(String(agentBody.prompt), /DUDesign visual asset artifacts:/)
+    assert.match(String(agentBody.prompt), /img_auto: MOCK visual metadata only/)
+    assert.doesNotMatch(String(agentBody.prompt), /Use as cited context only/)
   })
 
 	  it('streams SSE runtime events', async () => {
@@ -1383,6 +1803,31 @@ describe('BabelORuntimeClient', () => {
     assert.equal(attempts, 2)
     assert.deepEqual(events, [
       { type: 'assistant_delta', delta: 'after reconnect' },
+    ])
+  })
+
+  it('normalizes transient fetch stream failures so reconnect can recover before events are emitted', async () => {
+    let attempts = 0
+    const client = new BabelORuntimeClient({
+      baseUrl: 'https://runtime.example.test',
+      streamReconnectAttempts: 1,
+      fetch: async () => {
+        attempts += 1
+        if (attempts === 1) {
+          throw new TypeError('fetch failed')
+        }
+        return streamResponse('{"type":"assistant_delta","delta":"after network reconnect"}\n')
+      },
+    })
+
+    const events = []
+    for await (const event of client.streamRuntimeEvents({ streamId: 'stream_fetch_retry' })) {
+      events.push(event)
+    }
+
+    assert.equal(attempts, 2)
+    assert.deepEqual(events, [
+      { type: 'assistant_delta', delta: 'after network reconnect' },
     ])
   })
 })

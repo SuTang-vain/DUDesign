@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -311,6 +311,74 @@ describe('DUDesign BabeL-O runtime adapter', () => {
     assert.match(body.prompt ?? '', /Model selection: service=mdl_babelo_default, provider=babel-o, model=anthropic\/claude-3-5-sonnet/)
   })
 
+  it('preserves the fixed exploration context in the final Nexus execution prompt', async () => {
+    const executeBodies: Array<Record<string, unknown>> = []
+    const explorationWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-exploration-'))
+    await writeFile(join(explorationWorkspaceRoot, 'index.html'), '<!doctype html><h1>Exploration context</h1>', 'utf8')
+    const explorationHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({ onExecuteBody: body => executeBodies.push(body) }),
+    }))
+    try {
+      const explorationContext = {
+        schemaVersion: '2026-07-13.dudesign-runtime-exploration-context.v1',
+        source: {
+          plannerVersion: 'planner.v1',
+          capabilitySnapshotId: 'capability_snapshot_1',
+          moduleGraphId: 'graph_1',
+          moduleGraphVersion: 'graph.v1',
+          variationIndex: 1,
+        },
+        focus: {
+          id: 'timeline',
+          title: 'Member timeline',
+          description: 'Explain verified member changes.',
+          requiredDataFields: ['membershipEvents'],
+          interactionCandidates: ['vertical-timeline'],
+        },
+        requiredModules: [],
+        sampledModules: [],
+        excludedModuleIds: [],
+        interactionDirectionIds: ['vertical-timeline'],
+        designDivergence: {
+          moduleBreadth: 0.6,
+          moduleNovelty: 0.5,
+          layout: 0.6,
+          visual: 0.65,
+          interaction: 0.5,
+          copyTone: 0.25,
+        },
+        invariants: [{ id: 'no_fabrication', category: 'fact', description: 'Do not invent facts.' }],
+        globalRules: [],
+        safety: { factCreativity: 0, mayExpandToolPolicy: false, mayReassignModules: false },
+      }
+      const spawned = await postJsonWithBase<{ streamId: string }>(explorationHarness.baseUrl, '/v1/agents', {
+        userId: 'user_1',
+        workspaceId: 'workspace_1',
+        sessionId: 'nexus_session_exploration',
+        jobId: 'job_exploration',
+        prompt: 'Build a timeline-led page.',
+        sourceMode: 'new_html',
+        variationCount: 1,
+        variationIndex: 1,
+        workspaceRoot: explorationWorkspaceRoot,
+        memoryNamespace: 'memory:user_1',
+        explorationContext,
+        templateRequirements: {},
+      })
+      await getTextWithBase(explorationHarness.baseUrl, `/v1/stream?streamId=${spawned.streamId}`)
+
+      const prompt = String(executeBodies[0]?.prompt ?? '')
+      assert.match(prompt, /Controlled exploration context \(fixed by DUDesign; do not reassign modules\)/)
+      assert.match(prompt, /"id": "timeline"/)
+      assert.match(prompt, /"factCreativity": 0/)
+      assert.match(prompt, /"mayExpandToolPolicy": false/)
+      assert.match(prompt, /"mayReassignModules": false/)
+    } finally {
+      await explorationHarness.close()
+      await rm(explorationWorkspaceRoot, { recursive: true, force: true })
+    }
+  })
+
   it('streams workspace file changes as near-real-time code_delta before final artifact result', async () => {
     const liveWorkspaceRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-live-code-'))
     let executeStarted = false
@@ -438,6 +506,92 @@ describe('DUDesign BabeL-O runtime adapter', () => {
       assert.match(stream, /Adapter workspace artifact/)
       const consumedSnapshot = JSON.parse(await readFile(stateFile, 'utf8')) as { streams?: Record<string, unknown> }
       assert.equal(consumedSnapshot.streams?.[spawned.streamId], undefined)
+    } finally {
+      await secondHarness.close()
+    }
+  })
+
+  it('restores refine request ids and cancels the matching agent after restart', async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-cancel-state-'))
+    const stateFile = join(stateRoot, 'state.json')
+    const firstHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+      stateStore: new FileRuntimeAdapterStateStore(stateFile),
+    }))
+    const spawned = await postJsonWithBase<{ streamId: string; agentJobId: string }>(firstHarness.baseUrl, '/v1/agents/refine', {
+      requestId: 'rfn_persisted_cancel',
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'nexus_session_1',
+      jobId: 'job_persisted_cancel',
+      variationId: 'variation_persisted_cancel',
+      runtimeChildSessionId: 'nexus_session_1',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<main>Base</main>',
+      prompt: 'Refine then cancel after restart',
+      workspaceRoot,
+      variationIndex: 1,
+    })
+    await firstHarness.close()
+
+    const cancelledAgentIds: string[] = []
+    const secondHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus({ onCancelAgent: agentJobId => cancelledAgentIds.push(agentJobId) }),
+      stateStore: new FileRuntimeAdapterStateStore(stateFile),
+    }))
+    try {
+      const cancelled = await postJsonWithBase<{ cancelled: boolean; requestId: string; cancelledVariationCount: number }>(
+        secondHarness.baseUrl,
+        '/v1/agents/cancel',
+        { jobId: 'job_persisted_cancel', requestId: 'rfn_persisted_cancel', reason: 'restart recovery test', variations: [] },
+      )
+      assert.equal(cancelled.cancelled, true)
+      assert.equal(cancelled.requestId, 'rfn_persisted_cancel')
+      assert.equal(cancelled.cancelledVariationCount, 1)
+      assert.deepEqual(cancelledAgentIds, [spawned.agentJobId])
+    } finally {
+      await secondHarness.close()
+    }
+  })
+
+  it('recovers a persisted refine stream by request id and exposes its terminal operation', async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), 'dudesign-runtime-adapter-recover-state-'))
+    const stateFile = join(stateRoot, 'state.json')
+    const firstHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+      stateStore: new FileRuntimeAdapterStateStore(stateFile),
+    }))
+    await postJsonWithBase<{ streamId: string }>(firstHarness.baseUrl, '/v1/agents/refine', {
+      requestId: 'rfn_persisted_recover',
+      userId: 'user_1',
+      workspaceId: 'workspace_1',
+      sessionId: 'nexus_session_1',
+      jobId: 'job_persisted_recover',
+      variationId: 'variation_persisted_recover',
+      runtimeChildSessionId: 'nexus_session_1',
+      baseArtifactId: 'artifact_1',
+      baseArtifactHtml: '<main>Base</main>',
+      prompt: 'Recover this refine after restart',
+      workspaceRoot,
+      variationIndex: 1,
+    })
+    await firstHarness.close()
+
+    const secondHarness = await startHarness(createRuntimeAdapterServer({
+      nexus: createMockNexus(),
+      stateStore: new FileRuntimeAdapterStateStore(stateFile),
+    }))
+    try {
+      const queued = await getJsonWithBase<{ status: string }>(secondHarness.baseUrl, '/v1/refine-operations/rfn_persisted_recover')
+      assert.equal(queued.status, 'queued')
+      const recovered = await getTextWithBase(secondHarness.baseUrl, '/v1/stream?requestId=rfn_persisted_recover')
+      assert.match(recovered, /"type":"result"/)
+      const completed = await getJsonWithBase<{ status: string; terminalEvent?: { type?: string } }>(
+        secondHarness.baseUrl,
+        '/v1/refine-operations/rfn_persisted_recover',
+      )
+      assert.equal(completed.status, 'completed')
+      assert.equal(completed.terminalEvent?.type, 'result')
     } finally {
       await secondHarness.close()
     }
@@ -1610,6 +1764,7 @@ function createMockNexus(options: {
   executeSuccess?: boolean
   transcriptEvents?: Array<Record<string, unknown>>
   beforeExecuteReturn?: () => Promise<void>
+  onCancelAgent?: (agentJobId: string) => void
 } = {}): NexusClient {
   let sessionSequence = 0
   return new NexusClient({
@@ -1652,6 +1807,11 @@ function createMockNexus(options: {
           type: 'agent_transcript',
           events: options.transcriptEvents ?? options.executeEvents ?? [],
         })
+      }
+      const cancelMatch = href.match(/\/v1\/agents\/([^/]+)\/cancel$/)
+      if (cancelMatch) {
+        options.onCancelAgent?.(decodeURIComponent(cancelMatch[1]!))
+        return jsonResponse({ type: 'agent_job_cancelled', job: { jobId: cancelMatch[1], status: 'cancelled' } })
       }
       return new Response(JSON.stringify({ type: 'error' }), { status: 404 })
     },

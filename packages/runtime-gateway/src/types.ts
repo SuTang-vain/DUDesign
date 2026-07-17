@@ -1,4 +1,5 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, EncyclopediaDemocaseExperienceProfile, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
+import type { RuntimeExplorationContextV1 } from './runtimeExplorationContext.js'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
 export type RuntimeProviderId = 'mock' | 'babel-o' | 'cli-agent' | (string & {})
@@ -28,6 +29,7 @@ export type RuntimeSessionRef = {
 }
 
 export type CreateRuntimeSessionInput = {
+  requestId?: ID
   userId: ID
   workspaceId: ID
   sessionId: ID
@@ -66,6 +68,7 @@ export type SpawnVariationAgentsInput = {
   modelServiceId?: ID
   modelId?: string
   modelProvider?: string
+  explorationContexts?: RuntimeExplorationContextV1[]
   templateRequirements?: {
     styles?: string[]
     deviceTargets?: DeviceTarget[]
@@ -117,6 +120,12 @@ export type SpawnVariationAgentsInput = {
         confidence?: number
         reason?: string
       }>
+      democaseExperienceProfiles?: Array<{
+        caseId: ID
+        title: string
+        score: number
+        experienceProfile: EncyclopediaDemocaseExperienceProfile
+      }>
       automationMode?: 'off' | 'semi_auto' | 'auto'
       reviewMode?: 'off' | 'semi_auto' | 'auto'
     }
@@ -124,15 +133,19 @@ export type SpawnVariationAgentsInput = {
       variationIndex: number
       designTemplatePackId: ID
       designTemplatePack: DesignTemplatePack
+      interactionParadigmId?: ID
+      interactionParadigm?: InteractionParadigm
     }>
   }
 }
 
 export type RefineVariationInput = {
+  requestId?: ID
   userId: ID
   workspaceId: ID
   sessionId: ID
   jobId?: ID
+  productMode?: ProductMode
   variationId: ID
   variationIndex?: number
   runtimeChildSessionId: string | null
@@ -148,10 +161,17 @@ export type RefineVariationInput = {
   modelServiceId?: ID
   modelId?: string
   modelProvider?: string
+  explorationContext?: RuntimeExplorationContextV1
+  /**
+   * Keep the assigned template snapshot attached to refinement. A refinement
+   * must preserve the same template contract as the artifact it edits.
+   */
+  templateRequirements?: SpawnVariationAgentsInput['templateRequirements']
 }
 
 export type CancelRuntimeJobInput = {
   jobId: ID
+  requestId?: ID
   reason?: string
   variations?: Array<{
     variationId: ID
@@ -165,6 +185,19 @@ export type CancelRuntimeJobResult = {
   message?: string
   cancelledVariationCount?: number
   failedVariationCount?: number
+}
+
+export type RuntimeRefineOperationInput = {
+  requestId: ID
+  sessionId: ID
+  jobId: ID
+  variationId: ID
+}
+
+export type RuntimeRefineOperationSnapshot = {
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'not_found' | 'unsupported'
+  terminalEvent?: DesignEvent
+  message?: string
 }
 
 export type RuntimeModelsCapability = {
@@ -215,4 +248,6 @@ export type RuntimeGateway = {
   spawnVariationAgents(input: SpawnVariationAgentsInput): AsyncIterable<DesignEvent>
   refineVariation(input: RefineVariationInput): AsyncIterable<DesignEvent>
   cancelRuntimeJob(input: CancelRuntimeJobInput): Promise<CancelRuntimeJobResult>
+  getRefineOperation?(input: RuntimeRefineOperationInput): Promise<RuntimeRefineOperationSnapshot>
+  recoverRefineOperation?(input: RuntimeRefineOperationInput): AsyncIterable<DesignEvent>
 }
