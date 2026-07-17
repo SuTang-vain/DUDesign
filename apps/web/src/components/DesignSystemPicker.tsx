@@ -8,6 +8,7 @@ import type {
   AestheticProfile,
   ColorPalette,
   DesignTemplatePack,
+  CapabilityAuthoringDraft,
   DomainTemplate,
 } from '@dudesign/contracts'
 import type { CapabilitiesResponse } from '@/lib/api'
@@ -62,10 +63,20 @@ export function DesignSystemPicker(props: {
   variationCount: number
   importing: boolean
   importNotice: { kind: 'ok' | 'warn' | 'err'; text: string } | null
+  authoringDrafts: CapabilityAuthoringDraft[]
+  importedBundleDraft: CapabilityAuthoringDraft | null
+  bundleBusy: boolean
   onTogglePackSelect: (id: string) => void
   onTogglePackFavorite: (id: string) => void
   onAutoDistributeChange: (value: boolean) => void
   onImportDesignMd: (designMd: string, name?: string) => void
+  onImportBundle: (file: File) => void
+  onConfirmBundle: (draft: CapabilityAuthoringDraft) => void
+  onExportBundle: (input: {
+    draftId: string
+    licenseDeclaration: 'user_owned_or_authorized' | 'unspecified'
+    licenseNotes: string | null
+  }) => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [sceneOpen, setSceneOpen] = useState(false)
@@ -123,11 +134,17 @@ export function DesignSystemPicker(props: {
               variationCount={props.variationCount}
               importing={props.importing}
               importNotice={props.importNotice}
+              authoringDrafts={props.authoringDrafts}
+              importedBundleDraft={props.importedBundleDraft}
+              bundleBusy={props.bundleBusy}
               labels={props.templateLabels}
               onToggleSelect={props.onTogglePackSelect}
               onToggleFavorite={props.onTogglePackFavorite}
               onAutoDistributeChange={props.onAutoDistributeChange}
               onImportDesignMd={props.onImportDesignMd}
+              onImportBundle={props.onImportBundle}
+              onConfirmBundle={props.onConfirmBundle}
+              onExportBundle={props.onExportBundle}
             />
           </div>
         ) : (

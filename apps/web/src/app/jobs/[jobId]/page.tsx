@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DesignEvent } from '@dudesign/contracts'
+import type { CapabilitySelectionSnapshotV1, CapabilitySelectionSource, DesignEvent } from '@dudesign/contracts'
 import { CodeFileViewer, type CodeFile } from '@/components/CodeFileViewer'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { VariationActionMenu } from '@/components/VariationActionMenu'
@@ -254,6 +254,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
 
       <section className="job-run-card">
         <CapabilitySummary snapshot={snapshot?.job.capabilitySnapshot} variant="inline" testId="job-capability-snapshot" />
+        <CapabilitySelectionSourceSummary snapshot={snapshot?.job.capabilitySelectionSnapshot ?? null} t={t} />
 
         <div className="job-progress">
           <div className="meta">
@@ -279,6 +280,14 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                 <span className="label">{formatVariationIndex(variation.index)}</span>
                 <span className={`var-status ${variation.status}`}>{variationStatusText(variation.status, t)}</span>
               </div>
+              {variation.explorationPlan ? (
+                <VariationExplorationBadge
+                  plan={variation.explorationPlan}
+                  graph={snapshot?.job.requirementModuleGraph ?? null}
+                  templateName={variation.designTemplatePack?.name ?? null}
+                  t={t}
+                />
+              ) : null}
               <div className="var-preview" data-testid="variation-card-preview-frame-container">
                 {quality && quality.status !== 'pass' && reviewDecision !== 'skipped' ? (
                   <section
@@ -435,6 +444,48 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
         </div>
       </aside>
     </main>
+  )
+}
+
+function VariationExplorationBadge(props: {
+  plan: NonNullable<VariationSnapshot['explorationPlan']>
+  graph: JobSnapshot['job']['requirementModuleGraph']
+  templateName: string | null
+  t: (key: string) => string
+}): React.JSX.Element {
+  const modules = new Map((props.graph?.modules ?? []).map(module => [module.id, module.title]))
+  const focus = modules.get(props.plan.focusId) ?? props.plan.focusId
+  return (
+    <div className="variation-exploration-badge" data-testid="variation-exploration-summary">
+      <span className="variation-exploration-focus"><small>{props.t('variationFocus')}</small><strong>{focus}</strong></span>
+      <span><small>{props.t('requiredModules')}</small><strong>{props.plan.requiredModuleIds.length}</strong></span>
+      <span><small>{props.t('sampledModules')}</small><strong>{props.plan.sampledModuleIds.length}</strong></span>
+      {props.templateName ? <span className="variation-exploration-template"><small>{props.t('templateDirection')}</small><strong>{props.templateName}</strong></span> : null}
+    </div>
+  )
+}
+
+function CapabilitySelectionSourceSummary(props: {
+  snapshot: CapabilitySelectionSnapshotV1 | null
+  t: (key: string) => string
+}): React.JSX.Element | null {
+  if (!props.snapshot) return null
+  const counts = Object.values(props.snapshot.sourceByCapabilityId).reduce<Record<CapabilitySelectionSource, number>>((result, source) => {
+    result[source] += 1
+    return result
+  }, { official_preset: 0, entry_guidance: 0, user_override: 0, job_snapshot: 0 })
+  const labels: Array<[CapabilitySelectionSource, string]> = [
+    ['official_preset', props.t('sourceOfficialPreset')],
+    ['entry_guidance', props.t('sourceEntryGuidance')],
+    ['user_override', props.t('sourceUserOverride')],
+  ]
+  return (
+    <div className="job-capability-sources" data-testid="job-capability-selection-sources">
+      <span className="chip locked"><Icon name="lock" size={11} />{props.t('sourceJobSnapshot')}</span>
+      {labels.filter(([source]) => counts[source] > 0).map(([source, label]) => (
+        <span className="chip" key={source}>{label}<strong>{counts[source]}</strong></span>
+      ))}
+    </div>
   )
 }
 

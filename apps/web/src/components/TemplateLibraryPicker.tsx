@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { DesignTemplatePack } from '@dudesign/contracts'
+import type { CapabilityAuthoringDraft, DesignTemplatePack } from '@dudesign/contracts'
 import { Icon } from '@/components/Icon'
 import { TemplateThumbnail } from '@/components/TemplateThumbnail'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
@@ -23,6 +23,27 @@ export type TemplateLibraryLabels = {
   pasteDesignMd: string
   designMdName: string
   importing: string
+  capabilityBundle: string
+  capabilityBundleHint: string
+  uploadBundle: string
+  bundleSelected: string
+  bundleImport: string
+  bundleImporting: string
+  bundleImported: string
+  bundleConfirm: string
+  bundleConfirming: string
+  bundlePreviewPassed: string
+  bundlePreviewWarning: string
+  bundleContents: string
+  bundleFindings: string
+  bundleNoDrafts: string
+  bundleExport: string
+  bundleExporting: string
+  bundleLicense: string
+  bundleLicenseOwned: string
+  bundleLicenseUnspecified: string
+  bundleLicenseNotes: string
+  bundleReadyDrafts: string
   applicableScenarios: string
   fontSummary: string
   dos: string
@@ -44,10 +65,20 @@ export function TemplateLibraryPicker(props: {
   labels: TemplateLibraryLabels
   importing: boolean
   importNotice: { kind: 'ok' | 'warn' | 'err'; text: string } | null
+  authoringDrafts: CapabilityAuthoringDraft[]
+  importedBundleDraft: CapabilityAuthoringDraft | null
+  bundleBusy: boolean
   onToggleSelect: (id: string) => void
   onToggleFavorite: (id: string) => void
   onAutoDistributeChange: (value: boolean) => void
   onImportDesignMd: (designMd: string, name?: string) => void
+  onImportBundle: (file: File) => void
+  onConfirmBundle: (draft: CapabilityAuthoringDraft) => void
+  onExportBundle: (input: {
+    draftId: string
+    licenseDeclaration: 'user_owned_or_authorized' | 'unspecified'
+    licenseNotes: string | null
+  }) => void
 }): React.JSX.Element {
   const c18n = useCapabilityI18n()
   const [activeTab, setActiveTab] = useState<Tab>('official')
@@ -56,6 +87,14 @@ export function TemplateLibraryPicker(props: {
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [importName, setImportName] = useState('')
+  const [bundleFile, setBundleFile] = useState<File | null>(null)
+  const [exportDraftId, setExportDraftId] = useState('')
+  const [licenseDeclaration, setLicenseDeclaration] = useState<'user_owned_or_authorized' | 'unspecified'>('user_owned_or_authorized')
+  const [licenseNotes, setLicenseNotes] = useState('')
+  const exportableDrafts = props.authoringDrafts.filter(draft => ['ready', 'published_private'].includes(draft.status))
+  const selectedExportDraftId = exportableDrafts.some(draft => draft.id === exportDraftId)
+    ? exportDraftId
+    : exportableDrafts[0]?.id ?? ''
 
   const officialPacks = useMemo(() => {
     const isEncyclopedia = (pack: DesignTemplatePack) => pack.id.startsWith('dtp_dynamic_encyclopedia')
@@ -177,6 +216,87 @@ export function TemplateLibraryPicker(props: {
                       {props.importNotice.text}
                     </span>
                   ) : null}
+
+                  <div className="tpl-bundle-workbench" data-testid="capability-bundle-workbench">
+                    <div className="tpl-bundle-heading">
+                      <strong>{props.labels.capabilityBundle}</strong>
+                      <span>{props.labels.capabilityBundleHint}</span>
+                    </div>
+
+                    <label className="tpl-bundle-file">
+                      <input
+                        type="file"
+                        accept=".zip,application/zip"
+                        data-testid="capability-bundle-file"
+                        onChange={event => setBundleFile(event.target.files?.[0] ?? null)}
+                      />
+                      <span><Icon name="upload" size={14} /> {bundleFile ? props.labels.bundleSelected : props.labels.uploadBundle}</span>
+                      {bundleFile ? <small>{bundleFile.name} · {formatBytes(bundleFile.size)}</small> : null}
+                    </label>
+                    <button
+                      type="button"
+                      className="btn primary sm"
+                      data-testid="capability-bundle-import"
+                      disabled={!bundleFile || props.bundleBusy}
+                      onClick={() => bundleFile && props.onImportBundle(bundleFile)}
+                    >
+                      {props.bundleBusy ? props.labels.bundleImporting : props.labels.bundleImport}
+                    </button>
+
+                    {props.importedBundleDraft ? (
+                      <BundleImportReview
+                        draft={props.importedBundleDraft}
+                        busy={props.bundleBusy}
+                        labels={props.labels}
+                        onConfirm={() => props.onConfirmBundle(props.importedBundleDraft!)}
+                      />
+                    ) : null}
+
+                    <div className="tpl-bundle-export">
+                      <strong>{props.labels.bundleReadyDrafts}</strong>
+                      {exportableDrafts.length > 0 ? (
+                        <>
+                          <select
+                            value={selectedExportDraftId}
+                            data-testid="capability-bundle-export-draft"
+                            onChange={event => setExportDraftId(event.target.value)}
+                          >
+                            {exportableDrafts.map(draft => (
+                              <option key={draft.id} value={draft.id}>
+                                {draft.candidateBundle.templatePacks[0]?.name ?? draft.id} · {draft.status}
+                              </option>
+                            ))}
+                          </select>
+                          <label>
+                            <span>{props.labels.bundleLicense}</span>
+                            <select value={licenseDeclaration} onChange={event => setLicenseDeclaration(event.target.value as typeof licenseDeclaration)}>
+                              <option value="user_owned_or_authorized">{props.labels.bundleLicenseOwned}</option>
+                              <option value="unspecified">{props.labels.bundleLicenseUnspecified}</option>
+                            </select>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={licenseNotes}
+                            placeholder={props.labels.bundleLicenseNotes}
+                            onChange={event => setLicenseNotes(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="btn sm"
+                            data-testid="capability-bundle-export"
+                            disabled={!selectedExportDraftId || props.bundleBusy}
+                            onClick={() => props.onExportBundle({
+                              draftId: selectedExportDraftId,
+                              licenseDeclaration,
+                              licenseNotes: licenseNotes.trim() || null,
+                            })}
+                          >
+                            <Icon name="download" size={14} /> {props.bundleBusy ? props.labels.bundleExporting : props.labels.bundleExport}
+                          </button>
+                        </>
+                      ) : <span className="tpl-bundle-empty">{props.labels.bundleNoDrafts}</span>}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -243,6 +363,55 @@ export function TemplateLibraryPicker(props: {
       </div>
     </div>
   )
+}
+
+function BundleImportReview(props: {
+  draft: CapabilityAuthoringDraft
+  busy: boolean
+  labels: TemplateLibraryLabels
+  onConfirm: () => void
+}): React.JSX.Element {
+  const bundle = props.draft.candidateBundle
+  const counts = [
+    `${bundle.templatePacks.length} Template`,
+    `${bundle.skills.length} Skill`,
+    `${bundle.interactionParadigms.length} Interaction`,
+    `${bundle.dataContracts.length} Data`,
+    `${bundle.reviewProfiles.length} Review`,
+    `${bundle.templatePacks.reduce((total, template) => total + template.htmlExamples.length, 0)} HTML`,
+  ]
+  const errors = props.draft.findings.filter(finding => finding.severity === 'error')
+  const warnings = props.draft.findings.filter(finding => finding.severity === 'warning')
+  const previewPassed = bundle.templatePacks.some(template => template.htmlExamples.some(example => example.previewSmoke?.status === 'passed'))
+  return (
+    <div className="tpl-bundle-review" data-testid="capability-bundle-review">
+      <header>
+        <span className={`chip ${errors.length ? 'err' : warnings.length ? 'warn' : 'ok'}`}>
+          {previewPassed ? props.labels.bundlePreviewPassed : props.labels.bundleImported}
+        </span>
+        <small>{props.draft.status}</small>
+      </header>
+      <strong>{bundle.templatePacks[0]?.name ?? props.draft.id}</strong>
+      <div className="tpl-bundle-counts" aria-label={props.labels.bundleContents}>
+        {counts.map(value => <span key={value}>{value}</span>)}
+      </div>
+      <p>{props.labels.bundleFindings}: {errors.length} error · {warnings.length} warning</p>
+      {props.draft.findings.slice(0, 3).map(finding => (
+        <small key={`${finding.code}:${finding.path}`}>{finding.severity} · {finding.message}</small>
+      ))}
+      {!previewPassed ? (
+        <button type="button" className="btn primary sm" data-testid="capability-bundle-confirm" disabled={props.busy || errors.length > 0} onClick={props.onConfirm}>
+          {props.busy ? props.labels.bundleConfirming : props.labels.bundleConfirm}
+        </button>
+      ) : <span className="tpl-bundle-success"><Icon name="check" size={14} /> {props.labels.bundlePreviewPassed}</span>}
+    </div>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function TemplateDetail(props: {

@@ -8,11 +8,11 @@ import { UserActionCluster } from '@/components/UserActionCluster'
 import { VariationActionMenu } from '@/components/VariationActionMenu'
 import { Icon, type IconName } from '@/components/Icon'
 import { useLanguage } from '@/components/LanguageProvider'
-import { apiUrl, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
+import { apiUrl, cancelVariationRefine, createAnnotationBatch, downloadArtifact, exportVariation, getVariation, getVariationFiles, getVariationRefineOperation, refineVariation, restoreVariationVersion, saveVariationAsTemplate, shareVariation } from '@/lib/api'
 import { mcpInvocationToUserError } from '@/lib/capabilityErrors'
 import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
 import type { UserFacingError } from '@/lib/userErrors'
-import type { AnnotationShape, ExportVariationResponse, VariationDetailResponse, VariationFilesResponse } from '@dudesign/contracts'
+import type { AnnotationShape, ExportVariationResponse, RefineVariationResponse, VariationDetailResponse, VariationFilesResponse, VariationRefineOperationSnapshot } from '@dudesign/contracts'
 
 type AnnotationTool = 'rect' | 'circle' | 'arrow' | 'pen' | 'text'
 type DraftShape =
@@ -23,6 +23,21 @@ type SidePanelTab = 'annotate' | 'direction' | 'inspect'
 type PreviewDevice = 'desktop' | 'mobile' | 'pc-medium' | 'mobile-medium' | 'mobile-mini'
 type ArtifactQuality = NonNullable<NonNullable<VariationDetailResponse['currentArtifact']>['quality']>
 type ExportArtifactSummary = NonNullable<ExportVariationResponse['exportArtifact']>
+type RefineFeedbackMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  status: 'submitted' | 'running' | 'done' | 'failed' | 'cancelled'
+  title: string
+  body: string
+  createdAt: string
+}
+type RefineRetryAction = 'prompt' | 'annotations'
+type RefineVersionTransition = {
+  beforeArtifactId: string
+  beforeVersion: number
+  afterArtifactId: string
+  afterVersion: number
+}
 type LockedVariationVersion = {
   variationId: string
   artifactId: string
@@ -33,6 +48,7 @@ type LockedVariationVersion = {
 
 const lockedVariationStorageKey = 'dudesign.lockedVariationVersions'
 const taskTitleStorageKey = 'dudesign.variationTaskTitles'
+const activeRefineStoragePrefix = 'dudesign.activeRefineOperation'
 const otherPreviewDevices: Array<{ id: PreviewDevice; label: string; size: string }> = [
   { id: 'pc-medium', label: 'PC-medium', size: '788 x 492' },
   { id: 'mobile-medium', label: 'mobile-medium', size: '396 x 475' },
@@ -48,7 +64,7 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [otherDeviceMenuOpen, setOtherDeviceMenuOpen] = useState(false)
   const [viewMode, setViewMode] = useState<EditorViewMode>('preview')
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>('annotate')
-  const [status, setStatus] = useState<'loading' | 'idle' | 'refining' | 'error'>('loading')
+  const [status, setStatus] = useState<'loading' | 'idle' | 'refining' | 'cancelling' | 'cancelled' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [previewVersion, setPreviewVersion] = useState(0)
   const [files, setFiles] = useState<VariationFilesResponse['files']>([])
@@ -71,6 +87,13 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const [restoringArtifactId, setRestoringArtifactId] = useState<string | null>(null)
   const [lockedVersion, setLockedVersion] = useState<LockedVariationVersion | null>(null)
   const [taskTitle, setTaskTitle] = useState('')
+  const [refineFeedback, setRefineFeedback] = useState<RefineFeedbackMessage[]>([])
+  const [refineRetryAction, setRefineRetryAction] = useState<RefineRetryAction | null>(null)
+  const [refineVersionTransition, setRefineVersionTransition] = useState<RefineVersionTransition | null>(null)
+  const [versionCompare, setVersionCompare] = useState<RefineVersionTransition | null>(null)
+  const [activeRefineRequestId, setActiveRefineRequestId] = useState<string | null>(null)
+  const activeRefineDraftRef = useRef<{ requestId: string; kind: RefineRetryAction; prompt: string } | null>(null)
+  const cancelledRefineRequestIdsRef = useRef(new Set<string>())
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const previewDeviceMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedArtifactQuality = qualityForArtifact(detail, selectedArtifactId)
@@ -112,6 +135,37 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   }, [variationId, previewVersion])
 
   useEffect(() => {
+    if (!variationId) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const storedRequestId = readActiveRefineRequestId(variationId)
+
+    async function poll(requestId?: string | null): Promise<void> {
+      try {
+        const result = await getVariationRefineOperation(variationId!, requestId)
+        if (stopped || !result.operation) return
+        const operation = result.operation
+        const shouldTrack = isActiveRefineOperation(operation.status)
+          || operation.requestId === storedRequestId
+          || operation.requestId === activeRefineDraftRef.current?.requestId
+        if (!shouldTrack) return
+        restoreRefineOperation(operation)
+        if (isActiveRefineOperation(operation.status)) {
+          timer = setTimeout(() => void poll(operation.requestId), 1200)
+        }
+      } catch {
+        if (!stopped && storedRequestId) timer = setTimeout(() => void poll(storedRequestId), 2000)
+      }
+    }
+
+    void poll(storedRequestId)
+    return () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [variationId])
+
+  useEffect(() => {
     if (!detail) return
     const key = detail.job.id || variationId
     const storedTitle = key ? readTaskTitle(key) : null
@@ -135,6 +189,17 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [otherDeviceMenuOpen])
+
+  useEffect(() => {
+    if (!annotationMode) return
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== 'Escape') return
+      setAnnotationMode(false)
+      setDraft(null)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [annotationMode])
 
   useEffect(() => {
     if (!variationId || !selectedArtifactId) {
@@ -170,12 +235,18 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     const selectedHtmlArtifactId = selectedArtifactId && detail?.artifacts.some(artifact => artifact.id === selectedArtifactId && artifact.kind === 'html')
       ? selectedArtifactId
       : null
-    const params = new URLSearchParams({ v: String(previewVersion) })
-    if (selectedHtmlArtifactId) {
-      params.set('artifactId', selectedHtmlArtifactId)
-    }
-    return `${apiUrl(url)}?${params.toString()}`
+    return buildVariationPreviewUrl(url, previewVersion, selectedHtmlArtifactId)
   }, [detail?.artifacts, detail?.variation.currentArtifactId, detail?.variation.previewUrl, previewVersion, selectedArtifactId])
+  const compareBeforeUrl = useMemo(() => (
+    detail?.variation.previewUrl && versionCompare
+      ? buildVariationPreviewUrl(detail.variation.previewUrl, previewVersion, versionCompare.beforeArtifactId)
+      : null
+  ), [detail?.variation.previewUrl, previewVersion, versionCompare])
+  const compareAfterUrl = useMemo(() => (
+    detail?.variation.previewUrl && versionCompare
+      ? buildVariationPreviewUrl(detail.variation.previewUrl, previewVersion, versionCompare.afterArtifactId)
+      : null
+  ), [detail?.variation.previewUrl, previewVersion, versionCompare])
   const activeCapabilityNotice = useMemo(() => (
     capabilityNotice ?? mcpInvocationToUserError(detail?.capabilityNotices?.[0] ?? null)
   ), [capabilityNotice, detail?.capabilityNotices])
@@ -183,47 +254,304 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
 
   async function submitRefine(): Promise<void> {
     if (!variationId || !detail?.variation.currentArtifactId || !prompt.trim()) return
+    const requestId = createRefineFeedbackId()
+    const submittedPrompt = prompt.trim()
+    const baseArtifact = detail.artifacts.find(artifact => artifact.id === detail.variation.currentArtifactId && artifact.kind === 'html')
+      ?? (detail.currentArtifact?.kind === 'html' ? detail.currentArtifact : null)
+    setPrompt('')
     setStatus('refining')
     setError(null)
     setNotice(null)
     setCapabilityNotice(null)
+    setRefineRetryAction(null)
+    setVersionCompare(null)
+    setActiveRefineRequestId(requestId)
+    activeRefineDraftRef.current = { requestId, kind: 'prompt', prompt: submittedPrompt }
+    writeActiveRefineRequestId(variationId, requestId)
+    setRefineFeedback(messages => appendRefineFeedback(messages, [
+      {
+        id: `${requestId}-user`,
+        role: 'user',
+        status: 'submitted',
+        title: t('refineUserRequest'),
+        body: submittedPrompt,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: `${requestId}-assistant`,
+        role: 'assistant',
+        status: 'running',
+        title: t('refineRunningTitle'),
+        body: t('refineRunningBody'),
+        createdAt: new Date().toISOString(),
+      },
+    ]))
     try {
-      await refineVariation(variationId, {
-        prompt: prompt.trim(),
+      const result = await refineVariation(variationId, {
+        requestId,
+        prompt: submittedPrompt,
         baseArtifactId: detail.variation.currentArtifactId,
         deviceContext: device === 'mobile' || device === 'mobile-medium' || device === 'mobile-mini' ? 'mobile' : 'desktop',
       })
-      setSelectedArtifactId(null)
+      if (result.variation.status === 'cancelled' || cancelledRefineRequestIdsRef.current.has(requestId)) {
+        markRefineCancelled(requestId, submittedPrompt, 'prompt')
+        return
+      }
+      if (result.variation.status === 'failed') {
+        const message = buildRefineFailureSummary(result, t('refineFailedBody'))
+        setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+          status: 'failed',
+          title: t('refineFailedTitle'),
+          body: message,
+        }))
+        setPrompt(current => current.trim() ? current : submittedPrompt)
+        setRefineRetryAction('prompt')
+        setStatus('error')
+        clearActiveRefine(requestId)
+        return
+      }
+      if (baseArtifact && result.artifact) {
+        setRefineVersionTransition({
+          beforeArtifactId: baseArtifact.id,
+          beforeVersion: baseArtifact.version,
+          afterArtifactId: result.artifact.id,
+          afterVersion: result.artifact.version,
+        })
+      }
+      setSelectedArtifactId(result.artifact?.id ?? null)
       setPreviewVersion(version => version + 1)
+      setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+        status: 'done',
+        title: t('refineDoneTitle'),
+        body: buildRefineDoneSummary(result.artifact?.version, result.artifact?.entryPath, t),
+      }))
       setStatus('idle')
+      clearActiveRefine(requestId)
     } catch (err) {
-      setError((err as Error).message)
+      if (cancelledRefineRequestIdsRef.current.has(requestId)) {
+        markRefineCancelled(requestId, submittedPrompt, 'prompt')
+        return
+      }
+      setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+        status: 'failed',
+        title: t('refineFailedTitle'),
+        body: (err as Error).message || t('refineFailedBody'),
+      }))
+      setPrompt(current => current.trim() ? current : submittedPrompt)
+      setRefineRetryAction('prompt')
       setStatus('error')
+      clearActiveRefine(requestId)
     }
   }
 
   async function submitAnnotations(): Promise<void> {
     if (!variationId || !detail?.variation.currentArtifactId || annotations.length === 0) return
+    const requestId = createRefineFeedbackId()
+    const shapeCount = annotations.length
+    const submittedPrompt = prompt.trim()
+    const baseArtifact = detail.artifacts.find(artifact => artifact.id === detail.variation.currentArtifactId && artifact.kind === 'html')
+      ?? (detail.currentArtifact?.kind === 'html' ? detail.currentArtifact : null)
+    setPrompt('')
     setStatus('refining')
     setError(null)
     setNotice(null)
     setCapabilityNotice(null)
+    setRefineRetryAction(null)
+    setVersionCompare(null)
+    setActiveRefineRequestId(requestId)
+    activeRefineDraftRef.current = { requestId, kind: 'annotations', prompt: submittedPrompt }
+    writeActiveRefineRequestId(variationId, requestId)
+    setRefineFeedback(messages => appendRefineFeedback(messages, [
+      {
+        id: `${requestId}-user`,
+        role: 'user',
+        status: 'submitted',
+        title: t('refineAnnotationRequest'),
+        body: `${shapeCount} ${t(shapeCount > 1 ? 'refineAnnotationCountPlural' : 'refineAnnotationCount')}${submittedPrompt ? ` · ${submittedPrompt}` : ''}`,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: `${requestId}-assistant`,
+        role: 'assistant',
+        status: 'running',
+        title: t('refineRunningTitle'),
+        body: t('refineRunningBody'),
+        createdAt: new Date().toISOString(),
+      },
+    ]))
     try {
-      await createAnnotationBatch(variationId, {
+      const result = await createAnnotationBatch(variationId, {
+        requestId,
         artifactId: detail.variation.currentArtifactId,
         shapes: annotations,
-        prompt: prompt.trim() || undefined,
+        prompt: submittedPrompt || undefined,
       })
+      if (result.variation.status === 'cancelled' || cancelledRefineRequestIdsRef.current.has(requestId)) {
+        markRefineCancelled(requestId, submittedPrompt, 'annotations')
+        return
+      }
+      if (result.variation.status === 'failed') {
+        const message = buildRefineFailureSummary(result, t('refineFailedBody'))
+        setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+          status: 'failed',
+          title: t('refineFailedTitle'),
+          body: message,
+        }))
+        setPrompt(current => current.trim() ? current : submittedPrompt)
+        setRefineRetryAction('annotations')
+        setStatus('error')
+        clearActiveRefine(requestId)
+        return
+      }
       setAnnotations([])
       setSelectedAnnotationIndex(null)
       setAnnotationMode(false)
-      setSelectedArtifactId(null)
+      if (baseArtifact && result.artifact) {
+        setRefineVersionTransition({
+          beforeArtifactId: baseArtifact.id,
+          beforeVersion: baseArtifact.version,
+          afterArtifactId: result.artifact.id,
+          afterVersion: result.artifact.version,
+        })
+      }
+      setSelectedArtifactId(result.artifact?.id ?? null)
       setPreviewVersion(version => version + 1)
+      setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+        status: 'done',
+        title: t('refineDoneTitle'),
+        body: buildRefineDoneSummary(result.artifact?.version, result.artifact?.entryPath, t),
+      }))
       setStatus('idle')
+      clearActiveRefine(requestId)
     } catch (err) {
-      setError((err as Error).message)
+      if (cancelledRefineRequestIdsRef.current.has(requestId)) {
+        markRefineCancelled(requestId, submittedPrompt, 'annotations')
+        return
+      }
+      setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+        status: 'failed',
+        title: t('refineFailedTitle'),
+        body: (err as Error).message || t('refineFailedBody'),
+      }))
+      setPrompt(current => current.trim() ? current : submittedPrompt)
+      setRefineRetryAction('annotations')
       setStatus('error')
+      clearActiveRefine(requestId)
     }
+  }
+
+  async function cancelActiveRefine(): Promise<void> {
+    const active = activeRefineDraftRef.current
+    if (!variationId || !active || status !== 'refining') return
+    setStatus('cancelling')
+    try {
+      const result = await cancelVariationRefine(variationId, active.requestId, {
+        reason: 'Cancelled from the variation editor.',
+      })
+      if (result.status === 'already_finished') {
+        setStatus('refining')
+        return
+      }
+      cancelledRefineRequestIdsRef.current.add(active.requestId)
+      markRefineCancelled(active.requestId, active.prompt, active.kind)
+    } catch (err) {
+      setStatus('refining')
+      setRefineFeedback(messages => updateRefineFeedback(messages, `${active.requestId}-assistant`, {
+        status: 'running',
+        title: t('refineRunningTitle'),
+        body: `${t('refineCancelFailed')} ${(err as Error).message}`,
+      }))
+    }
+  }
+
+  function restoreRefineOperation(operation: VariationRefineOperationSnapshot): void {
+    const kind: RefineRetryAction = operation.kind === 'annotations' ? 'annotations' : 'prompt'
+    const promptForInput = kind === 'prompt' ? operation.prompt : ''
+    setRefineFeedback(messages => {
+      if (messages.some(message => message.id === `${operation.requestId}-assistant`)) return messages
+      return appendRefineFeedback(messages, [
+        {
+          id: `${operation.requestId}-user`,
+          role: 'user',
+          status: 'submitted',
+          title: t(kind === 'annotations' ? 'refineAnnotationRequest' : 'refineUserRequest'),
+          body: kind === 'annotations' ? t('refineRecoveredAnnotationBody') : operation.prompt,
+          createdAt: operation.createdAt,
+        },
+        {
+          id: `${operation.requestId}-assistant`,
+          role: 'assistant',
+          status: operation.status === 'cancelled' ? 'cancelled' : operation.status === 'failed' ? 'failed' : operation.status === 'completed' ? 'done' : 'running',
+          title: operation.status === 'cancelled'
+            ? t('refineCancelledTitle')
+            : operation.status === 'failed'
+              ? t('refineFailedTitle')
+              : operation.status === 'completed'
+                ? t('refineDoneTitle')
+                : t('refineRunningTitle'),
+          body: operation.status === 'cancelled'
+            ? t(kind === 'annotations' ? 'refineCancelledAnnotationBody' : 'refineCancelledBody')
+            : operation.status === 'failed'
+              ? t('refineFailedBody')
+              : operation.status === 'completed'
+                ? t('refineRecoveredDoneBody')
+                : t('refineRunningBody'),
+          createdAt: operation.updatedAt,
+        },
+      ])
+    })
+
+    if (isActiveRefineOperation(operation.status)) {
+      activeRefineDraftRef.current = { requestId: operation.requestId, kind, prompt: promptForInput }
+      setActiveRefineRequestId(operation.requestId)
+      writeActiveRefineRequestId(operation.variationId, operation.requestId)
+      setStatus(operation.status === 'cancelling' ? 'cancelling' : 'refining')
+      return
+    }
+    if (operation.status === 'cancelled') {
+      activeRefineDraftRef.current = { requestId: operation.requestId, kind, prompt: promptForInput }
+      markRefineCancelled(operation.requestId, promptForInput, kind)
+      return
+    }
+    if (operation.status === 'failed') {
+      if (kind === 'prompt') setPrompt(current => current.trim() ? current : operation.prompt)
+      setRefineRetryAction(kind)
+      setStatus('error')
+      clearActiveRefine(operation.requestId)
+      return
+    }
+    if (operation.status === 'completed') {
+      setStatus('idle')
+      clearActiveRefine(operation.requestId)
+      setPreviewVersion(version => version + 1)
+    }
+  }
+
+  function markRefineCancelled(requestId: string, submittedPrompt: string, kind: RefineRetryAction): void {
+    cancelledRefineRequestIdsRef.current.add(requestId)
+    if (kind === 'prompt') setPrompt(current => current.trim() ? current : submittedPrompt)
+    setRefineFeedback(messages => updateRefineFeedback(messages, `${requestId}-assistant`, {
+      status: 'cancelled',
+      title: t('refineCancelledTitle'),
+      body: t(kind === 'annotations' ? 'refineCancelledAnnotationBody' : 'refineCancelledBody'),
+    }))
+    setStatus('cancelled')
+    setRefineRetryAction(null)
+    clearActiveRefine(requestId)
+  }
+
+  function clearActiveRefine(requestId: string): void {
+    setActiveRefineRequestId(current => current === requestId ? null : current)
+    if (activeRefineDraftRef.current?.requestId === requestId) activeRefineDraftRef.current = null
+    if (variationId) removeActiveRefineRequestId(variationId, requestId)
+  }
+
+  function retryLastRefine(): void {
+    if (refineRetryAction === 'annotations') {
+      void submitAnnotations()
+      return
+    }
+    if (refineRetryAction === 'prompt') void submitRefine()
   }
 
   async function downloadZip(): Promise<void> {
@@ -288,8 +616,8 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     }
   }
 
-  async function restoreVersion(artifactId: string): Promise<void> {
-    if (!variationId || restoringArtifactId) return
+  async function restoreVersion(artifactId: string): Promise<boolean> {
+    if (!variationId || restoringArtifactId) return false
     setRestoringArtifactId(artifactId)
     setError(null)
     setNotice(null)
@@ -299,11 +627,44 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
       setViewMode('preview')
       setPreviewVersion(version => version + 1)
       setNotice(`${t('restoredBefore')}${restored.artifact.version}${t('restoredAfter')}`)
+      return true
     } catch (err) {
       setError((err as Error).message)
+      return false
     } finally {
       setRestoringArtifactId(null)
     }
+  }
+
+  function viewUpdatedVersion(): void {
+    if (!refineVersionTransition) return
+    setVersionCompare(null)
+    setSelectedArtifactId(refineVersionTransition.afterArtifactId)
+    setViewMode('preview')
+  }
+
+  function toggleVersionCompare(): void {
+    if (!refineVersionTransition) return
+    setAnnotationMode(false)
+    setDraft(null)
+    setViewMode('preview')
+    setVersionCompare(current => current ? null : refineVersionTransition)
+  }
+
+  async function undoLastRefine(): Promise<void> {
+    if (!refineVersionTransition) return
+    const restored = await restoreVersion(refineVersionTransition.beforeArtifactId)
+    if (!restored) return
+    setVersionCompare(null)
+    setRefineVersionTransition(null)
+    setRefineFeedback(messages => appendRefineFeedback(messages, [{
+      id: createRefineFeedbackId(),
+      role: 'assistant',
+      status: 'done',
+      title: t('refineUndoDone'),
+      body: `${t('refineUndoBody')} v${refineVersionTransition.beforeVersion}`,
+      createdAt: new Date().toISOString(),
+    }]))
   }
 
   function lockCurrentVersion(): void {
@@ -458,6 +819,24 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
     setSelectedAnnotationIndex(index)
   }
 
+  function toggleAnnotationTool(tool: AnnotationTool): void {
+    if (annotationMode && annotationTool === tool) {
+      setAnnotationMode(false)
+      setDraft(null)
+      return
+    }
+    setAnnotationTool(tool)
+    setAnnotationMode(true)
+  }
+
+  function selectSidePanelTab(tab: SidePanelTab): void {
+    setSidePanelTab(tab)
+    if (tab !== 'annotate') {
+      setAnnotationMode(false)
+      setDraft(null)
+    }
+  }
+
   function deleteAnnotation(index: number): void {
     setAnnotations(items => items.filter((_item, itemIndex) => itemIndex !== index))
     setSelectedAnnotationIndex(current => {
@@ -482,6 +861,21 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   const variationNumber = formatVariationNumber(detail?.variation.title)
   const isCurrentVersionLocked = lockedVersion?.artifactId === detail?.currentArtifact?.id
   const taskTitleFallback = detail ? summarizeTaskTitle(detail.job.prompt) : t('loadingVariation')
+  const currentVersionLabel = detail?.currentArtifact?.version ? `v${detail.currentArtifact.version}` : t('latestVersion')
+  const refineStatusLabel = status === 'refining'
+    ? t('refineRunningTitle')
+    : status === 'cancelling'
+      ? t('refineCancellingTitle')
+      : status === 'cancelled'
+        ? t('refineCancelledTitle')
+    : status === 'error'
+      ? t('refineFailedTitle')
+      : isCurrentVersionLocked
+        ? t('locked')
+        : t('refineReady')
+  const refineInFlight = status === 'refining' || status === 'cancelling'
+  const showRefineLiveStatus = status === 'refining' || status === 'cancelling' || status === 'cancelled' || status === 'error'
+  const showRefineOperation = refineInFlight || Boolean(refineRetryAction) || Boolean(refineVersionTransition)
 
   return (
     <main className="ed-shell">
@@ -621,6 +1015,35 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                 onSelectPath={setActiveFilePath}
               />
             </div>
+          ) : versionCompare && compareBeforeUrl && compareAfterUrl ? (
+            <div className="canvas version-compare-canvas" data-testid="version-compare-view">
+              <div className="version-compare-grid">
+                <section className="version-compare-pane">
+                  <header>
+                    <span>{t('beforeChange')}</span>
+                    <strong>v{versionCompare.beforeVersion}</strong>
+                  </header>
+                  <iframe
+                    data-testid="version-compare-before-frame"
+                    title={`${t('beforeChange')} v${versionCompare.beforeVersion}`}
+                    src={compareBeforeUrl}
+                    sandbox="allow-scripts"
+                  />
+                </section>
+                <section className="version-compare-pane updated">
+                  <header>
+                    <span>{t('afterChange')}</span>
+                    <strong>v{versionCompare.afterVersion}</strong>
+                  </header>
+                  <iframe
+                    data-testid="version-compare-after-frame"
+                    title={`${t('afterChange')} v${versionCompare.afterVersion}`}
+                    src={compareAfterUrl}
+                    sandbox="allow-scripts"
+                  />
+                </section>
+              </div>
+            </div>
           ) : previewUrl ? (
             <div data-testid="variation-preview" className="canvas">
               <div className="annotated-preview-wrap">
@@ -660,36 +1083,106 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
           )}
         </section>
 
-        <aside className="refine">
-          <div className="refine-status-container">
-            <span className="variation-index">{variationNumber}</span>
-            <button
-              className="lock"
-              data-testid="lock-version-button"
-              onClick={toggleCurrentVersionLock}
-              disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
-            >
-              <Icon name={isCurrentVersionLocked ? 'x' : 'lock'} size={14} /> {isCurrentVersionLocked ? t('unlockVersion') : t('lockThisVersion')}
-            </button>
-          </div>
+        <aside className={`refine refine-${status}`}>
+          <section className="refine-workspace" aria-label={t('refineWorkspace')}>
+            <div className="refine-status-container">
+              <div className="refine-version-meta">
+                <span className="variation-index">{variationNumber}</span>
+                <span className="refine-version-copy">
+                  <strong>{currentVersionLabel}</strong>
+                </span>
+              </div>
+              <button
+                className={`lock ${isCurrentVersionLocked ? 'active' : ''}`}
+                data-testid="lock-version-button"
+                aria-pressed={isCurrentVersionLocked}
+                title={isCurrentVersionLocked ? t('unlockVersion') : t('lockThisVersion')}
+                onClick={toggleCurrentVersionLock}
+                disabled={!detail?.currentArtifact || detail.currentArtifact.kind !== 'html'}
+              >
+                <Icon name={isCurrentVersionLocked ? 'check' : 'lock'} size={14} />
+                <span>{isCurrentVersionLocked ? t('locked') : t('lockThisVersion')}</span>
+              </button>
+            </div>
 
-          <div className="refine-chat-container">
-            <div className="chat-refine-box">
-              <label>{t('refinePrompt')}</label>
-              <div className="chat-refine-input">
-                <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={2} placeholder={t('refinePromptPlaceholder')} />
-                <button
-                  type="button"
-                  aria-label={status === 'refining' ? t('refining') : t('submitRefine')}
-                  data-testid="refine-button"
-                  disabled={status === 'refining' || !prompt.trim() || !detail?.variation.currentArtifactId}
-                  onClick={() => void submitRefine()}
-                >
-                  <Icon name="arrowUp" size={16} />
-                </button>
+            <div className="refine-chat-container">
+              <div className="chat-refine-box">
+                <div className="refine-chat-heading">
+                  <label htmlFor="variation-refine-prompt">{t('refinePrompt')}</label>
+                  {showRefineLiveStatus ? (
+                    <span className={`refine-live-status ${status}`} aria-live="polite">
+                      <i aria-hidden="true" /> {refineStatusLabel}
+                    </span>
+                  ) : null}
+                </div>
+
+                <RefineFeedbackStream messages={refineFeedback} />
+
+                {showRefineOperation ? <div className="refine-operation-slot">
+                  {refineInFlight ? (
+                    <div className="refine-preview-state" data-testid="refine-preview-state">
+                      <span className="refine-progress-dot" aria-hidden="true" />
+                      <span>{status === 'cancelling' ? t('refineCancelPending') : t('refinePreviewPending')}</span>
+                    </div>
+                  ) : refineRetryAction ? (
+                    <div className="refine-recovery" data-testid="refine-recovery">
+                      <span>{t('refineFailurePreserved')}</span>
+                      <button type="button" onClick={retryLastRefine}>{t('retry')}</button>
+                    </div>
+                  ) : refineVersionTransition ? (
+                    <div className="refine-version-actions" data-testid="refine-version-actions">
+                      <button type="button" onClick={viewUpdatedVersion}>{t('viewUpdated')}</button>
+                      <button type="button" className={versionCompare ? 'active' : ''} aria-pressed={Boolean(versionCompare)} onClick={toggleVersionCompare}>{t('compareVersions')}</button>
+                      <button
+                        type="button"
+                        className="danger"
+                        data-testid="undo-refine-button"
+                        disabled={Boolean(restoringArtifactId)}
+                        onClick={() => void undoLastRefine()}
+                      >
+                        {restoringArtifactId === refineVersionTransition.beforeArtifactId ? t('restoring') : t('undoChange')}
+                      </button>
+                    </div>
+                  ) : null}
+                </div> : null}
+
+                <div className="chat-refine-input">
+                  <textarea
+                    id="variation-refine-prompt"
+                    value={prompt}
+                    onChange={event => setPrompt(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.nativeEvent.isComposing || event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) return
+                      event.preventDefault()
+                      if (!refineInFlight && prompt.trim() && detail?.variation.currentArtifactId) void submitRefine()
+                    }}
+                    rows={2}
+                    placeholder={t('refinePromptPlaceholder')}
+                  />
+                  <button
+                    type="button"
+                    aria-label={status === 'refining' ? t('stopRefine') : status === 'cancelling' ? t('refineCancellingTitle') : t('submitRefine')}
+                    data-testid="refine-button"
+                    className={status === 'refining' ? 'stop' : ''}
+                    disabled={status === 'cancelling' || (status === 'refining' ? !activeRefineRequestId : (!prompt.trim() || !detail?.variation.currentArtifactId))}
+                    onClick={() => status === 'refining' ? void cancelActiveRefine() : void submitRefine()}
+                  >
+                    {status === 'cancelling'
+                      ? <span className="refine-button-progress" aria-hidden="true" />
+                      : status === 'refining'
+                        ? <Icon name="x" size={15} />
+                        : <Icon name="arrowUp" size={16} />}
+                  </button>
+                </div>
+
+                <div className="refine-context-row">
+                  <span><Icon name="dot" size={12} /> {t('refineCurrentContext')} {currentVersionLabel}</span>
+                  {annotations.length > 0 ? <span className="accent">{annotations.length} {t('stagedAnnotations')}</span> : null}
+                  <kbd>⌘ Enter</kbd>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
           <div className="refine-tool-container">
             <div className="refine-tabs" role="tablist" aria-label="Variation tools">
@@ -704,10 +1197,12 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                   role="tab"
                   data-testid={`side-panel-tab-${tab.id}`}
                   aria-selected={sidePanelTab === tab.id}
-                  className={sidePanelTab === tab.id ? 'active' : ''}
-                  onClick={() => setSidePanelTab(tab.id)}
+                  aria-label={tab.label}
+                  title={tab.label}
+                  className={`${sidePanelTab === tab.id ? 'active' : ''} ${tab.id === 'inspect' ? 'secondary' : ''}`}
+                  onClick={() => selectSidePanelTab(tab.id)}
                 >
-                  {tab.label}
+                  {tab.id === 'inspect' ? <Icon name="moreHorizontal" size={16} /> : tab.label}
                 </button>
               ))}
             </div>
@@ -715,33 +1210,40 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
             <div className="refine-body">
             {sidePanelTab === 'annotate' ? (
               <section className="side-panel-section">
-                <div className="anno-tools" aria-label="Annotation tool">
-                  {(['rect', 'circle', 'arrow', 'pen', 'text'] as const).map(tool => (
+                <div className="annotation-tool-heading">
+                  <span>
+                    <strong>{t('annotationTools')}</strong>
+                    <small>{annotationMode ? t('annotationActiveHint') : t('drawStageHint')}</small>
+                  </span>
+                  {annotationMode ? (
                     <button
-                      key={tool}
-                      title={tool}
-                      data-testid={`annotation-tool-${tool}`}
-                      aria-pressed={annotationTool === tool}
-                      className={annotationTool === tool ? 'active' : ''}
-                      onClick={() => { setAnnotationTool(tool); setAnnotationMode(true) }}
+                      type="button"
+                      className="annotation-exit"
+                      data-testid="annotation-exit-button"
+                      onClick={() => { setAnnotationMode(false); setDraft(null) }}
                     >
-                      <Icon name={annotationIconName(tool)} size={16} />
+                      <Icon name="x" size={13} /> {t('finishDrawing')}
                     </button>
-                  ))}
+                  ) : null}
                 </div>
 
-                <label className="annotation-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="eyebrow">{t('drawMode')}</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--muted)', fontSize: 12, cursor: 'pointer' }}>
-                    <input
-                      data-testid="annotation-draw-toggle"
-                      type="checkbox"
-                      checked={annotationMode}
-                      onChange={event => setAnnotationMode(event.target.checked)}
-                    />
-                    {annotationMode ? t('on') : t('off')}
-                  </span>
-                </label>
+                <div className="anno-tools" aria-label={t('annotationTools')}>
+                  {(['rect', 'circle', 'arrow', 'pen', 'text'] as const).map(tool => {
+                    const active = annotationMode && annotationTool === tool
+                    return (
+                      <button
+                        key={tool}
+                        title={tool}
+                        data-testid={`annotation-tool-${tool}`}
+                        aria-pressed={active}
+                        className={active ? 'active' : ''}
+                        onClick={() => toggleAnnotationTool(tool)}
+                      >
+                        <Icon name={annotationIconName(tool)} size={16} />
+                      </button>
+                    )
+                  })}
+                </div>
 
                 {annotations.length > 0 ? (
                   <div className="anno-list" data-testid="annotation-list">
@@ -774,23 +1276,26 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
                   <div className="anno-empty-row">{t('drawStageHint')}</div>
                 )}
 
-                <div className="anno-actions">
-                  <button onClick={() => { setAnnotations([]); setSelectedAnnotationIndex(null) }} disabled={annotations.length === 0}>{t('clear')}</button>
-                  <button
-                    className="primary"
-                    data-testid="apply-annotations-button"
-                    onClick={() => void submitAnnotations()}
-                    disabled={status === 'refining' || annotations.length === 0 || !detail?.variation.currentArtifactId}
-                  >
-                    {t('applyMarks')} <Icon name="arrowRight" size={14} />
-                  </button>
-                </div>
+                {annotations.length > 0 ? (
+                  <div className="anno-actions">
+                    <button onClick={() => { setAnnotations([]); setSelectedAnnotationIndex(null) }}>{t('clear')}</button>
+                    <button
+                      className="primary"
+                      data-testid="apply-annotations-button"
+                      onClick={() => void submitAnnotations()}
+                      disabled={refineInFlight || !detail?.variation.currentArtifactId}
+                    >
+                      {t('sendAnnotations')} {annotations.length} <Icon name="arrowRight" size={14} />
+                    </button>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
             {sidePanelTab === 'direction' ? (
               <section className="side-panel-section">
                 <CapabilitySummary snapshot={detail?.job.capabilitySnapshot} compact testId="variation-capability-snapshot" />
+                <VariationExplorationPlanSummary detail={detail} t={t} />
               </section>
             ) : null}
 
@@ -905,6 +1410,43 @@ export default function VariationPage(props: { params: Promise<{ variationId: st
   )
 }
 
+function VariationExplorationPlanSummary(props: {
+  detail: VariationDetailResponse | null
+  t: (key: string) => string
+}): React.JSX.Element | null {
+  const plan = props.detail?.variation.explorationPlan
+  if (!plan) return null
+  const modules = new Map((props.detail?.job.requirementModuleGraph?.modules ?? []).map(module => [module.id, module.title]))
+  const focus = modules.get(plan.focusId) ?? plan.focusId
+  return (
+    <section className="variation-exploration-panel" data-testid="variation-exploration-plan">
+      <header>
+        <div><span>{props.t('variationFocus')}</span><strong>{focus}</strong></div>
+        <span className="chip locked"><Icon name="lock" size={11} />{props.t('sourceJobSnapshot')}</span>
+      </header>
+      <div className="variation-exploration-plan-meta">
+        <span><small>{props.t('templateDirection')}</small><strong>{props.detail?.variation.designTemplatePack?.name ?? plan.templatePackId ?? '—'}</strong></span>
+        <span><small>{props.t('styleDirection')}</small><strong>{plan.styleDirectionId ?? '—'}</strong></span>
+        <span><small>{props.t('interactionDirection')}</small><strong>{plan.interactionDirectionIds.join(' · ') || '—'}</strong></span>
+      </div>
+      <div className="variation-exploration-module-group">
+        <small>{props.t('requiredModules')}</small>
+        <div>{plan.requiredModuleIds.map(id => <span className="chip locked" key={id}>{modules.get(id) ?? id}</span>)}</div>
+      </div>
+      <div className="variation-exploration-module-group">
+        <small>{props.t('sampledModules')}</small>
+        <div>{plan.sampledModuleIds.map(id => <span className="chip info" key={id}>{modules.get(id) ?? id}</span>)}</div>
+      </div>
+      {plan.excludedModuleIds.length ? (
+        <div className="variation-exploration-module-group">
+          <small>{props.t('moduleExcluded')}</small>
+          <div>{plan.excludedModuleIds.map(id => <span className="chip" key={id}>{modules.get(id) ?? id}</span>)}</div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function annotationIconName(tool: AnnotationTool): IconName {
   if (tool === 'rect') return 'square'
   if (tool === 'circle') return 'circle'
@@ -917,6 +1459,105 @@ function formatVariationNumber(title?: string | null): string {
   const match = title?.match(/\d+/)
   const value = match ? Number.parseInt(match[0]!, 10) : 1
   return Number.isFinite(value) ? String(value).padStart(2, '0') : '01'
+}
+
+function isActiveRefineOperation(status: VariationRefineOperationSnapshot['status']): boolean {
+  return status === 'starting' || status === 'running' || status === 'cancelling'
+}
+
+function activeRefineStorageKey(variationId: string): string {
+  return `${activeRefineStoragePrefix}:${variationId}`
+}
+
+function readActiveRefineRequestId(variationId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(activeRefineStorageKey(variationId))
+  } catch {
+    return null
+  }
+}
+
+function writeActiveRefineRequestId(variationId: string, requestId: string): void {
+  try {
+    window.sessionStorage.setItem(activeRefineStorageKey(variationId), requestId)
+  } catch {
+    // The backend operation remains authoritative when session storage is unavailable.
+  }
+}
+
+function removeActiveRefineRequestId(variationId: string, requestId: string): void {
+  try {
+    if (window.sessionStorage.getItem(activeRefineStorageKey(variationId)) === requestId) {
+      window.sessionStorage.removeItem(activeRefineStorageKey(variationId))
+    }
+  } catch {
+    // Best effort only.
+  }
+}
+
+function RefineFeedbackStream(props: { messages: RefineFeedbackMessage[] }): React.JSX.Element {
+  const visibleMessages = props.messages.slice(-6)
+  const streamRef = useRef<HTMLDivElement | null>(null)
+  const latestMessage = visibleMessages.at(-1)
+
+  useEffect(() => {
+    const stream = streamRef.current
+    if (!stream) return
+    stream.scrollTo({ top: stream.scrollHeight, behavior: 'smooth' })
+  }, [latestMessage?.id, latestMessage?.status])
+
+  return (
+    <div ref={streamRef} className={`refine-feedback ${visibleMessages.length === 0 ? 'is-empty' : ''}`} data-testid="refine-feedback-stream" aria-live="polite">
+      {visibleMessages.map(message => (
+        <div key={message.id} className={`refine-feedback-row ${message.role} ${message.status}`} data-testid="refine-feedback-row">
+          <span className="refine-feedback-dot" aria-hidden="true" />
+          <div>
+            <strong>{message.title}</strong>
+            <p>{message.body}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function createRefineFeedbackId(): string {
+  return `refine-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function appendRefineFeedback(
+  messages: RefineFeedbackMessage[],
+  nextMessages: RefineFeedbackMessage[],
+): RefineFeedbackMessage[] {
+  return [...messages, ...nextMessages].slice(-10)
+}
+
+function updateRefineFeedback(
+  messages: RefineFeedbackMessage[],
+  id: string,
+  patch: Partial<Pick<RefineFeedbackMessage, 'status' | 'title' | 'body'>>,
+): RefineFeedbackMessage[] {
+  return messages.map(message => message.id === id ? { ...message, ...patch } : message)
+}
+
+function buildVariationPreviewUrl(path: string, previewVersion: number, artifactId: string | null): string {
+  const params = new URLSearchParams({ v: String(previewVersion) })
+  if (artifactId) params.set('artifactId', artifactId)
+  return `${apiUrl(path)}?${params.toString()}`
+}
+
+function buildRefineDoneSummary(
+  version: number | undefined,
+  entryPath: string | null | undefined,
+  t: (key: string) => string,
+): string {
+  const versionLabel = typeof version === 'number' ? `v${version}` : t('latestVersion')
+  const entryLabel = entryPath ? ` · ${entryPath}` : ''
+  return `${t('refineDoneBody')} ${versionLabel}${entryLabel}`
+}
+
+function buildRefineFailureSummary(result: RefineVariationResponse, fallback: string): string {
+  return result.variation.errorMessage?.trim() || fallback
 }
 
 function AnnotationView(props: { shape: AnnotationShape; index: number; selected: boolean; onSelect: () => void }): React.JSX.Element | null {

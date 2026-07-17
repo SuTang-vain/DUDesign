@@ -1,6 +1,10 @@
 import type {
   CreateDesignJobRequest,
   CreateDesignJobResponse,
+  CapabilityAuthoringDraftResponse,
+  ExportCapabilityBundleRequest,
+  ImportCapabilityBundleDraftRequest,
+  ListCapabilityAuthoringDraftsResponse,
   AnalyzeDataIntakeRequest,
   AnalyzeDataIntakeResponse,
   ConfirmEncyclopediaEntryGuidanceRequest,
@@ -8,11 +12,15 @@ import type {
   EncyclopediaEntryGuidanceResponse,
   CreateAnnotationBatchRequest,
   CreateAnnotationBatchResponse,
+  CancelVariationRefineRequest,
+  CancelVariationRefineResponse,
+  GetVariationRefineOperationResponse,
   ListCapabilitiesResponse,
   CreateSourceArtifactRequest,
   CreateSourceArtifactResponse,
   CreateSessionRequest,
   CreateSessionResponse,
+  DeleteSessionResponse,
   DesignJobSnapshotResponse,
   DesignEvent,
   ExportVariationResponse,
@@ -22,6 +30,8 @@ import type {
   OAuthProvider,
   OAuthProvidersResponse,
   OAuthStartResponse,
+  PreviewExplorationPlanRequest,
+  PreviewExplorationPlanResponse,
   RefineVariationRequest,
   RefineVariationResponse,
   RegisterUserRequest,
@@ -34,6 +44,8 @@ import type {
   ShareVariationRequest,
   ShareVariationResponse,
   UpdateUserPreferencesRequest,
+  UpdateSessionRequest,
+  UpdateSessionResponse,
   UserPreferencesResponse,
   VariationDetailResponse,
   VariationFilesResponse,
@@ -188,8 +200,22 @@ export async function resumeSession(sessionId: string): Promise<ResumeSessionSna
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {})
 }
 
+export async function updateSession(sessionId: string, input: UpdateSessionRequest): Promise<{ session: SessionSnapshot }> {
+  return putJson(`/api/sessions/${encodeURIComponent(sessionId)}`, input) as Promise<{ session: SessionSnapshot }>
+}
+
+export async function deleteSession(sessionId: string): Promise<DeleteSessionResponse> {
+  return deleteJson(`/api/sessions/${encodeURIComponent(sessionId)}`)
+}
+
 export async function createDesignJob(input: CreateDesignJobRequest): Promise<CreateDesignJobResponse> {
   return postJson('/api/design-jobs', input)
+}
+
+export async function previewExplorationPlan(
+  input: PreviewExplorationPlanRequest,
+): Promise<PreviewExplorationPlanResponse> {
+  return postJson('/api/design-jobs/exploration-plan/preview', input)
 }
 
 export async function analyzeDataIntake(input: AnalyzeDataIntakeRequest): Promise<AnalyzeDataIntakeResponse> {
@@ -219,6 +245,42 @@ export async function importDesignTemplatePack(input: ImportDesignTemplatePackRe
   return postJson('/api/design-templates/import-design-md', input)
 }
 
+export async function listCapabilityAuthoringDrafts(workspaceId: string): Promise<ListCapabilityAuthoringDraftsResponse> {
+  return getJson(`/api/capability-authoring/drafts?workspaceId=${encodeURIComponent(workspaceId)}`)
+}
+
+export async function importCapabilityBundle(input: ImportCapabilityBundleDraftRequest): Promise<CapabilityAuthoringDraftResponse> {
+  return postJson('/api/capability-authoring/import-bundle', input)
+}
+
+export async function updateCapabilityAuthoringDraft(
+  draftId: string,
+  input: { workspaceId: string; confirmedPaths?: string[] },
+): Promise<CapabilityAuthoringDraftResponse> {
+  return patchJson(`/api/capability-authoring/drafts/${encodeURIComponent(draftId)}`, input)
+}
+
+export async function previewCapabilityAuthoringDraft(
+  draftId: string,
+  workspaceId: string,
+): Promise<CapabilityAuthoringDraftResponse> {
+  return postJson(`/api/capability-authoring/drafts/${encodeURIComponent(draftId)}/preview`, { workspaceId })
+}
+
+export async function exportCapabilityBundle(
+  draftId: string,
+  input: ExportCapabilityBundleRequest,
+): Promise<Blob> {
+  const res = await fetch(apiUrl(`/api/capability-authoring/drafts/${encodeURIComponent(draftId)}/export-bundle`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.blob()
+}
+
 export async function saveVariationAsTemplate(
   variationId: string,
   input: SaveVariationTemplateRequest,
@@ -244,6 +306,25 @@ export async function refineVariation(
   input: RefineVariationRequest,
 ): Promise<RefineVariationResponse> {
   return postJson(`/api/variations/${encodeURIComponent(variationId)}/refine`, input)
+}
+
+export async function cancelVariationRefine(
+  variationId: string,
+  requestId: string,
+  input: CancelVariationRefineRequest = {},
+): Promise<CancelVariationRefineResponse> {
+  return postJson(
+    `/api/variations/${encodeURIComponent(variationId)}/refine/${encodeURIComponent(requestId)}/cancel`,
+    input,
+  )
+}
+
+export async function getVariationRefineOperation(
+  variationId: string,
+  requestId?: string | null,
+): Promise<GetVariationRefineOperationResponse> {
+  const query = requestId ? `?requestId=${encodeURIComponent(requestId)}` : ''
+  return getJson(`/api/variations/${encodeURIComponent(variationId)}/refine-operation${query}`)
 }
 
 export async function restoreVariationVersion(variationId: string, artifactId: string): Promise<RestoreVariationVersionResponse> {
@@ -351,6 +432,26 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json() as Promise<T>
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await apiError(res)
+  return res.json() as Promise<T>
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: 'DELETE',
+    credentials: 'include',
   })
   if (!res.ok) throw await apiError(res)
   return res.json() as Promise<T>

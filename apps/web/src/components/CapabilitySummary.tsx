@@ -1,9 +1,9 @@
-import type { CapabilitySnapshot } from '@dudesign/contracts'
+import type { UserCapabilitySnapshot } from '@dudesign/contracts'
 import { useLanguage } from './LanguageProvider'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
 
 export function CapabilitySummary(props: {
-  snapshot: CapabilitySnapshot | null | undefined
+  snapshot: UserCapabilitySnapshot | null | undefined
   compact?: boolean
   variant?: 'cards' | 'inline'
   testId?: string

@@ -8,7 +8,8 @@ test('annotation rect can refine the current variation', async ({ page }) => {
   await expect(htmlVersionRows(page).filter({ hasText: 'v1' })).toHaveCount(1)
   await page.getByTestId('side-panel-tab-annotate').click()
 
-  await page.getByTestId('annotation-draw-toggle').check()
+  await page.getByTestId('annotation-tool-rect').click()
+  await expect(page.getByTestId('annotation-tool-rect')).toHaveAttribute('aria-pressed', 'true')
   const overlay = page.getByTestId('annotation-overlay')
   await expect(overlay).toBeVisible()
 
@@ -60,7 +61,11 @@ test('annotation tools support circle arrow pen text and runtime summary is visi
   await expect(page.getByTestId('runtime-summary-panel')).toContainText('Cost & runtime')
   await expect(page.getByTestId('runtime-summary-panel')).toContainText('Tokens')
   await page.getByTestId('side-panel-tab-annotate').click()
-  await page.getByTestId('annotation-draw-toggle').check()
+  await page.getByTestId('annotation-tool-rect').click()
+  await expect(page.getByTestId('annotation-tool-rect')).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('annotation-tool-rect')).toHaveAttribute('aria-pressed', 'false')
+  await page.getByTestId('annotation-tool-rect').click()
   const overlay = page.getByTestId('annotation-overlay')
   const box = await overlay.boundingBox()
   expect(box).not.toBeNull()
@@ -152,6 +157,38 @@ test('annotation tools support circle arrow pen text and runtime summary is visi
 
   await page.getByTestId('delete-annotation-button').first().click()
   await expect(page.getByTestId('annotation-list-row')).toHaveCount(3)
+})
+
+test('refine feedback preserves the request and exposes retry after runtime failure', async ({ page }) => {
+  await createVariationThroughUi(page, 'A landing page for refine recovery E2E')
+
+  await page.route('**/api/variations/*/refine', async route => {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'RUNTIME_UNAVAILABLE',
+          message: 'Runtime unavailable during refine test',
+        },
+      }),
+    })
+  })
+
+  const refinePrompt = page.locator('#variation-refine-prompt')
+  const request = 'Increase the title contrast and reduce the card spacing'
+  await refinePrompt.fill(request)
+  await refinePrompt.press('Control+Enter')
+
+  await expect(page.getByTestId('refine-preview-state')).toBeVisible()
+  await expect(refinePrompt).toHaveValue('')
+  await expect(page.getByTestId('refine-feedback-stream')).toContainText('Updating design')
+
+  await expect(page.getByTestId('refine-recovery')).toBeVisible()
+  await expect(page.getByTestId('refine-recovery')).toContainText('Retry')
+  await expect(refinePrompt).toHaveValue(request)
+  await expect(page.locator('.error-text')).toHaveCount(0)
 })
 
 function htmlVersionRows(page: Page) {

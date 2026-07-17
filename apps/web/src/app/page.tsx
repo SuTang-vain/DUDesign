@@ -8,20 +8,39 @@ import {
   createSession,
   createSourceArtifact,
   confirmEncyclopediaEntryGuidance,
+  deleteSession,
   getCapabilities,
-  getBootstrap,
+    getBootstrap,
+    exportCapabilityBundle,
   getUserPreferences,
-  importDesignTemplatePack,
+    importDesignTemplatePack,
+    importCapabilityBundle,
+    listCapabilityAuthoringDrafts,
   listDesignTemplates,
   listSessions,
+  previewExplorationPlan,
   resumeSession,
+    updateSession,
+    updateCapabilityAuthoringDraft,
+    previewCapabilityAuthoringDraft,
   updateUserPreferences,
   type BootstrapResponse,
   type CapabilitiesResponse,
   type ModelOption,
   type SessionSnapshot,
 } from '@/lib/api'
-import type { DesignTemplatePack, EncyclopediaEntryGuidanceResponse, UserCapabilityPreference } from '@dudesign/contracts'
+import {
+  resolveExplorationMode,
+  type BatchExplorationPlanV1,
+  type AutomationLoopProfile,
+  type CapabilityAuthoringDraft,
+  type CapabilityPreset,
+  type CapabilitySelectionSource,
+  type DesignTemplatePack,
+  type EncyclopediaEntryGuidanceResponse,
+  type RequirementModuleGraphV1,
+  type UserCapabilityPreference,
+} from '@dudesign/contracts'
 import { useLanguage } from '@/components/LanguageProvider'
 import { UserActionCluster } from '@/components/UserActionCluster'
 import { DesignSystemPicker } from '@/components/DesignSystemPicker'
@@ -30,11 +49,55 @@ import { PreferencesPanel, type PreferencesPanelLabels } from '@/components/Pref
 import { Logo } from '@/components/Logo'
 import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
+import {
+  hasMeaningfulGuidanceEntryChange,
+  migrateDynamicGuidanceSelection,
+  normalizeGuidanceEntry,
+} from '@/lib/dynamicGuidanceMigration'
 
-const promptExamples = [
-  'A landing page for an invoicing app for freelancers: send invoices, get paid faster, track expenses.',
-  'A portfolio homepage for a 3D artist with cinematic project cards.',
-  'A calm productivity timer for deep work sessions.',
+const inspirationCases = [
+  {
+    title: '欲买桂花同载酒诗词解析',
+    category: '文化类词语',
+    prompt:
+      '参考“欲买桂花同载酒”诗词解析的真实页面结构，生成一个围绕文化类词语的动态百科页面，突出主视觉、词义拆解、诗词脉络和注释卡片层级。',
+    href: '/inspiration/culture/guihua/index.html',
+  },
+  {
+    title: '蜂鸟科物种图鉴',
+    category: '对比辨析参考',
+    prompt:
+      '参考蜂鸟科物种图鉴的真实页面结构，生成一个物种对比图鉴页面，突出多图卡片、体型对比、信息分栏和细粒度说明。',
+    href: '/inspiration/species/hummingbird/index.html',
+  },
+  {
+    title: '长沙市花明楼景区导览及路线推荐',
+    category: '景区景点',
+    prompt:
+      '参考长沙市花明楼景区导览及路线推荐的真实页面结构，生成一个景区导览页面，突出地图导览、路线推荐、景点卡片和沉浸式预览。',
+    href: '/inspiration/scenic/huaminglou/index.html',
+  },
+  {
+    title: '黄月英：核心事件因果链',
+    category: '历史人物',
+    prompt:
+      '参考黄月英：核心事件因果链的真实页面结构，生成一个历史人物解析页面，突出时间线、核心事件、因果关系和人物画像模块。',
+    href: '/inspiration/history/huangyueying/index.html',
+  },
+  {
+    title: '《北上》人物图谱与剧情脉络',
+    category: '电影电视剧',
+    prompt:
+      '参考《北上》人物图谱与剧情脉络的真实页面结构，生成一个影视人物关系图谱页面，突出角色关系、剧情推进和章节化内容布局。',
+    href: '/inspiration/drama/beishang/index.html',
+  },
+  {
+    title: '大话西游：人物关系与剧情全解析',
+    category: '关系图谱参考',
+    prompt:
+      '参考大话西游：人物关系与剧情全解析的真实页面结构，生成一个人物关系与剧情解析页面，突出关系图谱、剧情节点和人物互联内容。',
+    href: '/inspiration/relations/dahua/index.html',
+  },
 ]
 
 const variationOptions = [1, 2, 3, 4, 5, 6]
@@ -71,6 +134,16 @@ type CapabilityPreferenceDraft = {
 }
 
 type ProductMode = 'web_app' | 'dynamic_encyclopedia_card'
+type GuidanceRefreshState = {
+  status: 'stale' | 'migrated'
+  previousEntry: string
+  retainedOverrideIds: string[]
+  droppedOverrideIds: string[]
+}
+type SessionDialog = {
+  kind: 'rename' | 'delete'
+  session: SessionSnapshot
+}
 
 const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
@@ -82,6 +155,15 @@ export default function HomePage(): React.JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [productMode, setProductMode] = useState<ProductMode>('web_app')
   const [variationCount, setVariationCount] = useState(3)
+  const [explorationLevel, setExplorationLevel] = useState(40)
+  const [reviewMode, setReviewMode] = useState<'off' | 'semi_auto' | 'auto'>('semi_auto')
+  const [experimentalConfirmed, setExperimentalConfirmed] = useState(false)
+  const [draftSessionId, setDraftSessionId] = useState<string | null>(null)
+  const [explorationPlanPreview, setExplorationPlanPreview] = useState<BatchExplorationPlanV1 | null>(null)
+  const [explorationModuleGraph, setExplorationModuleGraph] = useState<RequirementModuleGraphV1 | null>(null)
+  const [explorationPreviewStatus, setExplorationPreviewStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [lockedModuleIds, setLockedModuleIds] = useState<string[]>([])
+  const [excludedModuleIds, setExcludedModuleIds] = useState<string[]>([])
   const [mode, setMode] = useState<'new_html' | 'from_existing_html'>('new_html')
   const [styles, setStyles] = useState('minimal, trustworthy')
   const [modelServiceId, setModelServiceId] = useState<string>('')
@@ -105,11 +187,20 @@ export default function HomePage(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSnapshot[]>([])
   const [sessionQuery, setSessionQuery] = useState('')
   const [showOlderSessions, setShowOlderSessions] = useState(false)
+  const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null)
+  const [sessionDialog, setSessionDialog] = useState<SessionDialog | null>(null)
+  const [sessionActionSaving, setSessionActionSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
+  const [capabilityDrawerOpen, setCapabilityDrawerOpen] = useState(false)
   const [contextPanel, setContextPanel] = useState<ContextPanel | null>('files')
   const contextTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const capabilityDrawerTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const capabilityDrawerCloseRef = useRef<HTMLButtonElement | null>(null)
+  const capabilityDrawerPanelRef = useRef<HTMLElement | null>(null)
+  const capabilityDrawerWasOpenRef = useRef(false)
   const inspireRef = useRef<HTMLElement | null>(null)
+  const explorationPreviewRevisionRef = useRef(0)
   const [templatePacks, setTemplatePacks] = useState<DesignTemplatePack[]>([])
   const [selectedTemplatePackIds, setSelectedTemplatePackIds] = useState<string[]>([])
   const [autoDistributePacks, setAutoDistributePacks] = useState<boolean>(true)
@@ -118,8 +209,12 @@ export default function HomePage(): React.JSX.Element {
   const [recentTemplateIds, setRecentTemplateIds] = useState<string[]>([])
   const [templateImporting, setTemplateImporting] = useState<boolean>(false)
   const [templateImportNotice, setTemplateImportNotice] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  const [authoringDrafts, setAuthoringDrafts] = useState<CapabilityAuthoringDraft[]>([])
+  const [importedBundleDraft, setImportedBundleDraft] = useState<CapabilityAuthoringDraft | null>(null)
+  const [bundleBusy, setBundleBusy] = useState(false)
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([])
   const [selectedMcpToolIds, setSelectedMcpToolIds] = useState<string[]>([])
+  const [userOverrideCapabilityIds, setUserOverrideCapabilityIds] = useState<string[]>([])
   const [preferencesOpen, setPreferencesOpen] = useState<boolean>(false)
   const [preferencesSaving, setPreferencesSaving] = useState<boolean>(false)
   const [userPreference, setUserPreference] = useState<UserCapabilityPreference | null>(null)
@@ -127,6 +222,9 @@ export default function HomePage(): React.JSX.Element {
   const [entryGuidanceTemplateIds, setEntryGuidanceTemplateIds] = useState<string[]>([])
   const [entryGuidanceClassification, setEntryGuidanceClassification] = useState<{ primaryCategory: string; secondaryCategory: string } | null>(null)
   const [guidanceStatus, setGuidanceStatus] = useState<'idle' | 'loading' | 'confirming' | 'error'>('idle')
+  const [guidanceRefreshState, setGuidanceRefreshState] = useState<GuidanceRefreshState | null>(null)
+  const [preserveCompatibleOverrides, setPreserveCompatibleOverrides] = useState(true)
+  const promptRef = useRef('')
 
   useEffect(() => {
     Promise.all([getBootstrap(), listSessions(), getCapabilities()])
@@ -182,14 +280,58 @@ export default function HomePage(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    if (!capabilityDrawerOpen) return
+    capabilityDrawerWasOpenRef.current = true
+    const focusFrame = window.requestAnimationFrame(() => capabilityDrawerCloseRef.current?.focus())
+    const closeOrTrapFocus = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCapabilityDrawerOpen(false)
+        return
+      }
+      if (event.key !== 'Tab' || !window.matchMedia('(max-width: 767px)').matches) return
+      const panel = capabilityDrawerPanelRef.current
+      if (!panel) return
+      const focusable = [...panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )].filter(element => element.getClientRects().length > 0)
+      if (!focusable.length) return
+      const first = focusable[0]!
+      const last = focusable[focusable.length - 1]!
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', closeOrTrapFocus)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      window.removeEventListener('keydown', closeOrTrapFocus)
+    }
+  }, [capabilityDrawerOpen])
+
+  useEffect(() => {
+    if (capabilityDrawerOpen || !capabilityDrawerWasOpenRef.current) return
+    capabilityDrawerWasOpenRef.current = false
+    const focusFrame = window.requestAnimationFrame(() => capabilityDrawerTriggerRef.current?.focus())
+    return () => window.cancelAnimationFrame(focusFrame)
+  }, [capabilityDrawerOpen])
+
+  useEffect(() => {
     function closeMenus(event: PointerEvent): void {
       const target = event.target
       if (target instanceof Element && target.closest('[data-menu-root="true"]')) return
       setOpenMenu(null)
+      setOpenSessionMenuId(null)
     }
 
     function closeOnEscape(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setOpenMenu(null)
+      if (event.key === 'Escape') {
+        setOpenMenu(null)
+        setOpenSessionMenuId(null)
+      }
     }
 
     document.addEventListener('pointerdown', closeMenus)
@@ -237,10 +379,90 @@ export default function HomePage(): React.JSX.Element {
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    if (!selectedWorkspaceId) return
+    let cancelled = false
+    listCapabilityAuthoringDrafts(selectedWorkspaceId)
+      .then(response => {
+        if (!cancelled) setAuthoringDrafts(response.drafts)
+      })
+      .catch(err => {
+        if (!cancelled) console.warn('Failed to load capability authoring drafts', err)
+      })
+    return () => { cancelled = true }
+  }, [selectedWorkspaceId])
+
   function toggleTemplateSelect(id: string): void {
     setSelectedTemplatePackIds(current =>
       current.includes(id) ? current.filter(item => item !== id) : [...current, id],
     )
+  }
+
+  function toggleDynamicTemplateSelect(id: string): void {
+    const preset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+    if (preset?.selectionPolicy.requiredTemplatePackIds.includes(id)) return
+    const update = (current: string[]) => {
+      if (current.includes(id)) return current.length > 1 ? current.filter(item => item !== id) : current
+      if (current.length >= 3) return current
+      return [...current, id]
+    }
+    setSelectedTemplatePackIds(update)
+    if (entryGuidance) setEntryGuidanceTemplateIds(update)
+    setUserOverrideCapabilityIds(current => current.includes(id) ? current : [...current, id])
+  }
+
+  function toggleDynamicSkill(id: string): void {
+    const preset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+    if (preset?.selectionPolicy.requiredSkillIds.includes(id)) return
+    setSelectedSkillIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+    setUserOverrideCapabilityIds(current => current.includes(id) ? current : [...current, id])
+  }
+
+  function toggleDynamicMcpTool(id: string): void {
+    const preset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+    if (preset?.selectionPolicy.requiredMcpToolIds.includes(id)) return
+    setSelectedMcpToolIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+    setUserOverrideCapabilityIds(current => current.includes(id) ? current : [...current, id])
+  }
+
+  function selectDynamicLoop(id: string): void {
+    const preset = capabilities?.capabilityPresets.find(item => item.id === 'preset_dynamic_encyclopedia_card')
+    if (!preset?.selectionPolicy.allowedLoopProfileIds.includes(id)) return
+    setLoopProfileId(id)
+    setUserOverrideCapabilityIds(current => current.includes(id) ? current : [...current, id])
+    if (id === 'loop_standard') setReviewMode('off')
+    else if (reviewMode === 'off') setReviewMode('semi_auto')
+  }
+
+  function updateExplorationLevel(level: number): void {
+    const normalized = Math.max(0, Math.min(100, Math.round(level)))
+    const threshold = capabilities?.capabilityPresets
+      .find(item => item.id === 'preset_dynamic_encyclopedia_card')
+      ?.explorationDefaults.forceReviewAtOrAbove ?? 71
+    setExplorationLevel(normalized)
+    setExperimentalConfirmed(false)
+    if (normalized >= threshold) {
+      setLoopProfileId('loop_encyclopedia_spec_review')
+      if (reviewMode === 'off') setReviewMode('semi_auto')
+    }
+  }
+
+  function updateReviewMode(mode: 'off' | 'semi_auto' | 'auto'): void {
+    const threshold = capabilities?.capabilityPresets
+      .find(item => item.id === 'preset_dynamic_encyclopedia_card')
+      ?.explorationDefaults.forceReviewAtOrAbove ?? 71
+    if (mode === 'off' && explorationLevel >= threshold) return
+    setReviewMode(mode)
+    setLoopProfileId(mode === 'off' ? 'loop_standard' : 'loop_encyclopedia_spec_review')
+  }
+
+  function updateModuleDisposition(moduleId: string, disposition: 'auto' | 'locked' | 'excluded'): void {
+    setLockedModuleIds(current => disposition === 'locked'
+      ? current.includes(moduleId) ? current : [...current, moduleId]
+      : current.filter(id => id !== moduleId))
+    setExcludedModuleIds(current => disposition === 'excluded'
+      ? current.includes(moduleId) ? current : [...current, moduleId]
+      : current.filter(id => id !== moduleId))
   }
 
   function toggleTemplateFavorite(id: string): void {
@@ -252,6 +474,20 @@ export default function HomePage(): React.JSX.Element {
   }
 
   function selectProductMode(next: ProductMode): void {
+    const applyMode = (): void => {
+      applyProductMode(next)
+    }
+    const startViewTransition = (document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> }
+    }).startViewTransition
+    if (typeof startViewTransition === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      startViewTransition.call(document, applyMode)
+      return
+    }
+    applyMode()
+  }
+
+  function applyProductMode(next: ProductMode): void {
     setProductMode(next)
     setEntryGuidance(null)
     setEntryGuidanceTemplateIds([])
@@ -267,8 +503,29 @@ export default function HomePage(): React.JSX.Element {
       setSelectedSkillIds(preset?.skillIds ?? ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
       setSelectedMcpToolIds(preset?.mcpToolIds ?? ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
       setLoopProfileId(preset?.loopProfileId ?? 'loop_encyclopedia_spec_review')
+      setExplorationLevel(preset?.explorationDefaults.level ?? 40)
+      setReviewMode('semi_auto')
+      setExperimentalConfirmed(false)
+      setUserOverrideCapabilityIds([])
+      setGuidanceRefreshState(null)
+      setPreserveCompatibleOverrides(true)
+      setLockedModuleIds([])
+      setExcludedModuleIds([])
+      setOpenMenu(null)
+      setCapabilityDrawerOpen(true)
       return
     }
+    setCapabilityDrawerOpen(false)
+    setGuidanceRefreshState(null)
+    setPreserveCompatibleOverrides(true)
+    setExperimentalConfirmed(false)
+    setExplorationPlanPreview(null)
+    setExplorationModuleGraph(null)
+    setExplorationPreviewStatus('idle')
+    setDraftSessionId(null)
+    setUserOverrideCapabilityIds([])
+    setLockedModuleIds([])
+    setExcludedModuleIds([])
     if (domainTemplateId === 'tpl_dynamic_encyclopedia_entry') {
       setDomainTemplateId(capabilities?.defaults.domainTemplateId ?? '')
       setAestheticProfileId(capabilities?.defaults.aestheticProfileId ?? '')
@@ -281,12 +538,28 @@ export default function HomePage(): React.JSX.Element {
   }
 
   function handlePromptChange(value: string): void {
+    promptRef.current = value
     setPrompt(value)
-    if (productMode === 'dynamic_encyclopedia_card') {
+    if (
+      productMode === 'dynamic_encyclopedia_card'
+      && entryGuidance
+      && hasMeaningfulGuidanceEntryChange(value, entryGuidance.entry.rawInput)
+    ) {
+      explorationPreviewRevisionRef.current += 1
+      setGuidanceRefreshState({
+        status: 'stale',
+        previousEntry: entryGuidance.entry.rawInput,
+        retainedOverrideIds: [],
+        droppedOverrideIds: [],
+      })
+      setPreserveCompatibleOverrides(true)
       setEntryGuidance(null)
       setEntryGuidanceTemplateIds([])
       setEntryGuidanceClassification(null)
       setGuidanceStatus('idle')
+      setExplorationPlanPreview(null)
+      setExplorationModuleGraph(null)
+      setExplorationPreviewStatus('idle')
     }
   }
 
@@ -307,6 +580,69 @@ export default function HomePage(): React.JSX.Element {
       setTemplateImportNotice({ kind: 'err', text: `${t('importFailed')} ${(err as Error).message}` })
     } finally {
       setTemplateImporting(false)
+    }
+  }
+
+  async function importBundleFile(file: File): Promise<void> {
+    if (!bootstrap) return
+    setBundleBusy(true)
+    setTemplateImportNotice(null)
+    try {
+      const result = await importCapabilityBundle({
+        workspaceId: selectedWorkspaceId || bootstrap.workspace.id,
+        bundleBase64: await fileToBase64(file),
+      })
+      setImportedBundleDraft(result.draft)
+      setAuthoringDrafts(current => upsertAuthoringDraft(current, result.draft))
+      setTemplateImportNotice({ kind: 'ok', text: t('bundleImported') })
+    } catch (err) {
+      setTemplateImportNotice({ kind: 'err', text: `${t('importFailed')} ${(err as Error).message}` })
+    } finally {
+      setBundleBusy(false)
+    }
+  }
+
+  async function confirmBundleDraft(draft: CapabilityAuthoringDraft): Promise<void> {
+    setBundleBusy(true)
+    setTemplateImportNotice(null)
+    try {
+      const workspaceId = draft.workspaceId
+      const confirmedPaths = collectAuthoringEvidencePaths(draft)
+      const confirmed = await updateCapabilityAuthoringDraft(draft.id, { workspaceId, confirmedPaths })
+      const previewed = await previewCapabilityAuthoringDraft(draft.id, workspaceId)
+      setImportedBundleDraft(previewed.draft)
+      setAuthoringDrafts(current => upsertAuthoringDraft(current, previewed.draft))
+      setTemplateImportNotice({
+        kind: previewed.draft.status === 'ready' ? 'ok' : 'warn',
+        text: previewed.draft.status === 'ready' ? t('bundlePreviewPassed') : t('bundlePreviewWarning'),
+      })
+    } catch (err) {
+      setTemplateImportNotice({ kind: 'err', text: `${t('bundlePreviewWarning')} ${(err as Error).message}` })
+    } finally {
+      setBundleBusy(false)
+    }
+  }
+
+  async function downloadCapabilityBundle(input: {
+    draftId: string
+    licenseDeclaration: 'user_owned_or_authorized' | 'unspecified'
+    licenseNotes: string | null
+  }): Promise<void> {
+    if (!bootstrap) return
+    setBundleBusy(true)
+    setTemplateImportNotice(null)
+    try {
+      const blob = await exportCapabilityBundle(input.draftId, {
+        workspaceId: selectedWorkspaceId || bootstrap.workspace.id,
+        licenseDeclaration: input.licenseDeclaration,
+        licenseNotes: input.licenseNotes,
+      })
+      downloadBlob(blob, `dudesign-${input.draftId}.capability-bundle.zip`)
+      setTemplateImportNotice({ kind: 'ok', text: t('bundleExported') })
+    } catch (err) {
+      setTemplateImportNotice({ kind: 'err', text: `${t('bundleExportFailed')} ${(err as Error).message}` })
+    } finally {
+      setBundleBusy(false)
     }
   }
 
@@ -367,7 +703,7 @@ export default function HomePage(): React.JSX.Element {
     ? capabilities?.domainTemplates.find(template => template.id === (dynamicEncyclopediaPreset?.domainTemplateId ?? 'tpl_dynamic_encyclopedia_entry')) ?? selectedDomain
     : selectedDomain
   const summaryLoop = productMode === 'dynamic_encyclopedia_card'
-    ? capabilities?.automationLoopProfiles.find(profile => profile.id === (dynamicEncyclopediaPreset?.loopProfileId ?? 'loop_encyclopedia_spec_review')) ?? selectedLoop
+    ? selectedLoop ?? capabilities?.automationLoopProfiles.find(profile => profile.id === (dynamicEncyclopediaPreset?.loopProfileId ?? 'loop_encyclopedia_spec_review'))
     : selectedLoop
   const pluginsById = new Map((capabilities?.plugins ?? []).map(plugin => [plugin.id, plugin]))
   const selectedSkillSummary = (capabilities?.skills ?? [])
@@ -380,13 +716,58 @@ export default function HomePage(): React.JSX.Element {
   function selectContextPanel(panel: ContextPanel): void {
     setContextPanel(panel)
   }
+  const experimentalThreshold = dynamicEncyclopediaPreset?.explorationDefaults.experimentalConfirmationThreshold ?? 71
+  const explorationMode = resolveExplorationMode(explorationLevel)
+  const experimentalBlocked = productMode === 'dynamic_encyclopedia_card'
+    && explorationLevel >= experimentalThreshold
+    && !experimentalConfirmed
   const canSubmit = useMemo(() => {
     return status !== 'submitting'
       && sourceUploadStatus !== 'uploading'
       && Boolean(bootstrap)
       && prompt.trim().length > 0
       && (mode === 'new_html' || Boolean(sourceArtifact))
-  }, [bootstrap, mode, prompt, sourceArtifact, sourceUploadStatus, status])
+      && !experimentalBlocked
+  }, [bootstrap, experimentalBlocked, mode, prompt, sourceArtifact, sourceUploadStatus, status])
+
+  useEffect(() => {
+    const graphId = dynamicEncyclopediaPreset?.requirementModuleGraphId
+    const revision = ++explorationPreviewRevisionRef.current
+    if (productMode !== 'dynamic_encyclopedia_card' || !draftSessionId || !graphId || !entryGuidance) {
+      setExplorationPlanPreview(null)
+      setExplorationModuleGraph(null)
+      setExplorationPreviewStatus('idle')
+      return
+    }
+    setExplorationPreviewStatus('loading')
+    const timer = window.setTimeout(() => {
+      void previewExplorationPlan({
+        sessionId: draftSessionId,
+        requirementModuleGraphId: graphId,
+        variationCount,
+        exploration: {
+          level: explorationLevel,
+          lockedModuleIds: lockedModuleIds.length ? lockedModuleIds : undefined,
+          excludedModuleIds: excludedModuleIds.length ? excludedModuleIds : undefined,
+        },
+        dataContext: entryGuidance ? {
+          entryPrimaryCategory: entryGuidance.classification.primaryCategory,
+          entrySecondaryCategory: entryGuidance.classification.secondaryCategory,
+          entryTertiaryCategory: entryGuidance.classification.tertiaryCategory,
+        } : {},
+      }).then(response => {
+        if (explorationPreviewRevisionRef.current !== revision) return
+        setExplorationPlanPreview(response.explorationPlan)
+        setExplorationModuleGraph(response.requirementModuleGraph)
+        setExplorationPreviewStatus('ready')
+      }).catch(() => {
+        if (explorationPreviewRevisionRef.current !== revision) return
+        setExplorationPlanPreview(null)
+        setExplorationPreviewStatus('error')
+      })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [draftSessionId, dynamicEncyclopediaPreset?.requirementModuleGraphId, entryGuidance, excludedModuleIds, explorationLevel, lockedModuleIds, productMode, variationCount])
 
   const dynamicSteps = useMemo(() => {
     if (productMode !== 'dynamic_encyclopedia_card') return []
@@ -394,10 +775,12 @@ export default function HomePage(): React.JSX.Element {
       {
         id: 'guidance',
         label: t('entryGuidance'),
-        detail: entryGuidance
+        detail: guidanceRefreshState?.status === 'stale'
+          ? t('entryGuidanceExpired')
+          : entryGuidance
           ? `${entryGuidance.classification.primaryCategory} / ${entryGuidance.classification.secondaryCategory} · ${Math.round(entryGuidance.classification.confidence * 100)}%`
           : t('entryGuidancePending'),
-        state: guidanceStatus === 'loading' ? 'active' : entryGuidance ? 'done' : 'idle',
+        state: guidanceStatus === 'loading' || guidanceRefreshState?.status === 'stale' ? 'active' : entryGuidance ? 'done' : 'idle',
       },
       {
         id: 'template',
@@ -422,7 +805,7 @@ export default function HomePage(): React.JSX.Element {
         state: status === 'submitting' && entryGuidance ? 'active' : 'idle',
       },
     ] as const
-  }, [c18n, entryGuidance, entryGuidanceTemplateIds, guidanceStatus, productMode, status, t])
+  }, [c18n, entryGuidance, entryGuidanceTemplateIds, guidanceRefreshState?.status, guidanceStatus, productMode, status, t])
 
 
   async function uploadSourceFile(file: File | null): Promise<void> {
@@ -461,22 +844,83 @@ export default function HomePage(): React.JSX.Element {
       if (productMode === 'dynamic_encyclopedia_card') {
         if (!entryGuidance) {
           setGuidanceStatus('loading')
+          const requestedEntry = prompt.trim()
           const guidance = await createEncyclopediaEntryGuidance({
             workspaceId: workspace?.id ?? bootstrap.workspace.id,
-            entry: prompt.trim(),
+            entry: requestedEntry,
             maxTemplateRecommendations: Math.min(3, variationCount),
-            automationMode: 'semi_auto',
+            automationMode: reviewMode,
           })
+          if (normalizeGuidanceEntry(promptRef.current) !== normalizeGuidanceEntry(requestedEntry)) {
+            setGuidanceRefreshState({
+              status: 'stale',
+              previousEntry: requestedEntry,
+              retainedOverrideIds: [],
+              droppedOverrideIds: [],
+            })
+            setGuidanceStatus('idle')
+            setStatus('idle')
+            return
+          }
+          if (!draftSessionId) {
+            const sessionWorkspaceId = workspace?.id ?? bootstrap.workspace.id
+            const sessionTitle = prompt.trim().slice(0, 80)
+            const draftSession = await createSession({
+              workspaceId: sessionWorkspaceId,
+              mode: 'new_html',
+              sourceArtifactId: null,
+              title: sessionTitle,
+            })
+            setDraftSessionId(draftSession.session.id)
+            setSessions(current => current.some(item => item.id === draftSession.session.id)
+              ? current
+              : [sessionSnapshotFromCreated(draftSession.session, {
+                  title: sessionTitle,
+                  mode: 'new_html',
+                  sourceArtifactId: null,
+                  workspaceId: sessionWorkspaceId,
+                }), ...current])
+          }
+          const migratedSelection = migrateDynamicGuidanceSelection({
+            guidance,
+            preset: dynamicEncyclopediaPreset ?? null,
+            templatePacks,
+            plugins: capabilities?.plugins ?? [],
+            skills: capabilities?.skills ?? [],
+            mcpToolBindings: capabilities?.mcpToolBindings ?? [],
+            current: {
+              selectedTemplatePackIds,
+              selectedSkillIds,
+              selectedMcpToolIds,
+              loopProfileId,
+              userOverrideCapabilityIds,
+            },
+            preserveCompatibleOverrides,
+          })
+          const refreshedGuidance = guidanceRefreshState?.status === 'stale'
           setEntryGuidance(guidance)
-          setEntryGuidanceTemplateIds(guidance.templateRequirements.designTemplatePackIds ?? [])
+          setEntryGuidanceTemplateIds(migratedSelection.selectedTemplatePackIds)
           setEntryGuidanceClassification({
             primaryCategory: guidance.classification.primaryCategory,
             secondaryCategory: guidance.classification.secondaryCategory,
           })
-          setSelectedTemplatePackIds(guidance.templateRequirements.designTemplatePackIds ?? [])
-          setLoopProfileId(guidance.capabilityRequirements.automation?.loopProfileId ?? 'loop_encyclopedia_spec_review')
-          setSelectedSkillIds(guidance.capabilityRequirements.plugins?.skillIds ?? [])
-          setSelectedMcpToolIds(guidance.capabilityRequirements.plugins?.mcpToolIds ?? [])
+          setSelectedTemplatePackIds(migratedSelection.selectedTemplatePackIds)
+          setLoopProfileId(migratedSelection.loopProfileId)
+          setSelectedSkillIds(migratedSelection.selectedSkillIds)
+          setSelectedMcpToolIds(migratedSelection.selectedMcpToolIds)
+          if (!refreshedGuidance) setExplorationLevel(guidance.explorationRecommendation.level)
+          setReviewMode(migratedSelection.loopOverrideRetained
+            ? reviewMode
+            : guidance.templateRequirements.businessContext.reviewMode)
+          setUserOverrideCapabilityIds(migratedSelection.userOverrideCapabilityIds)
+          if (refreshedGuidance) {
+            setGuidanceRefreshState({
+              status: 'migrated',
+              previousEntry: guidanceRefreshState.previousEntry,
+              retainedOverrideIds: migratedSelection.retainedOverrideIds,
+              droppedOverrideIds: migratedSelection.droppedOverrideIds,
+            })
+          }
           setGuidanceStatus('idle')
           setStatus('idle')
           return
@@ -485,6 +929,7 @@ export default function HomePage(): React.JSX.Element {
         setGuidanceStatus('confirming')
         const needsExplicitConfirmation = entryGuidance.requiresConfirmation
           || !sameStringSet(entryGuidanceTemplateIds, entryGuidance.templateRequirements.designTemplatePackIds ?? [])
+          || reviewMode !== entryGuidance.templateRequirements.businessContext.reviewMode
           || Boolean(entryGuidanceClassification
             && (entryGuidanceClassification.primaryCategory !== entryGuidance.classification.primaryCategory
               || entryGuidanceClassification.secondaryCategory !== entryGuidance.classification.secondaryCategory))
@@ -494,7 +939,7 @@ export default function HomePage(): React.JSX.Element {
                 ? entryGuidanceTemplateIds
                 : entryGuidance.templateRequirements.designTemplatePackIds,
               classificationOverride: entryGuidanceClassification ?? undefined,
-              automationMode: 'semi_auto',
+              automationMode: reviewMode,
             })
           : entryGuidance
         setEntryGuidance(guidance)
@@ -508,27 +953,96 @@ export default function HomePage(): React.JSX.Element {
           setStatus('idle')
           return
         }
-        guidedCapabilityRequirements = guidance.capabilityRequirements
-        guidedTemplateRequirements = guidance.templateRequirements
-        setSelectedTemplatePackIds(guidance.templateRequirements.designTemplatePackIds ?? [])
-        setLoopProfileId(guidance.capabilityRequirements.automation?.loopProfileId ?? 'loop_encyclopedia_spec_review')
-        setSelectedSkillIds(guidance.capabilityRequirements.plugins?.skillIds ?? [])
-        setSelectedMcpToolIds(guidance.capabilityRequirements.plugins?.mcpToolIds ?? [])
+        guidedCapabilityRequirements = {
+          ...guidance.capabilityRequirements,
+          template: {
+            ...guidance.capabilityRequirements.template,
+            designTemplatePackIds: selectedTemplatePackIds,
+            autoDistributeTemplatePacks: selectedTemplatePackIds.length > 1 ? autoDistributePacks : undefined,
+          },
+          plugins: {
+            skillIds: selectedSkillIds,
+            mcpToolIds: selectedMcpToolIds,
+          },
+          automation: {
+            ...guidance.capabilityRequirements.automation,
+            loopProfileId,
+          },
+        }
+        const overrideIds = new Set(userOverrideCapabilityIds)
+        const guidanceIds = new Set(guidance.recommendedTemplates.map(template => template.designTemplatePackId))
+        const sourceByCapabilityId: Record<string, CapabilitySelectionSource> = {}
+        for (const id of selectedTemplatePackIds) {
+          sourceByCapabilityId[id] = overrideIds.has(id)
+            ? 'user_override'
+            : guidanceIds.has(id)
+              ? 'entry_guidance'
+              : dynamicEncyclopediaPreset?.designTemplatePackIds.includes(id)
+                ? 'official_preset'
+                : 'user_override'
+        }
+        for (const id of selectedSkillIds) {
+          sourceByCapabilityId[id] = overrideIds.has(id) ? 'user_override' : 'official_preset'
+        }
+        for (const id of selectedMcpToolIds) {
+          sourceByCapabilityId[id] = overrideIds.has(id) ? 'user_override' : 'official_preset'
+        }
+        sourceByCapabilityId[loopProfileId] = overrideIds.has(loopProfileId) ? 'user_override' : 'official_preset'
+        guidedTemplateRequirements = {
+          ...guidance.templateRequirements,
+          designTemplatePackIds: selectedTemplatePackIds,
+          capabilitySelectionSnapshot: {
+            schemaVersion: '2026-07-14.dudesign-capability-selection.v1',
+            presetId: dynamicEncyclopediaPreset?.id ?? 'preset_dynamic_encyclopedia_card',
+            guidanceId: guidance.guidanceId,
+            confirmedAt: new Date().toISOString(),
+            selectedTemplatePackIds,
+            selectedSkillIds,
+            selectedMcpToolIds,
+            loopProfileId,
+            reviewMode,
+            explorationRequest: {
+              level: explorationLevel,
+              lockedModuleIds: lockedModuleIds.length ? lockedModuleIds : undefined,
+              excludedModuleIds: excludedModuleIds.length ? excludedModuleIds : undefined,
+            },
+            sourceByCapabilityId,
+          },
+          businessContext: {
+            ...guidance.templateRequirements.businessContext,
+            automationMode: reviewMode,
+            reviewMode,
+            childTemplates: guidance.templateRequirements.businessContext.childTemplates.map(template => ({
+              ...template,
+              selected: selectedTemplatePackIds.includes(template.designTemplatePackId),
+            })),
+          },
+        }
       }
-      const session = await createSession({
+      const sessionId = draftSessionId ?? (await createSession({
         workspaceId: workspace?.id ?? bootstrap.workspace.id,
         mode,
         sourceArtifactId: sourceArtifact?.id ?? null,
         title: prompt.trim().slice(0, 80),
-      })
+      })).session.id
       const job = await createDesignJob({
-        sessionId: session.session.id,
+        sessionId,
         prompt: prompt.trim(),
         sourceMode: mode,
         productMode,
         sourceArtifactId: sourceArtifact?.id ?? null,
         modelServiceId: modelServiceId || undefined,
         variationCount,
+        requirementModuleGraphId: productMode === 'dynamic_encyclopedia_card'
+          ? dynamicEncyclopediaPreset?.requirementModuleGraphId
+          : undefined,
+        exploration: productMode === 'dynamic_encyclopedia_card'
+          ? {
+              level: explorationLevel,
+              lockedModuleIds: lockedModuleIds.length ? lockedModuleIds : undefined,
+              excludedModuleIds: excludedModuleIds.length ? excludedModuleIds : undefined,
+            }
+          : undefined,
         capabilityRequirements: guidedCapabilityRequirements ?? {
           template: {
             domainTemplateId: domainTemplateId || undefined,
@@ -620,6 +1134,37 @@ export default function HomePage(): React.JSX.Element {
     }
   }
 
+  async function renameSession(session: SessionSnapshot, title: string): Promise<void> {
+    setSessionActionSaving(true)
+    setError(null)
+    try {
+      const response = await updateSession(session.id, { title })
+      setSessions(current => current
+        .map(item => item.id === session.id ? response.session : item)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)))
+      setSessionDialog(null)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setSessionActionSaving(false)
+    }
+  }
+
+  async function removeSession(session: SessionSnapshot): Promise<void> {
+    setSessionActionSaving(true)
+    setError(null)
+    try {
+      await deleteSession(session.id)
+      setSessions(current => current.filter(item => item.id !== session.id))
+      setOpenSessionMenuId(null)
+      setSessionDialog(null)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setSessionActionSaving(false)
+    }
+  }
+
   const headingWord = t('design')
   const headingLine = t('whatShallWeDesign')
   const journeyLine = t('startJourney')
@@ -629,8 +1174,8 @@ export default function HomePage(): React.JSX.Element {
   const searchingSessions = sessionQuery.trim().length > 0
 
   return (
-    <main className="home-shell">
-      <aside className="home-side" aria-label={t('recent')}>
+    <main className={`home-shell${capabilityDrawerOpen ? ' capability-drawer-open' : ''}`}>
+      <aside className="home-side" aria-label={t('recent')} data-testid="session-sidebar">
         <div className="side-brand">
           <span className="brand-mark"><Logo size={32} /></span>
           <strong>DUDesign</strong>
@@ -668,6 +1213,10 @@ export default function HomePage(): React.JSX.Element {
           title={searchingSessions ? t('searchResults') : t('recent')}
           sessions={recentSessions}
           resumeId={resumeId}
+          openSessionMenuId={openSessionMenuId}
+          onOpenSessionMenu={setOpenSessionMenuId}
+          onRename={session => setSessionDialog({ kind: 'rename', session })}
+          onDelete={session => setSessionDialog({ kind: 'delete', session })}
           onResume={resume}
           emptyText={searchingSessions ? t('noMatchingSessions') : t('createFirstDesignSession')}
         />
@@ -675,6 +1224,10 @@ export default function HomePage(): React.JSX.Element {
           title={t('earlier')}
           sessions={olderSessions}
           resumeId={resumeId}
+          openSessionMenuId={openSessionMenuId}
+          onOpenSessionMenu={setOpenSessionMenuId}
+          onRename={session => setSessionDialog({ kind: 'rename', session })}
+          onDelete={session => setSessionDialog({ kind: 'delete', session })}
           onResume={resume}
           emptyText={t('olderSessionsWillAppear')}
           collapsed={!searchingSessions && !showOlderSessions}
@@ -682,7 +1235,7 @@ export default function HomePage(): React.JSX.Element {
         />
       </aside>
 
-      <section className="home-main">
+      <section className={`home-main${capabilityDrawerOpen ? ' capability-drawer-open' : ''}`}>
         <div className="home-hero">
         <header className="home-topbar">
           <div className="top-actions">
@@ -752,7 +1305,7 @@ export default function HomePage(): React.JSX.Element {
             }}
           />
         ) : null}
-        <section className="composer" aria-label={t('generateDesignVariations')}>
+        <section className="composer" data-product-mode={productMode} aria-label={t('generateDesignVariations')}>
           <h1 className="composer-heading" aria-label={headingLine}>
             <span className="heading-line heading-line-a">{renderHeadingChars(headingLine, headingWord)}</span>
             <span className="heading-line heading-line-b">{renderHeadingChars(journeyLine, 'DUdesign')}</span>
@@ -766,9 +1319,27 @@ export default function HomePage(): React.JSX.Element {
                 {t('dynamicEncyclopediaMode')}
               </button>
             </div>
-            <button className="btn ghost sm" type="button" onClick={() => handlePromptChange('')}>
-              {t('startWithYourDesign')}
-            </button>
+            <div className="composer-head-actions">
+              {productMode === 'dynamic_encyclopedia_card' ? (
+                <button
+                  ref={capabilityDrawerTriggerRef}
+                  className="btn ghost sm capability-drawer-trigger"
+                  type="button"
+                  aria-expanded={capabilityDrawerOpen}
+                  data-testid="capability-drawer-trigger"
+                  onClick={() => {
+                    setOpenMenu(null)
+                    setCapabilityDrawerOpen(true)
+                  }}
+                >
+                  <Icon name="sliders" size={14} />
+                  {t('capabilityConfiguration')}
+                </button>
+              ) : null}
+              <button className="btn ghost sm" type="button" onClick={() => handlePromptChange('')}>
+                {t('startWithYourDesign')}
+              </button>
+            </div>
           </div>
 
           <div className="composer-card">
@@ -1003,6 +1574,27 @@ export default function HomePage(): React.JSX.Element {
                     pasteDesignMd: t('pasteDesignMd'),
                     designMdName: t('designMdName'),
                     importing: t('importing'),
+                    capabilityBundle: t('capabilityBundle'),
+                    capabilityBundleHint: t('capabilityBundleHint'),
+                    uploadBundle: t('uploadBundle'),
+                    bundleSelected: t('bundleSelected'),
+                    bundleImport: t('bundleImport'),
+                    bundleImporting: t('bundleImporting'),
+                    bundleImported: t('bundleImported'),
+                    bundleConfirm: t('bundleConfirm'),
+                    bundleConfirming: t('bundleConfirming'),
+                    bundlePreviewPassed: t('bundlePreviewPassed'),
+                    bundlePreviewWarning: t('bundlePreviewWarning'),
+                    bundleContents: t('bundleContents'),
+                    bundleFindings: t('bundleFindings'),
+                    bundleNoDrafts: t('bundleNoDrafts'),
+                    bundleExport: t('bundleExport'),
+                    bundleExporting: t('bundleExporting'),
+                    bundleLicense: t('bundleLicense'),
+                    bundleLicenseOwned: t('bundleLicenseOwned'),
+                    bundleLicenseUnspecified: t('bundleLicenseUnspecified'),
+                    bundleLicenseNotes: t('bundleLicenseNotes'),
+                    bundleReadyDrafts: t('bundleReadyDrafts'),
                     applicableScenarios: t('applicableScenarios'),
                     fontSummary: t('fontSummary'),
                     dos: t('dos'),
@@ -1021,10 +1613,16 @@ export default function HomePage(): React.JSX.Element {
                   variationCount={variationCount}
                   importing={templateImporting}
                   importNotice={templateImportNotice}
+                  authoringDrafts={authoringDrafts}
+                  importedBundleDraft={importedBundleDraft}
+                  bundleBusy={bundleBusy}
                   onTogglePackSelect={toggleTemplateSelect}
                   onTogglePackFavorite={toggleTemplateFavorite}
                   onAutoDistributeChange={setAutoDistributePacks}
                   onImportDesignMd={(designMd, name) => void importDesignMd(designMd, name)}
+                  onImportBundle={file => void importBundleFile(file)}
+                  onConfirmBundle={draft => void confirmBundleDraft(draft)}
+                  onExportBundle={input => void downloadCapabilityBundle(input)}
                   onChange={next => {
                     if (next.domainTemplateId !== undefined) {
                       setDomainTemplateId(next.domainTemplateId)
@@ -1115,6 +1713,39 @@ export default function HomePage(): React.JSX.Element {
                   </span>
                 </div>
               ))}
+            </section>
+          ) : null}
+
+          {productMode === 'dynamic_encyclopedia_card' && guidanceRefreshState ? (
+            <section
+              className={`user-notice entry-guidance-refresh ${guidanceRefreshState.status === 'stale' ? 'warn' : 'info'}`}
+              data-testid={guidanceRefreshState.status === 'stale' ? 'entry-guidance-stale-notice' : 'entry-guidance-migration-summary'}
+              role="status"
+              aria-live="polite"
+            >
+              <strong>{guidanceRefreshState.status === 'stale' ? t('entryGuidanceExpired') : t('entryGuidanceMigrated')}</strong>
+              {guidanceRefreshState.status === 'stale' ? (
+                <>
+                  <p>{t('entryGuidanceExpiredDetail')}</p>
+                  <label className="entry-guidance-preserve-option">
+                    <input
+                      type="checkbox"
+                      data-testid="preserve-compatible-overrides"
+                      checked={preserveCompatibleOverrides}
+                      disabled={guidanceStatus === 'loading'}
+                      onChange={event => setPreserveCompatibleOverrides(event.target.checked)}
+                    />
+                    <span>{t('preserveCompatibleOverrides')}</span>
+                  </label>
+                </>
+              ) : (
+                <p>
+                  <strong>{guidanceRefreshState.retainedOverrideIds.length}</strong> {t('retainedOverrides')}
+                  {' · '}
+                  <strong>{guidanceRefreshState.droppedOverrideIds.length}</strong> {t('droppedOverrides')}
+                </p>
+              )}
+              <small>{t('previousGuidanceEntry')}: {guidanceRefreshState.previousEntry}</small>
             </section>
           ) : null}
 
@@ -1227,21 +1858,23 @@ export default function HomePage(): React.JSX.Element {
             </div>
           ) : null}
 
-          <div className="examples">
-            <div className="examples-track">
-              {[...promptExamples, ...promptExamples].map((example, index) => (
-                <button
-                  key={`${example}-${index}`}
-                  type="button"
-                  onClick={() => handlePromptChange(example)}
-                  aria-hidden={index >= promptExamples.length || undefined}
-                  tabIndex={index >= promptExamples.length ? -1 : undefined}
-                >
-                  {example}
-                </button>
-              ))}
+          {productMode === 'web_app' ? (
+            <div className="examples">
+              <div className="examples-track">
+                {[...inspirationCases, ...inspirationCases].map((item, index) => (
+                  <button
+                    key={`${item.title}-${index}`}
+                    type="button"
+                    onClick={() => handlePromptChange(item.prompt)}
+                    aria-hidden={index >= inspirationCases.length || undefined}
+                    tabIndex={index >= inspirationCases.length ? -1 : undefined}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {mode === 'from_existing_html' ? (
             <div className={`source-upload-status ${sourceArtifact?.qualityStatus ?? sourceUploadStatus}`} data-testid="source-artifact-status">
@@ -1251,7 +1884,7 @@ export default function HomePage(): React.JSX.Element {
             </div>
           ) : null}
 
-          {capabilities ? (
+          {productMode === 'web_app' && capabilities ? (
             <div className="cap-strip" data-testid="capability-summary">
               <span className="chip"><span className="k">{t('scene')}</span>{summaryDomain ? c18n.domainName(summaryDomain.id, summaryDomain.name) : t('domain')}</span>
               {visualMode === 'pack' ? (
@@ -1283,17 +1916,639 @@ export default function HomePage(): React.JSX.Element {
             <span>{sessions.length} {t('saved')}</span>
           </div>
           <div className="inspire-grid">
-            {promptExamples.map((example, index) => (
-              <button key={example} className="inspire-card" type="button" onClick={() => handlePromptChange(example)}>
+            {inspirationCases.map((item, index) => (
+              <button key={item.href} className="inspire-card" type="button" onClick={() => handlePromptChange(item.prompt)}>
+                <span className="inspire-preview" aria-hidden="true">
+                  <iframe
+                    src={item.href}
+                    title={item.title}
+                    loading="lazy"
+                    tabIndex={-1}
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                </span>
                 <span className="num">0{index + 1}</span>
-                <strong>{example.split(':')[0]}</strong>
-                <span className="chip tag info">{String(index + 1).padStart(2, '0')}</span>
+                <div className="inspire-copy">
+                  <strong>{item.title}</strong>
+                  <span>{item.category}</span>
+                </div>
+                <span className="chip tag info">真实页面</span>
               </button>
             ))}
           </div>
         </section>
       </section>
+      {productMode === 'dynamic_encyclopedia_card' ? (
+        <DynamicCapabilityDrawer
+          open={capabilityDrawerOpen}
+          panelRef={capabilityDrawerPanelRef}
+          closeButtonRef={capabilityDrawerCloseRef}
+          capabilities={capabilities}
+          templatePacks={templatePacks}
+          preset={dynamicEncyclopediaPreset ?? null}
+          selectedTemplatePackIds={selectedTemplatePackIds}
+          selectedSkillIds={selectedSkillIds}
+          selectedMcpToolIds={selectedMcpToolIds}
+          userOverrideCapabilityIds={userOverrideCapabilityIds}
+          loopProfile={summaryLoop ?? null}
+          entryGuidance={entryGuidance}
+          explorationLevel={explorationLevel}
+          explorationMode={explorationMode}
+          explorationPlanPreview={explorationPlanPreview}
+          explorationModuleGraph={explorationModuleGraph}
+          explorationPreviewStatus={explorationPreviewStatus}
+          lockedModuleIds={lockedModuleIds}
+          excludedModuleIds={excludedModuleIds}
+          reviewMode={reviewMode}
+          experimentalThreshold={experimentalThreshold}
+          experimentalConfirmed={experimentalConfirmed}
+          labels={{
+            title: t('capabilityConfiguration'),
+            subtitle: t('capabilityConfigurationHint'),
+            close: t('close'),
+            templates: t('templateLibrary'),
+            plugins: t('plugins'),
+            automation: t('automation'),
+            exploration: t('explorationLevel'),
+            entryGuidance: t('entryGuidance'),
+            locked: t('locked'),
+            recommended: t('recommended'),
+            official: t('official'),
+            change: t('changeSelection'),
+            finish: t('finishSelection'),
+            selected: t('selected'),
+            optional: t('optional'),
+            skill: t('pluginTypeSkill'),
+            mcp: t('pluginTypeMcp'),
+            templateLimit: t('dynamicTemplateLimit'),
+            reviewMode: t('reviewMode'),
+            factCreativityOff: t('factCreativityOff'),
+            required: t('required'),
+            noGuidance: t('entryGuidancePending'),
+            sourcePreset: t('sourceOfficialPreset'),
+            sourceGuidance: t('sourceEntryGuidance'),
+            sourceOverride: t('sourceUserOverride'),
+            sourceSnapshot: t('sourceJobSnapshot'),
+            reviewOff: t('reviewOff'),
+            reviewSemiAuto: t('reviewSemiAuto'),
+            reviewAuto: t('reviewAuto'),
+            confirmExperimental: t('confirmExperimental'),
+            experimentalWarning: t('experimentalWarning'),
+            planPreview: t('planPreview'),
+            planWaiting: t('planWaiting'),
+            planLoading: t('planLoading'),
+            planReady: t('planReady'),
+            planError: t('planError'),
+            variationFocus: t('variationFocus'),
+            requirementModules: t('requirementModules'),
+            moduleAuto: t('moduleAuto'),
+            moduleLocked: t('moduleLocked'),
+            moduleExcluded: t('moduleExcluded'),
+            coverage: t('coverage'),
+            sampledModules: t('sampledModules'),
+            requiredModules: t('requiredModules'),
+            templateDirection: t('templateDirection'),
+            interactionDirection: t('interactionDirection'),
+            styleDirection: t('styleDirection'),
+          }}
+          onClose={() => setCapabilityDrawerOpen(false)}
+          onToggleTemplate={toggleDynamicTemplateSelect}
+          onToggleSkill={toggleDynamicSkill}
+          onToggleMcpTool={toggleDynamicMcpTool}
+          onSelectLoop={selectDynamicLoop}
+          onExplorationChange={updateExplorationLevel}
+          onReviewModeChange={updateReviewMode}
+          onExperimentalConfirm={setExperimentalConfirmed}
+          onModuleDispositionChange={updateModuleDisposition}
+        />
+      ) : null}
+      {sessionDialog ? (
+        <SessionActionDialog
+          dialog={sessionDialog}
+          saving={sessionActionSaving}
+          onClose={() => setSessionDialog(null)}
+          onRename={title => void renameSession(sessionDialog.session, title)}
+          onDelete={() => void removeSession(sessionDialog.session)}
+        />
+      ) : null}
     </main>
+  )
+}
+
+type DynamicDrawerSection = 'templates' | 'plugins' | 'automation' | 'modules'
+
+function DynamicCapabilityDrawer(props: {
+  open: boolean
+  panelRef: React.RefObject<HTMLElement | null>
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>
+  capabilities: CapabilitiesResponse | null
+  templatePacks: DesignTemplatePack[]
+  preset: CapabilityPreset | null
+  selectedTemplatePackIds: string[]
+  selectedSkillIds: string[]
+  selectedMcpToolIds: string[]
+  userOverrideCapabilityIds: string[]
+  loopProfile: AutomationLoopProfile | null
+  entryGuidance: EncyclopediaEntryGuidanceResponse | null
+  explorationLevel: number
+  explorationMode: ReturnType<typeof resolveExplorationMode>
+  explorationPlanPreview: BatchExplorationPlanV1 | null
+  explorationModuleGraph: RequirementModuleGraphV1 | null
+  explorationPreviewStatus: 'idle' | 'loading' | 'ready' | 'error'
+  lockedModuleIds: string[]
+  excludedModuleIds: string[]
+  reviewMode: 'off' | 'semi_auto' | 'auto'
+  experimentalThreshold: number
+  experimentalConfirmed: boolean
+  labels: {
+    title: string
+    subtitle: string
+    close: string
+    templates: string
+    plugins: string
+    automation: string
+    exploration: string
+    entryGuidance: string
+    locked: string
+    recommended: string
+    official: string
+    change: string
+    finish: string
+    selected: string
+    optional: string
+    skill: string
+    mcp: string
+    templateLimit: string
+    reviewMode: string
+    factCreativityOff: string
+    required: string
+    noGuidance: string
+    sourcePreset: string
+    sourceGuidance: string
+    sourceOverride: string
+    sourceSnapshot: string
+    reviewOff: string
+    reviewSemiAuto: string
+    reviewAuto: string
+    confirmExperimental: string
+    experimentalWarning: string
+    planPreview: string
+    planWaiting: string
+    planLoading: string
+    planReady: string
+    planError: string
+    variationFocus: string
+    requirementModules: string
+    moduleAuto: string
+    moduleLocked: string
+    moduleExcluded: string
+    coverage: string
+    sampledModules: string
+    requiredModules: string
+    templateDirection: string
+    interactionDirection: string
+    styleDirection: string
+  }
+  onClose: () => void
+  onToggleTemplate: (id: string) => void
+  onToggleSkill: (id: string) => void
+  onToggleMcpTool: (id: string) => void
+  onSelectLoop: (id: string) => void
+  onExplorationChange: (level: number) => void
+  onReviewModeChange: (mode: 'off' | 'semi_auto' | 'auto') => void
+  onExperimentalConfirm: (confirmed: boolean) => void
+  onModuleDispositionChange: (moduleId: string, disposition: 'auto' | 'locked' | 'excluded') => void
+}): React.JSX.Element | null {
+  const c18n = useCapabilityI18n()
+  const [editingSection, setEditingSection] = useState<DynamicDrawerSection | null>(null)
+  if (!props.open) return null
+
+  const plugins = new Map((props.capabilities?.plugins ?? []).map(plugin => [plugin.id, plugin]))
+  const guidanceTemplateIds = new Set(props.entryGuidance?.recommendedTemplates.map(template => template.designTemplatePackId) ?? [])
+  const requiredSkillIds = new Set(props.preset?.selectionPolicy.requiredSkillIds ?? [])
+  const requiredMcpIds = new Set(props.preset?.selectionPolicy.requiredMcpToolIds ?? [])
+  const userOverrideIds = new Set(props.userOverrideCapabilityIds)
+  const requiredTemplateIds = new Set(props.preset?.selectionPolicy.requiredTemplatePackIds ?? [])
+  const dynamicTemplates = props.templatePacks.filter(template => (
+    template.status === 'published'
+      && template.supportedProductModes?.includes('dynamic_encyclopedia_card')
+      && (requiredTemplateIds.has(template.id) || Boolean(template.parentPackId && requiredTemplateIds.has(template.parentPackId)))
+      && (Boolean(template.parentPackId) || props.selectedTemplatePackIds.includes(template.id))
+  ))
+  const selectedTemplates = dynamicTemplates.filter(pack => props.selectedTemplatePackIds.includes(pack.id))
+  const availableSkills = (props.capabilities?.skills ?? []).filter(skill => {
+    const plugin = plugins.get(skill.pluginId)
+    return Boolean(plugin && plugin.visibility === 'official' && plugin.status === 'active' && plugin.safetyLevel === 'safe' && skill.allowedTemplateCategories.includes('encyclopedia'))
+  })
+  const availableBindings = (props.capabilities?.mcpToolBindings ?? []).filter(binding => {
+    const plugin = plugins.get(binding.pluginId)
+    return Boolean(plugin && plugin.visibility === 'official' && plugin.status === 'active' && plugin.safetyLevel === 'safe' && binding.allowedTemplateCategories.includes('encyclopedia'))
+  })
+  const skills = availableSkills.filter(skill => props.selectedSkillIds.includes(skill.id))
+  const bindings = availableBindings.filter(binding => props.selectedMcpToolIds.includes(binding.id))
+  const allowedLoops = (props.capabilities?.automationLoopProfiles ?? []).filter(loop => props.preset?.selectionPolicy.allowedLoopProfileIds.includes(loop.id))
+  const reviewModeLabel = props.reviewMode === 'auto' ? props.labels.reviewAuto : props.reviewMode === 'semi_auto' ? props.labels.reviewSemiAuto : props.labels.reviewOff
+  const toggleSection = (section: DynamicDrawerSection) => setEditingSection(current => current === section ? null : section)
+  const sourceLabel = (id: string, kind: 'template' | 'skill' | 'mcp' | 'loop') => {
+    if (userOverrideIds.has(id)) return props.labels.sourceOverride
+    if (kind === 'template' && guidanceTemplateIds.has(id)) return props.labels.sourceGuidance
+    if (kind === 'template' && props.preset?.designTemplatePackIds.includes(id)) return props.labels.sourcePreset
+    if (kind === 'skill' && props.preset?.skillIds.includes(id)) return props.labels.sourcePreset
+    if (kind === 'mcp' && props.preset?.mcpToolIds.includes(id)) return props.labels.sourcePreset
+    if (kind === 'loop' && props.preset?.loopProfileId === id) return props.labels.sourcePreset
+    return props.labels.sourceOverride
+  }
+  const modulesById = new Map((props.explorationModuleGraph?.modules ?? []).map(module => [module.id, module]))
+  const moduleDisposition = (moduleId: string) => props.lockedModuleIds.includes(moduleId)
+    ? 'locked'
+    : props.excludedModuleIds.includes(moduleId)
+      ? 'excluded'
+      : 'auto'
+  const templateForVariation = (variationIndex: number) => selectedTemplates.length
+    ? selectedTemplates[(variationIndex - 1) % selectedTemplates.length]
+    : null
+
+  return (
+    <>
+      <button className="capability-drawer-scrim" type="button" tabIndex={-1} aria-hidden="true" onClick={props.onClose} />
+      <aside
+        ref={props.panelRef}
+        className="capability-drawer"
+        data-testid="dynamic-capability-drawer"
+        aria-labelledby="dynamic-capability-drawer-title"
+        aria-describedby="dynamic-capability-drawer-description"
+      >
+        <header className="capability-drawer-header">
+          <div>
+            <span className="eyebrow" id="dynamic-capability-drawer-title">{props.labels.title}</span>
+            <strong id="dynamic-capability-drawer-description">{props.labels.subtitle}</strong>
+          </div>
+          <button ref={props.closeButtonRef} className="icon-btn" type="button" aria-label={props.labels.close} title={props.labels.close} onClick={props.onClose}>
+            <Icon name="x" size={16} />
+          </button>
+        </header>
+
+        <div className="capability-drawer-body">
+          <section className="capability-drawer-context">
+            <div className="capability-drawer-context-title">
+              <span>{props.labels.entryGuidance}</span>
+              <span className="chip info skill-mini">{props.entryGuidance ? `${Math.round(props.entryGuidance.classification.confidence * 100)}%` : props.labels.noGuidance}</span>
+            </div>
+            <strong>
+              {props.entryGuidance
+                ? `${props.entryGuidance.classification.primaryCategory} / ${props.entryGuidance.classification.secondaryCategory}`
+                : props.labels.noGuidance}
+            </strong>
+          </section>
+
+          <DrawerCapabilitySection
+            id="templates"
+            title={props.labels.templates}
+            count={selectedTemplates.length}
+            expanded={editingSection === 'templates'}
+            onChange={() => toggleSection('templates')}
+            changeLabel={props.labels.change}
+            finishLabel={props.labels.finish}
+          >
+            {editingSection === 'templates' ? (
+              <>
+                <small className="capability-drawer-helper">{props.labels.templateLimit}</small>
+                {dynamicTemplates.map(template => {
+                  const selected = props.selectedTemplatePackIds.includes(template.id)
+                  const required = requiredTemplateIds.has(template.id)
+                  return (
+                    <DrawerSelectionOption
+                      key={template.id}
+                      testId={`drawer-template-option-${template.id}`}
+                      selected={selected}
+                      disabled={required || (selected && props.selectedTemplatePackIds.length <= 1) || (!selected && props.selectedTemplatePackIds.length >= 3)}
+                      title={c18n.templatePackName(template.id, template.name)}
+                      detail={sourceLabel(template.id, 'template')}
+                      badge={required ? props.labels.required : selected ? props.labels.selected : props.labels.optional}
+                      locked={required}
+                      onClick={() => props.onToggleTemplate(template.id)}
+                    />
+                  )
+                })}
+              </>
+            ) : selectedTemplates.length ? selectedTemplates.map(template => (
+              <DrawerSelectionSummary
+                key={template.id}
+                title={c18n.templatePackName(template.id, template.name)}
+                detail={sourceLabel(template.id, 'template')}
+                badge={requiredTemplateIds.has(template.id) ? props.labels.required : guidanceTemplateIds.has(template.id) ? props.labels.recommended : props.labels.selected}
+                locked={requiredTemplateIds.has(template.id)}
+              />
+            )) : <small className="capability-drawer-empty">{props.labels.noGuidance}</small>}
+          </DrawerCapabilitySection>
+
+          <DrawerCapabilitySection
+            id="plugins"
+            title={props.labels.plugins}
+            count={skills.length + bindings.length}
+            expanded={editingSection === 'plugins'}
+            onChange={() => toggleSection('plugins')}
+            changeLabel={props.labels.change}
+            finishLabel={props.labels.finish}
+          >
+            {editingSection === 'plugins' ? (
+              <>
+                {availableSkills.map(skill => {
+                  const selected = props.selectedSkillIds.includes(skill.id)
+                  const required = requiredSkillIds.has(skill.id)
+                  return (
+                    <DrawerSelectionOption
+                      key={skill.id}
+                      testId={`drawer-skill-option-${skill.id}`}
+                      selected={selected}
+                      disabled={required}
+                      title={c18n.skillName(skill.id, plugins.get(skill.pluginId)?.name ?? skill.id)}
+                      detail={`${props.labels.skill} · ${sourceLabel(skill.id, 'skill')}`}
+                      badge={required ? props.labels.required : selected ? props.labels.selected : props.labels.optional}
+                      locked={required}
+                      onClick={() => props.onToggleSkill(skill.id)}
+                    />
+                  )
+                })}
+                {availableBindings.map(binding => {
+                  const selected = props.selectedMcpToolIds.includes(binding.id)
+                  const required = requiredMcpIds.has(binding.id)
+                  return (
+                    <DrawerSelectionOption
+                      key={binding.id}
+                      testId={`drawer-mcp-option-${binding.id}`}
+                      selected={selected}
+                      disabled={required}
+                      title={binding.toolName}
+                      detail={`${props.labels.mcp} · ${sourceLabel(binding.id, 'mcp')}`}
+                      badge={required ? props.labels.required : selected ? props.labels.selected : props.labels.optional}
+                      locked={required}
+                      onClick={() => props.onToggleMcpTool(binding.id)}
+                    />
+                  )
+                })}
+              </>
+            ) : (
+              <>
+                {skills.map(skill => (
+                  <DrawerSelectionSummary
+                    key={skill.id}
+                    title={c18n.skillName(skill.id, plugins.get(skill.pluginId)?.name ?? skill.id)}
+                    detail={`${props.labels.skill} · ${sourceLabel(skill.id, 'skill')}`}
+                    badge={requiredSkillIds.has(skill.id) ? props.labels.required : props.labels.selected}
+                    locked={requiredSkillIds.has(skill.id)}
+                  />
+                ))}
+                {bindings.map(binding => (
+                  <DrawerSelectionSummary
+                    key={binding.id}
+                    title={binding.toolName}
+                    detail={`${props.labels.mcp} · ${sourceLabel(binding.id, 'mcp')}`}
+                    badge={requiredMcpIds.has(binding.id) ? props.labels.required : props.labels.selected}
+                    locked={requiredMcpIds.has(binding.id)}
+                  />
+                ))}
+              </>
+            )}
+          </DrawerCapabilitySection>
+
+          <DrawerCapabilitySection
+            id="automation"
+            title={props.labels.automation}
+            count={props.loopProfile ? 1 : 0}
+            expanded={editingSection === 'automation'}
+            onChange={() => toggleSection('automation')}
+            changeLabel={props.labels.change}
+            finishLabel={props.labels.finish}
+          >
+            {editingSection === 'automation' ? (
+              <>
+                <div className="capability-drawer-review-modes" role="group" aria-label={props.labels.reviewMode}>
+                  {([
+                    ['off', props.labels.reviewOff],
+                    ['semi_auto', props.labels.reviewSemiAuto],
+                    ['auto', props.labels.reviewAuto],
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      data-testid={`drawer-review-mode-${mode}`}
+                      className={props.reviewMode === mode ? 'active' : ''}
+                      disabled={mode === 'off' && props.explorationLevel >= props.experimentalThreshold}
+                      onClick={() => props.onReviewModeChange(mode)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {allowedLoops.map(loop => (
+                  <DrawerSelectionOption
+                    key={loop.id}
+                    testId={`drawer-loop-option-${loop.id}`}
+                    selected={loop.id === props.loopProfile?.id}
+                    title={c18n.loopName(loop.id, loop.name)}
+                    detail={`${sourceLabel(loop.id, 'loop')} · ${loop.description}`}
+                    badge={loop.id === props.loopProfile?.id ? props.labels.selected : props.labels.optional}
+                    onClick={() => props.onSelectLoop(loop.id)}
+                  />
+                ))}
+              </>
+            ) : (
+              <DrawerSelectionSummary
+                title={props.loopProfile ? c18n.loopName(props.loopProfile.id, props.loopProfile.name) : props.labels.automation}
+                detail={`${props.labels.reviewMode}: ${reviewModeLabel} · ${sourceLabel(props.loopProfile?.id ?? '', 'loop')}`}
+                badge={props.labels.selected}
+              />
+            )}
+          </DrawerCapabilitySection>
+
+          <section className="capability-drawer-exploration" data-testid="capability-drawer-exploration">
+            <div className="capability-drawer-exploration-head"><span>{props.labels.exploration}</span><strong>{props.explorationLevel}</strong></div>
+            <input
+              className="capability-drawer-slider"
+              data-testid="exploration-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={props.explorationLevel}
+              aria-label={props.labels.exploration}
+              aria-valuetext={`${props.explorationMode} ${props.explorationLevel}`}
+              onChange={event => props.onExplorationChange(Number(event.target.value))}
+            />
+            <div className="capability-drawer-mode-row"><span>{props.explorationMode}</span><small>0 · 20 · 45 · 70 · 100</small></div>
+            <small>{props.labels.factCreativityOff}</small>
+            {props.explorationLevel >= props.experimentalThreshold ? (
+              <div className="capability-drawer-experimental-warning">
+                <strong>{props.labels.experimentalWarning}</strong>
+                <label className="capability-drawer-confirmation">
+                  <input
+                    type="checkbox"
+                    data-testid="experimental-confirmation"
+                    checked={props.experimentalConfirmed}
+                    onChange={event => props.onExperimentalConfirm(event.target.checked)}
+                  />
+                  <span>{props.labels.confirmExperimental}</span>
+                </label>
+              </div>
+            ) : null}
+          </section>
+
+          <DrawerCapabilitySection
+            id="modules"
+            title={props.labels.requirementModules}
+            count={props.lockedModuleIds.length + props.excludedModuleIds.length}
+            expanded={editingSection === 'modules'}
+            onChange={() => toggleSection('modules')}
+            changeLabel={props.labels.change}
+            finishLabel={props.labels.finish}
+          >
+            {editingSection === 'modules' ? (
+              props.explorationModuleGraph?.modules.map(module => {
+                const disposition = moduleDisposition(module.id)
+                const invariant = module.mode === 'always' || module.mode === 'global_rule'
+                const canExclude = !invariant && module.priority !== 'critical'
+                return (
+                  <div className="capability-drawer-module" data-testid={`drawer-module-${module.id}`} key={module.id}>
+                    <div className="capability-drawer-module-copy">
+                      <strong>{module.title}</strong>
+                      <small>{module.mode} · {module.priority}</small>
+                    </div>
+                    {invariant ? (
+                      <span className="chip locked"><Icon name="lock" size={11} />{props.labels.required}</span>
+                    ) : (
+                      <div className="capability-drawer-module-modes" role="group" aria-label={module.title}>
+                        <button className={disposition === 'auto' ? 'active' : ''} type="button" data-testid={`drawer-module-auto-${module.id}`} onClick={() => props.onModuleDispositionChange(module.id, 'auto')}>{props.labels.moduleAuto}</button>
+                        <button className={disposition === 'locked' ? 'active' : ''} type="button" data-testid={`drawer-module-locked-${module.id}`} onClick={() => props.onModuleDispositionChange(module.id, 'locked')}>{props.labels.moduleLocked}</button>
+                        <button className={disposition === 'excluded' ? 'active' : ''} type="button" data-testid={`drawer-module-excluded-${module.id}`} disabled={!canExclude} onClick={() => props.onModuleDispositionChange(module.id, 'excluded')}>{props.labels.moduleExcluded}</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              }) ?? <small className="capability-drawer-empty">{props.labels.planWaiting}</small>
+            ) : (
+              <div className="capability-drawer-module-summary">
+                <span>{props.labels.moduleLocked}<strong>{props.lockedModuleIds.length}</strong></span>
+                <span>{props.labels.moduleExcluded}<strong>{props.excludedModuleIds.length}</strong></span>
+              </div>
+            )}
+          </DrawerCapabilitySection>
+
+          <section className="capability-drawer-plan" data-testid="exploration-plan-preview">
+            <div className="capability-drawer-plan-head">
+              <strong>{props.labels.planPreview}</strong>
+              <span>{props.explorationPreviewStatus === 'ready'
+                ? props.labels.planReady
+                : props.explorationPreviewStatus === 'loading'
+                  ? props.labels.planLoading
+                  : props.explorationPreviewStatus === 'error'
+                    ? props.labels.planError
+                    : props.labels.planWaiting}</span>
+            </div>
+            {props.explorationPlanPreview?.variations.map(variation => {
+              const focus = modulesById.get(variation.focusId)
+              const template = templateForVariation(variation.variationIndex)
+              return (
+                <div className="capability-drawer-plan-card" data-testid={`exploration-plan-variation-${variation.variationIndex}`} key={variation.variationIndex}>
+                  <header><strong>V{variation.variationIndex}</strong><span>{focus?.title ?? variation.focusId}</span></header>
+                  <div className="capability-drawer-plan-meta">
+                    <span><small>{props.labels.requiredModules}</small>{variation.requiredModuleIds.length}</span>
+                    <span><small>{props.labels.sampledModules}</small>{variation.sampledModuleIds.length}</span>
+                  </div>
+                  <p><strong>{props.labels.templateDirection}</strong>{template ? c18n.templatePackName(template.id, template.name) : variation.templatePackId ?? '—'}</p>
+                  <p><strong>{props.labels.styleDirection}</strong>{variation.styleDirectionId ?? '—'}</p>
+                  <p><strong>{props.labels.interactionDirection}</strong>{variation.interactionDirectionIds.length
+                    ? variation.interactionDirectionIds.map(id => c18n.interactionParadigmName(id, id)).join(' · ')
+                    : '—'}</p>
+                  <div className="capability-drawer-plan-modules">
+                    {variation.requiredModuleIds.map(id => <span className="chip locked" key={`required-${id}`}>{modulesById.get(id)?.title ?? id}</span>)}
+                    {variation.sampledModuleIds.map(id => <span className="chip info" key={`sampled-${id}`}>{modulesById.get(id)?.title ?? id}</span>)}
+                  </div>
+                </div>
+              )
+            })}
+            {props.explorationPlanPreview && props.explorationModuleGraph ? (
+              <div className="capability-drawer-coverage">
+                <strong>{props.labels.coverage}</strong>
+                {props.explorationModuleGraph.modules
+                  .filter(module => (props.explorationPlanPreview?.coverageSummary[module.id] ?? 0) > 0)
+                  .map(module => (
+                    <span key={module.id}>{module.title}<strong>{props.explorationPlanPreview?.coverageSummary[module.id]}/{props.explorationPlanPreview?.variations.length}</strong></span>
+                  ))}
+              </div>
+            ) : null}
+            {props.explorationPlanPreview?.warnings.map(warning => (
+              <small className="capability-drawer-plan-warning" key={`${warning.code}-${warning.moduleId ?? ''}`}>{warning.message}</small>
+            ))}
+          </section>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+function DrawerCapabilitySection(props: {
+  id: DynamicDrawerSection
+  title: string
+  count: number
+  expanded: boolean
+  changeLabel: string
+  finishLabel: string
+  onChange: () => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <section className={`capability-drawer-section${props.expanded ? ' editing' : ''}`} data-testid={`drawer-section-${props.id}`}>
+      <header>
+        <strong>{props.title}</strong>
+        <span>{props.count}</span>
+        <button type="button" aria-expanded={props.expanded} onClick={props.onChange}>{props.expanded ? props.finishLabel : props.changeLabel}</button>
+      </header>
+      <div className="capability-drawer-list">{props.children}</div>
+    </section>
+  )
+}
+
+function DrawerSelectionSummary(props: {
+  title: string
+  detail: string
+  badge: string
+  locked?: boolean
+}): React.JSX.Element {
+  return (
+    <div className="capability-drawer-item">
+      <div><strong>{props.title}</strong><small>{props.detail}</small></div>
+      <span className={`chip ${props.locked ? 'locked' : 'info'}`}>
+        {props.locked ? <Icon name="lock" size={11} /> : null}{props.badge}
+      </span>
+    </div>
+  )
+}
+
+function DrawerSelectionOption(props: {
+  testId: string
+  selected: boolean
+  disabled?: boolean
+  title: string
+  detail: string
+  badge: string
+  locked?: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      className={`capability-drawer-option${props.selected ? ' selected' : ''}`}
+      type="button"
+      data-testid={props.testId}
+      aria-pressed={props.selected}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      <span><strong>{props.title}</strong><small>{props.detail}</small></span>
+      <span className={`chip ${props.locked ? 'locked' : props.selected ? 'ok' : ''}`}>
+        {props.locked ? <Icon name="lock" size={11} /> : props.selected ? <Icon name="check" size={11} /> : null}{props.badge}
+      </span>
+    </button>
   )
 }
 
@@ -1337,6 +2592,53 @@ function PreferencesOverlay(props: {
   )
 }
 
+function SessionActionDialog(props: {
+  dialog: SessionDialog
+  saving: boolean
+  onClose: () => void
+  onRename: (title: string) => void
+  onDelete: () => void
+}): React.JSX.Element {
+  const { t } = useLanguage()
+  const [title, setTitle] = useState(props.dialog.session.title)
+  const isRename = props.dialog.kind === 'rename'
+  const canSubmit = title.trim().length > 0 && !props.saving
+  return (
+    <div className="session-dialog-overlay" onClick={props.saving ? undefined : props.onClose} data-menu-root="true">
+      <section className="session-dialog" role="dialog" aria-modal="true" aria-labelledby="session-dialog-title" onClick={event => event.stopPropagation()}>
+        <header>
+          <strong id="session-dialog-title">{isRename ? t('renameSession') : t('deleteSession')}</strong>
+          <button type="button" aria-label="Close" disabled={props.saving} onClick={props.onClose}><Icon name="x" size={16} /></button>
+        </header>
+        {isRename ? (
+          <input
+            autoFocus
+            value={title}
+            maxLength={120}
+            onChange={event => setTitle(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter' && canSubmit) props.onRename(title.trim())
+            }}
+          />
+        ) : (
+          <p>{t('deleteSessionConfirm')}</p>
+        )}
+        <footer>
+          <button type="button" disabled={props.saving} onClick={props.onClose}>{t('cancel')}</button>
+          <button
+            className={isRename ? 'primary' : 'danger'}
+            type="button"
+            disabled={isRename ? !canSubmit : props.saving}
+            onClick={() => isRename ? props.onRename(title.trim()) : props.onDelete()}
+          >
+            {props.saving ? '...' : isRename ? t('save') : t('delete')}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
 function renderHeadingChars(line: string, accent: string): React.ReactNode {
   // 按字符拆分,每字一个 span(--i 控制从左往右错峰);命中 accent 的字符加 .grad
   const chars = Array.from(line)
@@ -1369,6 +2671,10 @@ function SessionGroup(props: {
   title: string
   sessions: SessionSnapshot[]
   resumeId: string | null
+  openSessionMenuId: string | null
+  onOpenSessionMenu: (sessionId: string | null) => void
+  onRename: (session: SessionSnapshot) => void
+  onDelete: (session: SessionSnapshot) => void
   emptyText?: string
   collapsed?: boolean
   onToggle?: () => void
@@ -1394,15 +2700,50 @@ function SessionGroup(props: {
           {t('showOlderSessions')}
         </button>
       ) : props.sessions.map(session => (
-          <button key={session.id} className={`side-session${props.resumeId === session.id ? ' active' : ''}`} type="button" onClick={() => void props.onResume(session)}>
+        <div key={session.id} className={`side-session${props.resumeId === session.id ? ' active' : ''}`}>
+          <button className="side-session-open" type="button" onClick={() => void props.onResume(session)}>
             <span className="thumb" aria-hidden>{session.mode === 'new_html' ? 'N' : 'H'}</span>
             <span className="meta">
               <strong>{session.title}</strong>
               <small>{formatRelativeTime(session.updatedAt)} · {props.resumeId === session.id ? 'resuming' : session.mode === 'new_html' ? 'new html' : 'existing html'}</small>
             </span>
-            <span className="menu" aria-hidden><Icon name="moreHorizontal" size={16} /></span>
           </button>
-        ))}
+          <span className="session-menu-root" data-menu-root="true">
+            <button
+              className="session-menu-trigger"
+              type="button"
+              aria-label={`Actions for ${session.title}`}
+              aria-expanded={props.openSessionMenuId === session.id}
+              onClick={() => props.onOpenSessionMenu(props.openSessionMenuId === session.id ? null : session.id)}
+            >
+              <Icon name="moreHorizontal" size={16} />
+            </button>
+            {props.openSessionMenuId === session.id ? (
+              <span className="session-action-menu">
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onOpenSessionMenu(null)
+                    props.onRename(session)
+                  }}
+                >
+                  {t('rename')}
+                </button>
+                <button
+                  className="danger"
+                  type="button"
+                  onClick={() => {
+                    props.onOpenSessionMenu(null)
+                    props.onDelete(session)
+                  }}
+                >
+                  {t('delete')}
+                </button>
+              </span>
+            ) : null}
+          </span>
+        </div>
+      ))}
     </section>
   )
 }
@@ -1611,6 +2952,25 @@ function filterSessions(sessions: SessionSnapshot[], query: string): SessionSnap
   })
 }
 
+function sessionSnapshotFromCreated(
+  session: { id: string; workspaceId: string; runtimeSessionId: string | null; status: 'active' | 'archived' },
+  fallback: { title: string; mode: SessionSnapshot['mode']; sourceArtifactId: string | null; workspaceId: string },
+): SessionSnapshot {
+  const now = new Date().toISOString()
+  return {
+    id: session.id,
+    workspaceId: session.workspaceId || fallback.workspaceId,
+    title: fallback.title || 'Untitled session',
+    mode: fallback.mode,
+    sourceArtifactId: fallback.sourceArtifactId,
+    runtimeSessionId: session.runtimeSessionId,
+    status: session.status,
+    lastPrompt: fallback.title || null,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 function isAuthRequiredError(err: unknown): boolean {
   if (!err || typeof err !== 'object' || !('code' in err)) return false
   const error = err as { code?: unknown; status?: unknown }
@@ -1720,4 +3080,45 @@ function sameStringSet(left: string[] | undefined, right: string[] | undefined):
   const a = [...new Set(left ?? [])].sort()
   const b = [...new Set(right ?? [])].sort()
   return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
+function collectAuthoringEvidencePaths(draft: CapabilityAuthoringDraft): string[] {
+  const paths = [
+    ...draft.candidateBundle.templatePacks.flatMap(item => item.sourceEvidence.map(evidence => evidence.targetPath)),
+    ...draft.candidateBundle.interactionParadigms.flatMap(item => item.sourceEvidence.map(evidence => evidence.targetPath)),
+    ...draft.candidateBundle.dataContracts.flatMap(item => item.sourceEvidence.map(evidence => evidence.targetPath)),
+    ...draft.candidateBundle.reviewProfiles.flatMap(item => item.sourceEvidence.map(evidence => evidence.targetPath)),
+    ...draft.findings.filter(finding => finding.severity === 'warning').map(finding => finding.path),
+  ]
+  return [...new Set(paths)]
+}
+
+function upsertAuthoringDraft(current: CapabilityAuthoringDraft[], draft: CapabilityAuthoringDraft): CapabilityAuthoringDraft[] {
+  return [draft, ...current.filter(item => item.id !== draft.id)]
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the capability bundle.'))
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const separator = result.indexOf(',')
+      if (separator < 0) {
+        reject(new Error('Capability bundle encoding failed.'))
+        return
+      }
+      resolve(result.slice(separator + 1))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
