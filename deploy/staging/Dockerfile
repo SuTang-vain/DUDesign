@@ -18,7 +18,9 @@ RUN npx tsc -b packages/contracts packages/domain packages/artifact-store packag
 
 FROM build AS web-build
 ARG NEXT_PUBLIC_DUDESIGN_API_URL=
+ARG NEXT_PUBLIC_DUDESIGN_WEB_BASE_PATH=
 ENV NEXT_PUBLIC_DUDESIGN_API_URL=$NEXT_PUBLIC_DUDESIGN_API_URL
+ENV NEXT_PUBLIC_DUDESIGN_WEB_BASE_PATH=$NEXT_PUBLIC_DUDESIGN_WEB_BASE_PATH
 RUN npm --workspace @dudesign/web run build
 
 FROM build AS admin-build
