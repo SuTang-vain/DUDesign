@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getOAuthProviders, loginUser, registerUser, startOAuthLogin } from '@/lib/api'
+import { withAppBase } from '@/lib/appBasePath'
 import { Logo } from '@/components/Logo'
 import { Icon } from '@/components/Icon'
 
@@ -50,7 +51,7 @@ export default function LoginPage(): React.JSX.Element {
       } else {
         await registerUser({ email, password, name: name.trim() || null })
       }
-      window.location.href = '/'
+      window.location.href = withAppBase('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed.')
     } finally {
@@ -67,7 +68,7 @@ export default function LoginPage(): React.JSX.Element {
     setError(null)
     try {
       const response = await startOAuthLogin(provider)
-      window.location.href = withOAuthRedirect(response.authorizationUrl, '/')
+      window.location.href = withOAuthRedirect(response.authorizationUrl, withAppBase('/'))
     } catch (err) {
       setError(err instanceof Error ? err.message : `${provider} sign-in is unavailable.`)
       setStatus('idle')

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { logoutUser } from '@/lib/api'
+import { withAppBase } from '@/lib/appBasePath'
 import { useLanguage, type AppLanguage } from './LanguageProvider'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
@@ -35,7 +36,7 @@ export function UserActionCluster(props: {
     try {
       await logoutUser()
     } finally {
-      window.location.href = '/login'
+      window.location.href = withAppBase('/login')
     }
   }
 

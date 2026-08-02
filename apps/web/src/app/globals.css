@@ -904,17 +904,10 @@ a { color: inherit; text-decoration: none; }
 .composer-tools .menu-root-model { flex: 0 1 210px; max-width: 230px; }
 .composer-tools .menu-root .tool { min-width: 0; max-width: 100%; }
 
-.composer[data-product-mode="dynamic_encyclopedia_card"] .composer-head-actions,
-.composer[data-product-mode="dynamic_encyclopedia_card"] .composer-card,
-.composer[data-product-mode="dynamic_encyclopedia_card"] .dynamic-flow,
-.composer[data-product-mode="dynamic_encyclopedia_card"] .entry-guidance-card,
 .composer[data-product-mode="web_app"] .examples,
 .composer[data-product-mode="web_app"] .cap-strip {
   animation: composer-mode-enter .28s cubic-bezier(.2, .8, .2, 1) both;
 }
-.composer[data-product-mode="dynamic_encyclopedia_card"] .composer-card { animation-delay: .02s; }
-.composer[data-product-mode="dynamic_encyclopedia_card"] .dynamic-flow { animation-delay: .06s; }
-.composer[data-product-mode="dynamic_encyclopedia_card"] .entry-guidance-card { animation-delay: .08s; }
 .composer[data-product-mode="web_app"] .examples { animation-delay: .05s; }
 .composer[data-product-mode="web_app"] .cap-strip { animation-delay: .08s; }
 

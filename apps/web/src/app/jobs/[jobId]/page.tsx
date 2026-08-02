@@ -11,6 +11,7 @@ import { useLanguage } from '@/components/LanguageProvider'
 import { apiUrl, getDesignJob, reviewVariationAction, subscribeToJob, type JobSnapshot, type VariationSnapshot } from '@/lib/api'
 import { formatQualityIssue, isInfrastructureQualityWarning } from '@/lib/qualityMessages'
 import { toUserFacingError, type UserFacingError } from '@/lib/userErrors'
+import { withAppBase } from '@/lib/appBasePath'
 
 type ArtifactQuality = NonNullable<JobSnapshot['artifacts'][number]['quality']>
 
@@ -230,7 +231,7 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
       <header className="job-topbar">
         <div className="left">
           <div className="job-nav-actions">
-            <a href="/" className="back-link" aria-label={t('backToWorkspace')} title={t('backToWorkspace')}><Icon name="arrowLeft" size={18} /></a>
+            <a href={withAppBase('/')} className="back-link" aria-label={t('backToWorkspace')} title={t('backToWorkspace')}><Icon name="arrowLeft" size={18} /></a>
             <VariationActionMenu />
           </div>
           <div>
@@ -325,13 +326,13 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                   <a
                     data-testid="open-variation-link"
                     className="var-preview-link"
-                    href={`/variations/${variation.id}`}
+                    href={withAppBase(`/variations/${variation.id}`)}
                     aria-label={`${t('openInEditor')} ${variation.title ?? `Variation ${variation.index}`}`}
                   />
                 ) : null}
               </div>
               {variation.status === 'failed' ? (
-                <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = '/'} />
+                <UserNotice notice={userErrorForVariation(variation)} compact onRetry={() => window.location.href = withAppBase('/')} />
               ) : null}
               <div className="var-foot">
                 <span>{variation.outputTokens.toLocaleString()} tok</span>

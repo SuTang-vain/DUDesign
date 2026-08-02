@@ -46,6 +46,7 @@ import { PreferencesPanel, type PreferencesPanelLabels } from '@/components/Pref
 import { Logo } from '@/components/Logo'
 import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
+import { withAppBase } from '@/lib/appBasePath'
 
 const inspirationCases = [
   {
@@ -251,7 +252,7 @@ export default function HomePage(): React.JSX.Element {
       })
       .catch(err => {
         if (isAuthRequiredError(err)) {
-          window.location.href = '/login'
+      window.location.href = withAppBase('/login')
           return
         }
         setError((err as Error).message)
@@ -351,7 +352,7 @@ export default function HomePage(): React.JSX.Element {
       })
       .catch(err => {
         if (isAuthRequiredError(err)) {
-          window.location.href = '/login'
+      window.location.href = withAppBase('/login')
           return
         }
         console.warn('Failed to load design templates', err)
@@ -657,7 +658,7 @@ export default function HomePage(): React.JSX.Element {
       if (selectedTemplatePackIds.length) {
         setRecentTemplateIds(writeTemplateRecent(selectedTemplatePackIds).map(item => item.id))
       }
-      window.location.href = `/jobs/${job.job.id}`
+      window.location.href = withAppBase(`/jobs/${job.job.id}`)
     } catch (err) {
       setError((err as Error).message)
       setStatus('error')
@@ -696,7 +697,7 @@ export default function HomePage(): React.JSX.Element {
       const snapshot = await resumeSession(session.id)
       const latestJob = [...snapshot.jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
       if (latestJob) {
-        window.location.href = `/jobs/${latestJob.id}`
+        window.location.href = withAppBase(`/jobs/${latestJob.id}`)
         return
       }
       handlePromptChange(session.lastPrompt || session.title)

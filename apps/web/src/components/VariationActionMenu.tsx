@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Icon } from './Icon'
 import { useLanguage, type AppLanguage } from './LanguageProvider'
 import { ThemeToggle } from './ThemeToggle'
+import { withAppBase } from '@/lib/appBasePath'
 
 type MenuSection = 'settings' | 'more' | null
 
@@ -55,7 +56,7 @@ export function VariationActionMenu(): React.JSX.Element {
 
       {open ? (
         <div className="variation-action-dropdown" data-testid="variation-action-dropdown">
-          <a href="/" className="variation-action-item">
+          <a href={withAppBase('/')} className="variation-action-item">
             <Icon name="arrowLeft" size={15} />
             <span>{t('backToWorkspace')}</span>
           </a>
