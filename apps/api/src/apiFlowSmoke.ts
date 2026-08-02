@@ -10,7 +10,6 @@ import type {
   CreateSessionResponse,
   CreateSourceArtifactResponse,
   DesignJobSnapshotResponse,
-  EncyclopediaEntryGuidanceResponse,
   ExecuteMcpInvocationResponse,
   ExportVariationResponse,
   ListDesignTemplatePacksResponse,
@@ -258,51 +257,12 @@ export async function runApiFlowSmoke(harness: ApiFlowHarness): Promise<void> {
       lint: { passed: number; warning: number; failed: number }
       previewArtifact: { available: number; missing: number }
     }
-    dynamicEncyclopedia: {
-      sourceOfTruth: string
-      parentTemplatePackId: string
-      childTemplates: Array<{ id: string; status: string }>
-      interactionParadigms: Array<{ id: string; mappingStatus: string; compatibleTemplatePackIds: string[] }>
-      categoryMappings: Array<{ category: string; interactionParadigmIds: string[]; templatePackIds: string[] }>
-    }
     registryAssets: Array<{ id: string; type: string; status: string }>
     registryTotals: Record<string, number>
     governance: { writeMode: string; writeAuditAction: string }
   }>('/api/admin/capabilities/templates', {
     headers: { 'x-dudesign-admin-role': 'operator' },
   })
-  const encyclopediaGovernance = templateGovernance.templates.find(template => template.id === 'dtp_dynamic_encyclopedia_card')
-  assert.ok(encyclopediaGovernance)
-  assert.equal(encyclopediaGovernance.category, 'business-template-package')
-  assert.equal(encyclopediaGovernance.lintStatus, 'passed')
-  assert.ok(encyclopediaGovernance.childTemplates.some(template => template.id === 'summary-card'))
-  assert.ok(encyclopediaGovernance.childTemplates.some(template => template.id === 'timeline-card'))
-  assert.deepEqual(encyclopediaGovernance.promptBlockCoverage, {
-    colors: true,
-    components: true,
-    sections: true,
-    dos: true,
-    donts: true,
-  })
-  assert.equal(encyclopediaGovernance.previewArtifact.status, 'missing')
-  assert.equal(encyclopediaGovernance.versionDiff.status, 'new')
-  assert.equal(encyclopediaGovernance.designMd.brokenReferenceCount, 0)
-  assert.equal(encyclopediaGovernance.designMd.dangerousInstructionCount, 0)
-  assert.equal(templateGovernance.totals.businessTemplatePackages, 1)
-  assert.equal(templateGovernance.privateTemplates.count, 0)
-  assert.equal(templateGovernance.privateTemplates.latestCreatedAt, null)
-  assert.equal(templateGovernance.dynamicEncyclopedia.parentTemplatePackId, 'dtp_dynamic_encyclopedia_card')
-  assert.equal(templateGovernance.dynamicEncyclopedia.sourceOfTruth, 'InteractionParadigm.compatibleTemplatePackIds')
-  assert.ok(templateGovernance.dynamicEncyclopedia.childTemplates.some(template => template.id === 'dtp_dynamic_encyclopedia_summary_card'))
-  assert.ok(templateGovernance.dynamicEncyclopedia.interactionParadigms.some(paradigm =>
-    paradigm.id === 'ip_timeline_story'
-    && paradigm.mappingStatus === 'mapped'
-    && paradigm.compatibleTemplatePackIds.includes('dtp_dynamic_encyclopedia_timeline_card'),
-  ))
-  assert.ok(templateGovernance.dynamicEncyclopedia.categoryMappings.some(mapping =>
-    mapping.interactionParadigmIds.includes('ip_entity_summary')
-    && mapping.templatePackIds.includes('dtp_dynamic_encyclopedia_summary_card'),
-  ))
   assert.equal(templateGovernance.registryTotals['scene-template'] >= 1, true)
   assert.equal(templateGovernance.registryTotals['visual-profile'] >= 1, true)
   assert.equal(templateGovernance.registryTotals['color-palette'] >= 1, true)
@@ -397,17 +357,16 @@ Reusable smoke test template.
 
   const dataIntake = await postJson<AnalyzeDataIntakeResponse>('/api/capabilities/data-intake/analyze', {
     workspaceId: bootstrap.workspace.id,
-    prompt: '词条：百度百科，需要动态百科卡片，突出企业身份、关键事实、发展历程和 WISE iframe 兼容。',
+    prompt: 'SaaS 支付与账单管理产品的可信转化落地页，突出金融合规、账单清晰与信任背书。',
     url: 'https://example.test/baidu-baike-context',
     tableText: 'name|foundedAt|category\n百度百科|2006|知识平台',
-    democaseIds: ['demo_baidu_baike_company'],
   })
   assert.equal(dataIntake.artifact.kind, 'data_intake_analysis')
   assert.equal(dataIntake.artifact.workspaceId, bootstrap.workspace.id)
   assert.match(dataIntake.artifact.contentHash, /^sha256:/)
-  assert.deepEqual(dataIntake.analysis.inputSources, ['prompt', 'url', 'table', 'democase'])
-  assert.equal(dataIntake.analysis.recommendedScenarioTemplates[0]?.id, 'tpl_dynamic_encyclopedia_entry')
-  assert.equal(dataIntake.analysis.recommendedDesignTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
+  assert.deepEqual(dataIntake.analysis.inputSources, ['prompt', 'url', 'table'])
+  assert.equal(dataIntake.analysis.recommendedScenarioTemplates[0]?.id, 'tpl_fintech_trust')
+  assert.equal(dataIntake.analysis.recommendedDesignTemplatePacks[0]?.id, 'dtp_premium_product_launch')
   assert.ok(dataIntake.analysis.recommendedSkills.some(item => item.id === 'sk_data_intake_analysis'))
   assert.ok(dataIntake.analysis.riskFlags.includes('external-source-unreviewed'))
   assert.equal(dataIntake.analysis.reviewStatus, 'human_review_required')
@@ -415,253 +374,6 @@ Reusable smoke test template.
   const storedDataIntakeJson = JSON.parse(new TextDecoder().decode(storedDataIntake.body)) as AnalyzeDataIntakeResponse & { artifactId: string }
   assert.equal(storedDataIntakeJson.analysis.schemaVersion, '2026-07-06.dudesign-data-intake.v1')
   assert.equal(storedDataIntakeJson.artifactId, dataIntake.artifact.id)
-
-  const entryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司',
-    context: '需要生成动态百科词条卡片，突出企业身份、关键事实、发展节点和移动端 iframe 兼容。',
-    maxTemplateRecommendations: 2,
-    automationMode: 'auto',
-  })
-  assert.equal(entryGuidance.productMode, 'dynamic_encyclopedia_card')
-  assert.equal(entryGuidance.classification.primaryCategory, '机构组织')
-  assert.equal(entryGuidance.classification.secondaryCategory, '企业')
-  assert.equal(entryGuidance.classification.tertiaryCategory, '知识服务')
-  assert.equal(entryGuidance.classification.confidence > 0.8, true)
-  assert.ok(entryGuidance.classification.signals.includes('搜索'))
-  assert.equal(entryGuidance.democaseReferences[0]?.caseId, 'demo_baidu_baike_company')
-  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
-  assert.deepEqual(entryGuidance.capabilityRequirements.plugins?.mcpToolIds, ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
-  assert.equal(entryGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_encyclopedia_spec_review')
-  assert.equal(entryGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
-  assert.equal(entryGuidance.recommendedTemplates[0]?.interactionParadigmId, 'ip_entity_summary')
-  assert.equal(entryGuidance.interactionParadigm.id, 'ip_entity_summary')
-  assert.ok(entryGuidance.templateRequirements.businessContext.guidanceId.startsWith('eg_'))
-  assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_entity_summary')
-  assert.equal(entryGuidance.templateRequirements.businessContext.entryTertiaryCategory, '知识服务')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l1, '机构组织')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l2, '企业')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classification.l3, '知识服务')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l1, '机构组织')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l2, '企业')
-  assert.equal(entryGuidance.templateRequirements.businessContext.classificationVector.l3, '知识服务')
-  assert.ok(entryGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('summary_facts'))
-  assert.ok(entryGuidance.templateRequirements.businessContext.classificationVector.preferredTemplateIds.includes('dtp_dynamic_encyclopedia_summary_card'))
-  assert.equal(entryGuidance.templateRequirements.businessContext.interactionParadigm.id, 'ip_entity_summary')
-  assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates.length, 2)
-  assert.equal(entryGuidance.templateRequirements.businessContext.childTemplates[0]?.selected, true)
-  assert.equal(entryGuidance.templateRequirements.businessContext.reviewMode, 'auto')
-  assert.equal(entryGuidance.status, 'draft')
-  assert.equal(entryGuidance.requiresConfirmation, false)
-  assert.equal(entryGuidance.confirmedAt, null)
-
-  const reloadedEntryGuidance = await getJson<EncyclopediaEntryGuidanceResponse>(`/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}`)
-  assert.equal(reloadedEntryGuidance.guidanceId, entryGuidance.guidanceId)
-  assert.equal(reloadedEntryGuidance.status, 'draft')
-
-  const lowConfidenceGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '玄青云影',
-    maxTemplateRecommendations: 2,
-    automationMode: 'auto',
-  })
-  assert.equal(lowConfidenceGuidance.status, 'needs_confirmation')
-  assert.equal(lowConfidenceGuidance.requiresConfirmation, true)
-  assert.equal(lowConfidenceGuidance.classification.confidence < 0.6, true)
-  assert.equal(lowConfidenceGuidance.classification.tertiaryCategory, '通用')
-  assert.equal(lowConfidenceGuidance.democaseReferences.length, 0)
-  assert.equal(lowConfidenceGuidance.interactionParadigm.id, 'ip_entity_summary')
-  const confirmedLowConfidenceGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
-    `/api/encyclopedia/entry-guidance/${lowConfidenceGuidance.guidanceId}/confirm`,
-    {
-      classificationOverride: {
-        primaryCategory: '作品',
-        secondaryCategory: '游戏',
-        tertiaryCategory: '电子游戏',
-      },
-      selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
-      automationMode: 'off',
-    },
-  )
-  assert.equal(confirmedLowConfidenceGuidance.status, 'confirmed')
-  assert.equal(confirmedLowConfidenceGuidance.requiresConfirmation, false)
-  assert.equal(confirmedLowConfidenceGuidance.classification.primaryCategory, '作品')
-  assert.equal(confirmedLowConfidenceGuidance.classification.secondaryCategory, '游戏')
-  assert.equal(confirmedLowConfidenceGuidance.classification.tertiaryCategory, '电子游戏')
-  assert.equal(confirmedLowConfidenceGuidance.interactionParadigm.id, 'ip_timeline_story')
-  assert.deepEqual(confirmedLowConfidenceGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
-  assert.equal(confirmedLowConfidenceGuidance.capabilityRequirements.automation?.loopProfileId, 'loop_standard')
-
-  const timelineDemocaseGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '某科技公司的发展史与融资上市历程',
-    maxTemplateRecommendations: 2,
-    automationMode: 'auto',
-  })
-  assert.equal(timelineDemocaseGuidance.democaseReferences[0]?.caseId, 'demo_company_history')
-  assert.equal(timelineDemocaseGuidance.interactionParadigm.id, 'ip_timeline_story')
-  assert.equal(timelineDemocaseGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_timeline_card')
-
-  const compareGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '大语言模型和搜索引擎的概念区别、技术定义与适用场景对比',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(compareGuidance.interactionParadigm.id, 'ip_fact_compare')
-  assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_compare_card'))
-  assert.ok(compareGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_expandable_card'))
-
-  const historyPersonGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '李白 历史人物 关系、诗歌作品和重要人生事件',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(historyPersonGuidance.classification.primaryCategory, '名人')
-  assert.equal(historyPersonGuidance.classification.secondaryCategory, '历史人物')
-  assert.equal(historyPersonGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_history_person_relationship')
-  assert.ok(historyPersonGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_history_person_event_chain'))
-  assert.equal(historyPersonGuidance.interactionParadigm.id, 'ip_relation_map')
-
-  const filmGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '电影《飞驰人生3》主演、角色、系列电影和相似电影推荐',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(filmGuidance.classification.primaryCategory, '影视作品')
-  assert.equal(filmGuidance.classification.secondaryCategory, '电影')
-  assert.ok(filmGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('cast_role_network'))
-  assert.ok(filmGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('no_piracy_or_playback_resources'))
-  assert.equal(filmGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_film_cast_role_network')
-  assert.ok(filmGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_film_series_navigation'))
-  assert.equal(filmGuidance.interactionParadigm.id, 'ip_relation_map')
-
-  const tvGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '电视剧《庆余年》角色关系、分集剧情、伏笔和系列季播导航',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(tvGuidance.classification.primaryCategory, '影视作品')
-  assert.equal(tvGuidance.classification.secondaryCategory, '电视剧')
-  assert.ok(tvGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('episode_causal_chain'))
-  assert.ok(tvGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('spoiler_control_required'))
-  assert.equal(tvGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_tv_character_relation')
-  assert.ok(tvGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_tv_episode_chain'))
-  assert.equal(tvGuidance.interactionParadigm.id, 'ip_relation_map')
-
-  const culturalPhraseGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '成语“悬梁刺股”的意思、出处典故、近义词反义词和关联词语',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(culturalPhraseGuidance.classification.primaryCategory, '知识术语')
-  assert.equal(culturalPhraseGuidance.classification.secondaryCategory, '文化类词语')
-  assert.ok(culturalPhraseGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('related_phrase_graph'))
-  assert.ok(culturalPhraseGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('origin_source_required'))
-  assert.equal(culturalPhraseGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_cultural_phrase_relation_graph')
-  assert.ok(culturalPhraseGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_cultural_phrase_origin_story'))
-  assert.equal(culturalPhraseGuidance.interactionParadigm.id, 'ip_relation_map')
-
-  const scenicSpotGuidance = await postJson<EncyclopediaEntryGuidanceResponse>('/api/encyclopedia/entry-guidance', {
-    workspaceId: bootstrap.workspace.id,
-    entry: '中山公园景区智能导览、推荐路线、必看景点、坐标和地图 POI',
-    maxTemplateRecommendations: 3,
-    automationMode: 'auto',
-  })
-  assert.equal(scenicSpotGuidance.classification.primaryCategory, '地域建筑')
-  assert.equal(scenicSpotGuidance.classification.secondaryCategory, '景区景点')
-  assert.ok(scenicSpotGuidance.templateRequirements.businessContext.classificationVector.recommendedModulePriorities.includes('route_guide'))
-  assert.ok(scenicSpotGuidance.templateRequirements.businessContext.classificationVector.riskFlags.includes('coordinate_source_required'))
-  assert.equal(scenicSpotGuidance.recommendedTemplates[0]?.designTemplatePackId, 'dtp_de_scenic_spot_route_guide')
-  assert.ok(scenicSpotGuidance.recommendedTemplates.some(template => template.designTemplatePackId === 'dtp_de_scenic_spot_map_poi'))
-  assert.equal(scenicSpotGuidance.interactionParadigm.id, 'ip_route_guide')
-
-  const confirmedEntryGuidance = await postJson<EncyclopediaEntryGuidanceResponse>(
-    `/api/encyclopedia/entry-guidance/${entryGuidance.guidanceId}/confirm`,
-    {
-      selectedTemplateIds: ['dtp_dynamic_encyclopedia_timeline_card'],
-      automationMode: 'semi_auto',
-    },
-  )
-  assert.equal(confirmedEntryGuidance.status, 'confirmed')
-  assert.ok(confirmedEntryGuidance.confirmedAt)
-  assert.equal(confirmedEntryGuidance.interactionParadigm.id, 'ip_timeline_story')
-  assert.deepEqual(confirmedEntryGuidance.templateRequirements.designTemplatePackIds, ['dtp_dynamic_encyclopedia_timeline_card'])
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.interactionParadigmId, 'ip_timeline_story')
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.entryTertiaryCategory, '知识服务')
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.classification.l3, '知识服务')
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.interactionParadigm.id, 'ip_timeline_story')
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.childTemplates[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
-  assert.equal(confirmedEntryGuidance.templateRequirements.businessContext.reviewMode, 'semi_auto')
-  assert.equal(confirmedEntryGuidance.capabilityRequirements.automation?.maxRepairAttempts, 1)
-
-  const guidedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
-    sessionId: createdSession.session.id,
-    prompt: `生成 ${confirmedEntryGuidance.entry.title} 的动态百科词条卡片`,
-    sourceMode: 'new_html',
-    productMode: confirmedEntryGuidance.productMode,
-    variationCount: 1,
-    templateRequirements: {
-      businessContext: {
-        guidanceId: confirmedEntryGuidance.guidanceId,
-      },
-    },
-  })
-  const guidedSnapshot = await waitForJob(guidedJob.job.id)
-  assert.equal(guidedSnapshot.job.productMode, 'dynamic_encyclopedia_card')
-  assert.equal(guidedSnapshot.job.capabilitySnapshot?.template.domainTemplate.id, 'tpl_dynamic_encyclopedia_entry')
-  assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.loopProfile.id, 'loop_encyclopedia_spec_review')
-  assert.equal(guidedSnapshot.job.capabilitySnapshot?.automation.maxRepairAttempts, 1)
-  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.skillIds, ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'])
-  assert.deepEqual(guidedSnapshot.job.capabilitySnapshot?.plugins.mcpToolIds, ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'])
-  assert.equal(guidedSnapshot.job.designTemplatePacks[0]?.id, 'dtp_dynamic_encyclopedia_timeline_card')
-  assert.equal(guidedSnapshot.variations[0]?.designTemplatePack?.id, 'dtp_dynamic_encyclopedia_timeline_card')
-  assert.equal(guidedSnapshot.variations[0]?.reviewAction, null)
-  const guidedStoredJobAfterGeneration = await harness.service.store.getJobById(guidedJob.job.id)
-  assert.ok((guidedStoredJobAfterGeneration?.templateRequirements.researchContextArtifactIds as string[] | undefined)?.length)
-  assert.equal((guidedStoredJobAfterGeneration?.templateRequirements.researchContexts as Array<{ query?: string }> | undefined)?.[0]?.query?.includes('百度百科'), true)
-  assert.ok((guidedStoredJobAfterGeneration?.templateRequirements.imageGenerationArtifacts as Array<{ artifactId?: string; usageContext?: string; contentSafetyStatus?: string }> | undefined)?.some(
-    artifact => Boolean(artifact.artifactId) && artifact.usageContext === 'dynamic_encyclopedia_card' && artifact.contentSafetyStatus === 'passed',
-  ))
-  const guidedMcpAuditRecords = await harness.service.store.listMcpInvocationAuditRecords({ jobId: guidedJob.job.id })
-  assert.ok(guidedMcpAuditRecords.some(record => record.request.mcpToolId === 'mcp_agent_reach_search' && record.result.status === 'ok'))
-  assert.ok(guidedMcpAuditRecords.some(record => record.request.mcpToolId === 'mcp_image_generation_ark_seedream' && record.result.status === 'ok'))
-  const guidedVariationId = guidedSnapshot.variations[0]!.id
-  const guidedArtifactId = guidedSnapshot.variations[0]!.currentArtifactId
-  assert.ok(guidedArtifactId)
-  const guidedReviewAction = await postJson<ReviewVariationActionResponse>(
-    `/api/variations/${guidedVariationId}/review-actions`,
-    { action: 'confirm_repair', artifactId: guidedArtifactId },
-  )
-  assert.equal(guidedReviewAction.status, 'repair_queued')
-  assert.equal(guidedReviewAction.artifact?.id, guidedArtifactId)
-  const guidedSnapshotAfterReview = await getJson<JobSnapshot>(`/api/design-jobs/${guidedJob.job.id}`)
-  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.status, 'repair_queued')
-  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.action, 'confirm_repair')
-  assert.equal(guidedSnapshotAfterReview.variations[0]?.reviewAction?.artifactId, guidedArtifactId)
-  const storedGuidedJob = await harness.service.store.getJobById(guidedJob.job.id)
-  const storedGuidedBusinessContext = storedGuidedJob?.templateRequirements.businessContext as {
-    guidanceId?: string
-    interactionParadigmId?: string
-    entryTertiaryCategory?: string
-    classification?: { l1?: string; l2?: string; l3?: string; source?: string }
-    childTemplates?: Array<{ designTemplatePackId?: string; selected?: boolean }>
-    reviewMode?: string
-  } | undefined
-  assert.equal(storedGuidedBusinessContext?.guidanceId, confirmedEntryGuidance.guidanceId)
-  assert.equal(storedGuidedBusinessContext?.interactionParadigmId, 'ip_timeline_story')
-  assert.equal(storedGuidedBusinessContext?.entryTertiaryCategory, '知识服务')
-  assert.equal(storedGuidedBusinessContext?.classification?.l1, '机构组织')
-  assert.equal(storedGuidedBusinessContext?.classification?.l2, '企业')
-  assert.equal(storedGuidedBusinessContext?.classification?.l3, '知识服务')
-  assert.equal(storedGuidedBusinessContext?.classification?.source, 'mock_rules')
-  assert.equal(storedGuidedBusinessContext?.childTemplates?.[0]?.designTemplatePackId, 'dtp_dynamic_encyclopedia_summary_card')
-  assert.equal(storedGuidedBusinessContext?.childTemplates?.some(template => template.designTemplatePackId === 'dtp_dynamic_encyclopedia_timeline_card' && template.selected), true)
-  assert.equal(storedGuidedBusinessContext?.reviewMode, 'semi_auto')
 
   const createdJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
     sessionId: createdSession.session.id,
@@ -744,174 +456,6 @@ Reusable smoke test template.
   assert.equal(dataIntakeSnapshot?.contentHash, dataIntake.artifact.contentHash)
   assert.equal(dataIntakeSnapshot?.schemaVersion, '2026-07-06.dudesign-data-intake.v1')
   assert.equal(dataIntakeSnapshot?.reviewStatus, 'human_review_required')
-  const researchPolicyJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
-    sessionId: createdSession.session.id,
-    prompt: sensitivePrompt,
-    sourceMode: 'new_html',
-    productMode: 'dynamic_encyclopedia_card',
-    variationCount: 1,
-    capabilityRequirements: {
-      template: {
-        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
-      },
-      plugins: {
-        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_research_brief_builder'],
-        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search'],
-      },
-    },
-  })
-  const researchPolicySnapshot = await waitForJob(researchPolicyJob.job.id)
-  const executedResearchMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
-    userId: 'usr_dev',
-    workspaceId: 'ws_dev',
-    sessionId: createdSession.session.id,
-    jobId: researchPolicyJob.job.id,
-    variationId: researchPolicySnapshot.variations[0]!.id,
-    runtimeSessionId: null,
-    mcpToolId: 'mcp_agent_reach_search',
-    serverName: 'agent-reach',
-    toolName: 'search',
-    scopes: ['readonly_context'],
-    input: { query: 'dynamic encyclopedia card iframe interaction references' },
-    reason: 'Create a reviewed research context artifact for a follow-up job.',
-  })
-  assert.equal(executedResearchMcpInvocation.result.status, 'ok')
-  const researchContextArtifact = executedResearchMcpInvocation.result.data?.researchContextArtifact as {
-    artifactId?: string
-    storageKey?: string
-    contentHash?: string
-    schemaVersion?: string
-    reviewStatus?: string
-    query?: string
-    sourceCount?: number
-  } | undefined
-  assert.ok(researchContextArtifact?.artifactId)
-  assert.equal(researchContextArtifact?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
-  assert.equal(researchContextArtifact?.reviewStatus, 'auto_reviewed')
-  assert.equal(researchContextArtifact?.sourceCount, 1)
-  const storedResearchContext = await harness.service.artifacts.get(researchContextArtifact.storageKey!)
-  assert.equal(storedResearchContext.metadata.kind, 'research_context')
-  const imagePolicyJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
-    sessionId: createdSession.session.id,
-    prompt: 'Create a dynamic encyclopedia card with an original abstract supporting illustration.',
-    sourceMode: 'new_html',
-    productMode: 'dynamic_encyclopedia_card',
-    variationCount: 1,
-    capabilityRequirements: {
-      template: {
-        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
-      },
-      plugins: {
-        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_visual_asset_brief'],
-        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_image_generation_ark_seedream'],
-      },
-    },
-  })
-  const imagePolicySnapshot = await waitForJob(imagePolicyJob.job.id)
-  const executedImageMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
-    userId: 'usr_dev',
-    workspaceId: 'ws_dev',
-    sessionId: createdSession.session.id,
-    jobId: imagePolicyJob.job.id,
-    variationId: imagePolicySnapshot.variations[0]!.id,
-    runtimeSessionId: null,
-    mcpToolId: 'mcp_image_generation_ark_seedream',
-    serverName: 'image-generation',
-    toolName: 'generateArkSeedreamImage',
-    scopes: ['artifact_write', 'readonly_context'],
-    input: {
-      prompt: 'Original blue abstract knowledge-card illustration with soft geometric depth.',
-      model: 'doubao-seedream-5-0-260128',
-      size: '2K',
-      watermark: true,
-      usageContext: 'dynamic_encyclopedia_card',
-      contentSafety: { policy: 'strict', allowBrandReference: false },
-    },
-    reason: 'Create a reviewed generated image artifact for card visual context.',
-  })
-  assert.equal(executedImageMcpInvocation.result.status, 'ok')
-  const imageGenerationArtifact = executedImageMcpInvocation.result.data?.imageGenerationArtifact as {
-    artifactId?: string
-    storageKey?: string
-    contentHash?: string
-    schemaVersion?: string
-    provider?: string
-    usageContext?: string
-    contentSafetyStatus?: string
-    costCents?: number
-  } | undefined
-  assert.ok(imageGenerationArtifact?.artifactId)
-  assert.equal(imageGenerationArtifact?.schemaVersion, '2026-07-06.dudesign-image-generation-artifact.v1')
-  assert.equal(imageGenerationArtifact?.provider, 'mock')
-  assert.equal(imageGenerationArtifact?.usageContext, 'dynamic_encyclopedia_card')
-  assert.equal(imageGenerationArtifact?.contentSafetyStatus, 'passed')
-  assert.equal(imageGenerationArtifact?.costCents, 12)
-  const storedImageGeneration = await harness.service.artifacts.get(imageGenerationArtifact.storageKey!)
-  assert.equal(storedImageGeneration.metadata.kind, 'image_generation')
-  assert.equal(storedImageGeneration.metadata.contentSafetyStatus, 'passed')
-  const blockedImageMcpInvocation = await postJson<ExecuteMcpInvocationResponse>('/api/mcp/invocations/execute', {
-    userId: 'usr_dev',
-    workspaceId: 'ws_dev',
-    sessionId: createdSession.session.id,
-    jobId: imagePolicyJob.job.id,
-    variationId: imagePolicySnapshot.variations[0]!.id,
-    runtimeSessionId: null,
-    mcpToolId: 'mcp_image_generation_ark_seedream',
-    serverName: 'image-generation',
-    toolName: 'generateArkSeedreamImage',
-    scopes: ['artifact_write', 'readonly_context'],
-    input: {
-      prompt: 'Use an exact copyrighted logo as the main visual.',
-      usageContext: 'dynamic_encyclopedia_card',
-      contentSafety: { policy: 'strict', allowBrandReference: false },
-    },
-    reason: 'Verify image generation safety blocks are visible in variation detail.',
-  })
-  assert.equal(blockedImageMcpInvocation.result.status, 'error')
-  assert.equal(blockedImageMcpInvocation.result.error?.code, 'IMAGE_CONTENT_SAFETY_BLOCKED')
-  const imageVariationDetail = await getJson<VariationDetailResponse>(`/api/variations/${encodeURIComponent(imagePolicySnapshot.variations[0]!.id)}`)
-  assert.equal(imageVariationDetail.capabilityNotices[0]?.invocationId, blockedImageMcpInvocation.invocationId)
-  assert.equal(imageVariationDetail.capabilityNotices[0]?.status, 'error')
-  assert.equal(imageVariationDetail.capabilityNotices[0]?.error?.code, 'IMAGE_CONTENT_SAFETY_BLOCKED')
-  assert.equal(imageVariationDetail.capabilityNotices[0]?.source.serverName, 'image-generation')
-  assert.equal('request' in imageVariationDetail.capabilityNotices[0]!, false)
-  const researchPinnedJob = await postJson<CreateDesignJobResponse>('/api/design-jobs', {
-    sessionId: createdSession.session.id,
-    prompt: sensitivePrompt,
-    sourceMode: 'new_html',
-    productMode: 'dynamic_encyclopedia_card',
-    variationCount: 1,
-    capabilityRequirements: {
-      template: {
-        domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
-      },
-      plugins: {
-        skillIds: ['sk_encyclopedia_entry_guidance', 'sk_research_brief_builder', 'sk_data_intake_analysis'],
-        mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search'],
-      },
-    },
-    templateRequirements: {
-      researchContextArtifactIds: [researchContextArtifact.artifactId!],
-    },
-  })
-  await waitForJob(researchPinnedJob.job.id)
-  const storedResearchPinnedJob = await harness.service.store.getJobById(researchPinnedJob.job.id)
-  const researchSnapshot = storedResearchPinnedJob?.templateRequirements.researchContexts as Array<{
-    artifactId?: string
-    storageKey?: string
-    contentHash?: string
-    schemaVersion?: string
-    reviewStatus?: string
-    query?: string
-    sourceCount?: number
-  }> | undefined
-  assert.deepEqual(storedResearchPinnedJob?.templateRequirements.researchContextArtifactIds, [researchContextArtifact.artifactId])
-  assert.equal(researchSnapshot?.[0]?.artifactId, researchContextArtifact.artifactId)
-  assert.equal(researchSnapshot?.[0]?.storageKey, researchContextArtifact.storageKey)
-  assert.equal(researchSnapshot?.[0]?.contentHash, researchContextArtifact.contentHash)
-  assert.equal(researchSnapshot?.[0]?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
-  assert.equal(researchSnapshot?.[0]?.reviewStatus, 'auto_reviewed')
-  assert.equal(researchSnapshot?.[0]?.query, 'dynamic encyclopedia card iframe interaction references')
   const advancedConstraints = storedCreatedJob?.templateRequirements.advancedConstraints as {
     brandStyleReferenceId?: string | null
     negativeRequirements?: string[]
@@ -1622,7 +1166,7 @@ Reusable smoke test template.
   }>('/api/admin/costs/summary', {
     headers: { 'x-dudesign-admin-role': 'support' },
   })
-  assert.equal(costSummary.totals.usageEventCount >= 12, true)
+  assert.equal(costSummary.totals.usageEventCount >= 6, true)
   assert.equal(costSummary.totals.costCents >= 30, true)
   assert.equal(costSummary.byUser[0]?.userId, 'usr_dev')
   assert.equal(costSummary.byUser[0]?.usageEventCount >= 12, true)

@@ -96,12 +96,7 @@ export function TemplateLibraryPicker(props: {
     ? exportDraftId
     : exportableDrafts[0]?.id ?? ''
 
-  const officialPacks = useMemo(() => {
-    const isEncyclopedia = (pack: DesignTemplatePack) => pack.id.startsWith('dtp_dynamic_encyclopedia')
-    return props.packs
-      .filter(pack => pack.source === 'official')
-      .sort((a, b) => Number(isEncyclopedia(b)) - Number(isEncyclopedia(a)))
-  }, [props.packs])
+  const officialPacks = useMemo(() => props.packs.filter(pack => pack.source === 'official'), [props.packs])
   const minePacks = useMemo(() => props.packs.filter(pack => pack.source !== 'official'), [props.packs])
   const recentPacks = useMemo(
     () => orderByRecent(props.packs, props.recentIds),

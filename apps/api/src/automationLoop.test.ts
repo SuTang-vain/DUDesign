@@ -131,77 +131,7 @@ describe('Automation Loop repair prompt and messages', () => {
     assert.doesNotMatch(prompt, /npm install|sudo|rm -rf/i)
   })
 
-  it('includes structured dynamic encyclopedia spec findings in repair prompts', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: [
-        'Dynamic encyclopedia spec review failed.',
-        'Timeline child template is missing milestone content.',
-      ],
-      specFindings: [
-        {
-          id: 'encyclopedia.no_scroll_frame_required',
-          source: 'template_rule',
-          severity: 'warning',
-          message: 'Dynamic encyclopedia cards must declare a non-scrolling frame.',
-          repairHint: 'Set overflow:hidden and route overflow content through tabs, page switchers, or modal dialogs.',
-        },
-        {
-          id: 'encyclopedia.timeline_template_mismatch',
-          source: 'template_rule',
-          severity: 'error',
-          message: 'The selected timeline child template needs visible timeline or milestone content.',
-          repairHint: 'Add a timeline section with dated or phased milestones.',
-        },
-      ],
-      originalPrompt: '生成百度百科动态百科词条卡片。',
-      templateSummary: 'Dynamic Encyclopedia Timeline Card',
-    })
 
-    assert.equal(prompt, [
-      'DUDesign automatic repair request.',
-      'The current HTML artifact failed quality checks:',
-      '- Dynamic encyclopedia spec review failed.',
-      '- Timeline child template is missing milestone content.',
-      'Structured dynamic encyclopedia spec findings:',
-      '- [warning] encyclopedia.no_scroll_frame_required (template_rule): Dynamic encyclopedia cards must declare a non-scrolling frame. Repair hint: Set overflow:hidden and route overflow content through tabs, page switchers, or modal dialogs.',
-      '- [error] encyclopedia.timeline_template_mismatch (template_rule): The selected timeline child template needs visible timeline or milestone content. Repair hint: Add a timeline section with dated or phased milestones.',
-      'Required no-scroll frame repair:',
-      '- Preserve a fixed dynamic encyclopedia frame and set overflow:hidden on the outer frame.',
-      '- Remove .scroll-container and every overflow:auto, overflow:scroll, overflow-y:auto, and overflow-y:scroll declaration from the artifact, including modal bodies.',
-      '- Route extra content through tabs, page switchers, accordions, or local modal panels.',
-      'Original user goal: 生成百度百科动态百科词条卡片。',
-      'Design context to preserve: Dynamic Encyclopedia Timeline Card',
-      'Repair only the concrete quality issues above.',
-      'Keep the original product goal, visual direction, selected template, and user constraints.',
-      'Return a complete self-contained HTML/CSS/JS artifact.',
-      'Small inline JavaScript is allowed only for local UI controls such as tabs, page switchers, accordions, modal dialogs, reveal buttons, and local state updates.',
-      'Do not introduce external scripts, build steps, absolute paths, shell commands, remote API calls, or unbundled network assets.',
-    ].join('\n'))
-  })
-
-  it('adds targeted repair instructions for fake dynamic encyclopedia interactions', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: ['Dynamic encyclopedia tab controls look clickable but do not switch content.'],
-      specFindings: [
-        {
-          id: 'encyclopedia.fake_tab_interaction',
-          source: 'template_rule',
-          severity: 'warning',
-          message: 'Visible tab controls require matching panels and local state switching.',
-          repairHint: 'Add role=tab buttons, role=tabpanel sections, and inline click handlers.',
-        },
-      ],
-      originalPrompt: '生成动态百科卡片。',
-      templateSummary: 'Dynamic Encyclopedia Summary Card',
-    })
-
-    assert.match(prompt, /Required tab interaction repair/)
-    assert.match(prompt, /role="tab"/)
-    assert.match(prompt, /role="tabpanel"/)
-    assert.match(prompt, /switches aria-selected and hidden/)
-    assert.match(prompt, /Small inline JavaScript is allowed/)
-    assert.match(prompt, /Do not introduce external scripts/)
-  })
 
   it('adds geometry and topic-semantic repair instructions instead of allowing copy-only edits', () => {
     const prompt = buildAutomationRepairPrompt({
@@ -209,23 +139,13 @@ describe('Automation Loop repair prompt and messages', () => {
         'Rendered fixed-card layout is invalid: 2 interactive controls are clipped or outside the card frame.',
         'Rendered fixed-card interaction is unusable: 3 controls are visually covered at their center hit point.',
       ],
-      specFindings: [{
-        id: 'encyclopedia.marketing_pattern_risk',
-        source: 'template_rule',
-        severity: 'warning',
-        message: 'The topic card contains landing-page marketing or conversion patterns.',
-        repairHint: 'Remove proof blocks and use the assigned primary interaction.',
-      }],
       originalPrompt: '生成 BLACKPINK 主题动态交互卡。',
       templateSummary: '明星组合成员体系',
     })
 
     assert.match(prompt, /Required fixed-card geometry repair/)
     assert.match(prompt, /center point of every visible button\/tab is not covered/)
-    assert.match(prompt, /Do not repair geometry findings by changing only copy, aria attributes, or event listeners/)
-    assert.match(prompt, /Required topic-card semantic repair/)
-    assert.match(prompt, /Remove proof rows, proof pills, testimonials, CTA rhythms/)
-  })
+    assert.match(prompt, /Do not repair geometry findings by changing only copy, aria attributes, or event listeners/)  })
 
   it('adds a dedicated extreme-small repair plan for 300x360 failures', () => {
     const prompt = buildAutomationRepairPrompt({
@@ -275,13 +195,6 @@ describe('Automation Loop repair prompt and messages', () => {
         'Extreme-small viewport for relation_map exposes 6 visible controls in total; keep at most 5.',
         'Extreme-small viewport for relation_map exposes 3 additional topic controls; keep at most 2 after the primary tabs.',
       ],
-      specFindings: [{
-        id: 'encyclopedia.overflow_scroll_blocked',
-        source: 'static_rule',
-        severity: 'warning',
-        message: 'Internal scroll is not allowed in dynamic encyclopedia cards.',
-        repairHint: 'Replace overflow content through a bounded local state.',
-      }],
       originalPrompt: '生成苏轼与欧阳修关系主题动态交互卡。',
       templateSummary: '历史人物关系图谱',
     })
@@ -292,95 +205,11 @@ describe('Automation Loop repair prompt and messages', () => {
     assert.match(prompt, /Remove reset, 查看更多, modal triggers, source rows, legends, counts/)
     assert.match(prompt, /at most two short Chinese sentences/)
     assert.match(prompt, /Additional nodes must replace the same slots/)
-    assert.match(prompt, /including modal bodies/)
   })
 
-  it('repairs duplicate dynamic-card roots instead of hiding the extra shell', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: ['HTML declares 2 dynamic card roots; keep exactly one [data-dudesign-template] root.'],
-      originalPrompt: '生成主题动态交互卡。',
-    })
 
-    assert.match(prompt, /Required single-root repair/)
-    assert.match(prompt, /exactly one \[data-dudesign-template\] dynamic card root/)
-    assert.match(prompt, /do not hide a duplicate root with opacity or off-screen positioning/)
-  })
 
-  it('adds democase composition repair instructions for an overloaded desktop first view', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: [
-        'Desktop democase-derived first view exposes 16 visible controls; keep at most 12 and move secondary choices behind the primary interaction.',
-        'Desktop democase-derived first view exposes 4 separate control groups; keep one primary selector and at most one local disclosure group.',
-      ],
-      originalPrompt: '生成一张三顾茅庐主题动态交互卡。',
-      templateSummary: '文化词语关系探索卡',
-    })
 
-    assert.match(prompt, /Required democase composition repair/)
-    assert.match(prompt, /one dominant visual or interaction stage/)
-    assert.match(prompt, /one primary selector group and one optional local disclosure group/)
-    assert.match(prompt, /Remove equal-weight fact tiles, KPI\/stat rows/)
-    assert.match(prompt, /do not merely shrink cards or text/)
-  })
-
-  it('adds Chinese-first and neutral-copy instructions for language quality findings', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: [
-        'Non-language-category entries must present body content primarily in Chinese. 当前正文汉字占比 58%。',
-        'Detected 4 multi-word English phrases — likely overuse of foreign language outside proper nouns.',
-        'Dynamic encyclopedia copy should avoid promotional or unverifiable superlative language.',
-      ],
-      specFindings: [
-        {
-          id: 'encyclopedia.chinese_only_required',
-          source: 'static_rule',
-          severity: 'warning',
-          message: 'Body content must be primarily Chinese.',
-          repairHint: 'Rewrite non-proper-noun copy into Simplified Chinese.',
-        },
-        {
-          id: 'encyclopedia.excessive_english_phrases',
-          source: 'static_rule',
-          severity: 'warning',
-          message: 'Too many English phrases.',
-          repairHint: 'Rewrite UI copy in Chinese.',
-        },
-        {
-          id: 'encyclopedia.neutral_tone_risk',
-          source: 'static_rule',
-          severity: 'warning',
-          message: 'Promotional language detected.',
-          repairHint: 'Rewrite as attributable facts.',
-        },
-      ],
-      originalPrompt: '生成 BLACKPINK 主题动态交互卡。',
-      templateSummary: '明星组合成员体系',
-    })
-
-    assert.match(prompt, /Required Chinese-first copy repair/)
-    assert.match(prompt, /body prose Chinese share at least 60 percent/)
-    assert.match(prompt, /Required neutral editorial copy repair/)
-    assert.match(prompt, /Remove superlatives, promotional adjectives/)
-  })
-
-  it('adds the assigned child-template repair direction', () => {
-    const prompt = buildAutomationRepairPrompt({
-      issues: ['The assigned child template is missing its primary interaction.'],
-      specFindings: [{
-        id: 'encyclopedia.member_template_mismatch',
-        source: 'template_rule',
-        severity: 'warning',
-        message: 'The member-map child template needs a visible member selection surface.',
-        repairHint: 'Add member selectors and a detail panel.',
-      }],
-      originalPrompt: '生成 BLACKPINK 主题动态交互卡。',
-      templateSummary: '动态百科·明星组合成员体系',
-    })
-
-    assert.match(prompt, /Required member-map template repair/)
-    assert.match(prompt, /at least two selectable members/)
-    assert.match(prompt, /Do not let a generic timeline/)
-  })
 
   it('maps stop reasons to clear user-facing messages', () => {
     assert.match(automationLoopUserMessage('runtime_unavailable'), /temporarily unavailable/i)

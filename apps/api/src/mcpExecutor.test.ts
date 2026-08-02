@@ -111,7 +111,7 @@ describe('MockMcpExecutor', () => {
       serverName: 'agent-reach',
       toolName: 'search',
       scopes: ['readonly_context'],
-      input: { query: 'dynamic encyclopedia card interaction patterns' },
+      input: { query: 'interactive card interaction patterns' },
       reason: 'Gather reviewed context for a design brief.',
     })
 
@@ -120,7 +120,7 @@ describe('MockMcpExecutor', () => {
     assert.equal(result.source.serverName, 'agent-reach')
     assert.equal(result.references.length, 1)
     assert.equal(researchContext?.schemaVersion, '2026-07-06.dudesign-research-context.v1')
-    assert.equal(researchContext?.query, 'dynamic encyclopedia card interaction patterns')
+    assert.equal(researchContext?.query, 'interactive card interaction patterns')
     assert.equal(researchContext?.reviewStatus, 'auto_reviewed')
     assert.equal(researchContext?.sources[0]?.retrievedAt, result.completedAt)
     assert.match(researchContext?.rawPayloadHash ?? '', /^[a-f0-9]{64}$/)
@@ -141,7 +141,7 @@ describe('MockMcpExecutor', () => {
         model: 'doubao-seedream-5-0-260128',
         size: '2K',
         watermark: true,
-        usageContext: 'dynamic_encyclopedia_card',
+        usageContext: 'template_hero',
         contentSafety: { policy: 'strict', allowBrandReference: false },
       },
       reason: 'Generate a reviewed card illustration asset.',
@@ -153,7 +153,7 @@ describe('MockMcpExecutor', () => {
     assert.equal(result.references.length, 1)
     assert.equal(imageGeneration?.schemaVersion, '2026-07-06.dudesign-image-generation-artifact.v1')
     assert.equal(imageGeneration?.provider, 'mock')
-    assert.equal(imageGeneration?.usageContext, 'dynamic_encyclopedia_card')
+    assert.equal(imageGeneration?.usageContext, 'template_hero')
     assert.equal(imageGeneration?.contentSafety.status, 'passed')
     assert.equal(imageGeneration?.contentSafety.policy, 'strict')
     assert.equal(imageGeneration?.costCents, 12)
@@ -198,7 +198,7 @@ describe('MockMcpExecutor', () => {
       scopes: ['artifact_write', 'readonly_context'],
       input: {
         prompt: '原创动态百科卡片辅助视觉。不要使用品牌 logo、真实人物肖像、影视剧照、copyrighted character 或可识别受保护素材。',
-        usageContext: 'dynamic_encyclopedia_card',
+        usageContext: 'template_hero',
         contentSafety: { policy: 'strict', allowBrandReference: false },
       },
       reason: 'Validate negative safety constraints do not block image context generation.',

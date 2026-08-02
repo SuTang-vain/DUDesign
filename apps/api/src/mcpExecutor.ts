@@ -9,7 +9,6 @@ import type {
   ResearchContextPlatform,
 } from '@dudesign/contracts'
 import { mcpUnavailableResult } from '@dudesign/runtime-gateway'
-import { lookupEncyclopediaDemocases } from './encyclopediaDemocase.js'
 
 export type McpExecutor = {
   execute(request: McpInvocationRequest): Promise<McpInvocationResult>
@@ -34,27 +33,6 @@ export type ArkSeedreamImageMcpExecutorConfig = {
 export class MockMcpExecutor implements McpExecutor {
   async execute(request: McpInvocationRequest): Promise<McpInvocationResult> {
     const completedAt = new Date().toISOString()
-    if (request.serverName === 'encyclopedia-democase' && request.toolName === 'lookupEntryDemoCases') {
-      const entryTitle = optionalString(request.input.entryTitle) ?? optionalString(request.input.query) ?? ''
-      const context = optionalString(request.input.context) ?? ''
-      const limit = optionalPositiveInteger(request.input.limit) ?? 3
-      const matches = lookupEncyclopediaDemocases(`${entryTitle}\n${context}`, limit)
-      return {
-        invocationId: request.invocationId,
-        status: 'ok',
-        mcpToolId: request.mcpToolId,
-        source: invocationSource(request),
-        summary: matches.length
-          ? `Matched ${matches.length} approved encyclopedia demo case${matches.length === 1 ? '' : 's'} for generation context.`
-          : 'No approved encyclopedia demo cases matched the request.',
-        references: matches.map(match => ({ id: match.caseId, title: match.title })),
-        data: {
-          matches,
-          note: 'Demo cases are examples for structure and interaction only, not facts about the current entry.',
-        },
-        completedAt,
-      }
-    }
     if (request.serverName === 'quality-tools' && request.toolName === 'validateAccessibility') {
       return {
         invocationId: request.invocationId,
@@ -513,7 +491,6 @@ function imageUsageContext(value: unknown): ImageGenerationUsageContext {
     || value === 'template_illustration'
     || value === 'background_texture'
     || value === 'reference_mood'
-    || value === 'dynamic_encyclopedia_card'
   ) {
     return value
   }

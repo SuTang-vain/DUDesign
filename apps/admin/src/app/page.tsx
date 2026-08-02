@@ -654,31 +654,6 @@ export default function AdminHomePage(): React.JSX.Element {
                 </div>
               </section>
 
-              <section className="registry-governance-group" data-testid="dynamic-encyclopedia-governance-panel">
-                <header>
-                  <h3>Dynamic Encyclopedia Mapping</h3>
-                  <span className="status-pill">{templateGovernance.dynamicEncyclopedia.sourceOfTruth}</span>
-                </header>
-                <div className="template-token-grid">
-                  <span>parent {templateGovernance.dynamicEncyclopedia.parentTemplatePackId}</span>
-                  <span>{templateGovernance.dynamicEncyclopedia.childTemplates.length} child templates</span>
-                  <span>{templateGovernance.dynamicEncyclopedia.interactionParadigms.length} paradigms</span>
-                  <span>{templateGovernance.dynamicEncyclopedia.categoryMappings.length} category mappings</span>
-                </div>
-                <div className="registry-asset-grid">
-                  {templateGovernance.dynamicEncyclopedia.interactionParadigms.map(paradigm => (
-                    <article className="registry-asset-card" key={paradigm.id}>
-                      <div>
-                        <strong>{paradigm.name}</strong>
-                        <p>{paradigm.id} · {paradigm.compatibleTemplatePackIds.join(', ')}</p>
-                        <small>{paradigm.bestFor.slice(0, 4).join(', ')}</small>
-                      </div>
-                      <span className={`status-pill ${paradigm.mappingStatus === 'mapped' ? 'compatible' : 'unavailable'}`}>{paradigm.mappingStatus}</span>
-                    </article>
-                  ))}
-                </div>
-              </section>
-
               <section className="registry-governance-group" data-testid="skill-governance-panel">
                 <header>
                   <h3>Official Skills</h3>
@@ -1316,7 +1291,7 @@ export default function AdminHomePage(): React.JSX.Element {
             <div className="panel-header">
               <div>
                 <h2>MCP Health</h2>
-                <p className="muted">Democase service health, tool success rate, and recent invocation quality.</p>
+                <p className="muted">MCP tool success rate and recent invocation quality.</p>
               </div>
               <button className="secondary-button" onClick={() => void refreshMcpSummary()} disabled={loading}>
                 Refresh health
@@ -1348,12 +1323,6 @@ export default function AdminHomePage(): React.JSX.Element {
             </div>
             <div className="metric-grid mcp-health-metrics">
               <div className="metric">
-                <span>Democase</span>
-                <strong className={`severity ${mcpHealthSeverity(mcpSummary?.democase.healthStatus ?? 'no_data')}`}>
-                  {mcpSummary?.democase.healthStatus ?? 'no_data'}
-                </strong>
-              </div>
-              <div className="metric">
                 <span>MCP calls</span>
                 <strong>{mcpSummary?.totals.totalCount ?? 0}</strong>
               </div>
@@ -1366,15 +1335,6 @@ export default function AdminHomePage(): React.JSX.Element {
                 <strong>{mcpSummary?.totals.unavailableCount ?? 0}</strong>
               </div>
             </div>
-            {mcpSummary?.democase.lastErrorMessage ? (
-              <p className="error compact-error">
-                {mcpSummary.democase.lastErrorCode ?? 'MCP_ERROR'}: {mcpSummary.democase.lastErrorMessage}
-              </p>
-            ) : (
-              <p className="muted">
-                Last democase call: {mcpSummary?.democase.lastInvokedAt ? formatTime(mcpSummary.democase.lastInvokedAt) : 'No democase MCP calls yet.'}
-              </p>
-            )}
             {!mcpSummary || mcpSummary.tools.length === 0 ? (
               <p className="muted">No MCP tool activity has been recorded yet.</p>
             ) : (
@@ -1565,12 +1525,6 @@ function mcpStatusClass(status: AdminMcpInvocationAuditEntry['status']): string 
   if (status === 'ok') return 'compatible'
   if (status === 'denied' || status === 'unavailable') return 'degraded'
   return 'unavailable'
-}
-
-function mcpHealthSeverity(status: AdminMcpInvocationSummaryResponse['democase']['healthStatus']): string {
-  if (status === 'healthy') return 'ok'
-  if (status === 'degraded' || status === 'no_data') return 'warning'
-  return 'blocked'
 }
 
 function templateLintClass(status: AdminTemplateGovernanceResponse['templates'][number]['lintStatus']): string {

@@ -26,8 +26,6 @@ const server = createRuntimeAdapterServer({
   laneAcquireTimeoutMs: parsePositiveInteger(process.env.RUNTIME_ADAPTER_LANE_ACQUIRE_TIMEOUT_MS),
   laneAcquirePollMs: parsePositiveInteger(process.env.RUNTIME_ADAPTER_LANE_ACQUIRE_POLL_MS),
   executeTimeoutMs: parsePositiveInteger(process.env.RUNTIME_ADAPTER_EXECUTE_TIMEOUT_MS),
-  guidanceExecuteTimeoutMs: parsePositiveInteger(process.env.RUNTIME_ADAPTER_GUIDANCE_EXECUTE_TIMEOUT_MS),
-  guidanceTimeoutRetryAttempts: parseNonNegativeInteger(process.env.RUNTIME_ADAPTER_GUIDANCE_TIMEOUT_RETRY_ATTEMPTS),
   watchdogTimeoutMs: parsePositiveInteger(process.env.RUNTIME_ADAPTER_WATCHDOG_TIMEOUT_MS),
   workspacePollIntervalMs: parseNonNegativeInteger(process.env.RUNTIME_ADAPTER_WORKSPACE_POLL_INTERVAL_MS),
   ...(process.env.RUNTIME_ADAPTER_STATE_FILE && {

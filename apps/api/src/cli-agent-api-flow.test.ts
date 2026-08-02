@@ -6,7 +6,7 @@ import { describe, it } from 'node:test'
 import { LocalArtifactStore } from '@dudesign/artifact-store'
 import { CliAgentRuntimeGateway } from '@dudesign/runtime-gateway'
 import { InMemoryDesignJobQueue } from './designJobQueue.js'
-import { starGroupRequirementModuleGraph } from './fixtures/starGroupRequirementModuleGraph.js'
+import { productShowcaseRequirementModuleGraph } from './fixtures/productShowcaseRequirementModuleGraph.js'
 import { closePooledChromiumBrowser } from './playwrightBrowserPool.js'
 import { ApplicationService } from './service.js'
 import { InMemoryStore } from './store.js'
@@ -54,20 +54,15 @@ console.log('generated:' + focus)
         sessionId: session.session.id,
         prompt: 'Generate two star group encyclopedia directions.',
         sourceMode: 'new_html',
-        productMode: 'dynamic_encyclopedia_card',
+        productMode: 'web_app',
         variationCount: 2,
-        requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+        requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
         exploration: { level: 65 },
         explorationDataContext: {
           units: [{ id: 'unit-a' }],
           members: { current: [{ id: 'member-a' }], former: [{ id: 'member-b' }] },
           membershipEvents: [{ year: 2024 }],
           works: { group: [{ id: 'work-a' }] },
-        },
-        templateRequirements: {
-          businessContext: {
-            reviewMode: 'off',
-          },
         },
       })
       const job = await store.getJobById(created.job.id)

@@ -10,9 +10,9 @@ import { assignDesignTemplatePacks } from './service.js'
 describe('variation template assignment', () => {
   it('matches relationship, timeline, and expandable exploration to compatible templates', () => {
     const templateIds = [
-      'dtp_dynamic_encyclopedia_timeline_card',
-      'dtp_de_star_group_member_map',
-      'dtp_dynamic_encyclopedia_summary_card',
+      'dtp_trust_fintech',
+      'dtp_editorial_creative_portfolio',
+      'dtp_premium_product_launch',
     ]
     const templates = templateIds.map(id => {
       const template = officialDesignTemplatePacks.find(candidate => candidate.id === id)
@@ -47,16 +47,8 @@ describe('variation template assignment', () => {
 
     const assignments = assignDesignTemplatePacks(3, templates, plan)
 
-    assert.deepEqual(assignments.map(item => item.designTemplatePackId), [
-      'dtp_de_star_group_member_map',
-      'dtp_dynamic_encyclopedia_timeline_card',
-      'dtp_dynamic_encyclopedia_summary_card',
-    ])
-    assert.deepEqual(assignments.map(item => item.interactionParadigmId), [
-      'ip_relation_map',
-      'ip_timeline_story',
-      'ip_entity_summary',
-    ])
+    assert.deepEqual(assignments.map(item => item.designTemplatePackId), templateIds)
+    assert.deepEqual(assignments.map(item => item.interactionParadigmId), [undefined, undefined, undefined])
   })
 })
 

@@ -14,16 +14,12 @@ test('template governance shows capability policy, skill, MCP, and automation me
 
   await expect(page.getByTestId('private-template-governance-panel')).toContainText('User Private Templates')
   await expect(page.getByTestId('private-template-governance-panel')).toContainText('not tracked')
-  await expect(page.getByTestId('dynamic-encyclopedia-governance-panel')).toContainText('Dynamic Encyclopedia Mapping')
-  await expect(page.getByTestId('dynamic-encyclopedia-governance-panel')).toContainText('InteractionParadigm.compatibleTemplatePackIds')
-  await expect(page.getByTestId('dynamic-encyclopedia-governance-panel')).toContainText('Timeline Story')
-
   await expect(page.getByTestId('skill-governance-panel')).toContainText('Static Export Safe')
   await expect(page.getByTestId('skill-governance-panel')).toContainText('prompt_block_only')
   await expect(page.getByTestId('mcp-policy-governance-panel')).toContainText('Image Generation')
   await expect(page.getByTestId('mcp-policy-governance-panel')).toContainText('real_invocation_opt_in')
   await expect(page.getByTestId('mcp-policy-governance-panel')).toContainText('policy_only')
-  await expect(page.getByTestId('automation-loop-governance-panel')).toContainText('Encyclopedia Spec Review')
+  await expect(page.getByTestId('automation-loop-governance-panel')).toContainText('Deep Repair')
   await expect(page.getByTestId('automation-loop-governance-panel')).toContainText('pixel gate')
 
   await page.getByTestId('toggle-plugin-plug_static_export_safe').click()
@@ -92,16 +88,16 @@ function capabilityGovernance({
   return {
     templates: [
       {
-        id: 'dtp_dynamic_encyclopedia_card',
-        name: 'Dynamic Encyclopedia Card',
-        description: 'Business template package for dynamic encyclopedia entries.',
+        id: 'dtp_premium_product_launch',
+        name: 'Premium Product Launch',
+        description: 'A restrained product launch system for tactile, high-value products.',
         source: 'official',
         status: 'published',
         visibility: 'public',
         version: '1.0.0',
         lintStatus: 'passed',
         governanceStatus: 'published',
-        category: 'business-template-package',
+        category: 'official-template-pack',
         colorTokenCount: 4,
         componentCount: 6,
         sectionCount: 5,
@@ -114,41 +110,12 @@ function capabilityGovernance({
         designMd: { importStatus: 'missing', brokenReferenceCount: 0, dangerousInstructionCount: 0, previewSmokeStatus: 'pass' },
       },
     ],
-    totals: { total: 1, official: 1, privateOrWorkspace: 0, businessTemplatePackages: 1, passed: 1, warning: 0, failed: 0 },
+    totals: { total: 1, official: 1, privateOrWorkspace: 0, businessTemplatePackages: 0, passed: 1, warning: 0, failed: 0 },
     privateTemplates: {
       count: 0,
       latestCreatedAt: null,
       lint: { passed: 0, warning: 0, failed: 0 },
       previewArtifact: { available: 0, missing: 0 },
-    },
-    dynamicEncyclopedia: {
-      parentTemplatePackId: 'dtp_dynamic_encyclopedia_card',
-      childTemplates: [
-        { id: 'dtp_dynamic_encyclopedia_summary_card', name: 'Summary Card', status: 'active', parentTemplatePackId: 'dtp_dynamic_encyclopedia_card' },
-        { id: 'dtp_dynamic_encyclopedia_timeline_card', name: 'Timeline Card', status: 'active', parentTemplatePackId: 'dtp_dynamic_encyclopedia_card' },
-      ],
-      interactionParadigms: [
-        {
-          id: 'ip_entity_summary',
-          name: 'Entity Summary',
-          compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
-          compatibleTemplateCount: 1,
-          mappingStatus: 'mapped',
-          bestFor: ['名人', '机构组织'],
-        },
-        {
-          id: 'ip_timeline_story',
-          name: 'Timeline Story',
-          compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
-          compatibleTemplateCount: 1,
-          mappingStatus: 'mapped',
-          bestFor: ['历史人物', '影视作品'],
-        },
-      ],
-      categoryMappings: [
-        { level: 'L1', category: '名人', interactionParadigmIds: ['ip_entity_summary'], templatePackIds: ['dtp_dynamic_encyclopedia_summary_card'] },
-      ],
-      sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds',
     },
     skillGovernance: [
       {
@@ -185,7 +152,7 @@ function capabilityGovernance({
         policyMode: 'real_invocation_opt_in',
         rolloutState: 'staging_real',
         visibility: 'official',
-        allowedTemplateCategories: ['product', 'encyclopedia'],
+        allowedTemplateCategories: ['product'],
         health: { totalCount: 3, successRate: 0.67, unavailableRate: 0.33, lastStatus: 'ok', lastErrorCode: null, lastInvokedAt: checkedAt },
         usage: usageMetrics({ usageCount: 3, successRate: 0.67, averageCostCents: 12 }),
         requiredActions: ['Review-required plugin needs explicit visibility and permission review before broad rollout.'],
@@ -212,15 +179,15 @@ function capabilityGovernance({
     ],
     automationLoopGovernance: [
       {
-        id: 'loop_encyclopedia_spec_review',
-        name: 'Encyclopedia Spec Review',
-        qualityGates: ['static', 'spec', 'pixel'],
-        repairStrategy: 'spec_review_refine',
+        id: 'loop_deep_repair',
+        name: 'Deep Repair',
+        qualityGates: ['static', 'pixel'],
+        repairStrategy: 'deep_refine',
         maxRepairAttempts: 2,
         maxCostCents: 500,
         maxDurationMs: 720000,
         usage: usageMetrics({ usageCount: 2, successRate: 0.5, averageCostCents: 34 }),
-        quality: { staticGate: true, pixelGate: true, specGate: true, repairEnabled: true },
+        quality: { staticGate: true, pixelGate: true, specGate: false, repairEnabled: true },
         requiredActions: [],
       },
     ],
@@ -298,17 +265,6 @@ function emptyMcpSummary() {
   return {
     totals: { totalCount: 0, okCount: 0, deniedCount: 0, unavailableCount: 0, errorCount: 0, successRate: 0, unavailableRate: 0 },
     tools: [],
-    democase: {
-      mcpToolId: 'mcp_encyclopedia_democase_readonly',
-      totalCount: 0,
-      okCount: 0,
-      unavailableCount: 0,
-      errorCount: 0,
-      healthStatus: 'no_data',
-      lastInvokedAt: null,
-      lastErrorCode: null,
-      lastErrorMessage: null,
-    },
     filters: { mcpToolId: null, createdFrom: null, createdTo: null, limit: 1000 },
   }
 }

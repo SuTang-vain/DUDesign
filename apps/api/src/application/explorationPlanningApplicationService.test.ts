@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { RequestContext } from '../auth.js'
-import { starGroupRequirementModuleGraph } from '../fixtures/starGroupRequirementModuleGraph.js'
+import { productShowcaseRequirementModuleGraph } from '../fixtures/productShowcaseRequirementModuleGraph.js'
 import { InMemoryStore } from '../store.js'
 import { ExplorationPlanningApplicationService } from './explorationPlanningApplicationService.js'
 
@@ -16,7 +16,7 @@ describe('ExplorationPlanningApplicationService', () => {
     const service = createService(store)
     const input = {
       sessionId: session.id,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       variationCount: 3,
       exploration: { level: 40 },
       dataContext: { units: [{ id: 'unit-a' }] },
@@ -41,7 +41,7 @@ describe('ExplorationPlanningApplicationService', () => {
     const service = createService(store)
     const input = {
       sessionId: session.id,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       variationCount: 3,
       exploration: { level: 40 },
     }
@@ -94,7 +94,7 @@ describe('ExplorationPlanningApplicationService', () => {
     await assert.rejects(
       () => service.previewPlan(ownerContext(store), {
         sessionId: session.id,
-        requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+        requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
         variationCount: 3,
         exploration: { level: 101 },
       }),
@@ -105,8 +105,8 @@ describe('ExplorationPlanningApplicationService', () => {
 
 function createService(store: InMemoryStore) {
   return new ExplorationPlanningApplicationService(store, ({ requirementModuleGraphId }) => (
-    requirementModuleGraphId === starGroupRequirementModuleGraph.id
-      ? starGroupRequirementModuleGraph
+    requirementModuleGraphId === productShowcaseRequirementModuleGraph.id
+      ? productShowcaseRequirementModuleGraph
       : null
   ))
 }

@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
-import type { Artifact, DesignJob, DesignSession, DesignVariation, EncyclopediaEntryGuidance, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
+import type { Artifact, DesignJob, DesignSession, DesignVariation, ModelService, Share, UsageEvent, User, UserModelAccess, Workspace, WorkspaceMember } from '@dudesign/domain'
 import type {
   CapabilityAuthoringAsset,
   CapabilityAuthoringDraft,
@@ -203,7 +203,6 @@ export class PostgresRepository extends InMemoryStore {
     this.designEvents.clear()
     this.authIdentities.clear()
     this.authSessions.clear()
-    this.encyclopediaEntryGuidances.clear()
     this.capabilityAuthoringDrafts.clear()
     this.capabilityAuthoringAssets.clear()
 
@@ -273,10 +272,6 @@ export class PostgresRepository extends InMemoryStore {
     for (const row of (await this.pool.query('select * from auth_sessions')).rows) {
       const session = mapAuthSession(row)
       this.authSessions.set(session.tokenHash, session)
-    }
-    for (const row of (await this.pool.query('select * from encyclopedia_entry_guidances order by created_at')).rows) {
-      const guidance = mapEncyclopediaEntryGuidance(row)
-      this.encyclopediaEntryGuidances.set(guidance.id, guidance)
     }
     for (const row of (await this.pool.query('select event from design_events order by created_at, id')).rows) {
       const event = mapDesignEvent(row)
@@ -572,22 +567,6 @@ export class PostgresRepository extends InMemoryStore {
     const saved = mapCapabilityAuthoringAsset(row)
     this.capabilityAuthoringAssets.set(saved.id, saved)
     return saved
-  }
-
-  override async saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): Promise<EncyclopediaEntryGuidance> {
-    await this.persistEncyclopediaEntryGuidance(guidance)
-    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
-    return guidance
-  }
-
-  override async getEncyclopediaEntryGuidanceById(guidanceId: string): Promise<EncyclopediaEntryGuidance | null> {
-    const cached = this.encyclopediaEntryGuidances.get(guidanceId)
-    if (cached) return cached
-    const row = (await this.pool.query('select * from encyclopedia_entry_guidances where id = $1', [guidanceId])).rows[0]
-    if (!row) return null
-    const guidance = mapEncyclopediaEntryGuidance(row)
-    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
-    return guidance
   }
 
   override async appendMessage(message: Omit<SessionMessage, 'id' | 'createdAt'>): Promise<SessionMessage> {
@@ -2867,62 +2846,6 @@ export class PostgresRepository extends InMemoryStore {
     ])
   }
 
-  private async persistEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): Promise<void> {
-    await this.pool.query(`
-      insert into encyclopedia_entry_guidances (
-        id, user_id, workspace_id, product_mode, entry_title, raw_input, context,
-        primary_category, secondary_category, tertiary_category, confidence, signals, recommended_template_ids,
-        selected_template_ids, interaction_paradigm_id, automation_mode,
-        is_language_category, entry_content_language,
-        status, confirmed_at, metadata, created_at, updated_at
-      )
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16,$17,$18,$19,$20,$21::jsonb,$22,$23)
-      on conflict (id) do update set
-        entry_title = excluded.entry_title,
-        raw_input = excluded.raw_input,
-        context = excluded.context,
-        primary_category = excluded.primary_category,
-        secondary_category = excluded.secondary_category,
-        tertiary_category = excluded.tertiary_category,
-        confidence = excluded.confidence,
-        signals = excluded.signals,
-        recommended_template_ids = excluded.recommended_template_ids,
-        selected_template_ids = excluded.selected_template_ids,
-        interaction_paradigm_id = excluded.interaction_paradigm_id,
-        automation_mode = excluded.automation_mode,
-        is_language_category = excluded.is_language_category,
-        entry_content_language = excluded.entry_content_language,
-        status = excluded.status,
-        confirmed_at = excluded.confirmed_at,
-        metadata = excluded.metadata,
-        updated_at = excluded.updated_at
-    `, [
-      guidance.id,
-      guidance.userId,
-      guidance.workspaceId,
-      guidance.productMode,
-      guidance.entryTitle,
-      guidance.rawInput,
-      guidance.context,
-      guidance.primaryCategory,
-      guidance.secondaryCategory,
-      guidance.tertiaryCategory,
-      guidance.confidence,
-      JSON.stringify(guidance.signals),
-      JSON.stringify(guidance.recommendedTemplateIds),
-      JSON.stringify(guidance.selectedTemplateIds),
-      guidance.interactionParadigmId,
-      guidance.automationMode,
-      guidance.isLanguageCategory,
-      guidance.entryContentLanguage,
-      guidance.status,
-      guidance.confirmedAt,
-      JSON.stringify(guidance.metadata),
-      guidance.createdAt,
-      guidance.updatedAt,
-    ])
-  }
-
   private async getUserModelAccess(userId: string, modelServiceId: string): Promise<UserModelAccess | null> {
     const row = (await this.pool.query(`
       select *
@@ -3192,42 +3115,6 @@ function mapMessage(row: any): SessionMessage {
     metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
   }
-}
-
-function mapEncyclopediaEntryGuidance(row: any): EncyclopediaEntryGuidance {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    workspaceId: row.workspace_id,
-    productMode: row.product_mode,
-    entryTitle: row.entry_title,
-    rawInput: row.raw_input,
-    context: row.context,
-    primaryCategory: row.primary_category,
-    secondaryCategory: row.secondary_category,
-    tertiaryCategory: row.tertiary_category ?? '通用',
-    confidence: Number(row.confidence),
-    signals: stringArray(row.signals),
-    recommendedTemplateIds: stringArray(row.recommended_template_ids),
-    selectedTemplateIds: stringArray(row.selected_template_ids),
-    interactionParadigmId: row.interaction_paradigm_id ?? 'ip_entity_summary',
-    automationMode: row.automation_mode,
-    // New columns added in 0016; older rows fall back to the historical
-    // defaults (Chinese, not language category).
-    isLanguageCategory: row.is_language_category === true,
-    entryContentLanguage: isEntryContentLanguage(row.entry_content_language) ? row.entry_content_language : 'zh',
-    status: row.status,
-    confirmedAt: row.confirmed_at ? toIso(row.confirmed_at) : null,
-    metadata: row.metadata ?? {},
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  }
-}
-
-const ENTRY_CONTENT_LANGUAGES = new Set(['zh', 'en', 'fr', 'ja', 'ko', 'other', 'mixed'])
-
-function isEntryContentLanguage(value: unknown): value is EncyclopediaEntryGuidance['entryContentLanguage'] {
-  return typeof value === 'string' && ENTRY_CONTENT_LANGUAGES.has(value)
 }
 
 function mapJob(row: any): DesignJob {

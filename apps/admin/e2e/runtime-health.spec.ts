@@ -210,17 +210,6 @@ function emptyMcpSummary() {
       unavailableRate: 0,
     },
     tools: [],
-    democase: {
-      mcpToolId: 'mcp_encyclopedia_democase_readonly',
-      totalCount: 0,
-      okCount: 0,
-      unavailableCount: 0,
-      errorCount: 0,
-      healthStatus: 'no_data',
-      lastInvokedAt: null,
-      lastErrorCode: null,
-      lastErrorMessage: null,
-    },
     filters: {
       mcpToolId: null,
       createdFrom: null,

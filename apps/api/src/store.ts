@@ -10,7 +10,6 @@ import type {
   UserModelAccess,
   Workspace,
   WorkspaceMember,
-  EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import { createId, nowIso } from './id.js'
 import type {
@@ -132,7 +131,6 @@ export class InMemoryStore implements ApplicationRepository {
   readonly designEvents = new Map<string, DesignEvent[]>()
   readonly authIdentities = new Map<string, AuthIdentity>()
   readonly authSessions = new Map<string, AuthSession>()
-  readonly encyclopediaEntryGuidances = new Map<string, EncyclopediaEntryGuidance>()
   readonly capabilityAuthoringDrafts = new Map<string, CapabilityAuthoringDraft>()
   readonly capabilityAuthoringAssets = new Map<string, CapabilityAuthoringAsset>()
   readonly refineOperations = new Map<string, RefineOperationRecord>()
@@ -436,14 +434,6 @@ export class InMemoryStore implements ApplicationRepository {
     return structuredClone(asset)
   }
 
-  saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance> {
-    this.encyclopediaEntryGuidances.set(guidance.id, guidance)
-    return guidance
-  }
-
-  getEncyclopediaEntryGuidanceById(guidanceId: string): MaybePromise<EncyclopediaEntryGuidance | null> {
-    return this.encyclopediaEntryGuidances.get(guidanceId) ?? null
-  }
 
   getWorkspaceById(workspaceId: string): MaybePromise<Workspace | null> {
     return this.workspaces.get(workspaceId) ?? null

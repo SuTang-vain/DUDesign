@@ -1,10 +1,8 @@
 import { LocalArtifactStore } from '@dudesign/artifact-store'
 import {
-  BabelOGuidanceAnalysisGateway,
   BabelORuntimeGateway,
   CliAgentRuntimeGateway,
   MockRuntimeGateway,
-  type GuidanceAnalysisGateway,
   type RuntimeGateway,
 } from '@dudesign/runtime-gateway'
 import { join } from 'node:path'
@@ -24,7 +22,6 @@ export async function createApplicationServiceFromEnv(options: {
     rootDir: process.env.DUDESIGN_ARTIFACT_ROOT ?? join(process.cwd(), '.dudesign', 'artifacts'),
   })
   const runtime = createRuntimeGatewayFromEnv()
-  const guidanceAnalysis = createGuidanceAnalysisGatewayFromEnv()
   const mcpExecutor = createMcpExecutorFromEnv()
   const queue = createDesignJobQueueFromEnv()
   const consumeQueue = shouldConsumeQueue(role)
@@ -36,9 +33,9 @@ export async function createApplicationServiceFromEnv(options: {
       connectionString: process.env.DATABASE_URL,
       hydrateOnStart: process.env.DUDESIGN_REPOSITORY_HYDRATE !== 'false',
     })
-    return new ApplicationService({ store, artifacts, runtime, guidanceAnalysis, mcpExecutor, queue, consumeQueue })
+    return new ApplicationService({ store, artifacts, runtime, mcpExecutor, queue, consumeQueue })
   }
-  return new ApplicationService({ artifacts, runtime, guidanceAnalysis, mcpExecutor, queue, consumeQueue })
+  return new ApplicationService({ artifacts, runtime, mcpExecutor, queue, consumeQueue })
 }
 
 export function applicationProcessRoleFromEnv(env: NodeJS.ProcessEnv = process.env): ApplicationProcessRole {
@@ -106,35 +103,6 @@ export function createRuntimeGatewayFromEnv(): RuntimeGateway {
       streamReconnectAttempts: optionalNonNegativeInteger(process.env.BABELO_STREAM_RECONNECT_ATTEMPTS ?? process.env.DUDESIGN_BABELO_STREAM_RECONNECT_ATTEMPTS),
       expectedContractVersion: process.env.BABELO_CONTRACT_VERSION ?? process.env.DUDESIGN_BABELO_CONTRACT_VERSION,
     },
-  })
-}
-
-export function createGuidanceAnalysisGatewayFromEnv(): GuidanceAnalysisGateway | null {
-  const provider = process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER
-  if (!provider || provider === 'legacy' || provider === 'off' || provider === 'disabled') return null
-  if (provider !== 'babel-o') {
-    throw new Error(`Unsupported DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER: ${provider}. Expected one of: legacy, babel-o.`)
-  }
-  const baseUrl = process.env.DUDESIGN_GUIDANCE_BABELO_BASE_URL
-    ?? process.env.BABELO_BASE_URL
-    ?? process.env.DUDESIGN_BABELO_BASE_URL
-  if (!baseUrl) {
-    throw new Error('DUDESIGN_GUIDANCE_BABELO_BASE_URL or BABELO_BASE_URL is required when DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER=babel-o.')
-  }
-  return new BabelOGuidanceAnalysisGateway({
-    baseUrl,
-    endpointPath: process.env.DUDESIGN_GUIDANCE_ANALYSIS_ENDPOINT,
-    apiKey: process.env.DUDESIGN_GUIDANCE_BABELO_API_KEY
-      ?? process.env.BABELO_API_KEY
-      ?? process.env.DUDESIGN_BABELO_API_KEY,
-    authHeaderName: process.env.DUDESIGN_GUIDANCE_BABELO_AUTH_HEADER
-      ?? process.env.BABELO_AUTH_HEADER
-      ?? process.env.DUDESIGN_BABELO_AUTH_HEADER,
-    timeoutMs: optionalPositiveInteger(
-      process.env.DUDESIGN_GUIDANCE_ANALYSIS_TIMEOUT_MS
-      ?? process.env.BABELO_TIMEOUT_MS
-      ?? process.env.DUDESIGN_BABELO_TIMEOUT_MS,
-    ),
   })
 }
 

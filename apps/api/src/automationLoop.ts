@@ -101,7 +101,7 @@ export function buildAutomationRepairPrompt(input: {
   const specFindingList = specFindings.length
     ? [
       '',
-      'Structured dynamic encyclopedia spec findings:',
+      'Structured spec findings:',
       ...specFindings.map(finding =>
         `- [${finding.severity}] ${finding.id} (${finding.source}): ${finding.message} Repair hint: ${finding.repairHint}`,
       ),
@@ -143,10 +143,10 @@ function targetedRepairInstructions(findings: AutomationRepairFinding[], issues:
     )
   }
 
-  if (issues.some(issue => /desktop democase-derived first view/i.test(issue))) {
+  if (issues.some(issue => /desktop first view exposes/i.test(issue))) {
     instructions.push(
       '',
-      'Required democase composition repair:',
+      'Required first-view composition repair:',
       '- Rebuild the first view around one topic promise, one dominant visual or interaction stage, and one obvious next action.',
       '- Keep at most one primary selector group and one optional local disclosure group. Move all other choices into the selected state, paging, or a modal.',
       '- Remove equal-weight fact tiles, KPI/stat rows, duplicate metadata, source panels, tag clouds, and secondary modules that compete with the main stage.',
@@ -190,137 +190,6 @@ function targetedRepairInstructions(findings: AutomationRepairFinding[], issues:
       '- Remove reset, 查看更多, modal triggers, source rows, legends, counts, and decorative badges from the initial compact state; selecting a node is the next action.',
       '- Keep one replacing detail surface with one relationship label, one selected name, and at most two short Chinese sentences. Additional nodes must replace the same slots or be reached through one short 更多/下一组 control.',
       '- On desktop, keep the relation graph bounded to one primary node group and one detail surface; do not add a second navigation row merely to expose more relationships.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.marketing_pattern_risk')) {
-    instructions.push(
-      '',
-      'Required topic-card semantic repair:',
-      '- Remove proof rows, proof pills, testimonials, CTA rhythms, pricing, signup, conversion, and social-proof structures.',
-      '- Reallocate that space to the assigned template primary interaction and topic-specific visual hierarchy.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.neutral_tone_risk')
-    || issues.some(issue => /promotional|superlative|marketing-like claims/i.test(issue))) {
-    instructions.push(
-      '',
-      'Required neutral editorial copy repair:',
-      '- Remove superlatives, promotional adjectives, conversion language, and unsupported conclusions.',
-      '- Rewrite claims as short, attributable facts; use neutral labels such as「资料待核实」when evidence is not available.',
-      '- Do not add proof, ranking, testimonial, CTA, or “best/leading/most” language to fill space.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.chinese_only_required')
-    || findingIds.has('encyclopedia.excessive_english_phrases')
-    || issues.some(issue => /primarily in Chinese|multi-word English phrases|汉字占比/i.test(issue))) {
-    instructions.push(
-      '',
-      'Required Chinese-first copy repair:',
-      '- Rewrite all non-proper-noun UI labels, helper text, tabs, buttons, and descriptions in Simplified Chinese.',
-      '- Keep English only for names, official titles, album/work names, or short source quotations with clear attribution.',
-      '- Do not use English phrases such as View More, Member Details, Explore, Summary, or Timeline as UI copy when a Chinese label is available.',
-      '- Make the body prose Chinese share at least 60 percent after the rewrite; preserve the topic name and proper nouns.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.primary_interaction_missing')) {
-    instructions.push(
-      '',
-      'Required primary interaction repair:',
-      '- Add one visible, meaningful local interaction that matches the assigned template and changes a bounded content state.',
-      '- Keep supporting facts subordinate to this interaction instead of adding more static summary sections.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.member_template_mismatch')) {
-    instructions.push(
-      '',
-      'Required member-map template repair:',
-      '- Make member exploration the dominant surface: show at least two selectable members and one bounded detail panel.',
-      '- Clicking a member must update the selected member name, role, and relationship context locally.',
-      '- Do not let a generic timeline, summary, proof row, or marketing hero replace the member selection experience.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.relation_template_mismatch')) {
-    instructions.push(
-      '',
-      'Required relationship-map template repair:',
-      '- Show labeled relationship nodes/edges or a clearly grouped relationship list as the primary visual.',
-      '- Add one local relation filter or node selection state; every visible relation label must remain inside the fixed frame.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.compare_template_mismatch')) {
-    instructions.push(
-      '',
-      'Required comparison template repair:',
-      '- Show at least two entities against explicit labeled dimensions, differences, or shared traits.',
-      '- Add a local switch or highlight state that changes the comparison without external navigation.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.expandable_template_mismatch')) {
-    instructions.push(
-      '',
-      'Required progressive-disclosure template repair:',
-      '- Add concise expandable fact sections with visible expanded/collapsed state and bounded content.',
-      '- Keep expanded content within the fixed card; use tabs or a modal for overflow instead of scrolling.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.fake_tab_interaction')) {
-    instructions.push(
-      '',
-      'Required tab interaction repair:',
-      '- Keep visible tab controls only if they are real buttons with role="tab", aria-selected, and aria-controls.',
-      '- Add matching role="tabpanel" sections with stable ids and hidden states.',
-      '- Add scoped inline JavaScript that switches aria-selected and hidden when a tab is clicked.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.fake_page_switcher_interaction')) {
-    instructions.push(
-      '',
-      'Required page switcher repair:',
-      '- Keep pagination/page-switch controls only if they switch between local page panels.',
-      '- Add hidden states for inactive panels and a scoped inline click handler that updates the active page.',
-      '- Do not rely on scrolling to reveal overflow content.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.fake_modal_interaction')) {
-    instructions.push(
-      '',
-      'Required modal interaction repair:',
-      '- Keep modal/detail/reveal controls only if they open a local modal or detail panel.',
-      '- Add accessible open/close buttons, aria-expanded or aria-hidden state updates, and focus-safe local handlers.',
-      '- Do not navigate to external pages or call network APIs for modal content.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.no_scroll_frame_required')
-    || findingIds.has('encyclopedia.overflow_scroll_blocked')
-    || findingIds.has('encyclopedia.scroll_container_class_blocked')) {
-    instructions.push(
-      '',
-      'Required no-scroll frame repair:',
-      '- Preserve a fixed dynamic encyclopedia frame and set overflow:hidden on the outer frame.',
-      '- Remove .scroll-container and every overflow:auto, overflow:scroll, overflow-y:auto, and overflow-y:scroll declaration from the artifact, including modal bodies.',
-      '- Route extra content through tabs, page switchers, accordions, or local modal panels.',
-    )
-  }
-
-  if (findingIds.has('encyclopedia.duplicate_dynamic_card_root')
-    || issues.some(issue => /declares \d+ dynamic card roots/i.test(issue))) {
-    instructions.push(
-      '',
-      'Required single-root repair:',
-      '- Keep exactly one [data-dudesign-template] dynamic card root in the document.',
-      '- Remove duplicated <main>/<section> card shells and merge their required content into the single surviving root; do not hide a duplicate root with opacity or off-screen positioning.',
     )
   }
 

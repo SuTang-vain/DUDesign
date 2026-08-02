@@ -5,7 +5,6 @@ import type {
   CreateDesignJobResponse,
   CreateSessionResponse,
   DesignJobSnapshotResponse,
-  EncyclopediaEntryGuidanceResponse,
 } from '@dudesign/contracts'
 import { ApplicationService } from './service.js'
 import { PostgresRepository } from './postgresRepository.js'
@@ -69,7 +68,7 @@ describe('DUDesign API flow with PostgresRepository', { skip: !POSTGRES_TEST_URL
     }
   })
 
-  it('restores dynamic capability selection and exploration snapshots with and without startup hydrate', async () => {
+  it('restores job snapshots with and without startup hydrate', async () => {
     const recoverySchema = `dudesign_snapshot_recovery_${Date.now().toString(36)}`
     let activeHarness: ApiFlowHarness | null = null
     let activeRepository: PostgresRepository | null = null
@@ -84,41 +83,40 @@ describe('DUDesign API flow with PostgresRepository', { skip: !POSTGRES_TEST_URL
       }))
 
       const bootstrap = await getJsonAt<{ workspace: { id: string } }>(activeHarness, '/api/dev/bootstrap')
-      const guidance = await postJsonAt<EncyclopediaEntryGuidanceResponse>(activeHarness, '/api/encyclopedia/entry-guidance', {
-        workspaceId: bootstrap.workspace.id,
-        entry: '故宫博物院',
-        maxTemplateRecommendations: 3,
-        automationMode: 'semi_auto',
-      })
-      const confirmedGuidance = guidance.requiresConfirmation
-        ? await postJsonAt<EncyclopediaEntryGuidanceResponse>(activeHarness, `/api/encyclopedia/entry-guidance/${guidance.guidanceId}/confirm`, {
-            selectedTemplateIds: guidance.templateRequirements.designTemplatePackIds,
-            automationMode: 'semi_auto',
-          })
-        : guidance
       const session = await postJsonAt<CreateSessionResponse>(activeHarness, '/api/sessions', {
         workspaceId: bootstrap.workspace.id,
-        title: 'PostgreSQL dynamic snapshot recovery',
+        title: 'PostgreSQL snapshot recovery',
         mode: 'new_html',
       })
       const created = await postJsonAt<CreateDesignJobResponse>(activeHarness, '/api/design-jobs', {
         sessionId: session.session.id,
-        prompt: 'Create a dynamic encyclopedia card for 故宫博物院.',
+        prompt: 'Create a trustworthy fintech landing page for a payments product.',
         sourceMode: 'new_html',
-        productMode: 'dynamic_encyclopedia_card',
+        productMode: 'web_app',
         variationCount: 3,
-        capabilityRequirements: confirmedGuidance.capabilityRequirements,
-        templateRequirements: confirmedGuidance.templateRequirements,
-        requirementModuleGraphId: confirmedGuidance.explorationRecommendation.requirementModuleGraphId,
-        exploration: {
-          level: confirmedGuidance.explorationRecommendation.level,
-          lockedModuleIds: ['entry_timeline'],
-          excludedModuleIds: ['entry_comparison'],
+        capabilityRequirements: {
+          template: {
+            domainTemplateId: 'tpl_fintech_trust',
+            aestheticProfileId: 'aes_trustworthy_saas',
+            colorPaletteId: 'pal_blue_white_trust',
+          },
+          automation: {
+            loopProfileId: 'loop_standard',
+            maxRepairAttempts: 1,
+          },
+          plugins: {
+            skillIds: ['sk_static_export_safe'],
+            mcpToolIds: ['mcp_accessibility_validate'],
+          },
+        },
+        templateRequirements: {
+          styles: ['minimal', 'editorial'],
+          deviceTargets: ['desktop', 'mobile'],
         },
       })
       const baseline = await getJsonAt<DesignJobSnapshotResponse>(activeHarness, `/api/design-jobs/${created.job.id}`)
-      assert.ok(baseline.job.capabilitySelectionSnapshot)
-      assert.ok(baseline.job.explorationPlan)
+      assert.equal(baseline.job.productMode, 'web_app')
+      assert.ok(baseline.job.capabilitySnapshot)
       assert.equal(baseline.variations.length, 3)
 
       await activeHarness.close()
@@ -137,9 +135,7 @@ describe('DUDesign API flow with PostgresRepository', { skip: !POSTGRES_TEST_URL
           consumeQueue: false,
         }))
         const recovered = await getJsonAt<DesignJobSnapshotResponse>(activeHarness, `/api/design-jobs/${created.job.id}`)
-        assert.deepEqual(recovered.job.capabilitySelectionSnapshot, baseline.job.capabilitySelectionSnapshot)
-        assert.deepEqual(recovered.job.explorationPlan, baseline.job.explorationPlan)
-        assert.deepEqual(recovered.job.requirementModuleGraph, baseline.job.requirementModuleGraph)
+        assert.deepEqual(recovered.job.capabilitySnapshot, baseline.job.capabilitySnapshot)
         assert.deepEqual(
           recovered.variations.map(variation => variation.explorationPlan),
           baseline.variations.map(variation => variation.explorationPlan),

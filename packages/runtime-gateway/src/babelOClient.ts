@@ -1,12 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import {
-  defaultEncyclopediaDemocaseExperienceProfile,
-  encyclopediaDemocaseStageForInteractionParadigm,
   type AdvancedTemplateConstraints,
   type CapabilitySnapshot,
   type DesignTemplatePack,
-  type EncyclopediaDemocaseExperienceProfile,
   type HtmlExample,
   type HtmlExampleFileRef,
 } from '@dudesign/contracts'
@@ -292,7 +289,6 @@ export class BabelORuntimeClient {
     const styleDirection = variationStyleDirection(
       input.variationIndex,
       input.templateRequirements,
-      input.productMode,
       explorationContext,
     )
     return this.requestJson<BabelORuntimeAgentResponse>('/v1/agents', {
@@ -558,47 +554,12 @@ const DEFAULT_VARIATION_STYLE_DIRECTIONS = [
 function variationStyleDirection(
   variationIndex: number,
   templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
-  productMode?: SpawnVariationAgentsInput['productMode'],
   explorationContext?: RuntimeExplorationContextV1,
 ): string {
-  const baseDirection = productMode === 'dynamic_encyclopedia_card'
-    ? dynamicTopicCardStyleDirection(variationIndex, templateRequirements, explorationContext)
-    : DEFAULT_VARIATION_STYLE_DIRECTIONS[(Math.max(variationIndex, 1) - 1) % DEFAULT_VARIATION_STYLE_DIRECTIONS.length]
+  const baseDirection = DEFAULT_VARIATION_STYLE_DIRECTIONS[(Math.max(variationIndex, 1) - 1) % DEFAULT_VARIATION_STYLE_DIRECTIONS.length]
   const userStyles = templateRequirements?.styles?.map(style => style.trim()).filter(style => style.length > 0) ?? []
   if (userStyles.length === 0) return baseDirection
   return `${baseDirection} Interpret the user-requested style tags through this direction: ${userStyles.join(', ')}.`
-}
-
-function dynamicTopicCardStyleDirection(
-  variationIndex: number,
-  templateRequirements?: SpawnVariationAgentsInput['templateRequirements'],
-  explorationContext?: RuntimeExplorationContextV1,
-): string {
-  const assignment = templateRequirements?.variationTemplateAssignments?.find(item => item.variationIndex === variationIndex)
-  const signal = [
-    assignment?.interactionParadigmId,
-    assignment?.designTemplatePackId,
-    explorationContext?.focus.id,
-    ...(explorationContext?.interactionDirectionIds ?? []),
-  ].filter((item): item is string => Boolean(item)).join(' ').toLowerCase()
-
-  const shared = ' Keep one primary interaction visually dominant; supporting facts must remain subordinate. Avoid SaaS conversion, CTA, proof-block, testimonial, social-proof, pricing, signup, and dashboard patterns.'
-  if (/relation|member|cast|character/.test(signal)) {
-    return `Member and relationship exploration canvas: make the entity field, member selection, and relationship state the visual anchor; reveal detail through direct local selection.${shared}`
-  }
-  if (/timeline|event|origin|episode|series/.test(signal)) {
-    return `Cinematic phase narrative: make the ordered stages and current milestone the visual anchor; use a compact phase switcher and one clearly changing story surface.${shared}`
-  }
-  if (/compare|comparison/.test(signal)) {
-    return `Focused comparison object: make the compared attributes and active distinction the visual anchor; keep the comparison bounded and directly switchable.${shared}`
-  }
-  if (/route|map|poi|spatial/.test(signal)) {
-    return `Spatial topic explorer: make the schematic route, location, or POI selection the visual anchor; use verified labels and local detail reveal.${shared}`
-  }
-  if (/summary|expandable|fact/.test(signal)) {
-    return `Curated topic portrait: make one distinctive topic composition the visual anchor, then reveal compact facts through tabs or progressive disclosure.${shared}`
-  }
-  return `Theme-led interactive object: create a distinctive fixed-canvas topic experience with one primary local interaction and a clear visual focal point.${shared}`
 }
 
 function buildVariationRuntimePrompt(
@@ -615,7 +576,6 @@ function buildVariationRuntimePrompt(
     '',
     input.prompt,
     '',
-    dynamicTopicCardProductIntentBlock(input.productMode),
     capabilityPromptBlock(input.templateRequirements?.capabilitySnapshot),
     pluginPromptBlock(input.templateRequirements?.capabilitySnapshot),
     capabilityArtifactPromptBlock(input.templateRequirements),
@@ -644,23 +604,11 @@ function buildRefineRuntimePrompt(input: RefineVariationInput): string {
     'DUDesign refinement invariants:',
     '- Preserve the current variation\'s assigned Template Pack, information architecture, viewport contract, and interaction paradigm unless the user explicitly asks to change the template.',
     '- Apply the requested change surgically. Keep unrelated content, layout, styles, and working interactions unchanged.',
-    dynamicTopicCardProductIntentBlock(input.productMode),
     templateBlock,
     input.templateRequirements?.advancedConstraints ? advancedConstraintsPromptBlock(input.templateRequirements.advancedConstraints) : '',
     input.templateRequirements?.notes ? `DUDesign advanced direction notes:\n${input.templateRequirements.notes}` : '',
     runtimeExplorationPromptBlock(input.explorationContext),
   ].filter(Boolean).join('\n')
-}
-
-function dynamicTopicCardProductIntentBlock(productMode: SpawnVariationAgentsInput['productMode'] | undefined): string {
-  if (productMode !== 'dynamic_encyclopedia_card') return ''
-  return [
-    'DUDesign product intent: topic-driven dynamic interactive card.',
-    '- The entry/entity is the thematic starting point and factual boundary; it is not a request for a traditional encyclopedia article or encyclopedia website page.',
-    '- Lead with one valuable interaction and a distinctive single-canvas visual narrative. Curate only the content needed for the user goal.',
-    '- Do not default to encyclopedia infobox + contents + long article sections, and do not optimize for exhaustive knowledge coverage.',
-    '- Factual neutrality and source awareness remain safety constraints, not layout requirements.',
-  ].join('\n')
 }
 
 function capabilityArtifactPromptBlock(templateRequirements?: SpawnVariationAgentsInput['templateRequirements']): string {
@@ -797,13 +745,11 @@ function designTemplatePackPromptBlock(
   const sections = Object.entries(pack.rationale.sections)
     .map(([key, value]) => `${key}: ${value}`)
     .join(' ')
-  const businessContext = templateRequirements?.businessContext
   return [
     'DUDesign assigned Template Pack:',
     parentPack ? `- Parent package: ${parentPack.name} (${parentPack.id})${parentPack.description ? ` — ${parentPack.description}` : ''}` : undefined,
     parentPack ? parentTemplatePackConstraintPromptBlock(parentPack) : undefined,
     `- Template: ${pack.name} (${pack.id})${pack.description ? ` — ${pack.description}` : ''}`,
-    businessContext ? dynamicEncyclopediaBusinessContextPromptBlock(businessContext, assignment) : undefined,
     interactionParadigm ? interactionParadigmPromptBlock(interactionParadigm) : undefined,
     pack.rationale.overview ? `- Overview: ${pack.rationale.overview}` : undefined,
     colors ? `- Color tokens: ${colors}.` : undefined,
@@ -816,109 +762,8 @@ function designTemplatePackPromptBlock(
     pack.rationale.dos.length ? `- Do: ${pack.rationale.dos.join(' ')}` : undefined,
     pack.rationale.donts.length ? `- Do not: ${pack.rationale.donts.join(' ')}` : undefined,
     pack.htmlExamples?.length ? htmlExamplesPromptBlock(pack.htmlExamples) : undefined,
-    // Keep the hard delivery contract after the long few-shot block so it remains
-    // the final instruction the runtime sees before producing the artifact.
-    dynamicTopicCardDemocaseCompositionPromptBlock(pack, parentPack),
-    dynamicTopicCardExtremeSmallPromptBlock(pack, parentPack),
     '- Treat this Template Pack as a stable snapshot for this variation. Do not imitate public brands or proprietary trade dress.',
   ].filter((line): line is string => Boolean(line)).join('\n')
-}
-
-function dynamicTopicCardDemocaseCompositionPromptBlock(
-  pack: DesignTemplatePack,
-  parentPack?: DesignTemplatePack,
-): string | undefined {
-  const dynamicParentId = 'dtp_dynamic_encyclopedia_card'
-  const belongsToDynamicTopicCard = pack.id === dynamicParentId
-    || pack.parentPackId === dynamicParentId
-    || parentPack?.id === dynamicParentId
-  if (!belongsToDynamicTopicCard) return undefined
-
-  const sections = pack.rationale.sections
-  const parentSections = parentPack?.rationale.sections
-  const composition = sections.democaseComposition ?? parentSections?.democaseComposition
-  const firstViewBudget = sections.firstViewBudget ?? parentSections?.firstViewBudget
-  const progressiveReveal = sections.progressiveReveal ?? parentSections?.progressiveReveal
-  const forbiddenComposition = sections.forbiddenComposition ?? parentSections?.forbiddenComposition
-
-  return [
-    '- Required democase-derived composition contract:',
-    `  First view: ${composition ?? 'One topic promise, one dominant interaction stage, and one obvious next action.'}`,
-    `  Attention budget: ${firstViewBudget ?? 'Use at most two navigation/control groups and one compact supporting detail surface.'}`,
-    `  Progressive reveal: ${progressiveReveal ?? 'Move secondary facts into the primary interaction state instead of adding more first-view modules.'}`,
-    `  Forbidden composition: ${forbiddenComposition ?? 'No dashboard, equal-weight module grid, or simultaneous summary + timeline + relation + comparison layout.'}`,
-    '  The democase is evidence for information rhythm and interaction hierarchy, not a request to copy its entry text, branding, illustrations, or trade dress.',
-    '  Before returning HTML, remove any first-view module that does not serve the single dominant interaction or its selected detail.',
-  ].join('\n')
-}
-
-function dynamicTopicCardExtremeSmallPromptBlock(
-  pack: DesignTemplatePack,
-  parentPack?: DesignTemplatePack,
-): string | undefined {
-  const dynamicParentId = 'dtp_dynamic_encyclopedia_card'
-  const belongsToDynamicTopicCard = pack.id === dynamicParentId
-    || pack.parentPackId === dynamicParentId
-    || parentPack?.id === dynamicParentId
-  if (!belongsToDynamicTopicCard) return undefined
-
-  const archetypeRules = dynamicTopicCardExtremeSmallArchetypeRules(pack)
-
-  return [
-    '- Required 300x360 extreme-small delivery contract:',
-    '  Treat 300x360 CSS px as a first-class authored state, not a scaled desktop or 380x456 layout.',
-    '  The outer card must render at exactly 300x360 including border and padding (use border-box), remain centered, and avoid body or inner scrolling.',
-    '  Author a deliberately smaller initial information architecture for this media state. Keep the topic identity, exactly one concise essential fact or summary, and one obvious route to the next state.',
-    '  Use exactly one primary navigation/control group at 300x360: either 2-3 page-switching tabs/segmented buttons, 2-3 entity/phase choices, or one reveal action. A single optional local detail/reveal action may accompany it; do not show two competing navigation rows.',
-    '  Reduce initial information density aggressively. Remove duplicate metadata, source rows, decorative labels, repeated summaries, and secondary fact cards from the first view. Move that information behind a working local tab, page switcher, accordion, detail panel, or modal.',
-    '  Make the path to more information obvious without explanatory prose: use a short Chinese affordance such as 查看更多、切换阶段、查看关系 or a visible page indicator like 1/4. The initial state should invite one next action.',
-    '  Keep each essential control at least 24x24 CSS px, inside the frame, unobscured, and wired to a real visible or accessible state change.',
-    '  Preserve native hidden-state semantics explicitly: include [hidden] { display:none !important; } or an equally specific inactive-panel rule after display:grid/flex panel rules. Never let a generic panel display declaration override hidden.',
-    '  Only the active tab/page/detail panel may participate in layout and pointer hit-testing. After every state switch, inactive panels must be display:none (not merely transparent or aria-hidden) so they cannot cover visible controls.',
-    '  For SVG or canvas interactions, validate the rendered browser CSS bounding box after viewBox/canvas scaling; SVG user-space dimensions and pointer-events: bounding-box do not guarantee a 24x24 CSS px hit target. Prefer HTML/CSS controls in the 300x360 layout, or provide an invisible hit layer that measures at least 24x24 CSS px.',
-    '  Budget controls deliberately at 300x360: keep no more than three primary tabs or choices and no more than two other visible topic controls in one state. If more items exist, expose them through previous/next paging, a single selector, or a secondary detail state instead of a wrapping or horizontally overflowing row.',
-    '  For relation/member maps, choose one compact selector with at most three nodes or members and page the rest; do not also keep a relationship-tab row. For timelines/origin stories, show one active phase plus one compact phase switcher; do not duplicate phase controls in multiple regions. For comparison cards, show one active dimension plus one compact selector; do not keep both target tabs and view tabs. For progressive disclosure, use either accordion toggles or tabs for the same categories, never both.',
-    ...archetypeRules,
-    '  Hide deferred desktop modules with display:none in the 300x360 initial state. Do not position them outside the frame, clip their text at the edge, or leave transparent controls in hit-testing.',
-    '  Do not expose duplicate controls for the same action. If compact HTML buttons replace SVG/canvas nodes at 300x360, remove role="button", tabindex, and pointer interaction from the SVG/canvas nodes in that media state so only the compact control layer remains interactive.',
-    '  Before finishing, inspect every visible control bounding box at 300x360: left/top must be inside the card, right/bottom must not exceed it, and no flex/grid row may overflow or clip its final items.',
-    '  Treat the democase300x360Budget supplied above as a hard rendered maximum. Count controls, control groups, repeated items, and visible text after CSS media queries are applied, not from source markup.',
-    '  Run a literal final CSS audit: the artifact must contain no overflow:auto, overflow:scroll, overflow-y:auto, or overflow-y:scroll declaration anywhere, including modal bodies. Paginate, replace, or hide excess content instead.',
-    '  Final 300x360 acceptance: title visible; one short core fact visible; exactly one primary control group; no clipped core text; no duplicate action; all retained controls at least 24x24 CSS px; one click visibly changes the bounded detail state.',
-    '  Do not satisfy this contract by hiding every navigation control, shrinking unreadable desktop content, deleting the topic identity, or relying on scrolling.',
-  ].join('\n')
-}
-
-function dynamicTopicCardExtremeSmallArchetypeRules(pack: DesignTemplatePack): string[] {
-  const signal = `${pack.id} ${pack.name} ${pack.description ?? ''}`.toLowerCase()
-  if (/relation|relationship|member|cast|character|关系|成员|角色/.test(signal)) {
-    return [
-      '  Relation/member 300x360 recipe: show one row/grid of 2-3 directly selectable nodes or members and one selected-detail surface. Hide the relation-category tab row entirely in this media state; never expose both tabs and nodes as navigation.',
-      '  Keep the selected detail to one relationship label, one name/title, and at most two short sentences. Hide source lists, long biographies, reset buttons, modal triggers, legends, counts, and decorative badges from the initial compact state.',
-      '  If more nodes must remain reachable, use one short 更多/下一组 control that replaces the same 2-3 selector slots; do not append another row or open a scrollable list.',
-    ]
-  }
-  if (/timeline|event|episode|series|origin|时间|事件|剧集|系列|典故/.test(signal)) {
-    return [
-      '  Timeline/origin 300x360 recipe: show 2-3 phase choices in one switcher, one active phase label, and one short event fact. Hide inactive event bodies, full chronology, source rows, and all duplicate previous/next or footer navigation.',
-    ]
-  }
-  if (/compare|comparison|对比|辨析/.test(signal)) {
-    return [
-      '  Comparison 300x360 recipe: show the two entity names, 2-3 dimension choices in one selector, and one concise active conclusion. Hide secondary fact grids, evidence rows, and any second target/view selector.',
-    ]
-  }
-  if (/route|map|poi|spatial|路线|地图|景点/.test(signal)) {
-    return [
-      '  Route/map 300x360 recipe: show 2-3 stop or POI choices in one selector and one selected-stop detail. Hide transport, ticket, weather, legend, source, and alternate-route modules from the initial state.',
-    ]
-  }
-  if (/expandable|progressive|summary|fact|展开|摘要|事实/.test(signal)) {
-    return [
-      '  Summary/progressive 300x360 recipe: show 2-3 category or disclosure choices and exactly one active fact block. Use tabs or disclosure toggles, never both, and hide source/metadata rows until a secondary state.',
-    ]
-  }
-  return []
 }
 
 function htmlExamplesPromptBlock(htmlExamples: HtmlExample[]): string {
@@ -1034,109 +879,6 @@ function interactionParadigmPromptBlock(paradigm: NonNullable<SpawnVariationAgen
     paradigm.requiredDataShape.length ? `  requiredDataShape=${paradigm.requiredDataShape.join(', ')}` : undefined,
     paradigm.compatibleTemplatePackIds.length ? `  compatibleTemplatePackIds=${paradigm.compatibleTemplatePackIds.join(', ')}` : undefined,
   ].filter((line): line is string => Boolean(line)).join('\n')
-}
-
-function dynamicEncyclopediaBusinessContextPromptBlock(
-  context: NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext'],
-  assignment?: NonNullable<NonNullable<SpawnVariationAgentsInput['templateRequirements']>['variationTemplateAssignments']>[number],
-): string {
-  if (!context) return ''
-  const vector = context.classificationVector
-  const classification = context.classification
-  const selectedChildren = context.childTemplates
-    ?.filter(item => item.selected === true && (!assignment || item.designTemplatePackId === assignment.designTemplatePackId))
-    .map(item => [
-      item.designTemplatePackId,
-      item.interactionParadigmId ? `paradigm=${item.interactionParadigmId}` : undefined,
-      typeof item.confidence === 'number' ? `confidence=${item.confidence.toFixed(2)}` : undefined,
-      item.reason ? `reason=${item.reason}` : undefined,
-    ].filter(Boolean).join(' | '))
-    ?? []
-  const democaseProfile = selectDemocaseExperienceProfile(
-    context.democaseExperienceProfiles,
-    assignment?.interactionParadigmId ?? context.interactionParadigmId,
-  )
-  const lines = [
-    '- Dynamic encyclopedia business context:',
-    context.guidanceId ? `  guidanceId=${context.guidanceId}` : undefined,
-    context.entryTitle ? `  entryTitle=${context.entryTitle}` : undefined,
-    context.entryPrimaryCategory || context.entrySecondaryCategory || context.entryTertiaryCategory
-      ? `  entryCategory=${[context.entryPrimaryCategory, context.entrySecondaryCategory, context.entryTertiaryCategory].filter(Boolean).join('/')}`
-      : undefined,
-    classification ? `  classification=${[classification.l1, classification.l2, classification.l3].filter(Boolean).join('/')} confidence=${typeof classification.confidence === 'number' ? classification.confidence.toFixed(2) : 'unknown'} source=${classification.source ?? 'unknown'}` : undefined,
-    classification?.signals?.length ? `  classificationSignals=${classification.signals.join(', ')}` : undefined,
-    vector ? `  classificationVector=${vector.l1}/${vector.l2}/${vector.l3} confidence=${vector.confidence.toFixed(2)} source=${vector.source}` : undefined,
-    vector?.recommendedModulePriorities.length ? `  recommendedModulePriorities=${vector.recommendedModulePriorities.join(', ')}` : undefined,
-    vector?.preferredTemplateIds.length ? `  preferredTemplateIds=${vector.preferredTemplateIds.join(', ')}` : undefined,
-    vector?.riskFlags.length ? `  verticalRiskFlags=${vector.riskFlags.join(', ')}` : undefined,
-    selectedChildren.length ? `  selectedChildTemplates=${selectedChildren.join(' || ')}` : undefined,
-    democaseProfile?.evidence ? `  matchedDemocase=${democaseProfile.evidence.title} (${democaseProfile.evidence.caseId}) score=${democaseProfile.evidence.score.toFixed(2)}` : undefined,
-    democaseProfile ? `  democaseDominantStage=${democaseProfile.experienceProfile.dominantStage}` : undefined,
-    democaseProfile ? `  democaseProfileSource=${democaseProfile.evidence ? 'matched_evidence' : 'official_stage_fallback'}` : undefined,
-    democaseProfile ? `  democaseFirstView=${democaseProfile.experienceProfile.firstViewPromise}` : undefined,
-    democaseProfile ? `  democasePrimaryInteraction=${democaseProfile.experienceProfile.primaryInteraction}` : undefined,
-    democaseProfile ? `  democaseSecondaryReveal=${democaseProfile.experienceProfile.secondaryReveal}` : undefined,
-    democaseProfile ? `  democaseDesktopBudget=max ${democaseProfile.experienceProfile.attentionBudget.desktop.maxControlGroups} control groups, ${democaseProfile.experienceProfile.attentionBudget.desktop.maxVisibleControls} visible controls, ${democaseProfile.experienceProfile.attentionBudget.desktop.maxVisibleItems} visible items` : undefined,
-    democaseProfile ? `  democase300x360Budget=max ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxControlGroups} control groups, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxVisibleControls} visible controls, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxPrimaryTabs} primary tabs, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxVisibleItems} visible items, ${democaseProfile.experienceProfile.attentionBudget.extremeSmall.maxTextCharacters} visible text characters` : undefined,
-    democaseProfile?.experienceProfile.preserveAt300x360.length ? `  preserveAt300x360=${democaseProfile.experienceProfile.preserveAt300x360.join('; ')}` : undefined,
-    democaseProfile?.experienceProfile.deferAt300x360.length ? `  deferAt300x360=${democaseProfile.experienceProfile.deferAt300x360.join('; ')}` : undefined,
-    democaseProfile?.experienceProfile.forbiddenPatterns.length ? `  democaseForbiddenPatterns=${democaseProfile.experienceProfile.forbiddenPatterns.join('; ')}` : undefined,
-    typeof context.isLanguageCategory === 'boolean' ? `  isLanguageCategory=${context.isLanguageCategory}` : undefined,
-    context.entryContentLanguage ? `  entryContentLanguage=${context.entryContentLanguage}` : undefined,
-    assignment?.interactionParadigmId || context.interactionParadigmId
-      ? `  interactionParadigmId=${assignment?.interactionParadigmId ?? context.interactionParadigmId}`
-      : undefined,
-    assignment
-      ? `  assignedTemplateId=${assignment.designTemplatePackId}`
-      : context.recommendedTemplateIds?.length
-        ? `  recommendedTemplateIds=${context.recommendedTemplateIds.join(', ')}`
-        : undefined,
-    context.automationMode ? `  automationMode=${context.automationMode}` : undefined,
-    context.reviewMode ? `  reviewMode=${context.reviewMode}` : undefined,
-    vector?.riskFlags.length ? `  runtimeInstruction=${dynamicEncyclopediaRiskInstruction(vector.riskFlags)}` : undefined,
-  ].filter((line): line is string => Boolean(line))
-  return lines.length > 1 ? lines.join('\n') : ''
-}
-
-function selectDemocaseExperienceProfile(
-  profiles: NonNullable<NonNullable<SpawnVariationAgentsInput['templateRequirements']>['businessContext']>['democaseExperienceProfiles'],
-  interactionParadigmId: string | undefined,
-): {
-  evidence?: NonNullable<typeof profiles>[number]
-  experienceProfile: EncyclopediaDemocaseExperienceProfile
-} | undefined {
-  const stage = encyclopediaDemocaseStageForInteractionParadigm(interactionParadigmId)
-  const evidence = stage
-    ? profiles?.find(item => item.experienceProfile.dominantStage === stage)
-    : profiles?.[0]
-  const experienceProfile = evidence?.experienceProfile
-    ?? (stage ? defaultEncyclopediaDemocaseExperienceProfile(stage) : undefined)
-  return experienceProfile ? { evidence, experienceProfile } : undefined
-}
-
-function dynamicEncyclopediaRiskInstruction(riskFlags: string[]): string {
-  const instructions = [
-    'Resolve vertical risk flags before writing HTML: remove unsafe resource paths, mark missing facts as 资料不足, and keep high-risk claims source-aware.',
-  ]
-  if (riskFlags.includes('episode_count_hallucination_risk')) {
-    instructions.push('For TV episode chains, every episode count, episode node, plot point, foreshadowing/reveal, or ending explanation must include visible wording like 资料不足 / 待核实 / 据公开资料 / 来源；if the supplied context lacks data, replace exact episode nodes with phased nodes labeled 资料不足 instead of inventing details.')
-  }
-  if (riskFlags.includes('media_resource_link_blocked') || riskFlags.includes('no_piracy_or_playback_resources')) {
-    instructions.push('For film/TV cards, never create or mention resource-entry modules, links, buttons, labels, tabs, hints, or copy. Do not write banned resource words in visible UI, even inside a negative safety disclaimer. Replace that space with lawful encyclopedia modules like 角色关系 / 剧情结构 / 系列导航 / 来源提示.')
-  }
-  if (riskFlags.includes('spoiler_control_required')) {
-    instructions.push('For spoiler-heavy TV content, put endings/truth/reversal details behind a local reveal control with a visible 剧透提示 / 隐藏结局 label.')
-  }
-  if (riskFlags.includes('relationship_hallucination_risk')) {
-    instructions.push('For historical-person relationship edges, each kinship, mentorship, faction, or rival relation must show 来源 / 待核实 / 资料不足 near the edge label.')
-  }
-  if (riskFlags.includes('origin_source_required')) {
-    instructions.push('For cultural phrase origin stories, show 出自/来源/原文/暂无可靠出处; hide the origin module when no source is available.')
-  }
-  if (riskFlags.includes('related_phrase_type_required')) {
-    instructions.push('For related cultural phrases, label each relation type explicitly: 近义 / 反义 / 同源 / 同类典故 / 人物关联 / 易混词.')
-  }
-  return instructions.join(' ')
 }
 
 function compactJson(value: unknown): string {

@@ -4,16 +4,12 @@ import type {
   RequirementModuleGraphV1,
   VariationExplorationPlanV1,
 } from './exploration.js'
-import type {
-  EncyclopediaDemocaseExperienceProfile,
-  EncyclopediaGuidanceAnalysisV2,
-} from './guidance.js'
 
 export type ID = string
 
 export type SourceMode = 'new_html' | 'from_existing_html'
 
-export type ProductMode = 'web_app' | 'dynamic_encyclopedia_card'
+export type ProductMode = 'web_app'
 
 export type DeviceTarget = 'desktop' | 'tablet' | 'mobile'
 
@@ -167,7 +163,6 @@ export type ImageGenerationUsageContext =
   | 'template_illustration'
   | 'background_texture'
   | 'reference_mood'
-  | 'dynamic_encyclopedia_card'
 
 export type ImageGenerationRequest = {
   schemaVersion: '2026-07-06.dudesign-image-generation-request.v1'
@@ -211,7 +206,6 @@ export type DataIntakeInputSource =
   | 'table'
   | 'json'
   | 'uploaded_asset'
-  | 'democase'
   | 'research_artifact'
   | 'existing_html'
   | 'memory'
@@ -259,7 +253,6 @@ export type AnalyzeDataIntakeRequest = {
   tableText?: string | null
   jsonText?: string | null
   uploadedAssetIds?: ID[]
-  democaseIds?: ID[]
   researchArtifactIds?: ID[]
   existingHtmlArtifactId?: ID | null
   memoryNoteIds?: ID[]
@@ -1001,17 +994,6 @@ export type AdminMcpInvocationSummaryResponse = {
     unavailableRate: number
   }
   tools: AdminMcpToolHealthSummary[]
-  democase: {
-    mcpToolId: ID
-    totalCount: number
-    okCount: number
-    unavailableCount: number
-    errorCount: number
-    healthStatus: 'healthy' | 'degraded' | 'unavailable' | 'no_data'
-    lastInvokedAt: string | null
-    lastErrorCode: string | null
-    lastErrorMessage: string | null
-  }
   filters: {
     mcpToolId: ID | null
     createdFrom: string | null
@@ -1059,140 +1041,6 @@ export type CapabilityRequirements = {
     maxRepairAttempts?: number | null
     maxCostCents?: number | null
     maxDurationMs?: number | null
-  }
-}
-
-export type EncyclopediaEntryGuidanceRequest = {
-  workspaceId?: ID | null
-  entry: string
-  context?: string | null
-  maxTemplateRecommendations?: number
-  automationMode?: 'off' | 'semi_auto' | 'auto'
-}
-
-export type ConfirmEncyclopediaEntryGuidanceRequest = {
-  selectedTemplateIds?: ID[]
-  classificationOverride?: {
-    primaryCategory: string
-    secondaryCategory: string
-    tertiaryCategory?: string | null
-  }
-  automationMode?: 'off' | 'semi_auto' | 'auto'
-}
-
-/**
- * 词条正文预期语种。用于百科规范审查的"中文优先"豁免判断。
- * 与 domain 层 EncyclopediaEntryGuidance.entryContentLanguage 保持一致。
- */
-export type EntryContentLanguage = 'zh' | 'en' | 'fr' | 'ja' | 'ko' | 'other' | 'mixed'
-
-export type EncyclopediaClassificationSource = 'mock_rules' | 'ai_guidance_v2'
-
-export type EncyclopediaClassificationVector = {
-  schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1'
-  l1: string
-  l2: string
-  l3: string
-  confidence: number
-  signals: string[]
-  source: EncyclopediaClassificationSource
-  recommendedModulePriorities: string[]
-  preferredTemplateIds: ID[]
-  riskFlags: string[]
-}
-
-export type EncyclopediaEntryGuidanceResponse = {
-  guidanceId: ID
-  productMode: Extract<ProductMode, 'dynamic_encyclopedia_card'>
-  status: 'draft' | 'needs_confirmation' | 'confirmed'
-  requiresConfirmation: boolean
-  confirmedAt: string | null
-  entry: {
-    title: string
-    rawInput: string
-    context: string | null
-  }
-  /**
-   * 是否为语言类词条（外语/语言学/翻译/方言/语言研究）。
-   * true 时百科规范审查豁免"中文优先"硬约束，允许外语正文。
-   */
-  isLanguageCategory: boolean
-  /**
-   * 词条正文预期语种。基于 `entryLanguage` 启发式 + democase 信号推断。
-   * 仅用于 spec review 与未来 i18n 适配，不影响生成。
-   */
-  entryContentLanguage: EntryContentLanguage
-  analysis: EncyclopediaGuidanceAnalysisV2 | null
-  classification: {
-    primaryCategory: string
-    secondaryCategory: string
-    tertiaryCategory: string
-    confidence: number
-    signals: string[]
-    source: EncyclopediaClassificationSource
-  }
-  democaseReferences: Array<{
-    caseId: ID
-    title: string
-    score: number
-    matchedKeywords: string[]
-    summary: string
-    experienceProfile?: EncyclopediaDemocaseExperienceProfile
-  }>
-  recommendedTemplates: Array<{
-    designTemplatePackId: ID
-    name: string
-    interactionParadigmId: ID
-    reason: string
-    confidence: number
-    selected: boolean
-  }>
-  interactionParadigm: InteractionParadigm
-  explorationRecommendation: {
-    level: number
-    reason: string
-    confidence: number
-    requirementModuleGraphId: ID
-  }
-  capabilityRequirements: CapabilityRequirements
-  templateRequirements: NonNullable<CreateDesignJobRequest['templateRequirements']> & {
-    interactionParadigm: InteractionParadigm
-    businessContext: {
-      guidanceId: ID
-      entryTitle: string
-      entryPrimaryCategory: string
-      entrySecondaryCategory: string
-      entryTertiaryCategory: string
-      isLanguageCategory: boolean
-      entryContentLanguage: EntryContentLanguage
-      classification: {
-        l1: string
-        l2: string
-        l3: string
-        confidence: number
-        signals: string[]
-        source: EncyclopediaClassificationSource
-      }
-      classificationVector: EncyclopediaClassificationVector
-      interactionParadigmId: ID
-      interactionParadigm: InteractionParadigm
-      recommendedTemplateIds: ID[]
-      childTemplates: Array<{
-        designTemplatePackId: ID
-        interactionParadigmId: ID
-        selected: boolean
-        confidence: number
-        reason: string
-      }>
-      democaseExperienceProfiles: Array<{
-        caseId: ID
-        title: string
-        score: number
-        experienceProfile: EncyclopediaDemocaseExperienceProfile
-      }>
-      automationMode: 'off' | 'semi_auto' | 'auto'
-      reviewMode: 'off' | 'semi_auto' | 'auto'
-    }
   }
 }
 
@@ -1254,14 +1102,12 @@ export type CapabilityPreset = {
 
 export type CapabilitySelectionSource =
   | 'official_preset'
-  | 'entry_guidance'
   | 'user_override'
   | 'job_snapshot'
 
 export type CapabilitySelectionSnapshotV1 = {
   schemaVersion: '2026-07-14.dudesign-capability-selection.v1'
   presetId: ID
-  guidanceId: ID | null
   confirmedAt: string
   selectedTemplatePackIds: ID[]
   selectedSkillIds: ID[]
@@ -1535,39 +1381,6 @@ export type CreateDesignJobRequest = {
       costCents?: number
       createdAt?: string
     }>
-    businessContext?: {
-      guidanceId?: ID
-      entryTitle?: string
-      entryPrimaryCategory?: string
-      entrySecondaryCategory?: string
-      entryTertiaryCategory?: string
-      classification?: {
-        l1: string
-        l2: string
-        l3: string
-        confidence: number
-        signals: string[]
-        source: EncyclopediaClassificationSource
-      }
-      interactionParadigmId?: ID
-      interactionParadigm?: InteractionParadigm
-      recommendedTemplateIds?: ID[]
-      childTemplates?: Array<{
-        designTemplatePackId: ID
-        interactionParadigmId: ID
-        selected: boolean
-        confidence: number
-        reason: string
-      }>
-      democaseExperienceProfiles?: Array<{
-        caseId: ID
-        title: string
-        score: number
-        experienceProfile: EncyclopediaDemocaseExperienceProfile
-      }>
-      automationMode?: 'off' | 'semi_auto' | 'auto'
-      reviewMode?: 'off' | 'semi_auto' | 'auto'
-    }
     variationTemplateAssignments?: Array<{
       variationIndex: number
       designTemplatePackId: ID

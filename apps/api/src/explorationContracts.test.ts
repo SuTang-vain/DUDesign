@@ -9,7 +9,7 @@ import {
   validateBatchExplorationPlan,
   validateRequirementModuleGraph,
 } from '@dudesign/contracts'
-import { starGroupRequirementModuleGraph } from './fixtures/starGroupRequirementModuleGraph.js'
+import { productShowcaseRequirementModuleGraph } from './fixtures/productShowcaseRequirementModuleGraph.js'
 
 describe('controlled exploration contracts', () => {
   it('maps exploration level boundaries to stable product modes', () => {
@@ -39,24 +39,24 @@ describe('controlled exploration contracts', () => {
   })
 
   it('accepts the star group requirement module golden fixture', () => {
-    const findings = validateRequirementModuleGraph(starGroupRequirementModuleGraph)
+    const findings = validateRequirementModuleGraph(productShowcaseRequirementModuleGraph)
 
     assert.deepEqual(findings, [])
     assert.deepEqual(
-      starGroupRequirementModuleGraph.modules
+      productShowcaseRequirementModuleGraph.modules
         .filter(module => module.mode === 'always')
         .map(module => module.id),
-      ['group_identity', 'current_members'],
+      ['product_identity', 'launch_stages'],
     )
-    assert.ok(starGroupRequirementModuleGraph.modules.some(module => module.id === 'unit_navigation' && module.mode === 'conditional'))
-    assert.ok(starGroupRequirementModuleGraph.invariants.some(invariant => invariant.id === 'no_fabricated_member_facts'))
+    assert.ok(productShowcaseRequirementModuleGraph.modules.some(module => module.id === 'variant_navigation' && module.mode === 'conditional'))
+    assert.ok(productShowcaseRequirementModuleGraph.invariants.some(invariant => invariant.id === 'no_fabricated_facts'))
   })
 
   it('reports invalid conditional modules, duplicate ids, unknown references, and missing evidence', () => {
-    const invalid = structuredClone(starGroupRequirementModuleGraph) as RequirementModuleGraphV1
+    const invalid = structuredClone(productShowcaseRequirementModuleGraph) as RequirementModuleGraphV1
     invalid.modules[0].evidenceRefs = []
     invalid.modules[1].id = invalid.modules[0].id
-    const unitModule = invalid.modules.find(module => module.id === 'unit_navigation')!
+    const unitModule = invalid.modules.find(module => module.id === 'variant_navigation')!
     unitModule.conditions = []
     unitModule.dependencies = ['missing_module']
 
@@ -70,13 +70,13 @@ describe('controlled exploration contracts', () => {
 
   it('requires every variation plan to preserve always modules and zero factual creativity', () => {
     const validPlan = createPlan()
-    assert.deepEqual(validateBatchExplorationPlan(validPlan, starGroupRequirementModuleGraph), [])
+    assert.deepEqual(validateBatchExplorationPlan(validPlan, productShowcaseRequirementModuleGraph), [])
 
     const invalidPlan = structuredClone(validPlan)
-    invalidPlan.variations[1].requiredModuleIds = ['group_identity']
+    invalidPlan.variations[1].requiredModuleIds = ['product_identity']
     ;(invalidPlan.profile as { factCreativity: number }).factCreativity = 0.2
 
-    const codes = validateBatchExplorationPlan(invalidPlan, starGroupRequirementModuleGraph)
+    const codes = validateBatchExplorationPlan(invalidPlan, productShowcaseRequirementModuleGraph)
       .map(finding => finding.code)
 
     assert.ok(codes.includes('always_module_missing'))
@@ -86,10 +86,10 @@ describe('controlled exploration contracts', () => {
   it('rejects drifted profile semantics, missing dependencies, and incorrect coverage summaries', () => {
     const invalidPlan = createPlan()
     invalidPlan.profile.mode = 'experimental'
-    invalidPlan.variations[0].requiredModuleIds = ['current_members']
-    invalidPlan.coverageSummary.group_works = 2
+    invalidPlan.variations[0].requiredModuleIds = ['launch_stages']
+    invalidPlan.coverageSummary.product_works = 2
 
-    const codes = validateBatchExplorationPlan(invalidPlan, starGroupRequirementModuleGraph)
+    const codes = validateBatchExplorationPlan(invalidPlan, productShowcaseRequirementModuleGraph)
       .map(finding => finding.code)
 
     assert.ok(codes.includes('exploration_mode_mismatch'))
@@ -99,21 +99,21 @@ describe('controlled exploration contracts', () => {
 })
 
 function createPlan(): BatchExplorationPlanV1 {
-  const requiredModuleIds = ['group_identity', 'current_members']
+  const requiredModuleIds = ['product_identity', 'launch_stages']
   return {
     schemaVersion: EXPLORATION_PLAN_SCHEMA_VERSION,
     plannerVersion: 'deterministic-planner.v1',
     seed: 'sha256:test-seed',
     capabilitySnapshotId: 'capability_snapshot_test',
     profile: createExplorationProfile(40),
-    moduleGraphVersion: starGroupRequirementModuleGraph.capabilityVersion,
+    moduleGraphVersion: productShowcaseRequirementModuleGraph.capabilityVersion,
     variations: [
       {
         variationIndex: 1,
         focusId: 'group_overview',
         requiredModuleIds,
-        sampledModuleIds: ['group_works'],
-        excludedModuleIds: ['unit_navigation'],
+        sampledModuleIds: ['product_works'],
+        excludedModuleIds: ['variant_navigation'],
         interactionDirectionIds: ['identity-card', 'work-list'],
         rationale: 'Prioritize group identity and representative works.',
       },
@@ -121,7 +121,7 @@ function createPlan(): BatchExplorationPlanV1 {
         variationIndex: 2,
         focusId: 'membership_history',
         requiredModuleIds,
-        sampledModuleIds: ['former_members', 'membership_timeline'],
+        sampledModuleIds: ['archived_stages', 'release_timeline'],
         excludedModuleIds: [],
         interactionDirectionIds: ['member-history-table', 'vertical-timeline'],
         rationale: 'Prioritize member history and status changes.',
@@ -130,20 +130,20 @@ function createPlan(): BatchExplorationPlanV1 {
         variationIndex: 3,
         focusId: 'relationship_navigation',
         requiredModuleIds,
-        sampledModuleIds: ['bidirectional_member_links', 'unit_navigation'],
+        sampledModuleIds: ['related_links', 'variant_navigation'],
         excludedModuleIds: [],
         interactionDirectionIds: ['relationship-network'],
         rationale: 'Prioritize bidirectional navigation between group and members.',
       },
     ],
     coverageSummary: {
-      group_identity: 3,
-      current_members: 3,
-      group_works: 1,
-      former_members: 1,
-      membership_timeline: 1,
-      bidirectional_member_links: 1,
-      unit_navigation: 1,
+      product_identity: 3,
+      launch_stages: 3,
+      product_works: 1,
+      archived_stages: 1,
+      release_timeline: 1,
+      related_links: 1,
+      variant_navigation: 1,
     },
     warnings: [],
   }

@@ -115,23 +115,23 @@ describe('Runtime unavailable degradation', () => {
 
     const plannedJob = await postJson<CreateDesignJobResponse>(healthyHarness, '/api/design-jobs', {
       sessionId: session.session.id,
-      prompt: 'A controlled dynamic encyclopedia plan before runtime outage',
+      prompt: 'A controlled product showcase plan before runtime outage',
       sourceMode: 'new_html',
-      productMode: 'dynamic_encyclopedia_card',
+      productMode: 'web_app',
       variationCount: 3,
-      requirementModuleGraphId: 'requirement_graph_dynamic_encyclopedia_entry',
+      requirementModuleGraphId: 'requirement_graph_product_launch_showcase',
       exploration: {
         level: 40,
-        lockedModuleIds: ['entry_timeline'],
-        excludedModuleIds: ['entry_comparison'],
+        lockedModuleIds: ['launch_stages'],
+        excludedModuleIds: ['product_works'],
       },
       templateRequirements: {},
     })
     await waitForJob(healthyHarness, plannedJob.job.id, 'completed')
     const plannedBefore = await getJson<DesignJobSnapshotResponse>(healthyHarness, `/api/design-jobs/${plannedJob.job.id}`)
-    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.entry_timeline, 1)
-    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.entry_comparison, undefined)
-    assert.deepEqual(plannedBefore.job.capabilitySelectionSnapshot?.explorationRequest.excludedModuleIds, ['entry_comparison'])
+    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.archived_stages, 1)
+    assert.equal(plannedBefore.job.explorationPlan?.coverageSummary.launch_stages, 3)
+    assert.equal(plannedBefore.job.capabilitySelectionSnapshot, null)
 
     const resumed = await postJson<{ runtime: { status: string }; artifacts: unknown[] }>(
       degradedHarness,

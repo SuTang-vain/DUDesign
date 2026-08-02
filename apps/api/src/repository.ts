@@ -10,7 +10,6 @@ import type {
   User,
   Workspace,
   WorkspaceMember,
-  EncyclopediaEntryGuidance,
 } from '@dudesign/domain'
 import type { AnnotationBatch, AuditLog, AuthIdentity, AuthSession, SessionMessage } from './store.js'
 import type {
@@ -487,7 +486,6 @@ export type ApplicationRepository = {
   readonly designEvents: Map<string, DesignEvent[]>
   readonly authIdentities: Map<string, AuthIdentity>
   readonly authSessions: Map<string, AuthSession>
-  readonly encyclopediaEntryGuidances: Map<string, EncyclopediaEntryGuidance>
   readonly capabilityAuthoringDrafts: Map<string, CapabilityAuthoringDraft>
   readonly capabilityAuthoringAssets: Map<string, CapabilityAuthoringAsset>
   readonly refineOperations: Map<string, RefineOperationRecord>
@@ -549,8 +547,6 @@ export type ApplicationRepository = {
   listCapabilityAuthoringAssets(draftId: string, ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringAsset[]>
   getCapabilityAuthoringAssetById(assetId: string, ownerUserId: string, workspaceId: string): MaybePromise<CapabilityAuthoringAsset | null>
   saveCapabilityAuthoringAsset(asset: CapabilityAuthoringAsset): MaybePromise<CapabilityAuthoringAsset>
-  saveEncyclopediaEntryGuidance(guidance: EncyclopediaEntryGuidance): MaybePromise<EncyclopediaEntryGuidance>
-  getEncyclopediaEntryGuidanceById(guidanceId: string): MaybePromise<EncyclopediaEntryGuidance | null>
   getModelServiceById(modelServiceId: string): MaybePromise<ModelService | null>
   canUserUseModel(userId: string, modelServiceId: string): MaybePromise<boolean>
   getSessionById(sessionId: string): MaybePromise<DesignSession | null>

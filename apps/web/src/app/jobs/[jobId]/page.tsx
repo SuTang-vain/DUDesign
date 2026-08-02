@@ -153,10 +153,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
   const activeCodeVariation = variations.find(variation => codeStreams[variation.id] && variation.status !== 'completed' && variation.status !== 'failed')
     ?? variations.find(variation => codeStreams[variation.id])
   const activeCodeSet = activeCodeVariation ? codeStreams[activeCodeVariation.id] : null
-  const semiAutoReview = snapshot?.job.productMode === 'dynamic_encyclopedia_card'
-    && snapshot.job.capabilitySnapshot?.automation.loopProfile.id === 'loop_encyclopedia_spec_review'
-    && snapshot.job.capabilitySnapshot.automation.maxRepairAttempts === 1
-
   function applyEvent(event: DesignEvent): void {
     const activity = activityFromEvent(event, snapshot?.variations ?? [])
     if (activity) {
@@ -298,28 +294,6 @@ export default function JobPage(props: { params: Promise<{ jobId: string }> }): 
                     <div className="quality-popover-main">
                       <span>{quality.status === 'fail' ? '检查失败' : isInfrastructureQualityWarning(quality.issues[0]) ? '检查暂不可用' : '需要确认'}</span>
                     </div>
-                    {semiAutoReview ? (
-                      reviewDecision === 'repair_queued' ? (
-                        <small>已加入修复队列</small>
-                      ) : (
-                        <div className="quality-popover-actions">
-                          <button
-                            type="button"
-                            disabled={reviewSubmitting[variation.id]}
-                            onClick={() => { void submitReviewAction(variation, 'confirm_repair') }}
-                          >
-                            修复
-                          </button>
-                          <button
-                            type="button"
-                            disabled={reviewSubmitting[variation.id]}
-                            onClick={() => { void submitReviewAction(variation, 'skip') }}
-                          >
-                            忽略
-                          </button>
-                        </div>
-                      )
-                    ) : null}
                   </section>
                 ) : null}
                 {showCode && codeFiles ? (
@@ -473,10 +447,9 @@ function CapabilitySelectionSourceSummary(props: {
   const counts = Object.values(props.snapshot.sourceByCapabilityId).reduce<Record<CapabilitySelectionSource, number>>((result, source) => {
     result[source] += 1
     return result
-  }, { official_preset: 0, entry_guidance: 0, user_override: 0, job_snapshot: 0 })
+  }, { official_preset: 0, user_override: 0, job_snapshot: 0 })
   const labels: Array<[CapabilitySelectionSource, string]> = [
     ['official_preset', props.t('sourceOfficialPreset')],
-    ['entry_guidance', props.t('sourceEntryGuidance')],
     ['user_override', props.t('sourceUserOverride')],
   ]
   return (

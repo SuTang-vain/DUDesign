@@ -1,7 +1,5 @@
 import {
   createDesignEvent,
-  defaultEncyclopediaDemocaseExperienceProfile,
-  encyclopediaDemocaseStageForInteractionParadigm,
   validateBatchExplorationPlan,
   validateRequirementModuleGraph,
   type BatchExplorationPlanV1,
@@ -29,11 +27,6 @@ import type {
   DataIntakeField,
   DataIntakeInputSource,
   DataIntakeRecommendation,
-  EncyclopediaClassificationVector,
-  EncyclopediaClassificationSource,
-  EncyclopediaDemocaseExperienceProfile,
-  EncyclopediaEntryGuidanceResponse,
-  EncyclopediaGuidanceAnalysisV2,
   ExecuteMcpInvocationResponse,
   ImageGenerationArtifact,
   CreateSourceArtifactRequest,
@@ -73,17 +66,14 @@ import {
   authorizeMcpInvocation,
   compileRuntimeExplorationContexts,
   DUDESIGN_RUNTIME_CONTRACT_VERSION,
-  GuidanceAnalysisGatewayError,
   type McpInvocationAuthorization,
   mcpToolPromptContext,
   MockRuntimeGateway,
   type RuntimeGateway,
   type RuntimeModels,
   type RuntimeExplorationContextV1,
-  type GuidanceAnalysisGateway,
 } from '@dudesign/runtime-gateway'
-import type { Artifact, DesignVariation, DesignVariationStatus, EntryContentLanguage, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
-import type { EncyclopediaEntryGuidance } from '@dudesign/domain'
+import type { Artifact, DesignVariation, DesignVariationStatus, ModelService, WorkspaceMemberRole } from '@dudesign/domain'
 import { createHash } from 'node:crypto'
 import { join, posix } from 'node:path'
 import { buildAnnotationPrompt } from './annotationPrompt.js'
@@ -92,7 +82,6 @@ import {
   analyzeHtmlArtifactQualityWithPixelGate,
   type ArtifactQualityReport,
 } from './artifactQuality.js'
-import { reviewDynamicEncyclopediaSpec } from './encyclopediaSpecReview.js'
 import { renderHtmlScreenshots } from './screenshotRenderer.js'
 import { JobEventBus } from './eventBus.js'
 import { InMemoryStore } from './store.js'
@@ -100,7 +89,7 @@ import type { ApplicationRepository, RefineOperationRecord } from './repository.
 import type { RequestContext } from './auth.js'
 import type { OAuthProvider } from './oauth.js'
 import { createId } from './id.js'
-import { DYNAMIC_ENCYCLOPEDIA_PRESET, listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
+import { listCapabilities, resolveCapabilitySnapshot } from './capabilities.js'
 import { DESIGN_TEMPLATE_PACK_SCHEMA_VERSION, importDesignMd } from './designTemplatePack.js'
 import {
   InMemoryDesignJobQueue,
@@ -118,15 +107,11 @@ import {
   type AutomationRepairFinding,
   type AutomationLoopStopReason,
 } from './automationLoop.js'
-import { lookupEncyclopediaDemocases, type EncyclopediaDemocaseMatch } from './encyclopediaDemocase.js'
-import { resolveEncyclopediaDemocaseEvidence } from './encyclopediaGuidanceEvidence.js'
-import { detectEntryLanguage } from './entryLanguage.js'
 import { AuthApplicationService } from './application/authApplicationService.js'
 import { AdminRuntimeGovernanceService } from './application/adminRuntimeGovernanceService.js'
 import { ArtifactApplicationService } from './application/artifactApplicationService.js'
 import { AdminArtifactGovernanceService } from './application/adminArtifactGovernanceService.js'
 import { CapabilityAuthoringApplicationService } from './application/capabilityAuthoringApplicationService.js'
-import { EncyclopediaGuidanceApplicationService } from './application/encyclopediaGuidanceApplicationService.js'
 import {
   ExplorationPlanningApplicationService,
   type PreviewExplorationPlanInput,
@@ -286,16 +271,6 @@ type AdminCapabilityQualitySummary = {
   automationLoopsWithPixelGate: number
   auditLogCount: number
   recentDriftCount: number
-  // 硬性归束（v0.4）摘要
-  hardConstraints: {
-    /** 模板包在硬性归束（no-scroll-frame / 溢出策略 / 中文优先 / 英文 UI 短语）上的合规统计 */
-    templates: {
-      total: number
-      compliant: number
-      chineseFirstMissing: number
-      englishUiMissing: number
-    }
-  }
   previewSmoke: {
     status: 'not_configured' | 'available'
     passedCount: number
@@ -324,31 +299,6 @@ type AdminPrivateTemplateSummary = {
   }
 }
 
-type AdminDynamicEncyclopediaGovernance = {
-  parentTemplatePackId: string
-  childTemplates: Array<{
-    id: string
-    name: string
-    status: 'active' | 'missing'
-    parentTemplatePackId: string | null
-  }>
-  interactionParadigms: Array<{
-    id: string
-    name: string
-    compatibleTemplatePackIds: string[]
-    compatibleTemplateCount: number
-    mappingStatus: 'mapped' | 'missing_template'
-    bestFor: string[]
-  }>
-  categoryMappings: Array<{
-    level: 'L1' | 'L2' | 'L3'
-    category: string
-    interactionParadigmIds: string[]
-    templatePackIds: string[]
-  }>
-  sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds'
-}
-
 const LOW_CONFIDENCE_GUIDANCE_THRESHOLD = 0.6
 
 export class ApplicationService {
@@ -364,7 +314,6 @@ export class ApplicationService {
   readonly adminArtifactGovernance: AdminArtifactGovernanceService
   readonly capabilityAuthoring: CapabilityAuthoringApplicationService
   readonly explorationPlanning: ExplorationPlanningApplicationService
-  readonly encyclopediaGuidance: EncyclopediaGuidanceApplicationService | null
   private readonly backgroundTasks = new Set<Promise<unknown>>()
   /**
    * A design runtime can finish before its artifact quality loop has settled.
@@ -382,7 +331,6 @@ export class ApplicationService {
     artifacts?: ArtifactStore
     queue?: DesignJobQueue
     mcpExecutor?: McpExecutor
-    guidanceAnalysis?: GuidanceAnalysisGateway | null
     consumeQueue?: boolean
   } = {}) {
     this.store = options.store ?? new InMemoryStore()
@@ -398,9 +346,6 @@ export class ApplicationService {
     this.artifactService = new ArtifactApplicationService(this.store, this.artifacts, this.queue)
     this.adminArtifactGovernance = new AdminArtifactGovernanceService(this.store, this.artifacts, this.queue)
     this.capabilityAuthoring = new CapabilityAuthoringApplicationService(this.store, this.artifacts)
-    this.encyclopediaGuidance = options.guidanceAnalysis
-      ? new EncyclopediaGuidanceApplicationService(this.store, options.guidanceAnalysis)
-      : null
     this.explorationPlanning = new ExplorationPlanningApplicationService(
       this.store,
       ({ requirementModuleGraphId, userId, workspaceId }) => (
@@ -479,232 +424,6 @@ export class ApplicationService {
     await this.requireUser(ctx.userId)
     await this.ensureCapabilityGovernanceReady()
     return listCapabilities(this.capabilityGovernanceOptions())
-  }
-
-  async createEncyclopediaEntryGuidance(
-    ctx: RequestContext,
-    input: {
-      workspaceId?: string | null
-      entry?: string
-      context?: string | null
-      maxTemplateRecommendations?: number
-      automationMode?: 'off' | 'semi_auto' | 'auto'
-    },
-  ): Promise<EncyclopediaEntryGuidanceResponse> {
-    const user = await this.requireUser(ctx.userId)
-    const workspaceId = input.workspaceId ?? (await this.store.getPrimaryWorkspaceForUser(user.id))?.id ?? null
-    if (!workspaceId) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found for user: ${user.id}`)
-    await this.requireWorkspaceAccess(workspaceId, ctx.userId, 'viewer')
-    const rawInput = typeof input.entry === 'string' ? input.entry.trim() : ''
-    if (!rawInput) throw createHttpError(400, 'ENTRY_REQUIRED', 'entry is required.')
-
-    const context = typeof input.context === 'string' && input.context.trim().length > 0
-      ? input.context.trim()
-      : null
-    const maxTemplateRecommendations = typeof input.maxTemplateRecommendations === 'number'
-      ? Math.max(1, Math.min(3, Math.trunc(input.maxTemplateRecommendations)))
-      : 3
-    let analysis: EncyclopediaGuidanceAnalysisV2 | null = null
-    if (this.encyclopediaGuidance) {
-      try {
-        analysis = await this.encyclopediaGuidance.analyzeEntry(ctx, {
-          workspaceId,
-          entry: rawInput,
-          context,
-          maxTemplateRecommendations,
-        })
-      } catch (error) {
-        if (error instanceof GuidanceAnalysisGatewayError) {
-          const status = error.code === 'GUIDANCE_TIMEOUT'
-            ? 504
-            : error.code === 'GUIDANCE_CONTRACT_MISMATCH'
-              ? 409
-              : error.code === 'GUIDANCE_INVALID_RESPONSE'
-                ? 502
-                : 503
-          throw createHttpError(status, error.code, error.message)
-        }
-        throw error
-      }
-    }
-    const title = analysis?.entity.canonicalTitle ?? normalizeEntryTitle(rawInput)
-    const democaseMatches = lookupEncyclopediaDemocases(`${rawInput}\n${context ?? ''}`)
-    const democaseEvidence = resolveEncyclopediaDemocaseEvidence(`${rawInput}\n${context ?? ''}`, 12).evidence
-    const selectedDemocaseIds = new Set(analysis?.evidence.democaseIds ?? [])
-    const democaseExperienceProfiles = democaseEvidence
-      .filter(item => item.experienceProfile)
-      .sort((left, right) => {
-        const leftSelected = selectedDemocaseIds.has(left.caseId) ? 1 : 0
-        const rightSelected = selectedDemocaseIds.has(right.caseId) ? 1 : 0
-        return rightSelected - leftSelected || right.score - left.score
-      })
-      .slice(0, 3)
-      .map(item => ({
-        caseId: item.caseId,
-        title: item.title,
-        score: item.score,
-        experienceProfile: item.experienceProfile!,
-      }))
-    const classification = analysis
-      ? classificationFromGuidanceAnalysis(analysis)
-      : applyDemocaseClassification(
-          classifyEncyclopediaEntry(`${rawInput}\n${context ?? ''}`),
-          democaseMatches,
-        )
-    const automationMode = input.automationMode ?? 'auto'
-    const recommendedTemplates = analysis
-      ? await this.recommendDynamicEncyclopediaTemplatesFromAnalysis(ctx.userId, workspaceId, analysis)
-      : await this.recommendDynamicEncyclopediaTemplates(
-          ctx.userId,
-          workspaceId,
-          classification.primaryCategory,
-          classification.secondaryCategory,
-          maxTemplateRecommendations,
-          democaseMatches,
-        )
-    if (recommendedTemplates.length === 0) {
-      throw createHttpError(502, 'GUIDANCE_AI_TEMPLATE_EMPTY', 'Guidance analysis did not return an available template recommendation.')
-    }
-    const selectedTemplateIds = recommendedTemplates
-      .filter(template => template.selected)
-      .map(template => template.designTemplatePackId)
-    const interactionParadigmId = analysis?.templateRecommendations[0]?.interactionParadigmId
-      ?? democaseMatches[0]?.interactionParadigmId
-      ?? recommendedTemplates.find(template => selectedTemplateIds.includes(template.designTemplatePackId))?.interactionParadigmId
-      ?? recommendedInteractionParadigmId(classification.primaryCategory, classification.secondaryCategory)
-    const classificationSource: EncyclopediaClassificationSource = analysis ? 'ai_guidance_v2' : 'mock_rules'
-    const classificationVector = buildEncyclopediaClassificationVector(
-      classification,
-      recommendedTemplates.map(template => template.designTemplatePackId),
-      classificationSource,
-    )
-
-    // 词条语言识别（在 guidance 落地前完成，结果会进入 businessContext，
-    // 供后续 spec review 的"中文优先"硬约束使用）。
-    const languageDetection = detectEntryLanguage(title, context)
-
-    const now = new Date().toISOString()
-    const requiresConfirmation = (analysis !== null && analysis.status !== 'completed')
-      || analysis?.clarification.required === true
-      || classification.confidence < LOW_CONFIDENCE_GUIDANCE_THRESHOLD
-    const guidance = await this.store.saveEncyclopediaEntryGuidance({
-      id: createId('eg'),
-      userId: ctx.userId,
-      workspaceId,
-      productMode: 'dynamic_encyclopedia_card',
-      entryTitle: title,
-      rawInput,
-      context,
-      primaryCategory: classification.primaryCategory,
-      secondaryCategory: classification.secondaryCategory,
-      tertiaryCategory: classification.tertiaryCategory,
-      confidence: classification.confidence,
-      signals: classification.signals,
-      recommendedTemplateIds: recommendedTemplates.map(template => template.designTemplatePackId),
-      selectedTemplateIds,
-      interactionParadigmId,
-      automationMode,
-      isLanguageCategory: languageDetection.isLanguageCategory,
-      entryContentLanguage: languageDetection.entryContentLanguage,
-      status: requiresConfirmation ? 'needs_confirmation' : 'draft',
-      confirmedAt: null,
-      metadata: {
-        classificationSource,
-        guidanceAnalysis: analysis,
-        classificationVector,
-        requiresConfirmation,
-        languageDetection, // 保留字符区块分布与触发信号，便于 admin 面板与 audit
-        democaseReferences: democaseMatches,
-        democaseExperienceProfiles,
-      },
-      createdAt: now,
-      updatedAt: now,
-    })
-    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
-  }
-
-  async getEncyclopediaEntryGuidance(ctx: RequestContext, guidanceId: string): Promise<EncyclopediaEntryGuidanceResponse> {
-    await this.requireUser(ctx.userId)
-    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
-    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
-  }
-
-  async confirmEncyclopediaEntryGuidance(
-    ctx: RequestContext,
-    guidanceId: string,
-    input: {
-      selectedTemplateIds?: string[]
-      classificationOverride?: {
-        primaryCategory?: string
-        secondaryCategory?: string
-        tertiaryCategory?: string | null
-      }
-      automationMode?: 'off' | 'semi_auto' | 'auto'
-    },
-  ): Promise<EncyclopediaEntryGuidanceResponse> {
-    await this.requireUser(ctx.userId)
-    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
-    await this.requireWorkspaceAccess(guidance.workspaceId, ctx.userId, 'editor')
-    const classificationOverride = normalizeGuidanceClassificationOverride(input.classificationOverride)
-    const primaryCategory = classificationOverride?.primaryCategory ?? guidance.primaryCategory
-    const secondaryCategory = classificationOverride?.secondaryCategory ?? guidance.secondaryCategory
-    const tertiaryCategory = classificationOverride?.tertiaryCategory ?? guidance.tertiaryCategory
-    const democaseMatches = guidanceDemocaseMatches(guidance)
-    const recommendedTemplates = classificationOverride
-      ? await this.recommendDynamicEncyclopediaTemplates(
-          ctx.userId,
-          guidance.workspaceId,
-          primaryCategory,
-          secondaryCategory,
-          Math.max(1, Math.min(3, guidance.recommendedTemplateIds.length || 3)),
-          democaseMatches,
-        )
-      : []
-    const allowedTemplateIds = classificationOverride
-      ? recommendedTemplates.map(template => template.designTemplatePackId)
-      : guidance.recommendedTemplateIds
-    const defaultSelectedTemplateIds = classificationOverride
-      ? recommendedTemplates.filter(template => template.selected).map(template => template.designTemplatePackId)
-      : guidance.selectedTemplateIds
-    const selectedTemplateIds = Array.isArray(input.selectedTemplateIds) && input.selectedTemplateIds.length > 0
-      ? input.selectedTemplateIds
-          .filter((id): id is string => typeof id === 'string' && allowedTemplateIds.includes(id))
-          .slice(0, 3)
-      : defaultSelectedTemplateIds
-    if (selectedTemplateIds.length === 0) throw createHttpError(400, 'GUIDANCE_TEMPLATE_REQUIRED', 'At least one recommended template must be selected.')
-    const interactionParadigmId = selectedTemplateIds
-      .map(templateId => interactionParadigmIdForTemplatePack(templateId))
-      .find((id): id is string => Boolean(id))
-      ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory)
-    const classificationVector = buildEncyclopediaClassificationVector({
-      primaryCategory,
-      secondaryCategory,
-      tertiaryCategory,
-      confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
-      signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
-    }, classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds, guidanceClassificationSource(guidance))
-    const now = new Date().toISOString()
-    const confirmed = await this.store.saveEncyclopediaEntryGuidance({
-      ...guidance,
-      primaryCategory,
-      secondaryCategory,
-      tertiaryCategory,
-      confidence: classificationOverride ? Math.max(guidance.confidence, 0.64) : guidance.confidence,
-      signals: classificationOverride ? [...new Set([...guidance.signals.filter(signal => signal !== 'fallback'), 'user_override'])] : guidance.signals,
-      recommendedTemplateIds: classificationOverride ? allowedTemplateIds : guidance.recommendedTemplateIds,
-      selectedTemplateIds,
-      interactionParadigmId,
-      automationMode: input.automationMode ?? guidance.automationMode,
-      status: 'confirmed',
-      confirmedAt: now,
-      metadata: {
-        ...guidance.metadata,
-        classificationVector,
-        classificationOverride: classificationOverride ?? null,
-      },
-      updatedAt: now,
-    })
-    return this.toEncyclopediaEntryGuidanceResponse(ctx.userId, confirmed)
   }
 
   async listDesignTemplatePacks(ctx: RequestContext, workspaceId?: string | null) {
@@ -1117,8 +836,7 @@ export class ApplicationService {
     const { session, workspace } = context
     await this.requireSessionAccess(session.id, ctx.userId, 'editor')
     if (!workspace) throw createHttpError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${session.workspaceId}`)
-    const guidedJobInput = await this.withDynamicEncyclopediaGuidanceSnapshot(ctx, workspace.id, input)
-    const jobInput = normalizeDynamicEncyclopediaJobInput(guidedJobInput)
+    const jobInput = input
     const selectedModel = await this.resolveUserModel(ctx.userId, jobInput.modelServiceId ?? null)
     await this.ensureCapabilityGovernanceReady()
     const capabilitySnapshot = resolveCapabilitySnapshot(jobInput.capabilityRequirements, this.capabilityGovernanceOptions())
@@ -1133,7 +851,7 @@ export class ApplicationService {
         })
         : null)
     const designTemplatePacks = await this.resolveDesignTemplatePacksForJob(ctx.userId, workspace.id, jobInput)
-    const capabilitySelectionSnapshot = createCapabilitySelectionSnapshot(jobInput, capabilitySnapshot, designTemplatePacks)
+    const capabilitySelectionSnapshot = null
     const variationTemplateAssignments = assignDesignTemplatePacks(
       jobInput.variationCount,
       designTemplatePacks,
@@ -2279,7 +1997,6 @@ export class ApplicationService {
     return {
       totals: mcpInvocationTotals(scopedRecords),
       tools: mcpToolHealthSummaries(scopedRecords),
-      democase: democaseMcpHealthSummary(scopedRecords),
       filters: {
         mcpToolId: mcpToolId ?? null,
         createdFrom: createdFrom ?? null,
@@ -2377,7 +2094,6 @@ export class ApplicationService {
       templates: entries,
       totals,
       privateTemplates: adminPrivateTemplateSummary(entries),
-      dynamicEncyclopedia: adminDynamicEncyclopediaGovernance(capabilities, templates),
       registryAssets,
       skillGovernance,
       mcpPluginGovernance,
@@ -2822,227 +2538,6 @@ export class ApplicationService {
     return model
   }
 
-  private async requireReadableEncyclopediaGuidance(ctx: RequestContext, guidanceId: string): Promise<EncyclopediaEntryGuidance> {
-    const guidance = await this.store.getEncyclopediaEntryGuidanceById(guidanceId)
-    if (!guidance) throw createHttpError(404, 'ENTRY_GUIDANCE_NOT_FOUND', `Entry guidance not found: ${guidanceId}`)
-    await this.requireWorkspaceAccess(guidance.workspaceId, ctx.userId, 'viewer')
-    return guidance
-  }
-
-  private async toEncyclopediaEntryGuidanceResponse(
-    userId: string,
-    guidance: EncyclopediaEntryGuidance,
-  ): Promise<EncyclopediaEntryGuidanceResponse> {
-    const recommendedTemplates = await this.enrichDynamicEncyclopediaTemplateRecommendations(userId, guidance)
-    const classificationVector = guidanceClassificationVector(guidance)
-    const interactionParadigm = listCapabilities().interactionParadigms.find(candidate => candidate.id === guidance.interactionParadigmId)
-      ?? listCapabilities().interactionParadigms.find(candidate => candidate.id === 'ip_entity_summary')
-    if (!interactionParadigm) throw createHttpError(500, 'INTERACTION_PARADIGM_NOT_FOUND', 'Default interaction paradigm is missing.')
-    return {
-      guidanceId: guidance.id,
-      productMode: guidance.productMode,
-      status: guidance.status,
-      requiresConfirmation: guidance.status === 'needs_confirmation',
-      confirmedAt: guidance.confirmedAt,
-      entry: {
-        title: guidance.entryTitle,
-        rawInput: guidance.rawInput,
-        context: guidance.context,
-      },
-      isLanguageCategory: guidance.isLanguageCategory,
-      entryContentLanguage: guidance.entryContentLanguage,
-      analysis: guidanceAnalysisSnapshot(guidance),
-      classification: {
-        primaryCategory: guidance.primaryCategory,
-        secondaryCategory: guidance.secondaryCategory,
-        tertiaryCategory: guidance.tertiaryCategory,
-        confidence: guidance.confidence,
-        signals: guidance.signals,
-        source: guidanceClassificationSource(guidance),
-      },
-      democaseReferences: guidanceDemocaseReferences(guidance),
-      recommendedTemplates,
-      interactionParadigm,
-      explorationRecommendation: {
-        level: DYNAMIC_ENCYCLOPEDIA_PRESET.explorationDefaults.level,
-        reason: `Use balanced design exploration for ${guidance.primaryCategory} / ${guidance.secondaryCategory} while keeping factual invariants locked.`,
-        confidence: guidance.confidence,
-        requirementModuleGraphId: DYNAMIC_ENCYCLOPEDIA_PRESET.requirementModuleGraphId!,
-      },
-      capabilityRequirements: {
-        template: {
-          domainTemplateId: DYNAMIC_ENCYCLOPEDIA_PRESET.domainTemplateId,
-          designTemplatePackIds: guidance.selectedTemplateIds,
-          aestheticProfileId: 'aes_topic_interactive_card',
-          colorPaletteId: 'pal_minimal_mono',
-          // Repeat confirmed recommendations across sibling variations instead
-          // of filling extra slots with unrelated templates from the registry.
-          autoDistributeTemplatePacks: false,
-        },
-        plugins: {
-          skillIds: [...DYNAMIC_ENCYCLOPEDIA_PRESET.skillIds],
-          mcpToolIds: [...DYNAMIC_ENCYCLOPEDIA_PRESET.mcpToolIds],
-        },
-        automation: guidance.automationMode === 'off'
-          ? {
-              loopProfileId: 'loop_standard',
-              maxRepairAttempts: 0,
-            }
-          : {
-              loopProfileId: DYNAMIC_ENCYCLOPEDIA_PRESET.loopProfileId,
-              maxRepairAttempts: guidance.automationMode === 'semi_auto' ? 1 : 2,
-            },
-      },
-      templateRequirements: {
-        designTemplatePackIds: guidance.selectedTemplateIds,
-        interactionParadigm,
-        deviceTargets: ['desktop', 'mobile'],
-        notes: [
-          `Dynamic encyclopedia entry: ${guidance.entryTitle}`,
-          `Classification: ${guidance.primaryCategory} / ${guidance.secondaryCategory} / ${guidance.tertiaryCategory}`,
-          'Use the selected child template recommendation as the generation direction.',
-        ].join('\n'),
-        businessContext: {
-          guidanceId: guidance.id,
-          entryTitle: guidance.entryTitle,
-          entryPrimaryCategory: guidance.primaryCategory,
-          entrySecondaryCategory: guidance.secondaryCategory,
-          entryTertiaryCategory: guidance.tertiaryCategory,
-          isLanguageCategory: guidance.isLanguageCategory,
-          entryContentLanguage: guidance.entryContentLanguage,
-          classification: {
-            l1: guidance.primaryCategory,
-            l2: guidance.secondaryCategory,
-            l3: guidance.tertiaryCategory,
-            confidence: guidance.confidence,
-            signals: guidance.signals,
-            source: guidanceClassificationSource(guidance),
-          },
-          classificationVector,
-          interactionParadigmId: guidance.interactionParadigmId,
-          interactionParadigm,
-          recommendedTemplateIds: guidance.selectedTemplateIds,
-          childTemplates: recommendedTemplates.map(template => ({
-            designTemplatePackId: template.designTemplatePackId,
-            interactionParadigmId: template.interactionParadigmId,
-            selected: template.selected,
-            confidence: template.confidence,
-            reason: template.reason,
-          })),
-          democaseExperienceProfiles: guidanceDemocaseExperienceProfiles(guidance),
-          automationMode: guidance.automationMode,
-          reviewMode: guidance.automationMode,
-        },
-      },
-    }
-  }
-
-  private async withDynamicEncyclopediaGuidanceSnapshot(
-    ctx: RequestContext,
-    workspaceId: string,
-    input: CreateDesignJobRequest,
-  ): Promise<CreateDesignJobRequest> {
-    const guidanceId = stringValue(input.templateRequirements?.businessContext?.guidanceId)
-    if (!guidanceId) return input
-    const guidance = await this.requireReadableEncyclopediaGuidance(ctx, guidanceId)
-    if (guidance.workspaceId !== workspaceId) {
-      throw createHttpError(400, 'ENTRY_GUIDANCE_WORKSPACE_MISMATCH', 'Entry guidance belongs to a different workspace.')
-    }
-    if (guidance.status === 'needs_confirmation') {
-      throw createHttpError(409, 'ENTRY_GUIDANCE_NEEDS_CONFIRMATION', 'Entry guidance requires classification confirmation before creating a design job.')
-    }
-    const guidanceResponse = await this.toEncyclopediaEntryGuidanceResponse(ctx.userId, guidance)
-    const templateRequirements = input.templateRequirements ?? {}
-    return {
-      ...input,
-      productMode: guidanceResponse.productMode,
-      capabilityRequirements: input.capabilityRequirements ?? guidanceResponse.capabilityRequirements,
-      templateRequirements: {
-        ...guidanceResponse.templateRequirements,
-        ...templateRequirements,
-        designTemplatePackIds: templateRequirements.designTemplatePackIds ?? guidanceResponse.templateRequirements.designTemplatePackIds,
-        interactionParadigm: templateRequirements.interactionParadigm ?? guidanceResponse.templateRequirements.interactionParadigm,
-        businessContext: {
-          ...guidanceResponse.templateRequirements.businessContext,
-          ...(templateRequirements.businessContext ?? {}),
-          guidanceId: guidanceResponse.guidanceId,
-        },
-      },
-    }
-  }
-
-  private async enrichDynamicEncyclopediaTemplateRecommendations(
-    userId: string,
-    guidance: EncyclopediaEntryGuidance,
-  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
-    const templates = await this.store.listDesignTemplatePacks(userId, guidance.workspaceId)
-    return guidance.recommendedTemplateIds.map((templateId, index) => {
-      const template = templates.find(candidate => candidate.id === templateId)
-      const recommendation = dynamicEncyclopediaTemplateRecommendation(templateId, `${guidance.primaryCategory} ${guidance.secondaryCategory}`)
-      return {
-        designTemplatePackId: templateId,
-        name: template?.name ?? templateId,
-        interactionParadigmId: interactionParadigmIdForTemplatePack(templateId) ?? guidance.interactionParadigmId,
-        reason: recommendation.reason,
-        confidence: recommendation.confidence,
-        selected: guidance.selectedTemplateIds.includes(templateId) || (guidance.selectedTemplateIds.length === 0 && index === 0),
-      }
-    })
-  }
-
-  private async recommendDynamicEncyclopediaTemplates(
-    userId: string,
-    workspaceId: string | null,
-    primaryCategory: string,
-    secondaryCategory: string,
-    maxTemplateRecommendations: number,
-    democaseMatches: EncyclopediaDemocaseMatch[] = [],
-  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
-    const categoryText = `${primaryCategory} ${secondaryCategory}`
-    const democasePreferredIds = democaseMatches.flatMap(match => match.preferredTemplateIds)
-    const rulePreferredIds = dynamicEncyclopediaRuleTemplateIds(categoryText)
-    const preferredIds = [...new Set([...democasePreferredIds, ...rulePreferredIds])]
-    const templates = await this.store.listDesignTemplatePacks(userId, workspaceId)
-    const results: EncyclopediaEntryGuidanceResponse['recommendedTemplates'] = []
-
-    for (const templateId of preferredIds) {
-      const template = templates.find(candidate => candidate.id === templateId)
-      if (!template) continue
-      const recommendation = dynamicEncyclopediaTemplateRecommendation(template.id, categoryText)
-      results.push({
-        designTemplatePackId: template.id,
-        name: template.name,
-        interactionParadigmId: interactionParadigmIdForTemplatePack(template.id) ?? recommendedInteractionParadigmId(primaryCategory, secondaryCategory),
-        reason: recommendation.reason,
-        confidence: recommendation.confidence,
-        selected: results.length < maxTemplateRecommendations,
-      })
-      if (results.length >= maxTemplateRecommendations) break
-    }
-
-    return results
-  }
-
-  private async recommendDynamicEncyclopediaTemplatesFromAnalysis(
-    userId: string,
-    workspaceId: string,
-    analysis: EncyclopediaGuidanceAnalysisV2,
-  ): Promise<EncyclopediaEntryGuidanceResponse['recommendedTemplates']> {
-    const templates = await this.store.listDesignTemplatePacks(userId, workspaceId)
-    return analysis.templateRecommendations.flatMap(recommendation => {
-      const template = templates.find(candidate => candidate.id === recommendation.templatePackId)
-      if (!template || template.status !== 'published') return []
-      return [{
-        designTemplatePackId: template.id,
-        name: template.name,
-        interactionParadigmId: recommendation.interactionParadigmId,
-        reason: recommendation.reason,
-        confidence: recommendation.score,
-        selected: true,
-      }]
-    })
-  }
-
   private async resolveDesignTemplatePacksForJob(
     userId: string,
     workspaceId: string,
@@ -3060,13 +2555,8 @@ export class ApplicationService {
       resolved.push(template)
     }
 
-    if (input.productMode === 'dynamic_encyclopedia_card') {
-      const expanded = await this.expandDynamicEncyclopediaParentTemplatePacks(userId, workspaceId, resolved)
-      resolved.splice(0, resolved.length, ...expanded)
-    }
-
     const shouldAutoDistribute = input.capabilityRequirements?.template?.autoDistributeTemplatePacks
-      ?? (explicitIds.length === 0 || input.productMode !== 'dynamic_encyclopedia_card')
+      ?? (explicitIds.length === 0)
     if (shouldAutoDistribute && resolved.length < input.variationCount) {
       const available = await this.store.listDesignTemplatePacks(userId, workspaceId)
       for (const template of available) {
@@ -3077,43 +2567,7 @@ export class ApplicationService {
       }
     }
 
-    if (
-      input.productMode === 'dynamic_encyclopedia_card'
-      && resolved.length > 0
-      && resolved.length < input.variationCount
-    ) {
-      const dynamicOnly = resolved.filter(template => templatePackSupportsProductMode(template, input.productMode))
-      return dynamicOnly.length > 0 ? dynamicOnly : resolved
-    }
-
     return resolved.slice(0, Math.max(input.variationCount, explicitIds.length))
-  }
-
-  private async expandDynamicEncyclopediaParentTemplatePacks(
-    userId: string,
-    workspaceId: string,
-    templates: DesignTemplatePack[],
-  ): Promise<DesignTemplatePack[]> {
-    const requiredParentIds = new Set(DYNAMIC_ENCYCLOPEDIA_PRESET.selectionPolicy.requiredTemplatePackIds)
-    if (!templates.some(template => requiredParentIds.has(template.id))) return templates
-
-    const available = await this.store.listDesignTemplatePacks(userId, workspaceId)
-    const expanded: DesignTemplatePack[] = []
-    const append = (template: DesignTemplatePack): void => {
-      if (!expanded.some(existing => existing.id === template.id)) expanded.push(template)
-    }
-
-    for (const template of templates) {
-      if (!requiredParentIds.has(template.id)) {
-        append(template)
-        continue
-      }
-      const children = available.filter(candidate => candidate.parentPackId === template.id && templatePackSupportsProductMode(candidate, 'dynamic_encyclopedia_card'))
-      for (const child of children) append(child)
-      if (children.length === 0) append(template)
-    }
-
-    return expanded
   }
 
   async processQueuedDesignJob(payload: DesignJobQueuePayload): Promise<void> {
@@ -3130,12 +2584,7 @@ export class ApplicationService {
         .filter((variation): variation is DesignVariation => Boolean(variation))
         .map(variation => [variation.index, variation.id]),
     )
-    const preparedTemplateRequirements = await this.prepareDynamicEncyclopediaGenerationContext({
-      payload,
-      job,
-      variations: variations.filter((variation): variation is DesignVariation => Boolean(variation)),
-      runtimeSessionId: session.runtimeSessionId,
-    })
+    const preparedTemplateRequirements = null
     await this.runMockJob({
       jobId: job.id,
       sessionId: session.id,
@@ -3152,103 +2601,6 @@ export class ApplicationService {
       modelProvider: modelContext.modelProvider ?? '',
       variationIdsByIndex,
     })
-  }
-
-  private async prepareDynamicEncyclopediaGenerationContext(input: {
-    payload: DesignJobQueuePayload
-    job: NonNullable<Awaited<ReturnType<ApplicationRepository['getJobById']>>>
-    variations: DesignVariation[]
-    runtimeSessionId: string | null
-  }): Promise<Record<string, unknown> | null> {
-    if (input.job.productMode !== 'dynamic_encyclopedia_card') return null
-    const templateRequirements = normalizeTemplateRequirements(input.job.templateRequirements)
-    const capabilitySnapshot = templateRequirements?.capabilitySnapshot
-    const toolIds = new Set(capabilitySnapshot?.plugins.mcpToolIds ?? [])
-    if (!toolIds.has('mcp_agent_reach_search') && !toolIds.has('mcp_image_generation_ark_seedream')) return null
-
-    const ctx: RequestContext = {
-      requestId: createId('req'),
-      userId: input.job.userId,
-      adminRole: null,
-      authMode: 'dev',
-      authSessionTokenHash: null,
-    }
-    const firstVariation = input.variations.find(variation => variation.index === 1) ?? input.variations[0] ?? null
-    const researchContexts = [...(templateRequirements?.researchContexts ?? [])]
-    const researchContextArtifactIds = new Set(templateRequirements?.researchContextArtifactIds ?? [])
-    const imageGenerationArtifacts: Array<Record<string, unknown>> = Array.isArray(input.job.templateRequirements.imageGenerationArtifacts)
-      ? [...input.job.templateRequirements.imageGenerationArtifacts.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>]
-      : []
-
-    if (toolIds.has('mcp_agent_reach_search') && !researchContexts.length) {
-      const executed = await this.executeMcpInvocation(ctx, {
-        userId: input.job.userId,
-        workspaceId: input.job.workspaceId,
-        sessionId: input.job.sessionId,
-        jobId: input.job.id,
-        variationId: firstVariation?.id,
-        runtimeSessionId: input.runtimeSessionId,
-        mcpToolId: 'mcp_agent_reach_search',
-        serverName: 'agent-reach',
-        toolName: 'search',
-        scopes: ['readonly_context'],
-        input: {
-          query: dynamicEncyclopediaResearchQuery(input.job.prompt, templateRequirements),
-          topic: dynamicEncyclopediaEntryTitle(input.job.prompt, templateRequirements),
-          productMode: input.job.productMode,
-        },
-        reason: 'Pre-generation dynamic encyclopedia research context.',
-      })
-      const reference = executed.result.data?.researchContextArtifact
-      if (isResearchContextArtifactReference(reference)) {
-        researchContexts.push(reference)
-        researchContextArtifactIds.add(reference.artifactId)
-      }
-    }
-
-    if (toolIds.has('mcp_image_generation_ark_seedream') && imageGenerationArtifacts.length === 0) {
-      const executed = await this.executeMcpInvocation(ctx, {
-        userId: input.job.userId,
-        workspaceId: input.job.workspaceId,
-        sessionId: input.job.sessionId,
-        jobId: input.job.id,
-        variationId: firstVariation?.id,
-        runtimeSessionId: input.runtimeSessionId,
-        mcpToolId: 'mcp_image_generation_ark_seedream',
-        serverName: 'image-generation',
-        toolName: 'generateArkSeedreamImage',
-        scopes: ['artifact_write', 'readonly_context'],
-        input: {
-          prompt: dynamicEncyclopediaImagePrompt(input.job.prompt, templateRequirements),
-          model: 'doubao-seedream-5-0-260128',
-          size: '2K',
-          watermark: true,
-          usageContext: 'dynamic_encyclopedia_card',
-          variationId: firstVariation?.id ?? null,
-          templatePackId: firstVariation ? assignedTemplatePackIdForVariation(firstVariation.index, templateRequirements?.variationTemplateAssignments ?? []) : null,
-          contentSafety: { policy: 'strict', allowBrandReference: false },
-        },
-        reason: 'Pre-generation dynamic encyclopedia supporting visual asset.',
-      })
-      const reference = executed.result.data?.imageGenerationArtifact
-      if (reference && typeof reference === 'object') {
-        imageGenerationArtifacts.push(reference as Record<string, unknown>)
-      }
-    }
-
-    if (!researchContexts.length && !imageGenerationArtifacts.length) return null
-    const nextTemplateRequirements: Record<string, unknown> = {
-      ...input.job.templateRequirements,
-      ...(researchContexts.length
-        ? {
-            researchContextArtifactIds: [...researchContextArtifactIds],
-            researchContexts,
-          }
-        : {}),
-      ...(imageGenerationArtifacts.length ? { imageGenerationArtifacts } : {}),
-    }
-    await this.store.updateJobTemplateRequirements(input.job.id, nextTemplateRequirements)
-    return nextTemplateRequirements
   }
 
   async processQueuedRefineJob(_payload: RefineJobQueuePayload): Promise<void> {
@@ -4256,7 +3608,7 @@ export class ApplicationService {
       this.finishAutomationReview(input.jobId, input.variationId)
       return
     }
-    const reviewMode = reviewModeFromTemplateRequirements(templateRequirements)
+    const reviewMode = reviewModeFromTemplateRequirements(templateRequirements, automation)
 
     const profile = automation.loopProfile
     const attempt = Math.max(0, input.artifact.version - 1)
@@ -4312,6 +3664,24 @@ export class ApplicationService {
         reviewMode,
       },
     }))
+
+    if (reviewMode === 'off') {
+      await this.publishDesignEvent(createDesignEvent({
+        type: 'design.loop_stopped',
+        sessionId: input.sessionId,
+        jobId: input.jobId,
+        variationId: input.variationId,
+        payload: {
+          artifactId: input.artifact.id,
+          attempts: attempt,
+          reason: 'review_disabled',
+          message: 'Review mode is off; artifact quality findings were recorded without repair.',
+          recoverable: true,
+        },
+      }))
+      this.finishAutomationReview(input.jobId, input.variationId)
+      return
+    }
 
     if (!decision.shouldStop) {
       const prompt = buildAutomationRepairPrompt({
@@ -4512,53 +3882,18 @@ export class ApplicationService {
     const baseQuality = await analyzeHtmlArtifactQualityWithPixelGate(html, {
       enabled: profileGate ? profileGate.qualityGates.includes('pixel') : pixelQualityGateEnabled(),
       timeoutMs: pixelQualityGateTimeoutMs(),
-      experienceProfile: profileGate?.experienceProfile,
     })
-    if (!profileGate?.qualityGates.includes('spec')) return baseQuality
-    const specReview = reviewDynamicEncyclopediaSpec({
-      html,
-      templatePackIds: profileGate.designTemplatePackIds,
-      interactionParadigmId: profileGate.interactionParadigmId,
-      ...(profileGate.entryContext ? {
-        entryTitle: profileGate.entryContext.entryTitle,
-        isLanguageCategory: profileGate.entryContext.isLanguageCategory,
-        entryContentLanguage: profileGate.entryContext.entryContentLanguage,
-        classificationVector: profileGate.entryContext.classificationVector,
-      } : {}),
-    })
-    if (specReview.status === 'pass') return baseQuality
-    const specIssues = specReview.findings.map(finding => `${finding.message} ${finding.repairHint}`)
-    return {
-      status: baseQuality.status === 'fail' || specReview.status === 'fail'
-        ? 'fail'
-        : baseQuality.status === 'warn' || specReview.status === 'warn'
-          ? 'warn'
-          : 'pass',
-      issues: [...baseQuality.issues, ...specIssues],
-      specFindings: [...baseQuality.specFindings ?? [], ...specReview.findings],
-    }
+    return baseQuality
   }
 
   private async resolveArtifactQualityGateForJob(jobId: string, variationIndex?: number | null): Promise<{
     qualityGates: Array<'static' | 'pixel' | 'spec'>
     designTemplatePackIds: string[]
     interactionParadigmId: string | null
-    experienceProfile: EncyclopediaDemocaseExperienceProfile | null
-    /**
-     * 词条上下文（用于百科规范审查的"中文优先"判断）。
-     * 仅当 productMode === 'dynamic_encyclopedia_card' 时有意义。
-     */
-    entryContext: {
-      entryTitle: string
-      isLanguageCategory: boolean
-      entryContentLanguage: EntryContentLanguage
-      classificationVector: EncyclopediaClassificationVector | null
-    } | null
   } | null> {
     const job = await this.store.getJobById(jobId)
     if (!job) return null
     const requirements = normalizeTemplateRequirements(job.templateRequirements)
-    const businessContext = job.templateRequirements.businessContext as Record<string, unknown> | undefined
     const automation = requirements?.capabilitySnapshot?.automation
     if (!automation) return null
     const assignedTemplate = typeof variationIndex === 'number'
@@ -4567,35 +3902,13 @@ export class ApplicationService {
     const qualityGates = [
       ...new Set([
         ...automation.loopProfile.qualityGates,
-        ...(job.productMode === 'dynamic_encyclopedia_card' ? ['spec' as const] : []),
       ]),
     ]
-    const entryContext: {
-      entryTitle: string
-      isLanguageCategory: boolean
-      entryContentLanguage: EntryContentLanguage
-      classificationVector: EncyclopediaClassificationVector | null
-    } | null = job.productMode === 'dynamic_encyclopedia_card' && businessContext
-      ? {
-          entryTitle: typeof businessContext.entryTitle === 'string' ? businessContext.entryTitle : '',
-          isLanguageCategory: businessContext.isLanguageCategory === true,
-          entryContentLanguage: isEntryContentLanguage(businessContext.entryContentLanguage) ? businessContext.entryContentLanguage : 'zh',
-          classificationVector: isEncyclopediaClassificationVector(businessContext.classificationVector)
-            ? businessContext.classificationVector
-            : null,
-        }
-      : null
-    const interactionParadigmId = assignedTemplate?.interactionParadigmId
-      ?? (typeof businessContext?.interactionParadigmId === 'string' ? businessContext.interactionParadigmId : null)
+    const interactionParadigmId = assignedTemplate?.interactionParadigmId ?? null
     return {
       qualityGates,
       designTemplatePackIds: assignedTemplate ? [assignedTemplate.designTemplatePackId] : requirements?.designTemplatePackIds ?? [],
       interactionParadigmId,
-      experienceProfile: selectDemocaseExperienceProfileForParadigm(
-        requirements?.businessContext?.democaseExperienceProfiles,
-        interactionParadigmId,
-      ),
-      entryContext,
     }
   }
 
@@ -4971,7 +4284,6 @@ function normalizeTemplateRequirements(value: Record<string, unknown>): StoredTe
     imageGenerationArtifacts: Array.isArray(value.imageGenerationArtifacts)
       ? value.imageGenerationArtifacts.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
       : undefined,
-    businessContext: isDynamicEncyclopediaBusinessContext(value.businessContext) ? value.businessContext : undefined,
     variationTemplateAssignments: Array.isArray(value.variationTemplateAssignments)
       ? value.variationTemplateAssignments.filter(isVariationTemplateAssignment)
       : undefined,
@@ -5106,17 +4418,10 @@ export function assignDesignTemplatePacks(
     const variationPlan = explorationPlan?.variations.find(variation => variation.variationIndex === variationIndex)
     const template = bestTemplatePackForExploration(available, variationPlan)
     available = available.filter(candidate => candidate.id !== template.id)
-    const interactionParadigm = interactionParadigmForTemplatePack(template.id)
     return {
       variationIndex,
       designTemplatePackId: template.id,
       designTemplatePack: template,
-      ...(interactionParadigm
-        ? {
-            interactionParadigmId: interactionParadigm.id,
-            interactionParadigm,
-          }
-        : {}),
     }
   })
 }
@@ -5137,15 +4442,10 @@ function templateExplorationCompatibilityScore(
   template: DesignTemplatePack,
   variationPlan: BatchExplorationPlanV1['variations'][number],
 ): number {
-  const paradigmId = interactionParadigmIdForTemplatePack(template.id)
-  const paradigmFamily = interactionParadigmFamily(paradigmId)
   const directionFamilies = variationPlan.interactionDirectionIds.map(interactionParadigmFamily)
   let score = 0
-  if (paradigmId && variationPlan.interactionDirectionIds.includes(paradigmId)) score += 120
-  else if (paradigmFamily && directionFamilies.includes(paradigmFamily)) score += 90
 
   const focusFamily = explorationFocusFamily(variationPlan.focusId)
-  if (paradigmFamily && focusFamily === paradigmFamily) score += 60
   if (template.id.includes('timeline') && variationPlan.focusId.includes('timeline')) score += 30
   if ((template.id.includes('relation') || template.id.includes('member_map')) && variationPlan.focusId.includes('relationship')) score += 30
   if ((template.id.includes('summary') || template.id.includes('expandable')) && variationPlan.focusId.includes('expandable')) score += 30
@@ -5179,10 +4479,7 @@ function templatePackSupportsProductMode(
   if (!productMode) return true
   const supportedProductModes = template.supportedProductModes ?? []
   if (supportedProductModes.length > 0) return supportedProductModes.includes(productMode)
-  if (productMode !== 'dynamic_encyclopedia_card') return true
-  return template.parentPackId === 'dtp_dynamic_encyclopedia_card'
-    || template.id === 'dtp_dynamic_encyclopedia_card'
-    || template.id.startsWith('dtp_de_')
+  return true
 }
 
 function assignedTemplatePackForVariation(
@@ -5223,9 +4520,17 @@ function automationRepairPromptPreview(prompt: string): string {
   return prompt.slice(0, AUTOMATION_REPAIR_PROMPT_PREVIEW_LENGTH)
 }
 
-function reviewModeFromTemplateRequirements(requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): ReviewMode {
-  const mode = requirements?.businessContext?.reviewMode
-  return mode === 'off' || mode === 'semi_auto' || mode === 'auto' ? mode : 'auto'
+function reviewModeFromTemplateRequirements(
+  requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined,
+  automation?: { maxRepairAttempts?: number | null },
+): ReviewMode {
+  const maxRepairAttempts = automation?.maxRepairAttempts
+  if (typeof maxRepairAttempts === 'number') {
+    if (maxRepairAttempts <= 0) return 'off'
+    if (maxRepairAttempts === 1) return 'semi_auto'
+    return 'auto'
+  }
+  return 'auto'
 }
 
 function loopStoppedEventReason(reason: AutomationLoopStopReason | null): Exclude<AutomationLoopStopReason, 'quality_passed'> {
@@ -5253,81 +4558,6 @@ function isInteractionParadigm(value: unknown): value is InteractionParadigm {
     && Array.isArray(record.avoidFor)
     && Array.isArray(record.requiredDataShape)
     && Array.isArray(record.compatibleTemplatePackIds)
-}
-
-function isDynamicEncyclopediaBusinessContext(value: unknown): value is NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['businessContext']> {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return (!('guidanceId' in record) || typeof record.guidanceId === 'string')
-    && (!('entryTitle' in record) || typeof record.entryTitle === 'string')
-    && (!('entryPrimaryCategory' in record) || typeof record.entryPrimaryCategory === 'string')
-    && (!('entrySecondaryCategory' in record) || typeof record.entrySecondaryCategory === 'string')
-    && (!('entryTertiaryCategory' in record) || typeof record.entryTertiaryCategory === 'string')
-    && (!('classification' in record) || isDynamicEncyclopediaClassificationSnapshot(record.classification))
-    && (!('interactionParadigmId' in record) || typeof record.interactionParadigmId === 'string')
-    && (!('interactionParadigm' in record) || isInteractionParadigm(record.interactionParadigm))
-    && (!('recommendedTemplateIds' in record) || (Array.isArray(record.recommendedTemplateIds) && record.recommendedTemplateIds.every(item => typeof item === 'string')))
-    && (!('childTemplates' in record) || (Array.isArray(record.childTemplates) && record.childTemplates.every(isDynamicEncyclopediaChildTemplateSnapshot)))
-    && (!('democaseExperienceProfiles' in record) || (Array.isArray(record.democaseExperienceProfiles) && record.democaseExperienceProfiles.every(isDemocaseExperienceProfileSnapshot)))
-    && (!('automationMode' in record) || record.automationMode === 'off' || record.automationMode === 'semi_auto' || record.automationMode === 'auto')
-    && (!('reviewMode' in record) || record.reviewMode === 'off' || record.reviewMode === 'semi_auto' || record.reviewMode === 'auto')
-}
-
-function isDynamicEncyclopediaClassificationSnapshot(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return typeof record.l1 === 'string'
-    && typeof record.l2 === 'string'
-    && typeof record.l3 === 'string'
-    && typeof record.confidence === 'number'
-    && Array.isArray(record.signals)
-    && record.signals.every(item => typeof item === 'string')
-    && (record.source === 'mock_rules' || record.source === 'ai_guidance_v2')
-}
-
-function isDynamicEncyclopediaChildTemplateSnapshot(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return typeof record.designTemplatePackId === 'string'
-    && typeof record.interactionParadigmId === 'string'
-    && typeof record.selected === 'boolean'
-    && typeof record.confidence === 'number'
-    && typeof record.reason === 'string'
-}
-
-function isDemocaseExperienceProfileSnapshot(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  const profile = record.experienceProfile
-  if (!profile || typeof profile !== 'object') return false
-  const profileRecord = profile as Record<string, unknown>
-  const attentionBudget = profileRecord.attentionBudget
-  return typeof record.caseId === 'string'
-    && typeof record.title === 'string'
-    && typeof record.score === 'number'
-    && typeof profileRecord.dominantStage === 'string'
-    && typeof profileRecord.firstViewPromise === 'string'
-    && typeof profileRecord.primaryInteraction === 'string'
-    && typeof profileRecord.secondaryReveal === 'string'
-    && Boolean(attentionBudget && typeof attentionBudget === 'object')
-    && Array.isArray(profileRecord.preserveAt300x360)
-    && profileRecord.preserveAt300x360.every(item => typeof item === 'string')
-    && Array.isArray(profileRecord.deferAt300x360)
-    && profileRecord.deferAt300x360.every(item => typeof item === 'string')
-    && Array.isArray(profileRecord.forbiddenPatterns)
-    && profileRecord.forbiddenPatterns.every(item => typeof item === 'string')
-}
-
-function selectDemocaseExperienceProfileForParadigm(
-  profiles: NonNullable<NonNullable<CreateDesignJobRequest['templateRequirements']>['businessContext']>['democaseExperienceProfiles'],
-  interactionParadigmId: string | null,
-): EncyclopediaDemocaseExperienceProfile | null {
-  const dominantStage = encyclopediaDemocaseStageForInteractionParadigm(interactionParadigmId)
-  if (dominantStage) {
-    return profiles?.find(item => item.experienceProfile.dominantStage === dominantStage)?.experienceProfile
-      ?? defaultEncyclopediaDemocaseExperienceProfile(dominantStage)
-  }
-  return profiles?.[0]?.experienceProfile ?? null
 }
 
 function isDataIntakeArtifactReference(value: unknown): value is DataIntakeArtifactReference {
@@ -5639,24 +4869,6 @@ function mcpToolHealthSummaries(records: McpInvocationAuditRecord[]): AdminMcpTo
     .sort((a, b) => (b.lastInvokedAt ?? '').localeCompare(a.lastInvokedAt ?? ''))
 }
 
-function democaseMcpHealthSummary(records: McpInvocationAuditRecord[]): AdminMcpInvocationSummaryResponse['democase'] {
-  const democaseRecords = records.filter(record => record.request.mcpToolId === 'mcp_encyclopedia_democase_readonly')
-  const sorted = [...democaseRecords].sort((a, b) => b.completedAt.localeCompare(a.completedAt))
-  const latest = sorted[0] ?? null
-  const counts = mcpStatusCounts(sorted)
-  return {
-    mcpToolId: 'mcp_encyclopedia_democase_readonly',
-    totalCount: counts.totalCount,
-    okCount: counts.okCount,
-    unavailableCount: counts.unavailableCount,
-    errorCount: counts.errorCount,
-    healthStatus: democaseHealthStatus(counts, latest),
-    lastInvokedAt: latest?.completedAt ?? null,
-    lastErrorCode: latest?.result.error?.code ?? null,
-    lastErrorMessage: adminAuditPreview(latest?.result.error?.message ?? null, 180),
-  }
-}
-
 function mcpStatusCounts(records: McpInvocationAuditRecord[]): {
   totalCount: number
   okCount: number
@@ -5678,16 +4890,6 @@ function mcpStatusCounts(records: McpInvocationAuditRecord[]): {
     unavailableCount: 0,
     errorCount: 0,
   })
-}
-
-function democaseHealthStatus(
-  counts: ReturnType<typeof mcpStatusCounts>,
-  latest: McpInvocationAuditRecord | null,
-): AdminMcpInvocationSummaryResponse['democase']['healthStatus'] {
-  if (!latest || counts.totalCount === 0) return 'no_data'
-  if (latest.result.status === 'unavailable' || latest.result.status === 'error') return 'unavailable'
-  if (counts.unavailableCount > 0 || counts.errorCount > 0 || counts.deniedCount > 0) return 'degraded'
-  return 'healthy'
 }
 
 function ratio(numerator: number, denominator: number): number {
@@ -5855,555 +5057,6 @@ function modelContextFromTemplateRequirements(value: Record<string, unknown>): {
   }
 }
 
-function normalizeEntryTitle(rawInput: string): string {
-  const firstLine = rawInput.split(/\r?\n/).find(line => line.trim().length > 0)?.trim() ?? rawInput.trim()
-  return firstLine
-    .replace(/^词条[:：]\s*/u, '')
-    .replace(/[。；;，,].*$/u, '')
-    .slice(0, 80)
-}
-
-function classifyEncyclopediaEntry(text: string): {
-  primaryCategory: string
-  secondaryCategory: string
-  tertiaryCategory: string
-  confidence: number
-  signals: string[]
-} {
-  const normalized = text.toLowerCase()
-  const signals: string[] = []
-  const has = (patterns: string[]) => {
-    const matched = patterns.filter(pattern => normalized.includes(pattern.toLowerCase()))
-    signals.push(...matched)
-    return matched.length > 0
-  }
-
-  if (has(['电影', '影片', '院线', '上映', '票房', '导演', '主演', '演员表', '系列电影', '续集', '前传', '翻拍', '同ip', '同IP', '相似电影'])) {
-    return { primaryCategory: '影视作品', secondaryCategory: '电影', tertiaryCategory: filmTertiaryCategory(normalized), confidence: 0.86, signals: [...new Set(signals)] }
-  }
-  if (has(['电视剧', '剧集', '连续剧', '播出', '集数', '季数', '分集剧情', '角色关系', '角色是谁', '伏笔', '追剧'])) {
-    return { primaryCategory: '影视作品', secondaryCategory: '电视剧', tertiaryCategory: tvTertiaryCategory(normalized), confidence: 0.86, signals: [...new Set(signals)] }
-  }
-  if (has(['历史人物', '皇帝', '帝王', '君臣', '血缘', '家族关系', '师承', '对手', '朝代', '变法', '战役'])) {
-    return { primaryCategory: '名人', secondaryCategory: '历史人物', tertiaryCategory: historyPersonTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
-  }
-  if (has(['成语', '词语', '释义', '意思', '含义', '读音', '拼音', '出处', '典故', '寓言', '近义词', '反义词', '辨析', '造句'])) {
-    return { primaryCategory: '知识术语', secondaryCategory: '文化类词语', tertiaryCategory: culturalPhraseTertiaryCategory(normalized), confidence: 0.82, signals: [...new Set(signals)] }
-  }
-  if (has(['景区', '景点', '风景区', '旅游区', '公园', '导览', '路线', '游览', '坐标', '地图', 'poi', 'POI', '必看景点', '推荐路线'])) {
-    return { primaryCategory: '地域建筑', secondaryCategory: '景区景点', tertiaryCategory: scenicSpotTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
-  }
-  if (has(['公司', '企业', '集团', '融资', '上市', '创始人', 'ceo', '产品线'])) {
-    return { primaryCategory: '机构组织', secondaryCategory: '企业', tertiaryCategory: organizationTertiaryCategory(normalized), confidence: 0.84, signals: [...new Set(signals)] }
-  }
-  if (has(['大学', '学院', '学校', '校区', '学科'])) {
-    return { primaryCategory: '机构组织', secondaryCategory: '学校', tertiaryCategory: normalized.includes('校区') ? '校区院系' : '教育机构', confidence: 0.82, signals: [...new Set(signals)] }
-  }
-  if (has(['人物', '出生', '逝世', '演员', '导演', '作家', '科学家', '歌手', '运动员', '组合', '男团', '女团', '乐队', '成员', '出道', '队长', '主唱', '主舞', 'rapper', '门面', '退团', '解散', '休团', '限定团', '小分队', 'unit', '子团', '专辑', '单曲', '演唱会', '团综', '粉丝名', '经纪公司'])) {
-    return { primaryCategory: '名人', secondaryCategory: normalized.includes('历史') ? '历史人物' : '娱乐明星', tertiaryCategory: personTertiaryCategory(normalized), confidence: 0.8, signals: [...new Set(signals)] }
-  }
-  if (has(['小说', '文学', '作者', '出版', '章节', '诗歌'])) {
-    return { primaryCategory: '文学著作', secondaryCategory: normalized.includes('诗') ? '诗歌' : '小说著作', tertiaryCategory: normalized.includes('诗') ? '诗歌作品' : '小说作品', confidence: 0.79, signals: [...new Set(signals)] }
-  }
-  if (has(['游戏', '玩法', '关卡', '角色', '发行', '平台'])) {
-    return { primaryCategory: '游戏', secondaryCategory: '电子游戏', tertiaryCategory: normalized.includes('角色') ? '角色玩法' : '发行平台', confidence: 0.78, signals: [...new Set(signals)] }
-  }
-  if (has(['产品', '设备', '型号', '参数', '发布', '功能'])) {
-    return { primaryCategory: '物品产品', secondaryCategory: '产品设备', tertiaryCategory: normalized.includes('参数') || normalized.includes('型号') ? '参数型号' : '功能产品', confidence: 0.72, signals: [...new Set(signals)] }
-  }
-  if (has(['概念', '定义', '理论', '技术', '算法', '协议', '模型'])) {
-    return { primaryCategory: '知识术语', secondaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', tertiaryCategory: normalized.includes('算法') || normalized.includes('模型') || normalized.includes('协议') ? '技术模型' : '概念定义', confidence: 0.74, signals: [...new Set(signals)] }
-  }
-  return { primaryCategory: '知识术语', secondaryCategory: '概念定义', tertiaryCategory: '通用', confidence: 0.52, signals: ['fallback'] }
-}
-
-function organizationTertiaryCategory(normalized: string): string {
-  if (normalized.includes('融资') || normalized.includes('上市')) return '融资上市'
-  if (normalized.includes('产品线') || normalized.includes('产品')) return '产品业务'
-  if (normalized.includes('人工智能') || normalized.includes('知识服务') || normalized.includes('搜索')) return '知识服务'
-  return '企业概况'
-}
-
-function personTertiaryCategory(normalized: string): string {
-  if (normalized.includes('演员') || normalized.includes('导演') || normalized.includes('歌手')) return '文艺人物'
-  if (normalized.includes('科学家') || normalized.includes('学者')) return '学术人物'
-  if (normalized.includes('运动员')) return '体育人物'
-  return '人物概况'
-}
-
-function historyPersonTertiaryCategory(normalized: string): string {
-  if (normalized.includes('皇帝') || normalized.includes('帝王') || normalized.includes('君主')) return '帝王君主'
-  if (normalized.includes('将军') || normalized.includes('战役') || normalized.includes('名将')) return '将相军事'
-  if (normalized.includes('诗') || normalized.includes('文学') || normalized.includes('词')) return '文人学者'
-  if (normalized.includes('女性') || normalized.includes('皇后') || normalized.includes('公主')) return '女性历史人物'
-  return '历史人物概况'
-}
-
-function filmTertiaryCategory(normalized: string): string {
-  if (normalized.includes('悬疑') || normalized.includes('犯罪') || normalized.includes('惊悚')) return '悬疑犯罪片'
-  if (normalized.includes('科幻') || normalized.includes('奇幻')) return '科幻奇幻片'
-  if (normalized.includes('动作') || normalized.includes('战争')) return '动作战争片'
-  if (normalized.includes('爱情') || normalized.includes('剧情') || normalized.includes('文艺')) return '爱情剧情片'
-  if (normalized.includes('动画') || normalized.includes('喜剧')) return '喜剧动画片'
-  return '电影作品概况'
-}
-
-function tvTertiaryCategory(normalized: string): string {
-  if (normalized.includes('悬疑') || normalized.includes('刑侦') || normalized.includes('犯罪')) return '悬疑刑侦剧'
-  if (normalized.includes('古装') || normalized.includes('历史') || normalized.includes('权谋')) return '古装历史剧'
-  if (normalized.includes('都市') || normalized.includes('情感')) return '都市情感剧'
-  if (normalized.includes('科幻') || normalized.includes('奇幻')) return '科幻奇幻剧'
-  if (normalized.includes('季') || normalized.includes('系列')) return '系列季播剧'
-  return '电视剧作品概况'
-}
-
-function culturalPhraseTertiaryCategory(normalized: string): string {
-  if (normalized.includes('典故') || normalized.includes('故事') || normalized.includes('寓言') || normalized.includes('出处')) return '出处典故'
-  if (normalized.includes('近义词') || normalized.includes('反义词') || normalized.includes('关联')) return '关联词语'
-  if (normalized.includes('辨析') || normalized.includes('区别') || normalized.includes('易混')) return '词义辨析'
-  if (normalized.includes('读音') || normalized.includes('拼音')) return '读音字形'
-  return '文化词语概况'
-}
-
-function scenicSpotTertiaryCategory(normalized: string): string {
-  if (normalized.includes('路线') || normalized.includes('导览') || normalized.includes('游览')) return '导览路线'
-  if (normalized.includes('坐标') || normalized.includes('地图') || normalized.includes('poi')) return '地图坐标'
-  if (normalized.includes('公园')) return '公园景点'
-  if (normalized.includes('风景区') || normalized.includes('旅游区')) return '风景旅游区'
-  return '景区概况'
-}
-
-function applyDemocaseClassification(
-  classification: {
-    primaryCategory: string
-    secondaryCategory: string
-    tertiaryCategory: string
-    confidence: number
-    signals: string[]
-  },
-  democaseMatches: EncyclopediaDemocaseMatch[],
-): {
-  primaryCategory: string
-  secondaryCategory: string
-  tertiaryCategory: string
-  confidence: number
-  signals: string[]
-} {
-  const bestMatch = democaseMatches[0]
-  if (!bestMatch || bestMatch.score < 0.2) return classification
-  return {
-    primaryCategory: bestMatch.primaryCategory,
-    secondaryCategory: bestMatch.secondaryCategory,
-    tertiaryCategory: classification.tertiaryCategory,
-    confidence: Math.max(classification.confidence, Math.min(0.92, 0.72 + bestMatch.score)),
-    signals: [...new Set([...classification.signals.filter(signal => signal !== 'fallback'), ...bestMatch.matchedKeywords])],
-  }
-}
-
-function buildEncyclopediaClassificationVector(
-  classification: {
-    primaryCategory: string
-    secondaryCategory: string
-    tertiaryCategory: string
-    confidence: number
-    signals: string[]
-  },
-  preferredTemplateIds: string[],
-  source: EncyclopediaClassificationSource = 'mock_rules',
-): EncyclopediaClassificationVector {
-  const categoryText = `${classification.primaryCategory} ${classification.secondaryCategory} ${classification.tertiaryCategory}`
-  return {
-    schemaVersion: '2026-07-08.dudesign-encyclopedia-classification-vector.v1',
-    l1: classification.primaryCategory,
-    l2: classification.secondaryCategory,
-    l3: classification.tertiaryCategory,
-    confidence: classification.confidence,
-    signals: [...new Set(classification.signals)],
-    source,
-    recommendedModulePriorities: encyclopediaModulePriorities(categoryText),
-    preferredTemplateIds: [...new Set(preferredTemplateIds)],
-    riskFlags: encyclopediaClassificationRiskFlags(categoryText),
-  }
-}
-
-function guidanceClassificationVector(guidance: EncyclopediaEntryGuidance): EncyclopediaClassificationVector {
-  const value = guidance.metadata.classificationVector
-  if (isEncyclopediaClassificationVector(value)) return value
-  return buildEncyclopediaClassificationVector({
-    primaryCategory: guidance.primaryCategory,
-    secondaryCategory: guidance.secondaryCategory,
-    tertiaryCategory: guidance.tertiaryCategory,
-    confidence: guidance.confidence,
-    signals: guidance.signals,
-  }, guidance.recommendedTemplateIds, guidanceClassificationSource(guidance))
-}
-
-function isEncyclopediaClassificationVector(value: unknown): value is EncyclopediaClassificationVector {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return record.schemaVersion === '2026-07-08.dudesign-encyclopedia-classification-vector.v1'
-    && typeof record.l1 === 'string'
-    && typeof record.l2 === 'string'
-    && typeof record.l3 === 'string'
-    && typeof record.confidence === 'number'
-    && Array.isArray(record.signals)
-    && record.signals.every(item => typeof item === 'string')
-    && (record.source === 'mock_rules' || record.source === 'ai_guidance_v2')
-    && Array.isArray(record.recommendedModulePriorities)
-    && record.recommendedModulePriorities.every(item => typeof item === 'string')
-    && Array.isArray(record.preferredTemplateIds)
-    && record.preferredTemplateIds.every(item => typeof item === 'string')
-    && Array.isArray(record.riskFlags)
-    && record.riskFlags.every(item => typeof item === 'string')
-}
-
-function classificationFromGuidanceAnalysis(analysis: EncyclopediaGuidanceAnalysisV2): {
-  primaryCategory: string
-  secondaryCategory: string
-  tertiaryCategory: string
-  confidence: number
-  signals: string[]
-} {
-  const classification = analysis.entity.classification
-  return {
-    primaryCategory: classification.l1,
-    secondaryCategory: classification.l2,
-    tertiaryCategory: classification.l3,
-    confidence: classification.confidence,
-    signals: [...new Set([
-      `taxonomy:${classification.taxonomyNodeId}`,
-      `intent:${analysis.intent.primaryIntent}`,
-      ...analysis.intent.secondaryIntents.map(intent => `intent:${intent}`),
-      ...analysis.evidence.democaseIds.map(caseId => `democase:${caseId}`),
-    ])],
-  }
-}
-
-function guidanceClassificationSource(guidance: EncyclopediaEntryGuidance): EncyclopediaClassificationSource {
-  return guidance.metadata.classificationSource === 'ai_guidance_v2' ? 'ai_guidance_v2' : 'mock_rules'
-}
-
-function guidanceAnalysisSnapshot(guidance: EncyclopediaEntryGuidance): EncyclopediaGuidanceAnalysisV2 | null {
-  const value = guidance.metadata.guidanceAnalysis
-  if (!value || typeof value !== 'object') return null
-  const record = value as Record<string, unknown>
-  return record.schemaVersion === '2026-07-15.dudesign-encyclopedia-guidance-analysis.v2'
-    ? value as EncyclopediaGuidanceAnalysisV2
-    : null
-}
-
-function encyclopediaModulePriorities(categoryText: string): string[] {
-  if (categoryText.includes('历史人物')) {
-    return ['relationship_graph', 'event_causal_chain', 'ranking_list', 'works_reference']
-  }
-  if (categoryText.includes('电影')) {
-    return ['cast_role_network', 'series_navigation', 'similar_recommendation', 'plot_chain', 'rating_box_office_summary']
-  }
-  if (categoryText.includes('电视剧')) {
-    return ['character_relation_graph', 'episode_causal_chain', 'series_navigation', 'role_quick_answer', 'spoiler_control']
-  }
-  if (categoryText.includes('文化类词语')) {
-    return ['related_phrase_graph', 'origin_story', 'meaning_compare', 'usage_examples', 'quick_choice']
-  }
-  if (categoryText.includes('景区景点')) {
-    return ['route_guide', 'poi_map', 'visit_tips', 'coordinate_status', 'scenic_fact_summary']
-  }
-  if (categoryText.includes('产品') || categoryText.includes('设备')) {
-    return ['summary_facts', 'spec_compare', 'version_difference']
-  }
-  if (categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('学校')) {
-    return ['summary_facts', 'timeline_milestones', 'relation_navigation']
-  }
-  return ['summary_facts', 'key_facts', 'expandable_details']
-}
-
-function encyclopediaClassificationRiskFlags(categoryText: string): string[] {
-  const flags: string[] = []
-  if (categoryText.includes('影视作品') || categoryText.includes('电影') || categoryText.includes('电视剧')) {
-    flags.push('media_resource_link_blocked', 'no_piracy_or_playback_resources', 'plot_hallucination_risk')
-  }
-  if (categoryText.includes('电视剧')) {
-    flags.push('episode_count_hallucination_risk', 'spoiler_control_required')
-  }
-  if (categoryText.includes('历史人物')) {
-    flags.push('relationship_hallucination_risk', 'event_causality_source_required')
-  }
-  if (categoryText.includes('文化类词语')) {
-    flags.push('origin_source_required', 'related_phrase_type_required')
-  }
-  if (categoryText.includes('景区景点')) {
-    flags.push('coordinate_source_required', 'travel_realtime_hallucination_risk', 'external_navigation_blocked')
-  }
-  return flags
-}
-
-function guidanceDemocaseReferences(guidance: EncyclopediaEntryGuidance): EncyclopediaEntryGuidanceResponse['democaseReferences'] {
-  const value = guidance.metadata.democaseReferences
-  if (!Array.isArray(value)) return []
-  return value
-    .filter((item): item is EncyclopediaDemocaseMatch => Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).caseId === 'string'))
-    .map(item => ({
-      caseId: item.caseId,
-      title: item.title,
-      score: item.score,
-      matchedKeywords: item.matchedKeywords,
-      summary: item.summary,
-    }))
-}
-
-function guidanceDemocaseExperienceProfiles(
-  guidance: EncyclopediaEntryGuidance,
-): EncyclopediaEntryGuidanceResponse['templateRequirements']['businessContext']['democaseExperienceProfiles'] {
-  const value = guidance.metadata.democaseExperienceProfiles
-  if (!Array.isArray(value)) return []
-  return value.filter(isDemocaseExperienceProfileSnapshot)
-}
-
-function guidanceDemocaseMatches(guidance: EncyclopediaEntryGuidance): EncyclopediaDemocaseMatch[] {
-  const value = guidance.metadata.democaseReferences
-  if (!Array.isArray(value)) return []
-  return value.filter((item): item is EncyclopediaDemocaseMatch =>
-    Boolean(item && typeof item === 'object' && typeof (item as Record<string, unknown>).caseId === 'string'),
-  )
-}
-
-function normalizeGuidanceClassificationOverride(input: unknown): {
-  primaryCategory: string
-  secondaryCategory: string
-  tertiaryCategory?: string | null
-} | null {
-  if (!input || typeof input !== 'object') return null
-  const record = input as Record<string, unknown>
-  const primaryCategory = typeof record.primaryCategory === 'string' ? record.primaryCategory.trim() : ''
-  const secondaryCategory = typeof record.secondaryCategory === 'string' ? record.secondaryCategory.trim() : ''
-  const tertiaryCategory = typeof record.tertiaryCategory === 'string' ? record.tertiaryCategory.trim() : null
-  if (!primaryCategory || !secondaryCategory) return null
-  const allowedPairs = [
-    ['机构组织', '企业'],
-    ['机构组织', '学校'],
-    ['人物', '名人'],
-    ['人物', '历史人物'],
-    ['名人', '娱乐明星'],
-    ['名人', '历史人物'],
-    ['作品', '影视作品'],
-    ['作品', '文学著作'],
-    ['作品', '游戏'],
-    ['影视作品', '电影'],
-    ['影视作品', '电视剧'],
-    ['文学著作', '诗歌'],
-    ['文学著作', '小说著作'],
-    ['游戏', '电子游戏'],
-    ['物品产品', '产品设备'],
-    ['知识', '知识术语'],
-    ['知识术语', '文化类词语'],
-    ['知识术语', '概念定义'],
-    ['知识术语', '技术模型'],
-    ['地域建筑', '景区景点'],
-  ]
-  const allowed = allowedPairs.some(([primary, secondary]) => primary === primaryCategory && secondary === secondaryCategory)
-  if (!allowed) throw createHttpError(400, 'GUIDANCE_CLASSIFICATION_INVALID', 'Unsupported guidance classification override.')
-  return { primaryCategory, secondaryCategory, tertiaryCategory }
-}
-
-function recommendedInteractionParadigmId(primaryCategory: string, secondaryCategory: string): string {
-  const categoryText = `${primaryCategory} ${secondaryCategory}`
-  if (categoryText.includes('电影') && (categoryText.includes('系列') || categoryText.includes('影视作品'))) {
-    return 'ip_series_navigation'
-  }
-  if (categoryText.includes('景区景点') || categoryText.includes('导览') || categoryText.includes('路线')) {
-    return 'ip_route_guide'
-  }
-  if (categoryText.includes('电视剧') || categoryText.includes('事件链') || categoryText.includes('因果')) {
-    return 'ip_causal_event_chain'
-  }
-  if (categoryText.includes('对比') || categoryText.includes('辨析') || categoryText.includes('产品') || categoryText.includes('设备')) {
-    return 'ip_fact_compare'
-  }
-  if (categoryText.includes('历史')
-    || categoryText.includes('影视')
-    || categoryText.includes('文学')
-    || categoryText.includes('游戏')
-    || categoryText.includes('事件')
-    || categoryText.includes('时间')) {
-    return 'ip_timeline_story'
-  }
-  if (categoryText.includes('关系') || categoryText.includes('角色') || categoryText.includes('组织')) {
-    return 'ip_relation_map'
-  }
-  return 'ip_entity_summary'
-}
-
-function dynamicEncyclopediaRuleTemplateIds(categoryText: string): string[] {
-  if (categoryText.includes('历史人物')) {
-    return [
-      'dtp_de_history_person_relationship',
-      'dtp_de_history_person_event_chain',
-      'dtp_dynamic_encyclopedia_summary_card',
-    ]
-  }
-  if (categoryText.includes('电影')) {
-    return [
-      'dtp_de_film_cast_role_network',
-      'dtp_de_film_series_navigation',
-      'dtp_dynamic_encyclopedia_summary_card',
-    ]
-  }
-  if (categoryText.includes('电视剧')) {
-    return [
-      'dtp_de_tv_character_relation',
-      'dtp_de_tv_episode_chain',
-      'dtp_dynamic_encyclopedia_summary_card',
-    ]
-  }
-  if (categoryText.includes('文化类词语') || categoryText.includes('成语') || categoryText.includes('典故')) {
-    return [
-      'dtp_de_cultural_phrase_relation_graph',
-      'dtp_de_cultural_phrase_origin_story',
-      'dtp_dynamic_encyclopedia_compare_card',
-    ]
-  }
-  if (categoryText.includes('景区景点') || categoryText.includes('景区') || categoryText.includes('景点') || categoryText.includes('导览') || categoryText.includes('路线')) {
-    return [
-      'dtp_de_scenic_spot_route_guide',
-      'dtp_de_scenic_spot_map_poi',
-      'dtp_dynamic_encyclopedia_summary_card',
-    ]
-  }
-  if (categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('事件') || categoryText.includes('时间')) {
-    return [
-      'dtp_dynamic_encyclopedia_timeline_card',
-      'dtp_dynamic_encyclopedia_summary_card',
-      'dtp_dynamic_encyclopedia_relation_card',
-    ]
-  }
-  if (categoryText.includes('产品') || categoryText.includes('设备') || categoryText.includes('对比') || categoryText.includes('辨析')) {
-    return [
-      'dtp_dynamic_encyclopedia_compare_card',
-      'dtp_dynamic_encyclopedia_summary_card',
-      'dtp_dynamic_encyclopedia_expandable_card',
-    ]
-  }
-  if (categoryText.includes('知识') || categoryText.includes('术语') || categoryText.includes('概念')) {
-    return [
-      'dtp_dynamic_encyclopedia_summary_card',
-      'dtp_dynamic_encyclopedia_compare_card',
-      'dtp_dynamic_encyclopedia_expandable_card',
-    ]
-  }
-  if (categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('学校')) {
-    return [
-      'dtp_dynamic_encyclopedia_summary_card',
-      'dtp_dynamic_encyclopedia_timeline_card',
-      'dtp_dynamic_encyclopedia_relation_card',
-    ]
-  }
-  return [
-    'dtp_dynamic_encyclopedia_summary_card',
-    'dtp_dynamic_encyclopedia_timeline_card',
-    'dtp_dynamic_encyclopedia_expandable_card',
-  ]
-}
-
-function dynamicEncyclopediaTemplateRecommendation(templatePackId: string, categoryText: string): { reason: string; confidence: number } {
-  if (templatePackId === 'dtp_de_history_person_relationship') {
-    return {
-      reason: '历史人物的最大延伸需求是亲属、君臣、师承、对手等人物关系，适合用关系图谱承接。',
-      confidence: categoryText.includes('历史人物') ? 0.9 : 0.76,
-    }
-  }
-  if (templatePackId === 'dtp_de_history_person_event_chain') {
-    return {
-      reason: '历史人物适合补充事件因果链，展示起因、经过、结果和影响。',
-      confidence: categoryText.includes('历史人物') ? 0.82 : 0.7,
-    }
-  }
-  if (templatePackId === 'dtp_de_film_cast_role_network') {
-    return {
-      reason: '电影用户最强延伸路径是演员/角色和人物关联，适合用演员-角色网络组织。',
-      confidence: categoryText.includes('电影') ? 0.9 : 0.72,
-    }
-  }
-  if (templatePackId === 'dtp_de_film_series_navigation') {
-    return {
-      reason: '电影存在续集、前传、同 IP 或相似推荐需求，适合用系列导航承接。',
-      confidence: categoryText.includes('电影') ? 0.84 : 0.7,
-    }
-  }
-  if (templatePackId === 'dtp_de_tv_character_relation') {
-    return {
-      reason: '电视剧深度浏览常围绕角色身份、人物关系、阵营和情感线展开，适合用角色关系图谱。',
-      confidence: categoryText.includes('电视剧') ? 0.9 : 0.72,
-    }
-  }
-  if (templatePackId === 'dtp_de_tv_episode_chain') {
-    return {
-      reason: '电视剧具备分集剧情、伏笔回收和因果链需求，适合用分集剧情关系链组织。',
-      confidence: categoryText.includes('电视剧') ? 0.84 : 0.7,
-    }
-  }
-  if (templatePackId === 'dtp_de_cultural_phrase_relation_graph') {
-    return {
-      reason: '文化词语最大的二次需求是关联词跳转，适合用近义、反义、同源和易混词关系图谱承接。',
-      confidence: categoryText.includes('文化类词语') ? 0.9 : 0.72,
-    }
-  }
-  if (templatePackId === 'dtp_de_cultural_phrase_origin_story') {
-    return {
-      reason: '文化词语的高价值增量是出处、典故和故事深化，适合用起因-经过-结果-寓意结构。',
-      confidence: categoryText.includes('文化类词语') ? 0.84 : 0.7,
-    }
-  }
-  if (templatePackId === 'dtp_de_scenic_spot_route_guide') {
-    return {
-      reason: '景区景点 case 标准强调智能导览、路线推荐和游览顺序，适合用路线导览结构承接。',
-      confidence: categoryText.includes('景区景点') ? 0.9 : 0.72,
-    }
-  }
-  if (templatePackId === 'dtp_de_scenic_spot_map_poi') {
-    return {
-      reason: '景区景点 case 标准包含地图、坐标和 POI 分布信号，适合用景点分布与 POI 概览组织。',
-      confidence: categoryText.includes('景区景点') ? 0.84 : 0.7,
-    }
-  }
-  if (templatePackId.includes('timeline')) {
-    return {
-      reason: '词条具备时间线、阶段、作品演进或发展史信号，适合用时间轴结构组织。',
-      confidence: categoryText.includes('历史') || categoryText.includes('影视') || categoryText.includes('文学') || categoryText.includes('游戏') || categoryText.includes('企业') ? 0.82 : 0.68,
-    }
-  }
-  if (templatePackId.includes('relation')) {
-    return {
-      reason: '词条包含人物、组织、作品、角色或概念之间的连接关系，适合用轻量关系图谱组织。',
-      confidence: categoryText.includes('人物') || categoryText.includes('企业') || categoryText.includes('机构') || categoryText.includes('游戏') || categoryText.includes('作品') ? 0.78 : 0.66,
-    }
-  }
-  if (templatePackId.includes('compare')) {
-    return {
-      reason: '词条存在概念辨析、规格差异或横向比较需求，适合用对比辨析结构。',
-      confidence: categoryText.includes('知识') || categoryText.includes('术语') || categoryText.includes('产品') || categoryText.includes('设备') ? 0.8 : 0.64,
-    }
-  }
-  if (templatePackId.includes('expandable')) {
-    return {
-      reason: '词条内容层级较多或细节较长，适合用可展开事实区做渐进披露。',
-      confidence: categoryText.includes('知识') || categoryText.includes('文学') || categoryText.includes('影视') || categoryText.includes('历史') ? 0.76 : 0.62,
-    }
-  }
-  return {
-    reason: '词条适合先呈现身份、摘要、关键事实和紧凑标签，适合作为默认首选结构。',
-    confidence: 0.86,
-  }
-}
-
-function interactionParadigmIdForTemplatePack(templatePackId: string): string | null {
-  return interactionParadigmForTemplatePack(templatePackId)?.id ?? null
-}
-
-function interactionParadigmForTemplatePack(templatePackId: string): InteractionParadigm | null {
-  return listCapabilities().interactionParadigms.find(candidate =>
-    candidate.compatibleTemplatePackIds.includes(templatePackId),
-  ) ?? null
-}
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
@@ -6457,7 +5110,6 @@ function dataIntakeSources(input: AnalyzeDataIntakeRequest): DataIntakeInputSour
   if (stringValue(input.tableText)) sources.push('table')
   if (stringValue(input.jsonText)) sources.push('json')
   if (input.uploadedAssetIds?.length) sources.push('uploaded_asset')
-  if (input.democaseIds?.length) sources.push('democase')
   if (input.researchArtifactIds?.length) sources.push('research_artifact')
   if (stringValue(input.existingHtmlArtifactId)) sources.push('existing_html')
   if (input.memoryNoteIds?.length) sources.push('memory')
@@ -6480,10 +5132,6 @@ function dataIntakeFields(input: AnalyzeDataIntakeRequest, text: string): DataIn
   for (const key of jsonKeys.slice(0, 8)) fields.push({ name: key, confidence: 0.76, source: 'json' })
   const tableHeaders = extractTableHeaders(input.tableText)
   for (const header of tableHeaders.slice(0, 8)) fields.push({ name: header, confidence: 0.72, source: 'table' })
-  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
-    fields.push({ name: 'entryTitle', value: inferEntryTitle(text), confidence: 0.7, source: 'prompt' })
-    fields.push({ name: 'entryCategory', missing: !/(企业|人物|作品|产品|学校|游戏|概念|术语)/.test(text), confidence: 0.55, source: 'prompt' })
-  }
   return dedupeDataIntakeFields(fields)
 }
 
@@ -6498,19 +5146,11 @@ function dataIntakeEntities(input: AnalyzeDataIntakeRequest, text: string): Data
       source: input.prompt ? 'prompt' : input.pastedText ? 'pasted_text' : 'url',
     })
   }
-  for (const id of input.democaseIds?.slice(0, 5) ?? []) {
-    entities.push({ name: id, type: 'democase', confidence: 0.6, source: 'democase' })
-  }
   return entities
 }
 
 function dataIntakeMissingFields(fields: DataIntakeField[], text: string): string[] {
   const missing = new Set<string>()
-  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
-    if (!fields.some(field => field.name === 'entryTitle' && field.value)) missing.add('entryTitle')
-    if (!fields.some(field => field.name === 'entryCategory' && !field.missing)) missing.add('entryCategory')
-    if (!/(事实|摘要|时间|关系|对比|指标|定义|背景)/.test(text)) missing.add('sourceAwareFacts')
-  }
   if (!text) missing.add('promptOrSourceContent')
   return [...missing]
 }
@@ -6526,9 +5166,6 @@ function dataIntakeRiskFlags(input: AnalyzeDataIntakeRequest, text: string, miss
 }
 
 function dataIntakeScenarioRecommendations(text: string): DataIntakeRecommendation[] {
-  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text)) {
-    return [{ id: 'tpl_dynamic_encyclopedia_entry', reason: 'The input describes an encyclopedia entry or dynamic knowledge card.', confidence: 0.88 }]
-  }
   if (/invoice|fintech|金融|支付|账单|财务/i.test(text)) {
     return [{ id: 'tpl_fintech_trust', reason: 'The input mentions finance, payments, invoices, or trust-heavy transaction flows.', confidence: 0.74 }]
   }
@@ -6539,18 +5176,6 @@ function dataIntakeScenarioRecommendations(text: string): DataIntakeRecommendati
 }
 
 function dataIntakeTemplatePackRecommendations(text: string, scenarios: DataIntakeRecommendation[]): DataIntakeRecommendation[] {
-  if (scenarios.some(item => item.id === 'tpl_dynamic_encyclopedia_entry')) {
-    if (/时间|历程|发展|timeline|history/i.test(text)) {
-      return [{ id: 'dtp_dynamic_encyclopedia_timeline_card', reason: 'The input suggests ordered milestones or history.', confidence: 0.8 }]
-    }
-    if (/关系|关联|人物|组织|network|relation/i.test(text)) {
-      return [{ id: 'dtp_dynamic_encyclopedia_relation_card', reason: 'The input suggests related entities or relationship mapping.', confidence: 0.76 }]
-    }
-    if (/对比|区别|compare|versus|vs/i.test(text)) {
-      return [{ id: 'dtp_dynamic_encyclopedia_compare_card', reason: 'The input asks for differences or comparison.', confidence: 0.78 }]
-    }
-    return [{ id: 'dtp_dynamic_encyclopedia_summary_card', reason: 'The input is best served by a compact source-aware summary first.', confidence: 0.82 }]
-  }
   return [{ id: 'dtp_premium_product_launch', reason: 'The input can start from a polished official product template pack.', confidence: 0.46 }]
 }
 
@@ -6560,44 +5185,7 @@ function dataIntakeSkillRecommendations(input: AnalyzeDataIntakeRequest, text: s
     reason: 'The request contains loose or mixed inputs that should be converted into a structured brief.',
     confidence: 0.9,
   }]
-  if (/动态百科|百科|词条|entry|encyclopedia/i.test(text) || input.democaseIds?.length) {
-    recommendations.push({ id: 'sk_encyclopedia_entry_guidance', reason: 'The input maps to encyclopedia entry classification and child-template guidance.', confidence: 0.84 })
-  }
   return recommendations
-}
-
-function dynamicEncyclopediaEntryTitle(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
-  const businessContext = requirements?.businessContext
-  return businessContext?.entryTitle || inferEntryTitle(prompt) || prompt.slice(0, 40) || '动态百科词条'
-}
-
-function dynamicEncyclopediaResearchQuery(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
-  const title = dynamicEncyclopediaEntryTitle(prompt, requirements)
-  const category = requirements?.businessContext
-    ? [
-        requirements.businessContext.entryPrimaryCategory,
-        requirements.businessContext.entrySecondaryCategory,
-        requirements.businessContext.entryTertiaryCategory,
-      ].filter(Boolean).join(' ')
-    : ''
-  return [title, category, '百科 事实 来源 卡片 规范'].filter(Boolean).join(' ')
-}
-
-function dynamicEncyclopediaImagePrompt(prompt: string, requirements: CreateDesignJobRequest['templateRequirements'] | null | undefined): string {
-  const title = dynamicEncyclopediaEntryTitle(prompt, requirements)
-  const category = requirements?.businessContext
-    ? [
-        requirements.businessContext.entryPrimaryCategory,
-        requirements.businessContext.entrySecondaryCategory,
-        requirements.businessContext.entryTertiaryCategory,
-      ].filter(Boolean).join(' / ')
-    : '百科词条'
-  return [
-    `原创动态百科卡片辅助视觉，主题为"${title}"，分类为${category}。`,
-    '使用抽象信息图、几何层级、知识节点、柔和光影和现代中文百科气质。',
-    '不要使用品牌 logo、真实人物肖像、影视剧照、版权角色、商标外观或可识别受保护素材。',
-    '画面应适合作为 390x844 或桌面预览中的辅助插画背景，留出文字可读空间。',
-  ].join(' ')
 }
 
 function inferEntryTitle(text: string): string | null {
@@ -7069,53 +5657,6 @@ function adminPrivateTemplateSummary(entries: AdminTemplateGovernanceEntry[]): A
   }
 }
 
-function adminDynamicEncyclopediaGovernance(
-  capabilities: ReturnType<typeof listCapabilities>,
-  templates: DesignTemplatePack[],
-): AdminDynamicEncyclopediaGovernance {
-  const parentTemplatePackId = 'dtp_dynamic_encyclopedia_card'
-  const childTemplates = templates
-    .filter(template => template.parentPackId === parentTemplatePackId)
-    .map(template => ({
-      id: template.id,
-      name: template.name,
-      status: 'active' as const,
-      parentTemplatePackId: template.parentPackId ?? null,
-    }))
-  const templateIds = new Set(templates.map(template => template.id))
-  const interactionParadigms = capabilities.interactionParadigms
-    .filter(paradigm => paradigm.category === 'encyclopedia')
-    .map(paradigm => {
-      const missingTemplateIds = paradigm.compatibleTemplatePackIds.filter(id => !templateIds.has(id))
-      return {
-        id: paradigm.id,
-        name: paradigm.name,
-        compatibleTemplatePackIds: paradigm.compatibleTemplatePackIds,
-        compatibleTemplateCount: paradigm.compatibleTemplatePackIds.length,
-        mappingStatus: missingTemplateIds.length > 0 ? 'missing_template' as const : 'mapped' as const,
-        bestFor: paradigm.bestFor,
-      }
-    })
-  const categoryMappings = [...new Set(interactionParadigms.flatMap(paradigm => paradigm.bestFor))]
-    .sort((a, b) => a.localeCompare(b))
-    .map(category => {
-      const matched = interactionParadigms.filter(paradigm => paradigm.bestFor.includes(category))
-      return {
-        level: category.includes('/') ? 'L3' as const : category.length > 4 ? 'L2' as const : 'L1' as const,
-        category,
-        interactionParadigmIds: matched.map(paradigm => paradigm.id),
-        templatePackIds: [...new Set(matched.flatMap(paradigm => paradigm.compatibleTemplatePackIds))],
-      }
-    })
-  return {
-    parentTemplatePackId,
-    childTemplates,
-    interactionParadigms,
-    categoryMappings,
-    sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds',
-  }
-}
-
 function adminCapabilityQualitySummary(
   templates: AdminTemplateGovernanceEntry[],
   skills: AdminSkillGovernanceEntry[],
@@ -7124,18 +5665,6 @@ function adminCapabilityQualitySummary(
   auditLogs: ReturnType<ApplicationRepository['listAuditLogs']>,
 ): AdminCapabilityQualitySummary {
   const failedPreviewCount = templates.filter(template => template.requiredActions.some(action => action.toLowerCase().includes('preview'))).length
-  // 硬性归束（v0.4）：统计 dynamic encyclopedia 模板的硬性归束合规情况。
-  const encyclopediaTemplates = templates.filter(template =>
-    template.id === 'dtp_dynamic_encyclopedia_card'
-    || template.id.startsWith('dtp_dynamic_encyclopedia_'),
-  )
-  const hardConstraintsCompliant = encyclopediaTemplates.filter(template => {
-    const findingCodes = new Set(template.findings.map(f => f.code))
-    return !findingCodes.has('dynamic-card-chinese-first')
-      && !findingCodes.has('dynamic-card-english-ui-blocked')
-      && !findingCodes.has('dynamic-card-child-english-ui')
-      && template.lintStatus !== 'failed'
-  }).length
   return {
     templatesWithWarnings: templates.filter(template => template.lintStatus === 'warning').length,
     templatesBlocked: templates.filter(template => template.governanceStatus === 'disabled' || template.lintStatus === 'failed').length,
@@ -7146,18 +5675,6 @@ function adminCapabilityQualitySummary(
     automationLoopsWithPixelGate: loops.filter(loop => loop.quality.pixelGate).length,
     auditLogCount: auditLogs.length,
     recentDriftCount: [...skills, ...mcpTools, ...loops].reduce((sum, item) => sum + item.usage.recentDriftCount, 0),
-    hardConstraints: {
-      templates: {
-        total: encyclopediaTemplates.length,
-        compliant: hardConstraintsCompliant,
-        chineseFirstMissing: encyclopediaTemplates.filter(template =>
-          template.findings.some(f => f.code === 'dynamic-card-chinese-first'),
-        ).length,
-        englishUiMissing: encyclopediaTemplates.filter(template =>
-          template.findings.some(f => f.code === 'dynamic-card-english-ui-blocked' || f.code === 'dynamic-card-child-english-ui'),
-        ).length,
-      },
-    },
     previewSmoke: {
       status: templates.length > 0 ? 'available' : 'not_configured',
       passedCount: templates.filter(template => template.lintStatus === 'passed').length,
@@ -7234,11 +5751,9 @@ function adminTemplateGovernanceEntry(pack: DesignTemplatePack): AdminTemplateGo
     version: pack.version,
     lintStatus: hasErrors ? 'failed' : hasWarnings ? 'warning' : 'passed',
     governanceStatus: pack.status,
-    category: pack.id === 'dtp_dynamic_encyclopedia_card'
-      ? 'business-template-package'
-      : pack.source === 'official'
-        ? 'official-template-pack'
-        : 'user-template',
+    category: pack.source === 'official'
+      ? 'official-template-pack'
+      : 'user-template',
     colorTokenCount: Object.keys(pack.designTokens.colors).length,
     componentCount: Object.keys(pack.designTokens.components).length,
     sectionCount: Object.keys(pack.rationale.sections).length,
@@ -7297,87 +5812,14 @@ function lintAdminTemplatePack(pack: DesignTemplatePack): AdminTemplateLintFindi
   if (Object.keys(pack.rationale.sections).length === 0) {
     findings.push({ severity: 'warning', code: 'missing-sections', message: 'Missing rationale sections; detailed constraints will not appear in runtime prompt.' })
   }
-  if (pack.id === 'dtp_dynamic_encyclopedia_card') {
-    lintDynamicEncyclopediaTemplatePack(pack, findings)
-  }
   if (findings.length === 0) {
     findings.push({ severity: 'info', code: 'lint-passed', message: 'Template pack passes CAP-6 governance lint.' })
   }
   return findings
 }
 
-function lintDynamicEncyclopediaTemplatePack(pack: DesignTemplatePack, findings: AdminTemplateLintFinding[]): void {
-  const components = pack.designTokens.components
-  const sectionsText = Object.values(pack.rationale.sections).join('\n')
-  const pcFrame = components['pc-card-frame']
-  const wiseFrame = components['wise-standard-frame']
-  if (!componentNumber(pcFrame, 'width', 788) || !componentNumber(pcFrame, 'height', 492)) {
-    findings.push({ severity: 'error', code: 'dynamic-card-pc-size', message: 'Dynamic encyclopedia PC frame must be exactly 788x492.' })
-  }
-  if (!componentNumber(wiseFrame, 'width', 380) || !componentNumber(wiseFrame, 'height', 456)) {
-    findings.push({ severity: 'error', code: 'dynamic-card-wise-size', message: 'Dynamic encyclopedia WISE standard frame must be exactly 380x456.' })
-  }
-  // 硬性归束（v0.4）：scroll-container 已被 no-scroll-frame + tab-bar / page-switcher / modal 取代。
-  // 模板禁止声明 overflow:auto/scroll 组件；如果还存在 scroll-container 也算违规。
-  if (components['scroll-container'] && componentString(components['scroll-container'], 'overflowY', 'auto')) {
-    findings.push({ severity: 'error', code: 'dynamic-card-scroll-container', message: 'Dynamic encyclopedia template must not define an overflow:auto scroll container. Use .no-scroll-frame + tab-bar / page-switcher / modal instead.' })
-  }
-  if (!componentString(components['no-scroll-frame'], 'overflow', 'hidden')) {
-    findings.push({ severity: 'error', code: 'dynamic-card-no-scroll-frame', message: 'Dynamic encyclopedia template must define .no-scroll-frame with overflow:hidden.' })
-  }
-  const hasOverflowStrategy = Boolean(components['tab-bar'] ?? components['page-switcher'] ?? components['modal-overlay'])
-  if (!hasOverflowStrategy) {
-    findings.push({ severity: 'error', code: 'dynamic-card-overflow-strategy', message: 'Dynamic encyclopedia template must declare at least one overflow strategy component (tab-bar / page-switcher / modal-overlay).' })
-  }
-  // iframe 兼容性约束保留（iframe / touch / mobile gesture 仍需提及）。
-  if (!/touchmove|touch-action/i.test(sectionsText) || !/iframe/i.test(sectionsText)) {
-    findings.push({ severity: 'error', code: 'dynamic-card-touch-constraints', message: 'Dynamic encyclopedia template must include iframe + touch gesture compatibility constraints.' })
-  }
-  if (!/summary-card/i.test(sectionsText) || !/timeline-card/i.test(sectionsText) || !/relation-card/i.test(sectionsText)) {
-    findings.push({ severity: 'warning', code: 'dynamic-card-child-drafts', message: 'Dynamic encyclopedia template package should list summary, timeline, relation, comparison, and expandable child drafts.' })
-  }
-  // 硬性归束（v0.4）：dos/donts 必须包含"中文优先"和"英文 UI 短语"阻断
-  const dosJoined = pack.rationale.dos.join(' \n ')
-  const dontsJoined = pack.rationale.donts.join(' \n ')
-  if (!/Simplified Chinese|中文/.test(dosJoined)) {
-    findings.push({ severity: 'warning', code: 'dynamic-card-chinese-first', message: 'Dynamic encyclopedia template should explicitly default to Simplified Chinese.' })
-  }
-  if (!/English UI phrases|英文 UI 短语/i.test(dontsJoined)) {
-    findings.push({ severity: 'warning', code: 'dynamic-card-english-ui-blocked', message: 'Dynamic encyclopedia template should block English UI phrases in non-language-category entries.' })
-  }
-  if (pack.templateRole === 'parent_pack') return
-  // 以下是子模板专属规则（父包已通过上面大部分校验）。
-  lintDynamicEncyclopediaChildTemplate(pack, findings)
-}
-
-function lintDynamicEncyclopediaChildTemplate(pack: DesignTemplatePack, findings: AdminTemplateLintFinding[]): void {
-  // 子模板必须显式声明至少一个溢出策略组件（独立于父包）。
-  const components = pack.designTokens.components
-  if (!componentString(components['no-scroll-frame'], 'overflow', 'hidden')) {
-    findings.push({ severity: 'error', code: 'dynamic-card-child-no-scroll-frame', message: `${pack.id} must declare .no-scroll-frame with overflow:hidden.` })
-  }
-  const hasOverflowStrategy = Boolean(components['tab-bar'] ?? components['page-switcher'] ?? components['modal-overlay'])
-  if (!hasOverflowStrategy) {
-    findings.push({ severity: 'error', code: 'dynamic-card-child-overflow-strategy', message: `${pack.id} must declare at least one overflow strategy component (tab-bar / page-switcher / modal-overlay).` })
-  }
-  if (components['scroll-container']) {
-    findings.push({ severity: 'error', code: 'dynamic-card-child-legacy-scroll', message: `${pack.id} must not define the legacy .scroll-container component.` })
-  }
-  const dontsJoined = pack.rationale.donts.join(' \n ')
-  if (!/English UI phrases|英文 UI 短语/i.test(dontsJoined)) {
-    findings.push({ severity: 'warning', code: 'dynamic-card-child-english-ui', message: `${pack.id} should block English UI phrases in non-language-category entries.` })
-  }
-}
-
 function childTemplateDrafts(pack: DesignTemplatePack): AdminTemplateGovernanceEntry['childTemplates'] {
-  if (pack.id !== 'dtp_dynamic_encyclopedia_card') return []
-  return [
-    { id: 'summary-card', name: '摘要卡', description: '实体标题、摘要、关键事实和主要行动。' },
-    { id: 'timeline-card', name: '时间线卡', description: '事件、版本、历史沿革或生命周期节点。' },
-    { id: 'relation-card', name: '关系卡', description: '相关实体、轻量关系图和跳转替代型本地交互。' },
-    { id: 'comparison-card', name: '对比卡', description: '两个或多个实体的关键事实横向比较。' },
-    { id: 'expandable-fact-card', name: '展开事实卡', description: '长百科内容的渐进展开与局部滚动。' },
-  ]
+  return []
 }
 
 function componentNumber(component: Record<string, unknown> | undefined, key: string, expected: number): boolean {
@@ -7424,150 +5866,6 @@ function resolveHtmlAssetPath(value: string, baseDir: string): string | null {
   }
 }
 
-function normalizeDynamicEncyclopediaJobInput(input: CreateDesignJobRequest): CreateDesignJobRequest {
-  if (input.productMode !== 'dynamic_encyclopedia_card') return input
-  const preset = DYNAMIC_ENCYCLOPEDIA_PRESET
-  const requested = input.capabilityRequirements
-  const requestedSkillIds = requested?.plugins?.skillIds
-  const requestedMcpToolIds = requested?.plugins?.mcpToolIds
-  const requestedTemplateIds = requested?.template?.designTemplatePackIds
-    ?? input.templateRequirements?.designTemplatePackIds
-
-  assertRequiredCapabilityIds(requestedSkillIds, preset.selectionPolicy.requiredSkillIds, 'REQUIRED_SKILL_REMOVED')
-  assertRequiredCapabilityIds(requestedMcpToolIds, preset.selectionPolicy.requiredMcpToolIds, 'REQUIRED_MCP_TOOL_REMOVED')
-  if (requestedTemplateIds && requestedTemplateIds.length === 0) {
-    throw createHttpError(400, 'DYNAMIC_TEMPLATE_REQUIRED', 'Dynamic encyclopedia jobs require at least one compatible template.')
-  }
-
-  const loopProfileId = requested?.automation?.loopProfileId ?? preset.loopProfileId
-  if (!preset.selectionPolicy.allowedLoopProfileIds.includes(loopProfileId)) {
-    throw createHttpError(400, 'DYNAMIC_LOOP_NOT_ALLOWED', `Loop profile is not allowed for dynamic encyclopedia jobs: ${loopProfileId}`)
-  }
-  const exploration = input.exploration ?? { level: preset.explorationDefaults.level }
-  if (!Number.isFinite(exploration.level) || exploration.level < 0 || exploration.level > 100) {
-    throw createHttpError(400, 'INVALID_EXPLORATION_LEVEL', 'Exploration level must be between 0 and 100.')
-  }
-  const reviewMode = dynamicReviewMode(input, loopProfileId)
-  if (exploration.level >= preset.explorationDefaults.forceReviewAtOrAbove
-    && (reviewMode === 'off' || loopProfileId !== preset.loopProfileId)) {
-    throw createHttpError(
-      409,
-      'EXPERIMENTAL_REVIEW_REQUIRED',
-      'Experimental dynamic encyclopedia exploration requires encyclopedia specification review.',
-    )
-  }
-
-  return {
-    ...input,
-    requirementModuleGraphId: input.requirementModuleGraphId ?? preset.requirementModuleGraphId,
-    exploration,
-    capabilityRequirements: {
-      ...requested,
-      template: {
-        ...requested?.template,
-        domainTemplateId: requested?.template?.domainTemplateId ?? preset.domainTemplateId,
-        designTemplatePackIds: requestedTemplateIds ?? [...preset.designTemplatePackIds],
-        aestheticProfileId: requested?.template?.aestheticProfileId ?? 'aes_topic_interactive_card',
-        colorPaletteId: requested?.template?.colorPaletteId ?? 'pal_minimal_mono',
-      },
-      plugins: {
-        ...requested?.plugins,
-        skillIds: requestedSkillIds ?? [...preset.skillIds],
-        mcpToolIds: requestedMcpToolIds ?? [...preset.mcpToolIds],
-      },
-      automation: {
-        ...requested?.automation,
-        loopProfileId,
-      },
-    },
-  }
-}
-
-function assertRequiredCapabilityIds(
-  requestedIds: string[] | undefined,
-  requiredIds: string[],
-  code: string,
-): void {
-  if (!requestedIds) return
-  const missing = requiredIds.filter(id => !requestedIds.includes(id))
-  if (missing.length > 0) {
-    throw createHttpError(400, code, `Required dynamic encyclopedia capabilities cannot be removed: ${missing.join(', ')}`)
-  }
-}
-
-function createCapabilitySelectionSnapshot(
-  input: CreateDesignJobRequest,
-  capabilitySnapshot: ReturnType<typeof resolveCapabilitySnapshot>,
-  templatePacks: DesignTemplatePack[],
-): CapabilitySelectionSnapshotV1 | null {
-  if (input.productMode !== 'dynamic_encyclopedia_card') return null
-  validateDynamicTemplateSelection(templatePacks)
-  const preset = DYNAMIC_ENCYCLOPEDIA_PRESET
-  const guidanceId = stringValue(input.templateRequirements?.businessContext?.guidanceId)
-  const recommendedTemplateIds = input.templateRequirements?.businessContext?.recommendedTemplateIds ?? []
-  const requestedSourceByCapabilityId = input.templateRequirements?.capabilitySelectionSnapshot?.sourceByCapabilityId ?? {}
-  const sourceByCapabilityId: Record<string, CapabilitySelectionSource> = {}
-
-  for (const template of templatePacks) {
-    sourceByCapabilityId[template.id] = requestedSourceByCapabilityId[template.id] ?? (guidanceId && recommendedTemplateIds.includes(template.id)
-      ? 'entry_guidance'
-      : preset.designTemplatePackIds.includes(template.id)
-        ? 'official_preset'
-        : 'user_override')
-  }
-  for (const skillId of capabilitySnapshot.plugins.skillIds) {
-    sourceByCapabilityId[skillId] = requestedSourceByCapabilityId[skillId]
-      ?? (preset.skillIds.includes(skillId) ? 'official_preset' : 'user_override')
-  }
-  for (const mcpToolId of capabilitySnapshot.plugins.mcpToolIds) {
-    sourceByCapabilityId[mcpToolId] = requestedSourceByCapabilityId[mcpToolId]
-      ?? (preset.mcpToolIds.includes(mcpToolId) ? 'official_preset' : 'user_override')
-  }
-  sourceByCapabilityId[capabilitySnapshot.automation.loopProfile.id] = requestedSourceByCapabilityId[capabilitySnapshot.automation.loopProfile.id]
-    ?? (capabilitySnapshot.automation.loopProfile.id === preset.loopProfileId ? 'official_preset' : 'user_override')
-
-  return {
-    schemaVersion: '2026-07-14.dudesign-capability-selection.v1',
-    presetId: preset.id,
-    guidanceId: guidanceId || null,
-    confirmedAt: new Date().toISOString(),
-    selectedTemplatePackIds: templatePacks.map(template => template.id),
-    selectedSkillIds: [...capabilitySnapshot.plugins.skillIds],
-    selectedMcpToolIds: [...capabilitySnapshot.plugins.mcpToolIds],
-    loopProfileId: capabilitySnapshot.automation.loopProfile.id,
-    reviewMode: dynamicReviewMode(input, capabilitySnapshot.automation.loopProfile.id),
-    explorationRequest: input.exploration ?? { level: preset.explorationDefaults.level },
-    sourceByCapabilityId,
-  }
-}
-
-function validateDynamicTemplateSelection(templatePacks: DesignTemplatePack[]): void {
-  const requiredParentIds = DYNAMIC_ENCYCLOPEDIA_PRESET.selectionPolicy.requiredTemplatePackIds
-  if (templatePacks.length === 0) {
-    throw createHttpError(400, 'DYNAMIC_TEMPLATE_REQUIRED', 'Dynamic encyclopedia jobs require at least one compatible template.')
-  }
-  for (const template of templatePacks) {
-    const belongsToRequiredPackage = requiredParentIds.includes(template.id)
-      || Boolean(template.parentPackId && requiredParentIds.includes(template.parentPackId))
-    if (!belongsToRequiredPackage || !templatePackSupportsProductMode(template, 'dynamic_encyclopedia_card')) {
-      throw createHttpError(400, 'DYNAMIC_TEMPLATE_NOT_ALLOWED', `Template is not part of the dynamic encyclopedia package: ${template.id}`)
-    }
-  }
-}
-
-function dynamicReviewMode(
-  input: CreateDesignJobRequest,
-  loopProfileId: string,
-): 'off' | 'semi_auto' | 'auto' {
-  const reviewMode = input.templateRequirements?.businessContext?.reviewMode
-  if (reviewMode === 'off' || reviewMode === 'semi_auto' || reviewMode === 'auto') return reviewMode
-  const maxRepairAttempts = input.capabilityRequirements?.automation?.maxRepairAttempts
-  if (loopProfileId === DYNAMIC_ENCYCLOPEDIA_PRESET.loopProfileId) {
-    return typeof maxRepairAttempts === 'number' && maxRepairAttempts > 1 ? 'auto' : 'semi_auto'
-  }
-  return 'off'
-}
-
 export type HttpError = Error & {
   status: number
   code: string
@@ -7596,14 +5894,6 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceMemberRole, number> = {
 
 function roleAllows(actual: WorkspaceMemberRole, required: WorkspaceMemberRole): boolean {
   return WORKSPACE_ROLE_RANK[actual] >= WORKSPACE_ROLE_RANK[required]
-}
-
-const ENTRY_CONTENT_LANGUAGES: ReadonlySet<EntryContentLanguage> = new Set<EntryContentLanguage>([
-  'zh', 'en', 'fr', 'ja', 'ko', 'other', 'mixed',
-])
-
-function isEntryContentLanguage(value: unknown): value is EntryContentLanguage {
-  return typeof value === 'string' && ENTRY_CONTENT_LANGUAGES.has(value as EntryContentLanguage)
 }
 
 function isTerminalVariationStatus(status: DesignVariationStatus): boolean {

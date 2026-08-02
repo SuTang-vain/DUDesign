@@ -3,6 +3,51 @@ import { createVariationThroughUi } from './helpers'
 
 const API_BASE = process.env.DUDESIGN_API_URL ?? 'http://127.0.0.1:4000'
 
+
+async function expectPopoverInViewport(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator): Promise<void> {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  const viewport = page.viewportSize()
+  expect(viewport).not.toBeNull()
+  expect(Math.floor(box!.x)).toBeGreaterThanOrEqual(0)
+  expect(Math.ceil(box!.x + box!.width)).toBeLessThanOrEqual(viewport!.width)
+  expect(Math.floor(box!.y)).toBeGreaterThanOrEqual(0)
+  expect(Math.ceil(box!.y + box!.height)).toBeLessThanOrEqual(viewport!.height)
+}
+
+function privateDesignMd(name: string): string {
+  return `---
+name: ${name}
+description: Browser E2E private template.
+colors:
+  primary: "#2347FF"
+  on-primary: "#FFFFFF"
+  surface: "#F7F8FC"
+typography:
+  display:
+    fontFamily: Inter
+    fontSize: 48px
+    fontWeight: 700
+  body:
+    fontFamily: Inter
+    fontSize: 16px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+---
+
+## Overview
+
+Browser imported private template for SaaS-style landing pages.
+
+## Do's and Don'ts
+
+- Do: Use clear sections and generous whitespace.
+- Don't: Use decorative noise.
+`
+}
+
 test('UX-M1 mock product flow works through browser clicks', async ({ page }) => {
   await createVariationThroughUi(page, 'A crisp landing page for a browser-click E2E design flow')
 
@@ -372,426 +417,10 @@ test('workbench can import DESIGN.md and generate with the private template', as
   })
 })
 
-test('dynamic encyclopedia mode guides entry classification before creating a job', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'What shall we design today?' })).toBeVisible()
-  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
 
-  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
-  const capabilityDrawer = page.getByTestId('dynamic-capability-drawer')
-  await expect(page.getByTestId('session-sidebar')).toBeHidden()
-  await expect(capabilityDrawer).toBeVisible()
-  await expect(capabilityDrawer).toHaveAccessibleName('Capability configuration')
-  await expect(capabilityDrawer.getByRole('button', { name: 'Close' })).toBeFocused()
-  await expect(capabilityDrawer).toContainText('Capability configuration')
-  await expect(capabilityDrawer).toContainText('Dynamic Encyclopedia Entry')
-  await expect(capabilityDrawer).toContainText('Encyclopedia Spec Review')
-  await expect(page.getByTestId('capability-drawer-exploration')).toContainText('40')
-  const drawerBox = await capabilityDrawer.boundingBox()
-  const promptBox = await page.getByTestId('prompt-input').boundingBox()
-  expect(drawerBox).not.toBeNull()
-  expect(promptBox).not.toBeNull()
-  expect((promptBox?.x ?? 0) + (promptBox?.width ?? 0)).toBeLessThanOrEqual((drawerBox?.x ?? 0) + 1)
-  await capabilityDrawer.getByRole('button', { name: 'Close' }).click()
-  await expect(capabilityDrawer).toBeHidden()
-  await expect(page.getByTestId('session-sidebar')).toBeVisible()
-  await expect(page.getByTestId('capability-drawer-trigger')).toBeFocused()
-  await page.getByTestId('capability-drawer-trigger').click()
-  await expect(capabilityDrawer).toBeVisible()
-  await expect(page.getByTestId('session-sidebar')).toBeHidden()
-  await page.keyboard.press('Escape')
-  await expect(capabilityDrawer).toBeHidden()
-  await expect(page.getByTestId('session-sidebar')).toBeVisible()
-  await expect(page.getByTestId('capability-drawer-trigger')).toBeFocused()
-  await expect(page.getByTestId('prompt-input')).toHaveAttribute('placeholder', 'Enter an encyclopedia entry name or content...')
-  await expect(page.getByTestId('capability-drawer-trigger')).toBeVisible()
-  await expect(page.getByTestId('dynamic-encyclopedia-flow')).toBeVisible()
 
-  await page.getByTestId('prompt-input').fill('百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司')
-  const guidanceResponsePromise = page.waitForResponse(response =>
-    response.url().includes('/api/encyclopedia/entry-guidance') && response.request().method() === 'POST',
-  )
-  await page.getByTestId('generate-button').click()
-  const guidanceResponse = await guidanceResponsePromise
-  expect(guidanceResponse.ok()).toBe(true)
-  const guidancePayload = await guidanceResponse.json() as {
-    guidanceId: string
-    requiresConfirmation: boolean
-    democaseReferences: Array<{ caseId: string; matchedKeywords: string[]; score: number }>
-    interactionParadigm: { id: string }
-    recommendedTemplates: Array<{ designTemplatePackId: string }>
-  }
-  expect(guidancePayload.requiresConfirmation).toBe(false)
-  expect(guidancePayload.democaseReferences[0]?.caseId).toBe('demo_baidu_baike_company')
-  expect(guidancePayload.democaseReferences[0]?.matchedKeywords).toContain('百度百科')
-  expect(guidancePayload.democaseReferences[0]?.score).toBeGreaterThan(0)
-  expect(guidancePayload.interactionParadigm.id).toBe('ip_entity_summary')
-  const overrideTemplateId = [
-    'dtp_dynamic_encyclopedia_timeline_card',
-    'dtp_dynamic_encyclopedia_relation_card',
-    'dtp_dynamic_encyclopedia_compare_card',
-    'dtp_dynamic_encyclopedia_expandable_card',
-  ].find(id => !guidancePayload.recommendedTemplates.some(template => template.designTemplatePackId === id))
-  expect(overrideTemplateId).toBeTruthy()
 
-  await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
-  // 硬性归束（v0.4）：百度百科词条命中 democase + 大量中文 → 非语言类 + 中文优先
-  await expect(page.getByTestId('entry-guidance-chinese-first')).toBeVisible()
-  await expect(page.getByTestId('entry-guidance-content-language')).toContainText('zh')
-  await page.getByTestId('capability-drawer-trigger').click()
-  await expect(page.getByTestId('exploration-plan-preview').locator('.capability-drawer-plan-card')).toHaveCount(3)
-  const moduleSection = page.getByTestId('drawer-section-modules')
-  await moduleSection.getByRole('button', { name: 'Change' }).click()
-  await expect(page.getByTestId('drawer-module-entry_identity_summary')).toContainText('Required')
-  await page.getByTestId('drawer-module-locked-entry_timeline').click()
-  await page.getByTestId('drawer-module-excluded-entry_comparison').click()
-  await expect(page.getByTestId('drawer-module-locked-entry_timeline')).toHaveClass(/active/)
-  await expect(page.getByTestId('drawer-module-excluded-entry_comparison')).toHaveClass(/active/)
-  await moduleSection.getByRole('button', { name: 'Done' }).click()
-  await expect(page.getByTestId('exploration-plan-preview').locator('.capability-drawer-plan-card')).toHaveCount(3)
 
-  await expect(capabilityDrawer).toBeVisible()
-  const templateSection = page.getByTestId('drawer-section-templates')
-  await templateSection.getByRole('button', { name: 'Change' }).click()
-  const overrideTemplate = page.getByTestId(`drawer-template-option-${overrideTemplateId}`)
-  if (await overrideTemplate.getAttribute('aria-pressed') !== 'true' && await overrideTemplate.isDisabled()) {
-    await templateSection.locator('.capability-drawer-option[aria-pressed="true"]:not(:disabled)').first().click()
-  }
-  if (await overrideTemplate.getAttribute('aria-pressed') !== 'true') await overrideTemplate.click()
-  await expect(overrideTemplate).toHaveAttribute('aria-pressed', 'true')
-  await expect(capabilityDrawer).toBeVisible()
-  await templateSection.getByRole('button', { name: 'Done' }).click()
-
-  const pluginSection = page.getByTestId('drawer-section-plugins')
-  await pluginSection.getByRole('button', { name: 'Change' }).click()
-  await expect(page.getByTestId('drawer-skill-option-sk_encyclopedia_entry_guidance')).toBeDisabled()
-  const optionalVisualSkill = page.getByTestId('drawer-skill-option-sk_visual_asset_brief')
-  if (await optionalVisualSkill.getAttribute('aria-pressed') === 'true') await optionalVisualSkill.click()
-  await expect(optionalVisualSkill).toHaveAttribute('aria-pressed', 'false')
-  await expect(capabilityDrawer).toBeVisible()
-  await pluginSection.getByRole('button', { name: 'Done' }).click()
-
-  const automationSection = page.getByTestId('drawer-section-automation')
-  await automationSection.getByRole('button', { name: 'Change' }).click()
-  await page.getByTestId('drawer-loop-option-loop_standard').click()
-  await expect(page.getByTestId('drawer-loop-option-loop_standard')).toHaveAttribute('aria-pressed', 'true')
-  await page.getByTestId('drawer-loop-option-loop_encyclopedia_spec_review').click()
-  await expect(page.getByTestId('drawer-loop-option-loop_encyclopedia_spec_review')).toHaveAttribute('aria-pressed', 'true')
-  await expect(capabilityDrawer).toBeVisible()
-  await capabilityDrawer.getByRole('button', { name: 'Close' }).click()
-
-  await page.getByTestId('generate-button').click()
-  await expect(page).toHaveURL(/\/jobs\/job_/)
-  await expect(page.getByTestId('job-capability-selection-sources')).toContainText('Job snapshot')
-  await expect(page.getByTestId('job-capability-selection-sources')).toContainText('Official preset')
-  await expect(page.getByTestId('job-capability-selection-sources')).toContainText('User override')
-  await expect(page.getByTestId('variation-exploration-summary')).toHaveCount(3)
-
-  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
-  expect(jobId).toBeTruthy()
-  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
-  expect(jobSnapshotResponse.ok()).toBe(true)
-  const jobPayload = await jobSnapshotResponse.json() as {
-    job: {
-      productMode: string
-      capabilitySnapshot: {
-        template: { domainTemplate: { id: string } }
-        plugins: { skillIds: string[]; mcpToolIds: string[] }
-        automation: { loopProfile: { id: string } }
-      }
-      explorationPlan: {
-        profile: { level: number }
-        coverageSummary: Record<string, number>
-      } | null
-      capabilitySelectionSnapshot: {
-        presetId: string
-        guidanceId: string | null
-        explorationRequest: { level: number; lockedModuleIds?: string[]; excludedModuleIds?: string[] }
-        sourceByCapabilityId: Record<string, string>
-      } | null
-      designTemplatePacks: Array<{ id: string }>
-    }
-    variations: Array<{
-      id: string
-      currentArtifactId: string | null
-      explorationPlan: { focusId: string } | null
-    }>
-  }
-  expect(jobPayload.job.productMode).toBe('dynamic_encyclopedia_card')
-  expect(jobPayload.job.capabilitySnapshot.template.domainTemplate.id).toBe('tpl_dynamic_encyclopedia_entry')
-  expect(jobPayload.job.capabilitySnapshot.plugins.skillIds).toContain('sk_encyclopedia_entry_guidance')
-  expect(jobPayload.job.capabilitySnapshot.plugins.skillIds).not.toContain('sk_visual_asset_brief')
-  expect(jobPayload.job.capabilitySnapshot.plugins.mcpToolIds).toContain('mcp_encyclopedia_democase_readonly')
-  expect(jobPayload.job.capabilitySnapshot.automation.loopProfile.id).toBe('loop_encyclopedia_spec_review')
-  expect(jobPayload.job.designTemplatePacks[0]?.id).toBe('dtp_dynamic_encyclopedia_summary_card')
-  expect(jobPayload.job.designTemplatePacks.some(template => template.id === overrideTemplateId)).toBe(true)
-  expect(jobPayload.job.explorationPlan?.profile.level).toBe(40)
-  expect(jobPayload.job.explorationPlan?.coverageSummary.entry_timeline).toBeGreaterThan(0)
-  expect(jobPayload.job.explorationPlan?.coverageSummary.entry_comparison).toBeUndefined()
-  expect(jobPayload.job.capabilitySelectionSnapshot).toMatchObject({
-    presetId: 'preset_dynamic_encyclopedia_card',
-    guidanceId: guidancePayload.guidanceId,
-    explorationRequest: { level: 40 },
-  })
-  expect(jobPayload.job.capabilitySelectionSnapshot?.explorationRequest.lockedModuleIds).toContain('entry_timeline')
-  expect(jobPayload.job.capabilitySelectionSnapshot?.explorationRequest.excludedModuleIds).toContain('entry_comparison')
-  expect(jobPayload.job.capabilitySelectionSnapshot?.sourceByCapabilityId.sk_encyclopedia_entry_guidance).toBe('official_preset')
-  expect(jobPayload.job.capabilitySelectionSnapshot?.sourceByCapabilityId[overrideTemplateId!]).toBe('user_override')
-
-  await page.reload()
-  await expect(page.getByTestId('job-capability-selection-sources')).toContainText('Job snapshot')
-  await expect(page.getByTestId('variation-exploration-summary')).toHaveCount(3)
-
-  const firstVariation = jobPayload.variations[0]
-  expect(firstVariation?.explorationPlan?.focusId).toBeTruthy()
-  await page.goto(`/variations/${firstVariation?.id}`)
-  await page.getByTestId('side-panel-tab-direction').click()
-  const variationPlan = page.getByTestId('variation-exploration-plan')
-  await expect(variationPlan).toBeVisible()
-  await expect(variationPlan).toContainText('Job snapshot')
-  await expect(variationPlan).toContainText(firstVariation?.explorationPlan?.focusId ?? '')
-
-  await page.goto('/')
-  await expect(page.getByTestId('session-sidebar')).toBeVisible()
-  await page.getByRole('button', { name: /百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司/ }).first().click()
-  await expect(page).toHaveURL(new RegExp(`/jobs/${jobId}$`))
-  await expect(page.getByTestId('job-capability-selection-sources')).toContainText('Job snapshot')
-  await expect(page.getByTestId('variation-exploration-summary')).toHaveCount(3)
-})
-
-test('dynamic encyclopedia drawer gates experimental exploration behind review confirmation', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/')
-  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
-  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
-  const slider = page.getByTestId('exploration-slider')
-  await slider.fill('80')
-  await expect(slider).toHaveValue('80')
-  await expect(page.getByTestId('experimental-confirmation')).toBeVisible()
-  const automationSection = page.getByTestId('drawer-section-automation')
-  await automationSection.getByRole('button', { name: 'Change' }).click()
-  await expect(page.getByTestId('drawer-review-mode-off')).toBeDisabled()
-  await expect(page.getByTestId('drawer-review-mode-semi_auto')).toHaveClass(/active/)
-  await page.getByTestId('experimental-confirmation').check()
-  await expect(page.getByTestId('experimental-confirmation')).toBeChecked()
-})
-
-test('dynamic encyclopedia refreshes stale guidance and keeps compatible user overrides', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/')
-  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
-  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
-  const drawer = page.getByTestId('dynamic-capability-drawer')
-  await expect(drawer).toBeVisible()
-  await drawer.getByRole('button', { name: 'Close' }).click()
-
-  await page.getByTestId('prompt-input').fill('百度百科：一家以搜索、人工智能和知识服务为核心的互联网公司')
-  await page.getByTestId('generate-button').click()
-  await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
-  await page.getByTestId('capability-drawer-trigger').click()
-
-  const templateSection = page.getByTestId('drawer-section-templates')
-  await templateSection.getByRole('button', { name: 'Change' }).click()
-  const timelineOption = page.getByTestId('drawer-template-option-dtp_dynamic_encyclopedia_timeline_card')
-  const relationOption = page.getByTestId('drawer-template-option-dtp_dynamic_encyclopedia_relation_card')
-  const timelineSelected = await timelineOption.getAttribute('aria-pressed') === 'true'
-  if (timelineSelected) {
-    if (await timelineOption.isDisabled()) await relationOption.click()
-    await timelineOption.click()
-    await timelineOption.click()
-  } else {
-    if (await timelineOption.isDisabled()) {
-      const removableSelected = templateSection.locator('.capability-drawer-option.selected:not(:disabled)').first()
-      await removableSelected.click()
-    }
-    await timelineOption.click()
-  }
-  await expect(timelineOption).toHaveAttribute('aria-pressed', 'true')
-  await expect(timelineOption).toContainText('User override')
-  await templateSection.getByRole('button', { name: 'Done' }).click()
-  await expect(page.getByTestId('exploration-plan-preview').locator('.capability-drawer-plan-card')).toHaveCount(3)
-  await drawer.getByRole('button', { name: 'Close' }).click()
-
-  await page.getByTestId('prompt-input').fill('王安石：北宋政治家、文学家与改革家')
-  const staleNotice = page.getByTestId('entry-guidance-stale-notice')
-  await expect(staleNotice).toBeVisible()
-  await expect(staleNotice).toContainText('Previous guidance expired')
-  await expect(page.getByTestId('preserve-compatible-overrides')).toBeChecked()
-  await expect(page.getByTestId('entry-guidance-summary')).toHaveCount(0)
-
-  await page.getByTestId('capability-drawer-trigger').click()
-  await expect(page.getByTestId('exploration-plan-preview').locator('.capability-drawer-plan-card')).toHaveCount(0)
-  await drawer.getByRole('button', { name: 'Close' }).click()
-
-  const refreshedGuidanceResponsePromise = page.waitForResponse(response => (
-    response.url().includes('/api/encyclopedia/entry-guidance')
-    && response.request().method() === 'POST'
-  ))
-  await page.getByTestId('generate-button').click()
-  const refreshedGuidanceResponse = await refreshedGuidanceResponsePromise
-  expect(refreshedGuidanceResponse.ok()).toBe(true)
-  const refreshedGuidance = await refreshedGuidanceResponse.json() as {
-    classification: { primaryCategory: string; secondaryCategory: string }
-  }
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByTestId('entry-guidance-summary')).toContainText(
-    `${refreshedGuidance.classification.primaryCategory} / ${refreshedGuidance.classification.secondaryCategory}`,
-  )
-  await expect(page.getByTestId('entry-guidance-migration-summary')).toContainText('adjustments kept')
-
-  await page.getByTestId('capability-drawer-trigger').click()
-  await templateSection.getByRole('button', { name: 'Change' }).click()
-  await expect(timelineOption).toHaveAttribute('aria-pressed', 'true')
-  await expect(timelineOption).toContainText('User override')
-  await templateSection.getByRole('button', { name: 'Done' }).click()
-  await drawer.getByRole('button', { name: 'Close' }).click()
-
-  await page.getByTestId('generate-button').click()
-  await expect(page).toHaveURL(/\/jobs\/job_/)
-  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
-  expect(jobId).toBeTruthy()
-  const snapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
-  expect(snapshotResponse.ok()).toBe(true)
-  const snapshot = await snapshotResponse.json() as {
-    job: {
-      capabilitySelectionSnapshot: {
-        sourceByCapabilityId: Record<string, string>
-      } | null
-    }
-  }
-  expect(snapshot.job.capabilitySelectionSnapshot?.sourceByCapabilityId.dtp_dynamic_encyclopedia_timeline_card).toBe('user_override')
-})
-
-test('dynamic encyclopedia capability drawer remains usable at 320px and closes with Escape', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 700 })
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/')
-  await expect(page.getByTestId('workspace-selector')).toContainText('Personal Workspace')
-  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
-  const drawer = page.getByTestId('dynamic-capability-drawer')
-  await expect(drawer).toBeVisible()
-  const closeDrawerButton = drawer.getByRole('button', { name: 'Close' })
-  await expect(closeDrawerButton).toBeFocused()
-  await expect(page.getByTestId('session-sidebar')).toBeHidden()
-  await page.waitForTimeout(250)
-  const drawerBox = await drawer.boundingBox()
-  expect(drawerBox?.x).toBe(0)
-  expect(Math.round(drawerBox?.width ?? 0)).toBe(320)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-
-  const automationSection = page.getByTestId('drawer-section-automation')
-  await automationSection.getByRole('button', { name: 'Change' }).click()
-  await expect(page.getByTestId('drawer-review-mode-semi_auto')).toBeVisible()
-  const reviewButtonsFit = await automationSection.locator('.capability-drawer-review-modes button').evaluateAll(buttons => buttons.every(button => {
-    const box = button.getBoundingClientRect()
-    return box.left >= 0 && box.right <= window.innerWidth
-  }))
-  expect(reviewButtonsFit).toBe(true)
-
-  const slider = page.getByTestId('exploration-slider')
-  await slider.focus()
-  await page.keyboard.press('ArrowRight')
-  await expect(slider).toHaveValue('41')
-
-  await closeDrawerButton.focus()
-  await page.keyboard.press('Shift+Tab')
-  expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="dynamic-capability-drawer"]')))).toBe(true)
-
-  await page.keyboard.press('Escape')
-  await expect(drawer).toBeHidden()
-  await expect(page.getByTestId('session-sidebar')).toBeVisible()
-  await expect(page.getByTestId('capability-drawer-trigger')).toBeFocused()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-})
-
-test('dynamic encyclopedia mode holds low confidence entries for confirmation and template selection', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Dynamic encyclopedia card' }).click()
-  await page.getByTestId('prompt-input').fill('baidu baike')
-  await page.getByTestId('generate-button').click()
-
-  await expect(page.getByTestId('entry-guidance-summary')).toBeVisible()
-  await expect(page.getByTestId('entry-guidance-summary')).toContainText('知识 / 知识术语')
-  await expect(page.getByTestId('entry-guidance-summary')).toContainText('Low confidence')
-  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toBeVisible()
-  await page.getByTestId('entry-guidance-democase-demo_baidu_baike_company').locator('summary').click()
-  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('Matched keywords')
-  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('baidu baike')
-  await expect(page.getByTestId('entry-guidance-democase-demo_baidu_baike_company')).toContainText('Score')
-  await expect(page.getByTestId('entry-guidance-classification-游戏')).toBeVisible()
-  await page.getByTestId('entry-guidance-classification-游戏').click()
-  await expect(page.getByTestId('entry-guidance-classification-游戏')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('entry-guidance-template-dtp_dynamic_encyclopedia_timeline_card')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page).toHaveURL(/\/$/)
-
-  const confirmResponsePromise = page.waitForResponse(response =>
-    /\/api\/encyclopedia\/entry-guidance\/[^/]+\/confirm$/.test(new URL(response.url()).pathname) && response.request().method() === 'POST',
-  )
-  await page.getByTestId('generate-button').click()
-  const confirmResponse = await confirmResponsePromise
-  expect(confirmResponse.ok()).toBe(true)
-  await expect(page).toHaveURL(/\/jobs\/job_/)
-
-  const jobId = page.url().match(/\/jobs\/([^/?#]+)/)?.[1]
-  expect(jobId).toBeTruthy()
-  const jobSnapshotResponse = await page.request.get(`${API_BASE}/api/design-jobs/${jobId}`)
-  expect(jobSnapshotResponse.ok()).toBe(true)
-  const jobPayload = await jobSnapshotResponse.json() as {
-    job: {
-      productMode: string
-      designTemplatePacks: Array<{ id: string }>
-      templateRequirements: { businessContext: { interactionParadigmId: string } } | null
-    }
-  }
-  expect(jobPayload.job.productMode).toBe('dynamic_encyclopedia_card')
-  expect(jobPayload.job.designTemplatePacks.map(pack => pack.id)).toContain('dtp_dynamic_encyclopedia_timeline_card')
-  expect(jobPayload.job.templateRequirements?.businessContext.interactionParadigmId).toBe('ip_timeline_story')
-})
-
-async function expectPopoverInViewport(page: import('@playwright/test').Page, locator: import('@playwright/test').Locator): Promise<void> {
-  const box = await locator.boundingBox()
-  expect(box).not.toBeNull()
-  const viewport = page.viewportSize()
-  expect(viewport).not.toBeNull()
-  expect(Math.floor(box!.x)).toBeGreaterThanOrEqual(0)
-  expect(Math.ceil(box!.x + box!.width)).toBeLessThanOrEqual(viewport!.width)
-  expect(Math.floor(box!.y)).toBeGreaterThanOrEqual(0)
-  expect(Math.ceil(box!.y + box!.height)).toBeLessThanOrEqual(viewport!.height)
-}
-
-function privateDesignMd(name: string): string {
-  return `---
-name: ${name}
-description: Browser E2E private template.
-colors:
-  primary: "#2347FF"
-  on-primary: "#FFFFFF"
-  surface: "#F7F8FC"
-typography:
-  display:
-    fontFamily: Inter
-    fontSize: 48px
-    fontWeight: 700
-  body:
-    fontFamily: Inter
-    fontSize: 16px
-components:
-  button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
----
-
-## Overview
-
-Browser imported private template for SaaS-style landing pages.
-
-## Do's and Don'ts
-
-- Do: Use clear sections and generous whitespace.
-- Don't: Use decorative noise.
-`
-}
 
 test('result wall explains partial and failed generation states', async ({ page }) => {
   await page.route('**/api/design-jobs/job_failed_case/stream', async route => {
@@ -898,21 +527,21 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
           id: 'job_quality_case',
           status: 'completed',
           prompt: 'Quality gate preview',
-          productMode: 'dynamic_encyclopedia_card',
+          productMode: 'web_app',
           variationCount: 1,
           capabilitySnapshot: {
             schemaVersion: '2026-07-01.dudesign-capabilities.v2',
             template: {
-              domainTemplate: { id: 'tpl_dynamic_encyclopedia_entry', name: 'Dynamic Encyclopedia Entry' },
-              aestheticProfile: { id: 'aes_dynamic_encyclopedia', name: 'Dynamic Encyclopedia' },
-              colorPalette: { id: 'pal_dynamic_encyclopedia', name: 'Dynamic Encyclopedia Blue' },
+              domainTemplate: { id: 'tpl_fintech_trust', name: 'Trustworthy SaaS' },
+              aestheticProfile: { id: 'aes_trustworthy_saas', name: 'Trustworthy SaaS' },
+              colorPalette: { id: 'pal_blue_white_trust', name: 'Blue White Trust' },
               brandStyleReference: null,
             },
             automation: {
-              loopProfile: { id: 'loop_encyclopedia_spec_review', name: 'Encyclopedia Spec Review' },
+              loopProfile: { id: 'loop_standard', name: 'Standard' },
               maxRepairAttempts: 1,
             },
-            plugins: { skillIds: ['sk_encyclopedia_entry_guidance'], mcpToolIds: ['mcp_encyclopedia_democase_readonly'] },
+            plugins: { skillIds: ['sk_static_export_safe'], mcpToolIds: ['mcp_accessibility_validate'] },
           },
           designTemplatePacks: [],
         },
@@ -1006,20 +635,6 @@ test('result wall surfaces artifact preview visibility issues', async ({ page })
   await expect(page.getByTestId('variation-quality-banner')).toContainText('检查失败')
   await expect(page.getByTestId('variation-quality-banner')).toHaveAttribute('title', /blank black|loading shell/)
   await expect(page.getByTestId('review-pending-panel')).toHaveCount(0)
-  await page.getByRole('button', { name: '修复' }).click()
-  await expect(page.getByTestId('variation-quality-banner')).toContainText('已加入修复队列')
-  expect(reviewActions).toEqual(['confirm_repair'])
-  await page.reload()
-  await expect(page.getByTestId('variation-quality-banner')).toContainText('已加入修复队列')
-  await expect(page.getByRole('button', { name: '修复' })).toHaveCount(0)
-  persistedReviewStatus = null
-  await page.reload()
-  await expect(page.getByTestId('variation-quality-banner')).toContainText('检查失败')
-  await page.getByRole('button', { name: '忽略' }).click()
-  await expect(page.getByTestId('variation-quality-banner')).toHaveCount(0)
-  expect(reviewActions).toEqual(['confirm_repair', 'skip'])
-  await page.reload()
-  await expect(page.getByTestId('variation-quality-banner')).toHaveCount(0)
 })
 
 test('user workbench exposes basic accessible controls', async ({ page }) => {

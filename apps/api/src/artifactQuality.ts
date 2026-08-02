@@ -1,5 +1,4 @@
 import { inflateSync } from 'node:zlib'
-import type { EncyclopediaDemocaseExperienceProfile } from '@dudesign/contracts'
 import { getPooledChromiumBrowser } from './playwrightBrowserPool.js'
 
 export type ArtifactQualityReport = {
@@ -17,7 +16,6 @@ export type ArtifactQualityReport = {
 type PixelGateOptions = {
   enabled?: boolean
   timeoutMs?: number
-  experienceProfile?: EncyclopediaDemocaseExperienceProfile | null
 }
 
 export function analyzeHtmlArtifactQuality(html: string): ArtifactQualityReport {
@@ -59,7 +57,7 @@ export async function analyzeHtmlArtifactQualityWithPixelGate(
   const base = analyzeHtmlArtifactQuality(html)
   if (!options.enabled) return base
   try {
-    const pixelIssues = await analyzeRenderedPixelIssues(html, options.timeoutMs, options.experienceProfile)
+    const pixelIssues = await analyzeRenderedPixelIssues(html, options.timeoutMs)
     return mergeQualityReports(base, qualityReport(pixelIssues))
   } catch (error) {
     return mergeQualityReports(base, {
@@ -80,7 +78,6 @@ function pixelGateErrorMessage(error: unknown): string {
 async function analyzeRenderedPixelIssues(
   html: string,
   timeoutMs = 6000,
-  experienceProfile?: EncyclopediaDemocaseExperienceProfile | null,
 ): Promise<string[]> {
   const browser = await getPooledChromiumBrowser()
   const viewports = [
@@ -101,12 +98,10 @@ async function analyzeRenderedPixelIssues(
         label,
         width,
         height,
-        experienceProfile,
       }: {
         label: string
         width: number
         height: number
-        experienceProfile: EncyclopediaDemocaseExperienceProfile | null
       }) => {
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
@@ -189,24 +184,24 @@ async function analyzeRenderedPixelIssues(
           return surfaces.length
         })
         const largestRepeatedSurfaceGroup = Math.max(0, ...repeatedSurfaceGroups)
-        const profileLabel = experienceProfile ? ` for ${experienceProfile.dominantStage}` : ''
+        const profileLabel = ''
 
         if (!isExtremeSmall) {
-          const maxDesktopControls = experienceProfile?.attentionBudget.desktop.maxVisibleControls ?? 12
-          const maxDesktopControlGroups = experienceProfile?.attentionBudget.desktop.maxControlGroups ?? 2
-          const maxDesktopVisibleItems = experienceProfile?.attentionBudget.desktop.maxVisibleItems ?? 8
+          const maxDesktopControls = 12
+          const maxDesktopControlGroups = 2
+          const maxDesktopVisibleItems = 8
           if (controls.length > maxDesktopControls) {
-            localIssues.push(`Desktop democase-derived first view${profileLabel} exposes ${controls.length} visible controls; keep at most ${maxDesktopControls} and move secondary choices behind the primary interaction.`)
+            localIssues.push(`Desktop first view${profileLabel} exposes ${controls.length} visible controls; keep at most ${maxDesktopControls} and move secondary choices behind the primary interaction.`)
           }
           if (visibleControlGroups.length > maxDesktopControlGroups) {
-            localIssues.push(`Desktop democase-derived first view${profileLabel} exposes ${visibleControlGroups.length} separate control groups; keep at most ${maxDesktopControlGroups} around one primary selector and one local disclosure path.`)
+            localIssues.push(`Desktop first view${profileLabel} exposes ${visibleControlGroups.length} separate control groups; keep at most ${maxDesktopControlGroups} around one primary selector and one local disclosure path.`)
           }
           if (visibleTextLength > 720) {
-            localIssues.push(`Desktop democase-derived first view exposes ${visibleTextLength} visible text characters; replace simultaneous detail modules with progressive reveal.`)
+            localIssues.push(`Desktop first view exposes ${visibleTextLength} visible text characters; replace simultaneous detail modules with progressive reveal.`)
           }
 
           if (largestRepeatedSurfaceGroup > maxDesktopVisibleItems) {
-            localIssues.push(`Desktop democase-derived first view${profileLabel} renders ${largestRepeatedSurfaceGroup} equal-level content surfaces in one group; keep at most ${maxDesktopVisibleItems} and preserve one dominant stage plus a compact selected-detail surface.`)
+            localIssues.push(`Desktop first view${profileLabel} renders ${largestRepeatedSurfaceGroup} equal-level content surfaces in one group; keep at most ${maxDesktopVisibleItems} and preserve one dominant stage plus a compact selected-detail surface.`)
           }
         }
 
@@ -216,12 +211,12 @@ async function analyzeRenderedPixelIssues(
         if (isExtremeSmall && controls.length === 0) {
           localIssues.push('Extreme-small viewport has no visible primary interaction control.')
         }
-        const maxSmallTabs = experienceProfile?.attentionBudget.extremeSmall.maxPrimaryTabs ?? 4
+        const maxSmallTabs = 4
         if (isExtremeSmall && visibleTabs.length > maxSmallTabs) {
           localIssues.push(`Extreme-small viewport${profileLabel} exposes ${visibleTabs.length} visible primary tabs; keep at most ${maxSmallTabs}.`)
         }
         const visibleTopicControls = controls.filter(control => !visibleTabs.includes(control))
-        const maxSmallControls = experienceProfile?.attentionBudget.extremeSmall.maxVisibleControls ?? 7
+        const maxSmallControls = 7
         const maxSmallTopicControls = Math.max(0, maxSmallControls - visibleTabs.length)
         if (isExtremeSmall && controls.length > maxSmallControls) {
           localIssues.push(`Extreme-small viewport${profileLabel} exposes ${controls.length} visible controls in total; keep at most ${maxSmallControls}.`)
@@ -258,11 +253,11 @@ async function analyzeRenderedPixelIssues(
           if (visibleTextLength < 24) {
             localIssues.push('Extreme-small viewport does not keep enough visible core topic text.')
           }
-          const maxSmallTextCharacters = experienceProfile?.attentionBudget.extremeSmall.maxTextCharacters ?? 520
+          const maxSmallTextCharacters = 520
           if (visibleTextLength > maxSmallTextCharacters) {
             localIssues.push(`Extreme-small viewport${profileLabel} initial view is overloaded with ${visibleTextLength} visible text characters; keep at most ${maxSmallTextCharacters} and move secondary details behind a local interaction.`)
           }
-          const maxSmallVisibleItems = experienceProfile?.attentionBudget.extremeSmall.maxVisibleItems ?? 8
+          const maxSmallVisibleItems = 8
           if (largestRepeatedSurfaceGroup > maxSmallVisibleItems) {
             localIssues.push(`Extreme-small viewport${profileLabel} renders ${largestRepeatedSurfaceGroup} equal-level visible items; keep at most ${maxSmallVisibleItems} in the initial state and page or reveal the rest.`)
           }
@@ -401,7 +396,7 @@ async function analyzeRenderedPixelIssues(
           localIssues.push(`${label}: rendered fixed-card interaction is unusable: ${covered.length} controls are visually covered at their center hit point (${covered.slice(0, 4).join(', ')}).`)
         }
         return localIssues
-      }, { ...viewport, experienceProfile: experienceProfile ?? null }))
+      }, { ...viewport }))
 
       if (viewport.label === 'extreme-small') {
         const probe = await page.evaluate(() => {

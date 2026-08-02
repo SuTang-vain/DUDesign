@@ -11,10 +11,9 @@ test('MCP invocation audit supports filters and long replay keys', async ({ page
   await page.getByTestId('admin-role-select').selectOption('support')
   await page.getByRole('button', { name: 'Audit & MCP' }).click()
 
-  await expect(page.getByTestId('mcp-health-panel')).toContainText('degraded')
   await expect(page.getByTestId('mcp-health-panel')).toContainText('67%')
-  const democaseHealthRow = page.getByTestId('mcp-tool-health-row').filter({ hasText: 'mcp_encyclopedia_democase_readonly' })
-  await expect(democaseHealthRow).toContainText('mcp_encyclopedia_democase_readonly')
+  const democaseHealthRow = page.getByTestId('mcp-tool-health-row').filter({ hasText: 'mcp_agent_reach_search' })
+  await expect(democaseHealthRow).toContainText('mcp_agent_reach_search')
   await expect(democaseHealthRow).toContainText('MCP_UNAVAILABLE')
   const healthPanel = page.getByTestId('mcp-health-panel')
   const fromFilter = '2026-07-06T09:00'
@@ -34,17 +33,17 @@ test('MCP invocation audit supports filters and long replay keys', async ({ page
 
   await page.getByLabel('Job').fill('job_filtered')
   await page.getByLabel('Variation').fill('var_02')
-  await page.getByLabel('MCP tool').fill('mcp_encyclopedia_democase_readonly')
+  await page.getByLabel('MCP tool').fill('mcp_agent_reach_search')
   await page.getByLabel('Status').selectOption('unavailable')
 
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('mcpinv_unavailable_filtered')
   await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('MCP_UNAVAILABLE')
-  await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('Real democase server is temporarily unavailable.')
+  await expect(page.getByTestId('mcp-invocation-audit-row')).toContainText('Accessibility validation server is temporarily unavailable.')
   await expect.poll(() => requests.some(url =>
     url.includes('/api/admin/mcp/invocations')
     && url.includes('jobId=job_filtered')
     && url.includes('variationId=var_02')
-    && url.includes('mcpToolId=mcp_encyclopedia_democase_readonly')
+    && url.includes('mcpToolId=mcp_agent_reach_search')
     && url.includes('status=unavailable'),
   )).toBe(true)
 })
@@ -182,13 +181,13 @@ function unavailableInvocation() {
     replayKey: 'mcp-replay:mcpinv_unavailable_filtered',
     jobId: 'job_filtered',
     variationId: 'var_02',
-    mcpToolId: 'mcp_encyclopedia_democase_readonly',
-    serverName: 'encyclopedia-democase',
-    toolName: 'readDemocase',
+    mcpToolId: 'mcp_accessibility_validate',
+    serverName: 'quality-tools',
+    toolName: 'validateAccessibility',
     status: 'unavailable',
     summary: 'MCP tool is temporarily unavailable.',
     errorCode: 'MCP_UNAVAILABLE',
-    errorMessage: 'Real democase server is temporarily unavailable.',
+    errorMessage: 'Accessibility validation server is temporarily unavailable.',
     referenceCount: 0,
   }
 }
@@ -206,9 +205,9 @@ function mcpSummary(url: URL) {
     },
     tools: [
       {
-        mcpToolId: 'mcp_encyclopedia_democase_readonly',
-        serverName: 'encyclopedia-democase',
-        toolName: 'readDemocase',
+        mcpToolId: 'mcp_agent_reach_search',
+        serverName: 'agent-reach',
+        toolName: 'search',
         totalCount: 1,
         okCount: 0,
         deniedCount: 0,
@@ -218,7 +217,7 @@ function mcpSummary(url: URL) {
         unavailableRate: 1,
         lastStatus: 'unavailable',
         lastErrorCode: 'MCP_UNAVAILABLE',
-        lastErrorMessage: 'Real democase server is temporarily unavailable.',
+        lastErrorMessage: 'Agent search server is temporarily unavailable.',
         lastInvokedAt: checkedAt,
         lastReplayKey: 'mcp-replay:mcpinv_unavailable_filtered',
       },
@@ -240,17 +239,6 @@ function mcpSummary(url: URL) {
         lastReplayKey: longReplayKey,
       },
     ],
-    democase: {
-      mcpToolId: 'mcp_encyclopedia_democase_readonly',
-      totalCount: 1,
-      okCount: 0,
-      unavailableCount: 1,
-      errorCount: 0,
-      healthStatus: 'degraded',
-      lastInvokedAt: checkedAt,
-      lastErrorCode: 'MCP_UNAVAILABLE',
-      lastErrorMessage: 'Real democase server is temporarily unavailable.',
-    },
     filters: {
       mcpToolId: null,
       createdFrom: url.searchParams.get('createdFrom'),

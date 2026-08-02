@@ -7,9 +7,6 @@ import type {
   ListCapabilityAuthoringDraftsResponse,
   AnalyzeDataIntakeRequest,
   AnalyzeDataIntakeResponse,
-  ConfirmEncyclopediaEntryGuidanceRequest,
-  EncyclopediaEntryGuidanceRequest,
-  EncyclopediaEntryGuidanceResponse,
   CreateAnnotationBatchRequest,
   CreateAnnotationBatchResponse,
   CancelVariationRefineRequest,
@@ -220,17 +217,6 @@ export async function previewExplorationPlan(
 
 export async function analyzeDataIntake(input: AnalyzeDataIntakeRequest): Promise<AnalyzeDataIntakeResponse> {
   return postJson('/api/capabilities/data-intake/analyze', input)
-}
-
-export async function createEncyclopediaEntryGuidance(input: EncyclopediaEntryGuidanceRequest): Promise<EncyclopediaEntryGuidanceResponse> {
-  return postJson('/api/encyclopedia/entry-guidance', input)
-}
-
-export async function confirmEncyclopediaEntryGuidance(
-  guidanceId: string,
-  input: ConfirmEncyclopediaEntryGuidanceRequest,
-): Promise<EncyclopediaEntryGuidanceResponse> {
-  return postJson(`/api/encyclopedia/entry-guidance/${encodeURIComponent(guidanceId)}/confirm`, input)
 }
 
 export async function createSourceArtifact(input: CreateSourceArtifactRequest): Promise<CreateSourceArtifactResponse> {

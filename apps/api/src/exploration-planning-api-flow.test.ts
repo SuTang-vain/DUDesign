@@ -13,7 +13,7 @@ import {
   type SpawnVariationAgentsInput,
 } from '@dudesign/runtime-gateway'
 import { InMemoryDesignJobQueue } from './designJobQueue.js'
-import { starGroupRequirementModuleGraph } from './fixtures/starGroupRequirementModuleGraph.js'
+import { productShowcaseRequirementModuleGraph } from './fixtures/productShowcaseRequirementModuleGraph.js'
 import { startApiFlowHarness, type ApiFlowHarness } from './apiFlowSmoke.js'
 import { ApplicationService } from './service.js'
 import { InMemoryStore } from './store.js'
@@ -44,10 +44,10 @@ describe('Exploration planning API flow', () => {
     })
     const request = {
       sessionId: session.session.id,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       variationCount: 3,
       exploration: { level: 40 },
-      dataContext: { units: [{ id: 'unit-a' }] },
+      dataContext: { variants: [{ id: 'variant-a' }] },
     }
 
     const preview = await postJson<PreviewExplorationPlanResponse>(
@@ -60,11 +60,11 @@ describe('Exploration planning API flow', () => {
       sessionId: session.session.id,
       prompt: 'Create three controlled star group encyclopedia directions.',
       sourceMode: 'new_html',
-      productMode: 'dynamic_encyclopedia_card',
+      productMode: 'web_app',
       variationCount: 3,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       exploration: { level: 40 },
-      explorationDataContext: { units: [{ id: 'unit-a' }] },
+      explorationDataContext: { variants: [{ id: 'variant-a' }] },
       templateRequirements: {
         explorationPlan: { forged: true },
         requirementModuleGraph: { forged: true },
@@ -105,7 +105,7 @@ describe('Exploration planning API flow', () => {
     const fullRetry = await harness.service.retryJobAsAdmin(adminContext, created.job.id)
     const fullRetrySnapshot = await harness.service.getDesignJob(ownerContext(), fullRetry.retry.job.id)
     assert.deepEqual(fullRetrySnapshot.job.explorationPlan, preview.explorationPlan)
-    assert.equal(fullRetrySnapshot.job.productMode, 'dynamic_encyclopedia_card')
+    assert.equal(fullRetrySnapshot.job.productMode, 'web_app')
 
     const sourceVariationPlan = snapshot.variations[1]!.explorationPlan
     assert.ok(sourceVariationPlan)
@@ -121,7 +121,7 @@ describe('Exploration planning API flow', () => {
       variationRetrySnapshot.job.explorationPlan?.variations[0]?.sampledModuleIds,
       sourceVariationPlan.sampledModuleIds,
     )
-    assert.equal(variationRetrySnapshot.job.productMode, 'dynamic_encyclopedia_card')
+    assert.equal(variationRetrySnapshot.job.productMode, 'web_app')
   })
 
   it('rejects unavailable module graphs through both preview and creation', async () => {
@@ -150,7 +150,7 @@ describe('Exploration planning API flow', () => {
 
     await expectApiError('/api/design-jobs/exploration-plan/preview', {
       sessionId: session.session.id,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       variationCount: 3,
       exploration: { level: 101 },
     }, 400, 'INVALID_EXPLORATION_PLAN_INPUT')
@@ -182,11 +182,11 @@ describe('Exploration planning API flow', () => {
       sessionId: session.session.id,
       prompt: 'Generate controlled star group directions.',
       sourceMode: 'new_html',
-      productMode: 'dynamic_encyclopedia_card',
+      productMode: 'web_app',
       variationCount: 3,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       exploration: { level: 40 },
-      explorationDataContext: { units: [{ id: 'unit-a' }] },
+      explorationDataContext: { variants: [{ id: 'variant-a' }] },
     })
     const storedJob = await runtimeStore.getJobById(created.job.id)
     assert.ok(storedJob)
@@ -251,7 +251,7 @@ describe('Exploration planning API flow', () => {
       prompt: 'Generate controlled directions while runtime is unavailable.',
       sourceMode: 'new_html',
       variationCount: 3,
-      requirementModuleGraphId: starGroupRequirementModuleGraph.id,
+      requirementModuleGraphId: productShowcaseRequirementModuleGraph.id,
       exploration: { level: 40 },
     })
     const storedJob = await runtimeStore.getJobById(created.job.id)

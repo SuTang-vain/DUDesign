@@ -110,13 +110,6 @@ const templatePacks: Record<string, { name: string; desc: string }> = {
   dtp_developer_workflow: { name: '开发者工作流', desc: '面向 API、CLI、基础设施与代码相关产品的精准开发者工具系统。' },
   dtp_warm_commerce: { name: '暖色电商', desc: '面向精选商品、生活方式与亲和转化的产品电商系统。' },
   dtp_data_operations: { name: '数据密集运营', desc: '面向仪表盘、管理工具、监控与重复流程的紧凑运营系统。' },
-  dtp_dynamic_encyclopedia_card: { name: '词条主题动态交互卡', desc: '以词条或实体为主题入口，生成具有视觉叙事和真实本地交互的单屏卡片，而不是传统百科页面。' },
-  dtp_dynamic_encyclopedia_summary_card: { name: '主题身份卡', desc: '围绕主题身份、核心信号和一个主要互动组织精选内容。' },
-  dtp_dynamic_encyclopedia_timeline_card: { name: '主题时间线', desc: '通过阶段、节点和本地切换形成主题演进叙事。' },
-  dtp_dynamic_encyclopedia_relation_card: { name: '主题关系探索', desc: '围绕人物、作品、组织或概念连接形成可操作的关系探索。' },
-  dtp_dynamic_encyclopedia_compare_card: { name: '主题对比卡', desc: '通过可切换的维度和并列结构呈现差异与辨析。' },
-  dtp_dynamic_encyclopedia_expandable_card: { name: '主题渐进探索', desc: '通过展开、分页或弹层逐步揭示精选内容。' },
-  dtp_de_star_group_member_map: { name: '明星组合成员探索', desc: '围绕组合与成员关系、角色、状态和作品建立动态探索体验。' },
 }
 
 /** 官方交互范式中文名/描述(按稳定 ID)。 */
@@ -202,17 +195,17 @@ const skills: Record<string, {
   },
   sk_data_intake_analysis: {
     name: '数据输入分析',
-    desc: '把 prompt、链接、粘贴文本、表格、JSON、上传资产、democase 与检索结果整理为结构化生成 brief。',
+    desc: '把 prompt、链接、粘贴文本、表格、JSON、上传资产与检索结果整理为结构化生成 brief。',
     rules: [
       '生成前先整理主题摘要、实体、字段、缺失字段、推荐能力和风险标记。',
-      '保留不同输入来源边界,区分 prompt、URL、粘贴文本、表格、JSON、上传资产、democase、检索结果、已有 HTML 和记忆。',
+      '保留不同输入来源边界,区分 prompt、URL、粘贴文本、表格、JSON、上传资产、检索结果、已有 HTML 和记忆。',
       '推荐场景模板、设计模板包和 skill 时必须说明理由与置信度。',
-      '把记忆、democase 和检索结果视为上下文提示,不是未经确认的事实。',
+      '把记忆和检索结果视为上下文提示,不是未经确认的事实。',
     ],
     negative: [
       '不要编造输入中不存在的事实、日期、指标、主张或来源信息。',
       '不要在不标注来源的情况下混合用户私有记忆和公开检索上下文。',
-      '不要因为 URL、democase 或检索结果存在就复制品牌 trade dress 或版权内容。',
+      '不要因为 URL 或检索结果存在就复制品牌 trade dress 或版权内容。',
     ],
     checklist: [
       '生成计划包含主题、核心实体、必要字段和缺失信息。',

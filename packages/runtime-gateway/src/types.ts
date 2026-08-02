@@ -1,4 +1,4 @@
-import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, EncyclopediaClassificationVector, EncyclopediaDemocaseExperienceProfile, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
+import type { AdvancedTemplateConstraints, CapabilitySnapshot, DesignEvent, DesignTemplatePack, DeviceTarget, ID, ImageGenerationUsageContext, InteractionParadigm, ProductMode, ResearchContextArtifactReference, SourceMode } from '@dudesign/contracts'
 import type { RuntimeExplorationContextV1 } from './runtimeExplorationContext.js'
 
 export type RuntimeContractStatus = 'compatible' | 'degraded' | 'unavailable' | 'contract_mismatch'
@@ -93,42 +93,6 @@ export type SpawnVariationAgentsInput = {
       createdAt?: string
     }>
     interactionParadigm?: InteractionParadigm
-    businessContext?: {
-      guidanceId?: ID
-      entryTitle?: string
-      entryPrimaryCategory?: string
-      entrySecondaryCategory?: string
-      entryTertiaryCategory?: string
-      classification?: {
-        l1?: string
-        l2?: string
-        l3?: string
-        confidence?: number
-        signals?: string[]
-        source?: string
-      }
-      classificationVector?: EncyclopediaClassificationVector
-      isLanguageCategory?: boolean
-      entryContentLanguage?: string
-      interactionParadigmId?: ID
-      interactionParadigm?: InteractionParadigm
-      recommendedTemplateIds?: ID[]
-      childTemplates?: Array<{
-        designTemplatePackId?: ID
-        interactionParadigmId?: ID
-        selected?: boolean
-        confidence?: number
-        reason?: string
-      }>
-      democaseExperienceProfiles?: Array<{
-        caseId: ID
-        title: string
-        score: number
-        experienceProfile: EncyclopediaDemocaseExperienceProfile
-      }>
-      automationMode?: 'off' | 'semi_auto' | 'auto'
-      reviewMode?: 'off' | 'semi_auto' | 'auto'
-    }
     variationTemplateAssignments?: Array<{
       variationIndex: number
       designTemplatePackId: ID

@@ -29,7 +29,7 @@ describe('interactive variation preview', () => {
       session,
       prompt: 'Interactive preview smoke',
       sourceMode: 'new_html',
-      productMode: 'dynamic_encyclopedia_card',
+      productMode: 'web_app',
       variationCount: 1,
       templateRequirements: {},
     })

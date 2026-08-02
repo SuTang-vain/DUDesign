@@ -3,14 +3,6 @@ import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { URL } from 'node:url'
 import { DUDESIGN_RUNTIME_CONTRACT_VERSION } from '@dudesign/runtime-gateway'
-import {
-  GuidanceBridgeError,
-  assertGuidanceAnalysisInput,
-  buildGuidanceAnalysisPrompt,
-  buildGuidanceRepairPrompt,
-  extractGuidanceAnalysisPayload,
-  normalizeAndValidateGuidanceAnalysis,
-} from './guidanceAnalysisBridge.js'
 import { NexusClient, NexusClientError, type NexusExecuteResponse } from './nexusClient.js'
 import { RuntimeLaneRegistry, type RuntimeLane, type RuntimeLaneLease } from './runtimeLane.js'
 import { NoopRuntimeAdapterStateStore, type PersistedRuntimeRefineOperation, type RuntimeAdapterStateSnapshot, type RuntimeAdapterStateStore } from './stateStore.js'
@@ -27,8 +19,6 @@ export type RuntimeAdapterOptions = {
   laneAcquireTimeoutMs?: number
   laneAcquirePollMs?: number
   executeTimeoutMs?: number
-  guidanceExecuteTimeoutMs?: number
-  guidanceTimeoutRetryAttempts?: number
   watchdogTimeoutMs?: number
   workspacePollIntervalMs?: number
 }
@@ -82,7 +72,6 @@ const REQUIRED_ENDPOINTS = [
   'POST /v1/agents',
   'POST /v1/agents/refine',
   'POST /v1/agents/cancel',
-  'POST /v1/guidance/analyze',
   'GET /v1/stream',
 ]
 
@@ -145,8 +134,6 @@ class RuntimeAdapterApp {
   private readonly laneAcquireTimeoutMs: number
   private readonly laneAcquirePollMs: number
   private readonly executeTimeoutMs: number
-  private readonly guidanceExecuteTimeoutMs: number
-  private readonly guidanceTimeoutRetryAttempts: number
   private readonly watchdogTimeoutMs: number
   private readonly workspacePollIntervalMs: number
   private readonly runtimeLaneRegistry: RuntimeLaneRegistry
@@ -162,8 +149,6 @@ class RuntimeAdapterApp {
     this.laneAcquireTimeoutMs = positiveInteger(options.laneAcquireTimeoutMs, 30000)
     this.laneAcquirePollMs = positiveInteger(options.laneAcquirePollMs, 250)
     this.executeTimeoutMs = positiveInteger(options.executeTimeoutMs, 300000)
-    this.guidanceExecuteTimeoutMs = positiveInteger(options.guidanceExecuteTimeoutMs, 60000)
-    this.guidanceTimeoutRetryAttempts = nonNegativeInteger(options.guidanceTimeoutRetryAttempts, 1)
     this.watchdogTimeoutMs = positiveInteger(options.watchdogTimeoutMs, this.executeTimeoutMs)
     this.workspacePollIntervalMs = positiveInteger(options.workspacePollIntervalMs, 250)
     this.runtimeLaneRegistry = options.runtimeLaneRegistry ?? RuntimeLaneRegistry.single(options.nexus, { maxConcurrent: Number.MAX_SAFE_INTEGER })
@@ -221,10 +206,6 @@ class RuntimeAdapterApp {
     const refineOperationMatch = url.pathname.match(/^\/v1\/refine-operations\/([^/]+)$/)
     if (method === 'GET' && refineOperationMatch) {
       await this.handleRefineOperation(res, decodeURIComponent(refineOperationMatch[1]!))
-      return
-    }
-    if (method === 'POST' && url.pathname === '/v1/guidance/analyze') {
-      await this.handleGuidanceAnalysis(req, res)
       return
     }
     if (method === 'GET' && url.pathname === '/v1/stream') {
@@ -487,77 +468,6 @@ class RuntimeAdapterApp {
       ...(terminalEvent && { terminalEvent }),
       updatedAt: operation.updatedAt,
     })
-  }
-
-  private async handleGuidanceAnalysis(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    let lease: RuntimeLaneLease | undefined
-    try {
-      const input = assertGuidanceAnalysisInput(await readJson(req))
-      lease = await this.acquireRuntimeLane()
-      const lane = this.runtimeLane(lease.laneId)
-      const workspaceRoot = this.runtimeWorkspaceRoot(
-        `.dudesign/guidance/${safePathSegment(input.analysisId)}`,
-        lane.workspaceRoot,
-      )
-      await mkdir(workspaceRoot, { recursive: true })
-      const created = await lane.nexus.createSession({
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        sessionId: `guidance:${input.analysisId}`,
-        workspaceRoot,
-        memoryNamespace: `memory:guidance:${input.analysisId}`,
-      })
-      const runtimeSessionId = requiredString(created.sessionId, 'sessionId')
-      const startedAt = Date.now()
-      const firstExecution = await this.executeGuidanceWithTimeoutRetry({
-        sessionId: runtimeSessionId,
-        prompt: buildGuidanceAnalysisPrompt(input),
-        cwd: workspaceRoot,
-        runtimeLaneId: lane.id,
-        timeoutMs: this.guidanceExecuteTimeoutMs,
-        watchdogTimeoutMs: this.guidanceExecuteTimeoutMs,
-        allowedTools: [],
-        skipPermissionCheck: true,
-      })
-      assertGuidanceExecutionSucceeded(firstExecution)
-
-      let previousOutput: unknown = firstExecution.events ?? []
-      try {
-        previousOutput = extractGuidanceAnalysisPayload(firstExecution.events ?? [])
-        const analysis = normalizeAndValidateGuidanceAnalysis(input, previousOutput, {
-          durationMs: Date.now() - startedAt,
-          repaired: false,
-          runtimeVersion: this.options.runtimeVersion ?? null,
-        })
-        sendJson(res, 200, analysis)
-        return
-      } catch (error) {
-        if (!(error instanceof GuidanceBridgeError) || error.code !== 'GUIDANCE_INVALID_RESPONSE') throw error
-        previousOutput = error.payload ?? previousOutput
-        const repairExecution = await this.executeGuidanceWithTimeoutRetry({
-          sessionId: runtimeSessionId,
-          prompt: buildGuidanceRepairPrompt(input, previousOutput, error.message),
-          cwd: workspaceRoot,
-          runtimeLaneId: lane.id,
-          timeoutMs: this.guidanceExecuteTimeoutMs,
-          watchdogTimeoutMs: this.guidanceExecuteTimeoutMs,
-          allowedTools: [],
-          skipPermissionCheck: true,
-        }, false)
-        assertGuidanceExecutionSucceeded(repairExecution)
-        const repairedPayload = extractGuidanceAnalysisPayload(repairExecution.events ?? [])
-        const analysis = normalizeAndValidateGuidanceAnalysis(input, repairedPayload, {
-          durationMs: Date.now() - startedAt,
-          repaired: true,
-          runtimeVersion: this.options.runtimeVersion ?? null,
-        })
-        sendJson(res, 200, analysis)
-      }
-    } catch (error) {
-      sendGuidanceError(res, error)
-    } finally {
-      if (lease) this.runtimeLaneRegistry.release(lease)
-    }
   }
 
   private async handleStream(url: URL, res: http.ServerResponse): Promise<void> {
@@ -826,25 +736,6 @@ class RuntimeAdapterApp {
         if (!isCapacityError(error) || attempt >= this.executeRetryAttempts) throw error
         attempt += 1
         await delay(this.executeRetryBaseDelayMs * attempt)
-      }
-    }
-  }
-
-  private async executeGuidanceWithTimeoutRetry(
-    input: Parameters<RuntimeAdapterApp['executeWithCapacityRetry']>[0],
-    retryTimeout = true,
-  ): Promise<NexusExecuteResponse> {
-    let timeoutAttempt = 0
-    while (true) {
-      try {
-        return await this.executeWithCapacityRetry(input)
-      } catch (error) {
-        if (!retryTimeout
-          || !(error instanceof NexusClientError)
-          || error.status !== 408
-          || timeoutAttempt >= this.guidanceTimeoutRetryAttempts) throw error
-        timeoutAttempt += 1
-        await delay(this.executeRetryBaseDelayMs * timeoutAttempt)
       }
     }
   }
@@ -1135,41 +1026,6 @@ function runtimeLaneErrorCode(error: unknown): string {
     return `RUNTIME_HTTP_${error.status}`
   }
   return 'RUNTIME_LANE_ERROR'
-}
-
-function assertGuidanceExecutionSucceeded(executed: NexusExecuteResponse): void {
-  if (executed.success !== false) return
-  const failure = summarizeExecutionFailureEvents(executed.events ?? [])
-  throw new GuidanceBridgeError(
-    failure.code === 'RUNTIME_REQUEST_TIMEOUT' ? 'GUIDANCE_TIMEOUT' : 'GUIDANCE_RUNTIME_UNAVAILABLE',
-    failure.message,
-    failure.code === 'RUNTIME_REQUEST_TIMEOUT' ? 504 : 503,
-  )
-}
-
-function sendGuidanceError(res: http.ServerResponse, error: unknown): void {
-  if (error instanceof GuidanceBridgeError) {
-    sendJson(res, error.status, {
-      type: 'error',
-      code: error.code,
-      message: error.message,
-    })
-    return
-  }
-  if (error instanceof NexusClientError) {
-    const timeout = error.status === 408
-    sendJson(res, timeout ? 504 : 503, {
-      type: 'error',
-      code: timeout ? 'GUIDANCE_TIMEOUT' : 'GUIDANCE_RUNTIME_UNAVAILABLE',
-      message: error.message,
-    })
-    return
-  }
-  sendJson(res, 503, {
-    type: 'error',
-    code: 'GUIDANCE_RUNTIME_UNAVAILABLE',
-    message: error instanceof Error ? error.message : 'BabeL-O guidance analysis is unavailable.',
-  })
 }
 
 function safePathSegment(value: string): string {

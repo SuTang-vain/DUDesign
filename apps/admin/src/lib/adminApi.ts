@@ -187,17 +187,6 @@ export type AdminMcpInvocationSummaryResponse = {
     unavailableRate: number
   }
   tools: AdminMcpToolHealthSummary[]
-  democase: {
-    mcpToolId: string
-    totalCount: number
-    okCount: number
-    unavailableCount: number
-    errorCount: number
-    healthStatus: 'healthy' | 'degraded' | 'unavailable' | 'no_data'
-    lastInvokedAt: string | null
-    lastErrorCode: string | null
-    lastErrorMessage: string | null
-  }
   filters: {
     mcpToolId: string | null
     createdFrom: string | null
@@ -439,30 +428,6 @@ export type AdminTemplateGovernanceResponse = {
       available: number
       missing: number
     }
-  }
-  dynamicEncyclopedia: {
-    parentTemplatePackId: string
-    childTemplates: Array<{
-      id: string
-      name: string
-      status: 'active' | 'missing'
-      parentTemplatePackId: string | null
-    }>
-    interactionParadigms: Array<{
-      id: string
-      name: string
-      compatibleTemplatePackIds: string[]
-      compatibleTemplateCount: number
-      mappingStatus: 'mapped' | 'missing_template'
-      bestFor: string[]
-    }>
-    categoryMappings: Array<{
-      level: 'L1' | 'L2' | 'L3'
-      category: string
-      interactionParadigmIds: string[]
-      templatePackIds: string[]
-    }>
-    sourceOfTruth: 'InteractionParadigm.compatibleTemplatePackIds'
   }
   skillGovernance: Array<{
     id: string

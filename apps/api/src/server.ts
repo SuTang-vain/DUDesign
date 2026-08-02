@@ -136,27 +136,6 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return
   }
 
-  if (method === 'POST' && url.pathname === '/api/encyclopedia/entry-guidance') {
-    sendJson(res, 200, await service.createEncyclopediaEntryGuidance(ctx, await readJson(req)))
-    return
-  }
-
-  const entryGuidanceMatch = url.pathname.match(/^\/api\/encyclopedia\/entry-guidance\/([^/]+)$/)
-  if (method === 'GET' && entryGuidanceMatch) {
-    sendJson(res, 200, await service.getEncyclopediaEntryGuidance(ctx, decodeURIComponent(entryGuidanceMatch[1]!)))
-    return
-  }
-
-  const entryGuidanceConfirmMatch = url.pathname.match(/^\/api\/encyclopedia\/entry-guidance\/([^/]+)\/confirm$/)
-  if (method === 'POST' && entryGuidanceConfirmMatch) {
-    sendJson(res, 200, await service.confirmEncyclopediaEntryGuidance(
-      ctx,
-      decodeURIComponent(entryGuidanceConfirmMatch[1]!),
-      await readJson(req),
-    ))
-    return
-  }
-
   if (method === 'GET' && url.pathname === '/api/design-templates') {
     sendJson(res, 200, await service.listDesignTemplatePacks(ctx, url.searchParams.get('workspaceId')))
     return

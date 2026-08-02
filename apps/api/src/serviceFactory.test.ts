@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import { BabelOGuidanceAnalysisGateway, BabelORuntimeGateway, CliAgentRuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
+import { BabelORuntimeGateway, CliAgentRuntimeGateway, MockRuntimeGateway } from '@dudesign/runtime-gateway'
 import { ArkSeedreamImageMcpExecutor, HttpMcpExecutor, MockMcpExecutor } from './mcpExecutor.js'
 
 import {
   applicationProcessRoleFromEnv,
-  createGuidanceAnalysisGatewayFromEnv,
   createMcpExecutorFromEnv,
   createRuntimeGatewayFromEnv,
   shouldConsumeQueue,
@@ -172,38 +171,6 @@ describe('createRuntimeGatewayFromEnv', () => {
     const runtime = createRuntimeGatewayFromEnv()
 
     assert.ok(runtime instanceof BabelORuntimeGateway)
-  })
-})
-
-describe('createGuidanceAnalysisGatewayFromEnv', () => {
-  afterEach(() => {
-    for (const key of envKeys) delete process.env[key]
-  })
-
-  it('keeps legacy guidance enabled by default without creating an AI gateway', () => {
-    assert.equal(createGuidanceAnalysisGatewayFromEnv(), null)
-  })
-
-  it('requires an explicit BabeL-O URL when AI guidance is enabled', () => {
-    process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER = 'babel-o'
-
-    assert.throws(() => createGuidanceAnalysisGatewayFromEnv(), /GUIDANCE_BABELO_BASE_URL/)
-  })
-
-  it('creates an isolated BabeL-O guidance gateway without changing the generation runtime provider', () => {
-    process.env.DUDESIGN_RUNTIME_PROVIDER = 'mock'
-    process.env.DUDESIGN_GUIDANCE_ANALYSIS_PROVIDER = 'babel-o'
-    process.env.DUDESIGN_GUIDANCE_BABELO_BASE_URL = 'https://guidance.example.test'
-    process.env.DUDESIGN_GUIDANCE_ANALYSIS_ENDPOINT = '/v1/custom-guidance'
-    process.env.DUDESIGN_GUIDANCE_ANALYSIS_TIMEOUT_MS = '4321'
-
-    const gateway = createGuidanceAnalysisGatewayFromEnv()
-
-    assert.ok(gateway instanceof BabelOGuidanceAnalysisGateway)
-    assert.equal(Reflect.get(gateway, 'baseUrl'), 'https://guidance.example.test')
-    assert.equal(Reflect.get(gateway, 'endpointPath'), '/v1/custom-guidance')
-    assert.equal(Reflect.get(gateway, 'timeoutMs'), 4321)
-    assert.ok(createRuntimeGatewayFromEnv() instanceof MockRuntimeGateway)
   })
 })
 

@@ -76,7 +76,7 @@ test('job activity surfaces capability warning without blocking preview access',
   }
 
   await page.route('**/api/design-jobs/job_capability_warning/stream', async route => {
-    await route.fulfill({
+        await route.fulfill({
       status: 200,
       headers: {
         'access-control-allow-origin': '*',
@@ -94,13 +94,14 @@ test('job activity surfaces capability warning without blocking preview access',
     })
   })
   await page.route('**/api/design-jobs/job_capability_warning', async route => {
-    await route.fulfill({
+        await route.fulfill({
       status: 200,
       headers: {
-        'access-control-allow-origin': '*',
+        'access-control-allow-origin': 'http://localhost:3001',
+        'access-control-allow-credentials': 'true',
         'content-type': 'application/json',
       },
-      body: JSON.stringify(snapshot),
+      body: JSON.stringify({ job: snapshot.job, variations: snapshot.variations, artifacts: snapshot.artifacts }),
     })
   })
 

@@ -5,7 +5,6 @@ export {
   applicationProcessRoleFromEnv,
   createApplicationServiceFromEnv,
   createDesignJobQueueFromEnv,
-  createGuidanceAnalysisGatewayFromEnv,
   shouldConsumeQueue,
 } from './serviceFactory.js'
 export type { ApplicationRepository } from './repository.js'

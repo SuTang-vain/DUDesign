@@ -155,31 +155,6 @@ const domainTemplates: DomainTemplate[] = [
       'Developer tool presentation with technical confidence.',
     ],
   },
-  {
-    id: 'tpl_dynamic_encyclopedia_entry',
-    name: 'Dynamic Encyclopedia Entry',
-    category: 'encyclopedia',
-    description: 'A topic-driven dynamic interactive card. The entry defines the theme and factual boundary; the output is not a traditional encyclopedia article or website page.',
-    contentVersion: '1.0.0',
-    structure: {
-      sections: ['theme signal', 'interactive focal module', 'curated supporting content', 'source or context notes'],
-      requiredElements: ['entry theme', 'primary interaction', 'curated factual support', 'no-scroll frame'],
-      optionalElements: ['timeline', 'relation preview', 'comparison rows', 'expandable details'],
-    },
-    constraints: [
-      'Preserve dynamic encyclopedia viewport constraints.',
-      'Keep facts neutral and avoid marketing language.',
-      'Treat factual grounding as a safety boundary, not as a requirement to reproduce encyclopedia article structure or exhaustive coverage.',
-      'Prioritize a theme-specific interaction, visual narrative, and curated modules over generic summary-and-facts layouts.',
-      'Use tab bars, page switchers, accordions, or local modal panels instead of body or container scrolling.',
-      'Do not imitate public encyclopedia or search product trade dress.',
-    ],
-    variationDirections: [
-      'Theme-led interactive focal experience.',
-      'Timeline-driven visual narrative.',
-      'Relation, comparison, or exploration-focused interactive card.',
-    ],
-  },
 ]
 
 const brandStyleReferences: BrandStyleReference[] = [
@@ -253,135 +228,6 @@ const brandStyleReferences: BrandStyleReference[] = [
       'Do not imply affiliation.',
     ],
   },
-]
-
-const interactionParadigms: InteractionParadigm[] = [
-  {
-    id: 'ip_entity_summary',
-    name: 'Entity Summary',
-    category: 'encyclopedia',
-    description: 'A compact fact-first structure for identity, definitions, aliases, metrics, and essential context.',
-    bestFor: ['名人', '机构组织', '企业', '学校', '物品产品', '知识术语'],
-    avoidFor: ['entries whose main value is chronological discovery', 'entries requiring spatial exploration as the core interaction'],
-    requiredDataShape: ['entry title', 'neutral summary', 'key facts', 'category labels'],
-    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_summary_card'],
-  },
-  {
-    id: 'ip_timeline_story',
-    name: 'Timeline Story',
-    category: 'encyclopedia',
-    description: 'A chronological interaction for life stages, release history, enterprise development, events, or work evolution.',
-    bestFor: ['历史人物', '影视作品', '文学著作', '企业', '文化活动', '游戏'],
-    avoidFor: ['entries without event order or milestone data'],
-    requiredDataShape: ['dated or ordered events', 'phase labels', 'short event descriptions'],
-    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_timeline_card'],
-  },
-  {
-    id: 'ip_relation_map',
-    name: 'Relation Map',
-    category: 'encyclopedia',
-    description: 'A local relationship interaction for connected entities, roles, works, organizations, and related concepts.',
-    bestFor: ['名人', '历史人物', '企业', '机构组织', '影视作品', '文学著作', '游戏'],
-    avoidFor: ['entries with no related entities or relationship context'],
-    requiredDataShape: ['current entity', 'related entities', 'relationship labels', 'short relation notes'],
-    compatibleTemplatePackIds: [
-      'dtp_dynamic_encyclopedia_relation_card',
-      'dtp_de_history_person_relationship',
-      'dtp_de_film_cast_role_network',
-      'dtp_de_tv_character_relation',
-      'dtp_de_cultural_phrase_relation_graph',
-      'dtp_de_scenic_spot_map_poi',
-      'dtp_de_star_group_member_map',
-    ],
-  },
-  {
-    id: 'ip_fact_compare',
-    name: 'Fact Compare',
-    category: 'encyclopedia',
-    description: 'A comparison interaction for disambiguation, specs, editions, concept differences, or side-by-side facts.',
-    bestFor: ['知识术语', '物品产品', '产品设备', '企业', '学校', '游戏'],
-    avoidFor: ['entries without comparable facts or dimensions'],
-    requiredDataShape: ['comparison targets', 'fact dimensions', 'short values', 'difference notes'],
-    compatibleTemplatePackIds: ['dtp_dynamic_encyclopedia_compare_card'],
-  },
-  {
-    id: 'ip_expandable_facts',
-    name: 'Expandable Facts',
-    category: 'encyclopedia',
-    description: 'A progressive disclosure interaction for long facts, sections, caveats, and layered explanations.',
-    bestFor: ['知识术语', '历史人物', '影视作品', '文学著作', '文化活动', '机构组织'],
-    avoidFor: ['entries that fit in a short summary without layered sections'],
-    requiredDataShape: ['section titles', 'short summaries', 'expanded details', 'source notes'],
-    compatibleTemplatePackIds: [
-      'dtp_dynamic_encyclopedia_expandable_card',
-      'dtp_de_cultural_phrase_origin_story',
-    ],
-  },
-  {
-    id: 'ip_causal_event_chain',
-    name: 'Causal Event Chain',
-    category: 'encyclopedia',
-    description: 'A compact cause-process-result-impact interaction for historical events, episode chains, plot chains, and origin stories.',
-    bestFor: ['历史人物', '影视作品', '电视剧', '文化类词语', '事件'],
-    avoidFor: ['entries without ordered events or causality signals'],
-    requiredDataShape: ['ordered event nodes', 'cause/result labels', 'participants or roles', 'source notes'],
-    compatibleTemplatePackIds: [
-      'dtp_de_history_person_event_chain',
-      'dtp_de_tv_episode_chain',
-      'dtp_de_cultural_phrase_origin_story',
-    ],
-  },
-  {
-    id: 'ip_series_navigation',
-    name: 'Series Navigation',
-    category: 'encyclopedia',
-    description: 'A bounded navigation interaction for film or TV series, sequels, prequels, same-IP works, versions, and similar recommendations.',
-    bestFor: ['影视作品', '电影', '电视剧', '游戏', '文学著作'],
-    avoidFor: ['entries with no related works or recommendation context'],
-    requiredDataShape: ['current work', 'related works', 'relationship type', 'release year or status', 'reason'],
-    compatibleTemplatePackIds: ['dtp_de_film_series_navigation'],
-  },
-  {
-    id: 'ip_route_guide',
-    name: 'Route Guide',
-    category: 'encyclopedia',
-    description: 'A bounded route and POI interaction for scenic spots, parks, attractions, guide maps, and visit-order recommendations.',
-    bestFor: ['地域建筑', '景区景点', '公园', '旅游区', '风景区'],
-    avoidFor: ['entries with no spatial, route, or POI data'],
-    requiredDataShape: ['scenic spot', 'POI names', 'route order', 'location or coordinate source status', 'visit tips'],
-    compatibleTemplatePackIds: [
-      'dtp_de_scenic_spot_route_guide',
-      'dtp_de_scenic_spot_map_poi',
-    ],
-  },
-]
-
-export const DYNAMIC_ENCYCLOPEDIA_PRESET: CapabilityPreset = {
-  id: 'preset_dynamic_encyclopedia_card',
-  productMode: 'dynamic_encyclopedia_card',
-  name: 'Dynamic Encyclopedia Card',
-  description: 'Builds a topic-driven dynamic interactive card from an entry theme, using guidance, research context, visual assets, interaction templates, democase context, and bounded factual review.',
-  domainTemplateId: 'tpl_dynamic_encyclopedia_entry',
-  designTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
-  skillIds: ['sk_encyclopedia_entry_guidance', 'sk_data_intake_analysis', 'sk_research_brief_builder', 'sk_visual_asset_brief'],
-  mcpToolIds: ['mcp_encyclopedia_democase_readonly', 'mcp_agent_reach_search', 'mcp_image_generation_ark_seedream'],
-  loopProfileId: 'loop_encyclopedia_spec_review',
-  requirementModuleGraphId: 'requirement_graph_dynamic_encyclopedia_entry',
-  selectionPolicy: {
-    requiredTemplatePackIds: ['dtp_dynamic_encyclopedia_card'],
-    requiredSkillIds: ['sk_encyclopedia_entry_guidance'],
-    requiredMcpToolIds: ['mcp_encyclopedia_democase_readonly'],
-    allowedLoopProfileIds: ['loop_standard', 'loop_encyclopedia_spec_review'],
-  },
-  explorationDefaults: {
-    level: 40,
-    experimentalConfirmationThreshold: 71,
-    forceReviewAtOrAbove: 71,
-  },
-}
-
-const capabilityPresets: CapabilityPreset[] = [
-  DYNAMIC_ENCYCLOPEDIA_PRESET,
 ]
 
 const colorPalettes: ColorPalette[] = [
@@ -508,27 +354,6 @@ const aestheticProfiles: AestheticProfile[] = [
     motionTone: 'confident but controlled',
     negativeRules: ['Avoid illegible low-contrast text.', 'Do not overuse all-caps body copy.'],
   },
-  {
-    id: 'aes_topic_interactive_card',
-    name: 'Topic Interactive Card',
-    description: 'A theme-responsive single-canvas experience led by one meaningful local interaction instead of landing-page conversion patterns.',
-    colorPaletteIds: ['pal_minimal_mono', 'pal_editorial_contrast'],
-    mood: ['curated', 'immersive', 'focused'],
-    occasion: ['topic exploration', 'interactive knowledge object', 'embedded story card'],
-    tone: ['editorial', 'expressive', 'factual'],
-    formality: 'medium',
-    density: 'medium-high',
-    bestFor: ['topic-driven interactive cards', 'member or relation exploration', 'timeline and object narratives'],
-    avoidFor: ['SaaS landing pages', 'conversion funnels', 'pricing pages', 'testimonial-heavy marketing'],
-    typographyTone: 'compact editorial hierarchy with a strong topic title and concise interaction labels',
-    layoutTone: 'one fixed canvas, one primary interaction, and supporting facts that never compete with the main experience',
-    motionTone: 'local state transitions that clarify selection, progression, relation, or reveal',
-    negativeRules: [
-      'Do not add CTA rhythms, proof blocks, testimonials, social proof, pricing, signup, or conversion language.',
-      'Do not turn the topic into a traditional encyclopedia article, dashboard, or marketing landing page.',
-      'Do not overload the fixed frame with multiple equally dominant modules.',
-    ],
-  },
 ]
 
 const capabilityPlugins: CapabilityPlugin[] = [
@@ -605,7 +430,7 @@ const capabilityPlugins: CapabilityPlugin[] = [
     type: 'skill',
     visibility: 'official',
     name: 'Data Intake Analysis',
-    description: 'Turns loose prompts, pasted content, URLs, tables, JSON, uploaded assets, democase, and research artifacts into a structured generation brief.',
+    description: 'Turns loose prompts, pasted content, URLs, tables, JSON, uploaded assets, and research artifacts into a structured generation brief.',
     category: 'research',
     safetyLevel: 'safe',
     status: 'active',
@@ -680,23 +505,6 @@ const capabilityPlugins: CapabilityPlugin[] = [
     permissionPolicy: {
       scopes: ['validation_only'],
       maxPromptChars: 600,
-      allowRuntimeToolUse: false,
-      requiresUserAuth: false,
-      auditLevel: 'usage',
-    },
-  },
-  {
-    id: 'plug_encyclopedia_entry_guidance',
-    type: 'mixed',
-    visibility: 'official',
-    name: 'Encyclopedia Entry Guidance',
-    description: 'Groups the entry guidance skill and readonly democase MCP binding for dynamic encyclopedia generation.',
-    category: 'encyclopedia',
-    safetyLevel: 'safe',
-    status: 'active',
-    permissionPolicy: {
-      scopes: ['readonly_context'],
-      maxPromptChars: 2400,
       allowRuntimeToolUse: false,
       requiresUserAuth: false,
       auditLevel: 'usage',
@@ -800,7 +608,7 @@ const designSkills: DesignSkill[] = [
       'Mobile or iframe surfaces use touch-safe controls and do not rely on body scrolling for fixed-size cards.',
       'Variation-specific template assignments remain visible in the generation rationale.',
     ],
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
     id: 'sk_data_intake_analysis',
@@ -808,9 +616,9 @@ const designSkills: DesignSkill[] = [
     schemaVersion: '2026-07-06.dudesign-skill.v1',
     rules: [
       'Before generation, convert loose user inputs into a structured brief with topic summary, entities, fields, missing fields, recommendations, and risk flags.',
-      'Preserve input source boundaries: prompt, URL, pasted text, table, JSON, uploaded asset, democase, research artifact, existing HTML, and memory must stay distinguishable.',
+      'Preserve input source boundaries: prompt, URL, pasted text, table, JSON, uploaded asset, research artifact, existing HTML, and memory must stay distinguishable.',
       'Explain every recommended scenario template, design template pack, and skill with a reason and confidence.',
-      'Treat memory, democase, and research artifacts as context hints, not unquestioned facts.',
+      'Treat memory and research artifacts as context hints, not unquestioned facts.',
     ],
     promptBlocks: [
       'If input is incomplete or mixed, first produce an internal structured brief: what is known, what is missing, what is risky, and which capability choices are justified.',
@@ -819,7 +627,7 @@ const designSkills: DesignSkill[] = [
     negativeRules: [
       'Do not invent facts, dates, metrics, claims, or source-backed details that are not present in the supplied inputs.',
       'Do not merge private user memory with public research context without keeping the source boundary explicit.',
-      'Do not treat a URL, democase example, or research artifact as permission to copy trade dress or copyrighted content.',
+      'Do not treat a URL or research artifact as permission to copy trade dress or copyrighted content.',
     ],
     qualityChecklist: [
       'The generation plan names the primary topic, core entities, required fields, and missing information.',
@@ -827,7 +635,7 @@ const designSkills: DesignSkill[] = [
       'Risk flags are surfaced before using uncertain or externally sourced content.',
       'User-selected capability choices remain authoritative unless the user confirms changes.',
     ],
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
     id: 'sk_research_brief_builder',
@@ -854,7 +662,7 @@ const designSkills: DesignSkill[] = [
       'Risk flags are reflected in the generation rationale.',
       'The output does not expose raw payloads or hidden tool metadata.',
     ],
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
     id: 'sk_visual_asset_brief',
@@ -878,53 +686,7 @@ const designSkills: DesignSkill[] = [
       'Generated assets are referenced by artifact id or reviewed URL, not by provider secrets.',
       'The design can degrade gracefully if image generation is unavailable.',
     ],
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
-  },
-  {
-    id: 'sk_encyclopedia_entry_guidance',
-    pluginId: 'plug_encyclopedia_entry_guidance',
-    schemaVersion: '2026-07-08.dudesign-skill.v2',
-    rules: [
-      'Treat the user input as a topic/entity theme and optional supporting context for a dynamic interactive card.',
-      'Classify the entry only to choose a relevant interaction paradigm, module set, and factual boundary.',
-      'Recommend one to three dynamic card subtemplates only when they are supported by the entry content.',
-      'Prioritize a distinctive thematic experience and one valuable inspectable interaction; use compact neutral facts as supporting material.',
-      'Do not generate a traditional encyclopedia article, encyclopedia website page, infobox-plus-contents layout, or exhaustive knowledge summary.',
-      'Use low-confidence classification as a reason to ask for confirmation instead of forcing a template.',
-      // 硬性归束（v0.4）— 中文优先
-      'Default body content to Simplified Chinese. Preserve proper nouns, foreign entry titles, and language-category entries (foreign language / linguistics / translation / dialect) in their original script.',
-      'Never insert English UI phrases (View More / Read More / Get Started / Learn More / Sign Up / Subscribe / Try Now / Discover / Explore Now / Click Here / See More / Find Out More / Buy Now / Add to Cart / Continue Reading) in non-language-category entries. Use Chinese equivalents (查看更多 / 阅读更多 / 开始使用 / 了解详情 / 注册 / 订阅 / 立即试用 / 发现 / 立即探索 / 点击此处 / 查看更多 / 了解更多 / 立即购买 / 加入购物车 / 继续阅读).',
-      // 硬性归束（v0.4）— 单一界面交付，禁内部滚动
-      'Deliver the card as a single-screen artifact (PC 788×492 / WISE 380×456). Body, html, and any root container must set height: 100% and overflow: hidden.',
-      'Never use overflow: auto / scroll, the .scroll-container class, or any internal scroll container. For overflow content use a .tab-bar (max 4 tabs), .page-switcher (dots/pill), or .modal-overlay.',
-    ],
-    promptBlocks: [
-      'For topic-driven dynamic cards, identify the user goal and primary interaction first, then create a compact thematic experience that respects the selected child template and interaction paradigm.',
-      'The entry is a theme and factual boundary, not a requirement for encyclopedia-style completeness. Curate only the content that strengthens the selected interaction.',
-      'Preserve factual uncertainty: do not invent dates, relationships, awards, medical claims, financial figures, or official statuses not present in the supplied entry context.',
-      // 硬性归束（v0.4）— 溢出策略指引
-      'Overflow strategy: when content density exceeds the canvas, split across .tab-bar (one tab per logical group, max 4), paginate with .page-switcher (e.g. 3–4 milestones per page), or open a .modal-overlay for "查看更多" details. Never wrap content in an overflow:auto container.',
-    ],
-    negativeRules: [
-      'Do not imitate public encyclopedia, search engine, browser, or mobile app trade dress.',
-      'Do not turn democase examples into facts about the current entry.',
-      'Do not use global touchmove prevention, global touch-action:none, videos, downloads, or outbound navigation as core interactions.',
-      // 硬性归束（v0.4）
-      'Do not use overflow: auto / scroll on any container. Do not use the .scroll-container class.',
-      'Do not insert English UI phrases (View More / Read More / Get Started / etc.) in non-language-category entries.',
-      'Do not translate proper nouns, foreign entry titles, or language-category entries into Chinese.',
-    ],
-    qualityChecklist: [
-      'The card fits the required dynamic encyclopedia viewport constraints (PC 788×492 / WISE 380×456).',
-      'The structure matches the selected subtemplate and entry category.',
-      'The card has a clear thematic focal point and a real primary interaction; it is not a compressed encyclopedia article.',
-      'Content selection serves the user goal and interaction rather than exhaustive topic coverage.',
-      'No internal scroll containers; overflow content is routed through .tab-bar / .page-switcher / .modal-overlay.',
-      'Body content is Simplified Chinese by default; proper nouns and language-category entries are preserved in their original script.',
-      'No English UI phrases (View More / Read More / Get Started / etc.) in non-language-category entries.',
-      'Claims remain neutral and traceable to the provided entry context.',
-    ],
-    allowedTemplateCategories: ['encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
 ]
 
@@ -948,22 +710,13 @@ const mcpToolBindings: McpToolBinding[] = [
     allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
-    id: 'mcp_encyclopedia_democase_readonly',
-    pluginId: 'plug_encyclopedia_entry_guidance',
-    serverName: 'encyclopedia-democase',
-    toolName: 'lookupEntryDemoCases',
-    scopes: ['readonly_context'],
-    requiresUserAuth: false,
-    allowedTemplateCategories: ['encyclopedia'],
-  },
-  {
     id: 'mcp_agent_reach_search',
     pluginId: 'plug_research_context',
     serverName: 'agent-reach',
     toolName: 'search',
     scopes: ['readonly_context'],
     requiresUserAuth: false,
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
     id: 'mcp_agent_reach_page_read',
@@ -972,7 +725,7 @@ const mcpToolBindings: McpToolBinding[] = [
     toolName: 'readPage',
     scopes: ['readonly_context'],
     requiresUserAuth: false,
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
   {
     id: 'mcp_agent_reach_social_scan',
@@ -981,7 +734,7 @@ const mcpToolBindings: McpToolBinding[] = [
     toolName: 'scanSocial',
     scopes: ['readonly_context'],
     requiresUserAuth: false,
-    allowedTemplateCategories: ['creative', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['creative', 'product', 'ai'],
   },
   {
     id: 'mcp_image_generation_ark_seedream',
@@ -990,7 +743,7 @@ const mcpToolBindings: McpToolBinding[] = [
     toolName: 'generateArkSeedreamImage',
     scopes: ['artifact_write', 'readonly_context'],
     requiresUserAuth: false,
-    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai', 'encyclopedia'],
+    allowedTemplateCategories: ['finance', 'creative', 'enterprise', 'automotive', 'product', 'ai'],
   },
 ]
 
@@ -1025,16 +778,6 @@ const automationLoopProfiles: AutomationLoopProfile[] = [
     qualityGates: ['static', 'pixel'],
     repairStrategy: 'deep_refine',
   },
-  {
-    id: 'loop_encyclopedia_spec_review',
-    name: 'Encyclopedia Spec Review',
-    description: 'Runs dynamic encyclopedia card specification checks and allows bounded automated repair.',
-    maxRepairAttempts: 2,
-    maxCostCents: 500,
-    maxDurationMs: 720000,
-    qualityGates: ['static', 'spec', 'pixel'],
-    repairStrategy: 'spec_review_refine',
-  },
 ]
 
 export function listCapabilities(options: CapabilityGovernanceOptions = {}): ListCapabilitiesResponse {
@@ -1053,12 +796,12 @@ export function listCapabilities(options: CapabilityGovernanceOptions = {}): Lis
     aestheticProfiles,
     colorPalettes,
     brandStyleReferences,
-    interactionParadigms,
+    interactionParadigms: [],
     plugins: governedPlugins,
     skills: designSkills,
     mcpToolBindings,
     automationLoopProfiles,
-    capabilityPresets,
+    capabilityPresets: [],
     defaults: {
       domainTemplateId: 'tpl_fintech_trust',
       aestheticProfileId: 'aes_trustworthy_saas',
