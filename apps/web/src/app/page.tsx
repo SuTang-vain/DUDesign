@@ -89,6 +89,21 @@ type SessionDialog = {
 
 const capabilityPreferenceStorageKey = 'dudesign.capabilityPreference'
 
+/**
+ * 从候选 ID 中取第一个存在于能力目录中的值。
+ * 历史偏好可能指向已下线能力(如旧版动态百科模板)，
+ * 直接采用会导致提交任务时 API 报 "Capability not found"。
+ */
+function resolveCapabilityId<T extends { id: string }>(
+  items: T[] | undefined,
+  ...candidates: Array<string | null | undefined>
+): string {
+  for (const candidate of candidates) {
+    if (candidate && items?.some(item => item.id === candidate)) return candidate
+  }
+  return ''
+}
+
 export default function HomePage(): React.JSX.Element {
   const { t } = useLanguage()
   const c18n = useCapabilityI18n()
@@ -170,11 +185,11 @@ export default function HomePage(): React.JSX.Element {
         setSessions(data[1].sessions)
         setCapabilities(data[2])
         const localPreference = readCapabilityPreference()
-        setDomainTemplateId(localPreference.domainTemplateId ?? data[2].defaults.domainTemplateId)
-        setAestheticProfileId(localPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
-        setColorPaletteId(localPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
-        setLoopProfileId(localPreference.loopProfileId ?? data[2].defaults.loopProfileId)
-        setBrandStyleReferenceId(localPreference.brandStyleReferenceId ?? data[2].defaults.brandStyleReferenceId ?? '')
+        setDomainTemplateId(resolveCapabilityId(data[2].domainTemplates, localPreference.domainTemplateId, data[2].defaults.domainTemplateId))
+        setAestheticProfileId(resolveCapabilityId(data[2].aestheticProfiles, localPreference.aestheticProfileId, data[2].defaults.aestheticProfileId))
+        setColorPaletteId(resolveCapabilityId(data[2].colorPalettes, localPreference.colorPaletteId, data[2].defaults.colorPaletteId))
+        setLoopProfileId(resolveCapabilityId(data[2].automationLoopProfiles, localPreference.loopProfileId, data[2].defaults.loopProfileId))
+        setBrandStyleReferenceId(resolveCapabilityId(data[2].brandStyleReferences, localPreference.brandStyleReferenceId, data[2].defaults.brandStyleReferenceId ?? ''))
         setReferenceBrand(localPreference.referenceBrand ?? '')
         setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
         setNegativeRequirements(localPreference.negativeRequirements ?? '')
@@ -182,11 +197,11 @@ export default function HomePage(): React.JSX.Element {
         setStatus('idle')
         return getUserPreferences()
           .then(preferences => {
-            setDomainTemplateId(localPreference.domainTemplateId ?? preferences.capabilityPreference.domainTemplateId ?? data[2].defaults.domainTemplateId)
-            setAestheticProfileId(localPreference.aestheticProfileId ?? preferences.capabilityPreference.aestheticProfileId ?? data[2].defaults.aestheticProfileId)
-            setColorPaletteId(localPreference.colorPaletteId ?? preferences.capabilityPreference.colorPaletteId ?? data[2].defaults.colorPaletteId)
-            setLoopProfileId(localPreference.loopProfileId ?? preferences.capabilityPreference.loopProfileId ?? data[2].defaults.loopProfileId)
-            setBrandStyleReferenceId(localPreference.brandStyleReferenceId ?? data[2].defaults.brandStyleReferenceId ?? '')
+            setDomainTemplateId(resolveCapabilityId(data[2].domainTemplates, localPreference.domainTemplateId, preferences.capabilityPreference.domainTemplateId, data[2].defaults.domainTemplateId))
+            setAestheticProfileId(resolveCapabilityId(data[2].aestheticProfiles, localPreference.aestheticProfileId, preferences.capabilityPreference.aestheticProfileId, data[2].defaults.aestheticProfileId))
+            setColorPaletteId(resolveCapabilityId(data[2].colorPalettes, localPreference.colorPaletteId, preferences.capabilityPreference.colorPaletteId, data[2].defaults.colorPaletteId))
+            setLoopProfileId(resolveCapabilityId(data[2].automationLoopProfiles, localPreference.loopProfileId, preferences.capabilityPreference.loopProfileId, data[2].defaults.loopProfileId))
+            setBrandStyleReferenceId(resolveCapabilityId(data[2].brandStyleReferences, localPreference.brandStyleReferenceId, data[2].defaults.brandStyleReferenceId ?? ''))
             setReferenceBrand(localPreference.referenceBrand ?? '')
             setStyles(localPreference.styleNotes ?? 'minimal, trustworthy')
             setNegativeRequirements(localPreference.negativeRequirements ?? '')
