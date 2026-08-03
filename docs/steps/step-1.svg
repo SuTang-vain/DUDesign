@@ -1,0 +1,16 @@
+<svg width="360" height="200" viewBox="0 0 360 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Step 1 — Describe &amp; start">
+  <style>
+    .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Courier New', ui-monospace, monospace; }
+  </style>
+  <rect x="4" y="4" width="352" height="192" rx="12" fill="#EDF1FE" stroke="#6487FA"/>
+  <rect x="24" y="24" width="34" height="4" rx="2" fill="#6487FA"/>
+  <text x="24" y="48" class="mono" font-size="10" letter-spacing="2" fill="#6487FA">STEP 1</text>
+  <text x="24" y="74" class="sans" font-size="19" font-weight="600" fill="#23252B">Describe &amp; start</text>
+  <g transform="translate(296 28)"><rect x="0" y="0" width="36" height="26" rx="4" fill="#6487FA" opacity="0.18" stroke="#6487FA" stroke-width="1.4"/><rect x="7" y="7" width="22" height="5" rx="2.5" fill="#6487FA" opacity="0.85"/><rect x="7" y="15" width="16" height="3" rx="1.5" fill="#6487FA" opacity="0.45"/></g>
+  <text x="24" y="104" class="sans" font-size="12" fill="#83868F">Plain-language prompt or</text>
+  <text x="24" y="126" class="sans" font-size="12" fill="#83868F">existing HTML as source</text>
+  <text x="24" y="148" class="sans" font-size="12" fill="#83868F">Session &amp; workspace scoped</text>
+  <rect x="24" y="160" width="140" height="20" rx="10" fill="#F5F4F0" stroke="#E3E1DB"/>
+  <text x="36" y="174" class="mono" font-size="10" font-weight="600" fill="#5A5E6B">TEXT → SESSION</text>
+</svg>

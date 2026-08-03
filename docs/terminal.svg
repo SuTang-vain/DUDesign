@@ -1,0 +1,41 @@
+<svg width="760" height="330" viewBox="0 0 760 330" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DUDesign quick start terminal">
+  <defs>
+    <linearGradient id="gradPrompt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6487FA"/>
+      <stop offset="1" stop-color="#0891B2"/>
+    </linearGradient>
+    <style>
+      .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .mono { font-family: 'SF Mono', 'Courier New', ui-monospace, monospace; }
+      .cmd { font-size: 13.5px; fill: #23252B; }
+      .out { font-size: 13.5px; fill: #83868F; }
+      .ok { font-size: 13.5px; fill: #6FA586; }
+      .prompt { font-size: 13.5px; font-weight: 700; }
+    </style>
+  </defs>
+  <rect width="760" height="330" fill="#FAF9F6"/>
+
+  <!-- window -->
+  <rect x="36" y="24" width="688" height="282" rx="13" fill="#FFFFFF" stroke="#E6E3DC"/>
+  <!-- title bar -->
+  <rect x="36" y="24" width="688" height="40" rx="13" fill="#F5F4F0"/>
+  <rect x="36" y="50" width="688" height="14" fill="#F5F4F0"/>
+  <circle cx="58" cy="44" r="5" fill="#D98B8B"/>
+  <circle cx="78" cy="44" r="5" fill="#C2A36B"/>
+  <circle cx="98" cy="44" r="5" fill="#6FA586"/>
+  <text x="380" y="49" text-anchor="middle" class="mono" font-size="11" fill="#83868F">~ dudesign · quick start</text>
+
+  <!-- session -->
+  <text x="58" y="100" class="mono prompt" fill="url(#gradPrompt)">$</text>
+  <text x="76" y="100" class="mono cmd">npm install</text>
+  <text x="58" y="126" class="mono out">added 1420 packages in 38s</text>
+
+  <text x="58" y="162" class="mono prompt" fill="url(#gradPrompt)">$</text>
+  <text x="76" y="162" class="mono cmd">npm run dev:api</text>
+  <text x="58" y="188" class="mono out">DUDesign API listening on http://127.0.0.1:4000</text>
+
+  <text x="58" y="224" class="mono prompt" fill="url(#gradPrompt)">$</text>
+  <text x="76" y="224" class="mono cmd">npm run dev:web</text>
+  <text x="58" y="250" class="mono ok">✔ Ready on http://localhost:3001</text>
+  <text x="58" y="282" class="mono cmd">▌</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg width="360" height="200" viewBox="0 0 360 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Step 4 — Refine &amp; annotate">
+  <style>
+    .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Courier New', ui-monospace, monospace; }
+  </style>
+  <rect x="4" y="4" width="352" height="192" rx="12" fill="#FFFFFF" stroke="#E6E3DC"/>
+  <rect x="24" y="24" width="34" height="4" rx="2" fill="#C2A36B"/>
+  <text x="24" y="48" class="mono" font-size="10" letter-spacing="2" fill="#9A9DA8">STEP 4</text>
+  <text x="24" y="74" class="sans" font-size="19" font-weight="600" fill="#23252B">Refine &amp; annotate</text>
+  <g transform="translate(296 28)"><rect x="0" y="0" width="36" height="26" rx="4" fill="#C2A36B" opacity="0.18" stroke="#C2A36B" stroke-width="1.4"/><path d="M8 20 L14 8 L20 14 L10 20 Z" fill="#C2A36B" opacity="0.85"/><rect x="6" y="20" width="22" height="3" rx="1.5" fill="#C2A36B" opacity="0.5"/></g>
+  <text x="24" y="104" class="sans" font-size="12" fill="#83868F">Prompt-driven refinement</text>
+  <text x="24" y="126" class="sans" font-size="12" fill="#83868F">Circle-to-annotate feedback</text>
+  <text x="24" y="148" class="sans" font-size="12" fill="#83868F">Quality gate &amp; auto repair</text>
+  <rect x="24" y="160" width="140" height="20" rx="10" fill="#F5F4F0" stroke="#E3E1DB"/>
+  <text x="36" y="174" class="mono" font-size="10" font-weight="600" fill="#5A5E6B">LOOP UNTIL READY</text>
+</svg>

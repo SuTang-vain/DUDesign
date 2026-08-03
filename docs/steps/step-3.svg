@@ -1,0 +1,16 @@
+<svg width="360" height="200" viewBox="0 0 360 200" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Step 3 — Preview &amp; compare">
+  <style>
+    .sans { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .mono { font-family: 'SF Mono', 'Courier New', ui-monospace, monospace; }
+  </style>
+  <rect x="4" y="4" width="352" height="192" rx="12" fill="#FFFFFF" stroke="#E6E3DC"/>
+  <rect x="24" y="24" width="34" height="4" rx="2" fill="#8FA3E8"/>
+  <text x="24" y="48" class="mono" font-size="10" letter-spacing="2" fill="#9A9DA8">STEP 3</text>
+  <text x="24" y="74" class="sans" font-size="19" font-weight="600" fill="#23252B">Preview &amp; compare</text>
+  <g transform="translate(296 28)"><circle cx="18" cy="13" r="8" fill="#8FA3E8" opacity="0.18" stroke="#8FA3E8" stroke-width="1.4"/><circle cx="18" cy="13" r="3" fill="#8FA3E8"/></g>
+  <text x="24" y="104" class="sans" font-size="12" fill="#83868F">Variation wall after run</text>
+  <text x="24" y="126" class="sans" font-size="12" fill="#83868F">Desktop / tablet / phone</text>
+  <text x="24" y="148" class="sans" font-size="12" fill="#83868F">Compare before &amp; after</text>
+  <rect x="24" y="160" width="140" height="20" rx="10" fill="#F5F4F0" stroke="#E3E1DB"/>
+  <text x="36" y="174" class="mono" font-size="10" font-weight="600" fill="#5A5E6B">REVIEW WALL</text>
+</svg>
