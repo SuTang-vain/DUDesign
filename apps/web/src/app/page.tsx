@@ -48,51 +48,6 @@ import { Icon } from '@/components/Icon'
 import { useCapabilityI18n } from '@/lib/capabilityI18n'
 import { withAppBase } from '@/lib/appBasePath'
 
-const inspirationCases = [
-  {
-    title: '欲买桂花同载酒诗词解析',
-    category: '文化类词语',
-    prompt:
-      '参考“欲买桂花同载酒”诗词解析的真实页面结构，生成一个围绕文化类词语的动态百科页面，突出主视觉、词义拆解、诗词脉络和注释卡片层级。',
-    href: '/inspiration/culture/guihua/index.html',
-  },
-  {
-    title: '蜂鸟科物种图鉴',
-    category: '对比辨析参考',
-    prompt:
-      '参考蜂鸟科物种图鉴的真实页面结构，生成一个物种对比图鉴页面，突出多图卡片、体型对比、信息分栏和细粒度说明。',
-    href: '/inspiration/species/hummingbird/index.html',
-  },
-  {
-    title: '长沙市花明楼景区导览及路线推荐',
-    category: '景区景点',
-    prompt:
-      '参考长沙市花明楼景区导览及路线推荐的真实页面结构，生成一个景区导览页面，突出地图导览、路线推荐、景点卡片和沉浸式预览。',
-    href: '/inspiration/scenic/huaminglou/index.html',
-  },
-  {
-    title: '黄月英：核心事件因果链',
-    category: '历史人物',
-    prompt:
-      '参考黄月英：核心事件因果链的真实页面结构，生成一个历史人物解析页面，突出时间线、核心事件、因果关系和人物画像模块。',
-    href: '/inspiration/history/huangyueying/index.html',
-  },
-  {
-    title: '《北上》人物图谱与剧情脉络',
-    category: '电影电视剧',
-    prompt:
-      '参考《北上》人物图谱与剧情脉络的真实页面结构，生成一个影视人物关系图谱页面，突出角色关系、剧情推进和章节化内容布局。',
-    href: '/inspiration/drama/beishang/index.html',
-  },
-  {
-    title: '大话西游：人物关系与剧情全解析',
-    category: '关系图谱参考',
-    prompt:
-      '参考大话西游：人物关系与剧情全解析的真实页面结构，生成一个人物关系与剧情解析页面，突出关系图谱、剧情节点和人物互联内容。',
-    href: '/inspiration/relations/dahua/index.html',
-  },
-]
-
 const variationOptions = [1, 2, 3, 4, 5, 6]
 type OpenMenu = 'workspace' | 'context' | 'variations' | 'template' | 'plugins' | 'loop' | 'model' | null
 type ContextPanel = 'files' | 'loop' | 'plugins'
@@ -186,7 +141,6 @@ export default function HomePage(): React.JSX.Element {
   const capabilityDrawerCloseRef = useRef<HTMLButtonElement | null>(null)
   const capabilityDrawerPanelRef = useRef<HTMLElement | null>(null)
   const capabilityDrawerWasOpenRef = useRef(false)
-  const inspireRef = useRef<HTMLElement | null>(null)
   const explorationPreviewRevisionRef = useRef(0)
   const [templatePacks, setTemplatePacks] = useState<DesignTemplatePack[]>([])
   const [selectedTemplatePackIds, setSelectedTemplatePackIds] = useState<string[]>([])
@@ -321,25 +275,6 @@ export default function HomePage(): React.JSX.Element {
       document.removeEventListener('pointerdown', closeMenus)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [])
-
-  // “需要灵感”区块:进入视口才披露(向下滚动自动显现)
-  useEffect(() => {
-    const node = inspireRef.current
-    if (!node || typeof IntersectionObserver === 'undefined') {
-      node?.classList.add('revealed')
-      return
-    }
-    const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('revealed')
-          observer.disconnect()
-        }
-      }
-    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.12 })
-    observer.observe(node)
-    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
@@ -1258,22 +1193,6 @@ export default function HomePage(): React.JSX.Element {
             </div>
           </div>
 
-          <div className="examples">
-              <div className="examples-track">
-                {[...inspirationCases, ...inspirationCases].map((item, index) => (
-                  <button
-                    key={`${item.title}-${index}`}
-                    type="button"
-                    onClick={() => handlePromptChange(item.prompt)}
-                    aria-hidden={index >= inspirationCases.length || undefined}
-                    tabIndex={index >= inspirationCases.length ? -1 : undefined}
-                  >
-                    {item.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-
           {mode === 'from_existing_html' ? (
             <div className={`source-upload-status ${sourceArtifact?.qualityStatus ?? sourceUploadStatus}`} data-testid="source-artifact-status">
               {sourceArtifact
@@ -1305,36 +1224,6 @@ export default function HomePage(): React.JSX.Element {
           {error ? <p className="error-text">{error}</p> : null}
         </section>
         </div>
-
-        <section className="inspire" ref={inspireRef} aria-label={t('designInspiration')}>
-          <div className="inspire-head">
-            <div>
-              <strong>{t('needInspiration')}</strong>
-            </div>
-            <span>{sessions.length} {t('saved')}</span>
-          </div>
-          <div className="inspire-grid">
-            {inspirationCases.map((item, index) => (
-              <button key={item.href} className="inspire-card" type="button" onClick={() => handlePromptChange(item.prompt)}>
-                <span className="inspire-preview" aria-hidden="true">
-                  <iframe
-                    src={item.href}
-                    title={item.title}
-                    loading="lazy"
-                    tabIndex={-1}
-                    sandbox="allow-scripts allow-same-origin"
-                  />
-                </span>
-                <span className="num">0{index + 1}</span>
-                <div className="inspire-copy">
-                  <strong>{item.title}</strong>
-                  <span>{item.category}</span>
-                </div>
-                <span className="chip tag info">真实页面</span>
-              </button>
-            ))}
-          </div>
-        </section>
       </section>
       {sessionDialog ? (
         <SessionActionDialog
